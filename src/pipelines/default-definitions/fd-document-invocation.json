@@ -1,0 +1,99 @@
+{
+  "name": "fd-document-invocation",
+  "description": "Flight Deck PG document invocation pipeline. It loads the invoked document, gives an agent the prompt and document context, lets the agent edit/comment through Flight Deck helpers, then posts a visible channel summary.",
+  "tags": [
+    "flightdeck-pg",
+    "document",
+    "invocation",
+    "no-task"
+  ],
+  "input": {
+    "source": "flightdeck-pg-document-invocation"
+  },
+  "steps": [
+    {
+      "id": "prepare-document-invocation-context",
+      "name": "prepare-document-invocation-context",
+      "description": "Load the invoked Flight Deck PG document, comments, channel context, prompt, storage refs, and local snapshot for the agent.",
+      "type": "code",
+      "function": "dispatch.prepareDocumentInvocationContext",
+      "input": {
+        "pick": {
+          "dispatch": "$.dispatch",
+          "workspace": "$.workspace",
+          "agent": "$.agent",
+          "record": "$.record",
+          "routing": "$.routing",
+          "flightDeckContext": "$.flightDeckContext"
+        }
+      },
+      "assign": "$.invocationContext",
+      "display": {
+        "in": [
+          { "label": "Prompt", "path": "$.record.payload.prompt", "format": "text" },
+          { "label": "Target Document", "path": "$.record.payload.target_title", "format": "text" }
+        ],
+        "out": [
+          { "label": "Document", "path": "$.document.title", "format": "text" },
+          { "label": "Snapshot", "path": "$.document.localPath", "format": "text" },
+          { "label": "Storage Assets", "path": "$.document.storageReferences", "format": "list", "limit": 10 },
+          { "label": "Comments", "path": "$.document.comments", "format": "count" }
+        ]
+      }
+    },
+    {
+      "id": "handle-document-invocation",
+      "name": "handle-document-invocation",
+      "description": "Let the agent perform the requested document work directly through Flight Deck PG helpers.",
+      "type": "agent",
+      "agent": "$.agent.defaultAgent",
+      "directory": "$.agent.workingDirectory",
+      "input": {
+        "pick": {
+          "invocationContext": "$.invocationContext"
+        }
+      },
+      "prompt": "You are the configured workspace agent handling a Flight Deck Postgres document invocation.\n\nContext rules:\n- This is not a chat thread. The invocation is attached to the Flight Deck PG document in invocationContext.document.\n- The document is in the workspace/scope/channel described by invocationContext.workspace and invocationContext.location.\n- You have access to this Flight Deck document through the current Wingman/Autopilot Flight Deck helpers/MCP tools. Use those helpers to read current state before editing if needed.\n- invocationContext.document.localPath is a local snapshot for orientation. If storageReferences is non-empty, download or inspect those storage assets with current Flight Deck/storage helpers before claiming visual/image verification.\n- The exact invocation prompt is available in selected input at invocationContext.invocation.prompt; read it first and treat it as authoritative.\n\nTask:\n1. Review invocationContext.document and invocationContext.invocation.prompt.\n2. Improve/edit the invoked Flight Deck document directly if the prompt asks for document changes.\n3. Add document comments directly when you have questions, review notes, or status that belongs on the document.\n4. Do not create a Flight Deck task unless the prompt explicitly asks for a task.\n5. Do not post a chat/channel message yourself. The next pipeline step owns the visible channel summary.\n\nReturn compact JSON only:\n{\n  \"completed\": true,\n  \"documentUpdated\": true,\n  \"documentId\": \"same document id\",\n  \"summary\": \"short human-visible summary of what you did\",\n  \"changedSections\": [\"sections or areas changed\"],\n  \"commentsCreated\": [\"short labels or comment ids for document comments you created\"],\n  \"imagesChecked\": [\"storage refs or local paths checked\"],\n  \"openQuestions\": [\"questions that remain\"],\n  \"blockers\": [\"anything that prevented requested work\"],\n  \"confidence\": 0.0\n}",
+      "assign": "$.agentResult",
+      "timeoutMs": 1200000,
+      "display": {
+        "in": [
+          { "label": "Document", "path": "$.invocationContext.document.title", "format": "text" },
+          { "label": "Prompt", "path": "$.invocationContext.invocation.prompt", "format": "text" }
+        ],
+        "out": [
+          { "label": "Summary", "path": "$.summary", "format": "text" },
+          { "label": "Document Updated", "path": "$.documentUpdated" },
+          { "label": "Changed Sections", "path": "$.changedSections", "format": "list", "limit": 10 },
+          { "label": "Images Checked", "path": "$.imagesChecked", "format": "list", "limit": 10 },
+          { "label": "Blockers", "path": "$.blockers", "format": "list", "limit": 10 }
+        ]
+      }
+    },
+    {
+      "id": "publish-document-invocation-summary",
+      "name": "publish-document-invocation-summary",
+      "description": "Post a concise visible summary to the invocation channel with a mention link to the document.",
+      "type": "code",
+      "function": "dispatch.publishDocumentInvocationSummary",
+      "input": {
+        "pick": {
+          "invocationContext": "$.invocationContext",
+          "agentResult": "$.agentResult"
+        }
+      },
+      "assign": "$.publishResult",
+      "display": {
+        "in": [
+          { "label": "Summary", "path": "$.agentResult.summary", "format": "text" },
+          { "label": "Document", "path": "$.invocationContext.document.mention", "format": "text" }
+        ],
+        "out": [
+          { "label": "Published", "path": "$.published" },
+          { "label": "Channel", "path": "$.channelId", "format": "text" },
+          { "label": "Reason", "path": "$.reason", "format": "text" }
+        ]
+      }
+    }
+  ]
+}

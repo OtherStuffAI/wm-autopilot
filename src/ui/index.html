@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <title>Wingman</title>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/path/Wingman_Goose_Logo_Light.png" />
+    <link rel="apple-touch-icon" href="/path/Wingman_Goose_Logo.png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css" />
+  </head>
+  <body data-authenticated="false" data-admin="false">
+    <header class="wm-header">
+      <button id="brand-command-palette" class="wm-brand" type="button" aria-label="Open command palette" aria-haspopup="dialog">
+        <img
+          src="/path/Wingman_Goose_Logo_Dark.png"
+          alt="Wingman logo"
+          width="32"
+          height="32"
+          class="wm-logo dark"
+        />
+        <img
+          src="/path/Wingman_Goose_Logo_Light.png"
+          alt="Wingman logo"
+          width="32"
+          height="32"
+          class="wm-logo light"
+        />
+        <div>
+          <h1 data-testid="autopilot-name">Wingman</h1>
+          <p class="wm-tagline">Autopilot</p>
+        </div>
+      </button>
+      <button id="header-login" class="wm-button guest-only" type="button">
+        Log In
+      </button>
+      <button id="menu-toggle" class="wm-menu-toggle requires-auth" aria-label="Open account menu" aria-expanded="false">
+        <span id="menu-toggle-avatar" class="wm-menu-toggle-avatar" aria-hidden="true">?</span>
+      </button>
+      <div class="wm-menu-panel requires-auth" aria-hidden="true">
+        <nav class="wm-menu-nav requires-auth">
+          <a href="/live" data-route="live">Agents</a>
+          <a href="/nightwatch" data-route="nightwatch" hidden>Night Watchman</a>
+          <a href="/triggers" data-route="scheduler" class="requires-admin">Triggers</a>
+          <a href="/pipelines" data-route="pipelines">Pipelines</a>
+          <a href="/terminal" data-route="terminal" class="requires-admin">Terminal</a>
+          <a href="/apps" data-route="apps">Apps</a>
+          <a href="/files" data-route="files">Files</a>
+        </nav>
+        <div id="menu-identity" class="wm-menu-identity requires-auth"></div>
+        <div class="wm-menu-actions">
+          <button id="theme-toggle" class="wm-theme-toggle requires-auth" aria-label="Toggle theme" aria-pressed="false">
+            <span class="sun" aria-hidden="true">☀</span>
+            <span class="moon" aria-hidden="true">☾</span>
+          </button>
+          <button id="tabs-toggle" class="wm-tabs-toggle requires-auth" aria-label="Toggle session tabs" aria-pressed="false">
+            <span class="tabs-show" aria-hidden="true">⊞</span>
+            <span class="tabs-hide" aria-hidden="true">⊟</span>
+          </button>
+          <button id="task-dispatch-tabs-toggle" class="wm-task-dispatch-tabs-toggle requires-auth" aria-label="Hide task dispatch tabs" aria-pressed="false" data-testid="task-dispatch-tabs-toggle">
+            <span class="dispatch-show" aria-hidden="true">⚙</span>
+            <span class="dispatch-hide" aria-hidden="true">×</span>
+          </button>
+          <button id="raw-terminal-output-toggle" class="wm-raw-output-toggle requires-auth" aria-label="Show raw terminal output" aria-pressed="false" data-testid="raw-terminal-output-toggle">
+            <span class="raw-output-icon" aria-hidden="true">&gt;_</span>
+          </button>
+        </div>
+        <div id="menu-tabs" class="wm-menu-tabs requires-auth"></div>
+        <div class="wm-menu-footer">
+          <a href="/privacy" data-route="privacy">Privacy Policy</a>
+        </div>
+      </div>
+    </header>
+    <div id="pull-refresh" data-state="hidden" aria-live="polite">
+      <span class="icon" aria-hidden="true">⤵</span>
+      <span class="label">Pull to refresh</span>
+      <span class="spinner" aria-hidden="true"></span>
+    </div>
+    <main id="app"></main>
+    <dialog id="session-dialog" class="wm-session-dialog">
+      <form method="dialog" class="wm-session-dialog__form">
+        <header class="wm-session-dialog__header">
+          <div>
+            <h2>Launch Agent Session</h2>
+            <p class="wm-session-dialog__subtitle">
+              Pick an agent, optionally name the session, and choose where it should run.
+            </p>
+          </div>
+        </header>
+        <section class="wm-session-dialog__body">
+          <div class="wm-session-dialog__field">
+            <label for="agent-select">Agent</label>
+            <select id="agent-select"></select>
+            <p class="wm-session-dialog__hint">
+              Agents come pre-configured. Pick one that matches the task you’re about to start.
+            </p>
+          </div>
+          <div class="wm-session-dialog__field" id="session-model-field">
+            <label for="session-model">Model</label>
+            <select id="session-model" aria-describedby="session-model-help"></select>
+            <p class="wm-session-dialog__hint" id="session-model-help" aria-live="polite">
+              Optional model override for the selected harness.
+            </p>
+          </div>
+          <div class="wm-session-dialog__field">
+            <label for="working-directory">Root Project Folder</label>
+            <div class="working-directory-field">
+              <input
+                id="working-directory"
+                type="text"
+                autocomplete="off"
+                list="directory-suggestions"
+                placeholder="~/code"
+                aria-describedby="working-directory-help"
+              />
+              <div class="working-directory-actions">
+                <label class="wm-session-favourite-picker" for="working-directory-favourites">
+                  <span class="wm-session-favourite-picker__label">Quick Picks</span>
+                  <select
+                    id="working-directory-favourites"
+                    class="wm-session-favourite-picker__select"
+                    aria-label="Choose a favourite folder"
+                  >
+                    <option value="">No file favourites yet</option>
+                  </select>
+                </label>
+                <button type="button" class="wm-button secondary" id="browse-directory">Browse...</button>
+              </div>
+            </div>
+            <p class="wm-session-dialog__hint" id="working-directory-help">
+              Use an absolute path for clarity. Sessions (and worktrees) start from here by default.
+            </p>
+          </div>
+          <div class="wm-session-dialog__field">
+            <label for="session-name">Session Name (optional)</label>
+            <input
+              id="session-name"
+              type="text"
+              autocomplete="off"
+              maxlength="120"
+              placeholder="Code review with Claude"
+            />
+            <p class="wm-session-dialog__hint">
+              Make it easier to spot later by adding a short label.
+            </p>
+          </div>
+          <div class="wm-session-dialog__field">
+            <label class="wm-session-dialog__checkbox-label">
+              <input id="session-writer-mode" type="checkbox" />
+              Writer Mode
+            </label>
+            <p class="wm-session-dialog__hint">
+              Opens a split markdown editor alongside the agent chat.
+            </p>
+          </div>
+          <div class="wm-session-dialog__field" id="session-target-file-field" hidden>
+            <label for="session-target-file">Target File</label>
+            <input
+              id="session-target-file"
+              type="text"
+              autocomplete="off"
+              maxlength="512"
+              placeholder="README.md or /absolute/path.md"
+            />
+            <p class="wm-session-dialog__hint">
+              Relative paths resolve against the project folder. Absolute paths also accepted.
+            </p>
+          </div>
+          <div class="wm-session-dialog__advanced">
+            <button type="button" id="session-advanced-toggle" class="wm-session-dialog__advanced-toggle">
+              Advanced Options
+              <span aria-hidden="true" class="chevron">›</span>
+            </button>
+            <div id="session-advanced-panel" class="wm-session-dialog__advanced-panel" hidden>
+              <div class="wm-session-dialog__field">
+                <label for="session-workspace-mode">Workspace</label>
+                <select id="session-workspace-mode">
+                  <option value="">None</option>
+                  <option value="worktree">New Worktree</option>
+                </select>
+                <p class="wm-session-dialog__hint">
+                  Keep defaults or spin up a fresh Git worktree before launching.
+                </p>
+              </div>
+              <div class="wm-session-dialog__field" data-workspace="worktree" hidden>
+                <label for="session-worktree-name">Worktree Name</label>
+                <input
+                  id="session-worktree-name"
+                  type="text"
+                  autocomplete="off"
+                  maxlength="120"
+                  placeholder="feature-new-ui"
+                  aria-describedby="session-worktree-hint"
+                />
+                <p class="wm-session-dialog__hint" id="session-worktree-hint">
+                  New worktree path: /.worktrees/feature-new-ui
+                </p>
+              </div>
+              <div class="wm-session-dialog__field">
+                <label for="session-goal">Goal</label>
+                <textarea
+                  id="session-goal"
+                  rows="3"
+                  maxlength="2000"
+                  placeholder="Optional goal for this session"
+                ></textarea>
+                <p class="wm-session-dialog__hint">
+                  Optional session goal. Useful with Night Watch reflection hooks.
+                </p>
+              </div>
+              <div class="wm-session-dialog__field">
+                <label for="session-acp-permission-policy">ACP Runtime Permissions</label>
+                <select id="session-acp-permission-policy" data-testid="session-acp-permission-policy">
+                  <option value="">Use instance default</option>
+                  <option value="auto_approve">Auto approve</option>
+                  <option value="ask">Ask every time</option>
+                </select>
+                <p class="wm-session-dialog__hint">
+                  Applies only to ACP runtime permission requests. Other authorization, delegation, wallet, and capability approvals are unchanged.
+                </p>
+              </div>
+              <div class="wm-session-dialog__field">
+                <label for="session-next-action">Next Action Hook</label>
+                <select id="session-next-action">
+                  <option value="">None</option>
+                  <option value="reflect">Reflect</option>
+                  <option value="stop">Stop</option>
+                  <option value="restart">Restart</option>
+                </select>
+                <p class="wm-session-dialog__hint">
+                  Hook metadata for autonomous sessions. Hooks run when Night Watchman is enabled.
+                </p>
+              </div>
+              <div class="wm-session-dialog__field">
+                <label for="session-next-action-template">Next Action Template</label>
+                <textarea
+                  id="session-next-action-template"
+                  rows="4"
+                  maxlength="4000"
+                  placeholder="Optional template for reflect hooks"
+                ></textarea>
+                <p class="wm-session-dialog__hint">
+                  Optional custom prompt template for reflect hooks. Supports `{{goal}}`,
+                  `{{nextActionPayload}}`, `{{sessionName}}`, and `{{workingDirectory}}`.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+        <datalist id="directory-suggestions"></datalist>
+        <footer class="wm-session-dialog__footer">
+          <menu>
+            <button type="button" value="cancel" id="cancel-session">Cancel</button>
+            <button type="submit" value="confirm" id="confirm-session">Launch</button>
+          </menu>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="identity-unlock-code-dialog" class="wm-unlock-dialog">
+      <form method="dialog" data-role="form">
+        <h2 data-role="title">Paste Unlock Code</h2>
+        <p class="wm-dialog-help" data-role="description">
+          Paste the unlock code from your clipboard to complete login
+        </p>
+        <input
+          id="identity-unlock-code-input"
+          name="unlockCode"
+          type="password"
+          class="wm-unlock-input"
+          placeholder="paste code"
+          autocomplete="off"
+          spellcheck="false"
+          data-role="unlock-input"
+        />
+        <p class="wm-unlock-dialog-error" data-role="error" hidden></p>
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button value="confirm">Unlock</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="identity-login-dialog" class="wm-identity-dialog">
+      <div class="wm-identity-dialog__content"></div>
+      <div class="wm-identity-dialog__actions">
+        <button type="button" class="wm-button secondary" data-action="identity-dialog-close">Close</button>
+      </div>
+    </dialog>
+    <dialog id="directory-dialog" class="wm-directory-dialog">
+      <form method="dialog" class="wm-directory-dialog__form">
+        <h2 id="directory-title">Select Working Directory</h2>
+        <div class="directory-browser">
+          <div class="directory-browser__header">
+            <div class="directory-browser__controls">
+              <button type="button" class="wm-button secondary" id="directory-up">Up</button>
+              <button type="button" class="wm-button secondary" id="directory-new-folder">New Folder</button>
+            </div>
+            <span id="directory-current" class="directory-browser__path"></span>
+          </div>
+          <ul id="directory-list" class="directory-browser__list"></ul>
+        </div>
+        <menu>
+          <button type="button" class="wm-button" id="directory-use">Use This Directory</button>
+          <button value="cancel">Cancel</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="file-transfer-dialog" class="wm-directory-dialog">
+      <form method="dialog" class="wm-directory-dialog__form">
+        <h2 id="file-transfer-title">Copy File</h2>
+        <p id="file-transfer-source" class="wm-dialog-path"></p>
+        <p id="file-transfer-selected" class="wm-dialog-selected"></p>
+        <label for="file-transfer-name">New File Name</label>
+        <input id="file-transfer-name" type="text" autocomplete="off" />
+        <p class="wm-dialog-help">Leave blank to keep the original name.</p>
+        <p id="file-transfer-name-feedback" class="wm-dialog-error" hidden></p>
+        <div class="directory-browser">
+          <div class="directory-browser__header">
+            <div class="directory-browser__controls">
+              <button type="button" class="wm-button secondary" id="file-transfer-up">Up</button>
+              <button type="button" class="wm-button secondary" id="file-transfer-new-folder">New Folder</button>
+            </div>
+            <span id="file-transfer-current" class="directory-browser__path"></span>
+          </div>
+          <ul id="file-transfer-list" class="directory-browser__list"></ul>
+        </div>
+        <menu>
+          <button type="button" class="wm-button secondary" id="file-transfer-cancel">Cancel</button>
+          <button type="button" class="wm-button" id="file-transfer-confirm">Confirm</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="feature-flags-dialog" class="wm-dialog">
+      <form method="dialog" class="wm-dialog__form">
+        <header class="wm-dialog__header">
+          <div>
+            <h2>Add Feature Flag</h2>
+            <p class="wm-dialog__subtitle">Create a new admin-managed feature toggle.</p>
+          </div>
+        </header>
+        <section class="wm-dialog__body">
+          <label class="wm-dialog__field">
+            <span>Flag key</span>
+            <input name="flag-key" type="text" autocomplete="off" placeholder="feature_key" required />
+          </label>
+          <label class="wm-dialog__field">
+            <span>Label</span>
+            <input name="flag-label" type="text" autocomplete="off" placeholder="Orchestrator visibility" required />
+          </label>
+          <label class="wm-dialog__field">
+            <span>Description (optional)</span>
+            <input name="flag-description" type="text" autocomplete="off" placeholder="What does this gate?" />
+          </label>
+          <label class="wm-dialog__field">
+            <span>Default state</span>
+            <select name="flag-state">
+              <option value="off">Off for everyone</option>
+              <option value="on_admin">Admin only</option>
+              <option value="on">On for everyone</option>
+            </select>
+          </label>
+          <p class="wm-dialog__status" data-role="flag-status"></p>
+        </section>
+        <footer class="wm-dialog__footer">
+          <menu>
+            <button type="button" class="wm-button secondary" data-action="cancel-flag">Cancel</button>
+            <button type="submit" class="wm-button" data-action="submit-flag">Create Flag</button>
+          </menu>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="app-new-mode-dialog">
+      <form method="dialog">
+        <h2>Start a New App</h2>
+        <p class="wm-dialog-help">Choose how you want to create a new app in your workspace.</p>
+        <div class="wm-starter-mode-actions">
+          <button type="button" class="wm-button" id="app-new-mode-quick">WApp Starter</button>
+          <button type="button" class="wm-button secondary" id="app-new-mode-manual">Manual</button>
+        </div>
+        <menu>
+          <button type="button" id="app-new-mode-cancel">Cancel</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="app-starter-dialog">
+      <form method="dialog">
+        <h2>WApp Starter</h2>
+        <p class="wm-dialog-help">Create a new GitHub repository from the WApp SQLite starter, then register it in Wingman.</p>
+        <div id="app-starter-list" class="wm-starter-grid"></div>
+        <label for="app-starter-name">App Name</label>
+        <input id="app-starter-name" type="text" autocomplete="off" placeholder="My WApp" required />
+        <label for="app-starter-github-owner">GitHub Owner or Org</label>
+        <input id="app-starter-github-owner" type="text" autocomplete="off" placeholder="organization" required />
+        <label for="app-starter-github-repo">GitHub Repo</label>
+        <input id="app-starter-github-repo" type="text" autocomplete="off" placeholder="my-starter-app" required />
+        <label class="wm-checkbox" for="app-starter-private">
+          <input id="app-starter-private" type="checkbox" checked />
+          <span>Private repository</span>
+        </label>
+        <label class="wm-checkbox" for="app-starter-protect">
+          <input id="app-starter-protect" type="checkbox" checked />
+          <span>Protect main and deployed</span>
+        </label>
+        <p id="app-starter-notes" class="wm-field-note">Select a starter project to continue.</p>
+        <menu>
+          <button type="button" id="app-starter-cancel">Cancel</button>
+          <button type="submit" id="app-starter-confirm" disabled>Create Repo & App</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="app-dialog">
+      <form method="dialog">
+        <h2 id="app-dialog-title">Add App</h2>
+        <p class="wm-dialog-help">Register an application so Wingman can control its lifecycle from the dashboard.</p>
+        <button type="button" class="wm-button secondary" id="app-clone">Clone From GitHub</button>
+        <label for="app-label">Name</label>
+        <input id="app-label" type="text" autocomplete="off" placeholder="Docs Service" />
+
+        <label for="app-root">Root Directory</label>
+        <div class="working-directory-field">
+          <input id="app-root" type="text" autocomplete="off" placeholder="/Users/me/projects/app" />
+          <div class="working-directory-actions">
+            <button type="button" class="wm-button secondary" id="app-root-browse">Browse…</button>
+          </div>
+        </div>
+
+        <label class="wm-checkbox" for="app-web-app">
+          <input id="app-web-app" type="checkbox" aria-label="This app serves a web interface" data-testid="app-web-app" />
+          <span>This app serves a web interface</span>
+        </label>
+        <p class="wm-field-note" id="app-web-app-port">Wingman will assign a dedicated port when you save.</p>
+        <label class="wm-checkbox" for="app-auto-start">
+          <input id="app-auto-start" type="checkbox" aria-label="Auto-start this app when Autopilot starts" data-testid="app-auto-start" />
+          <span>Auto-start when Autopilot starts</span>
+        </label>
+
+        <details class="app-advanced" id="app-advanced">
+          <summary>Advanced Options</summary>
+          <div class="app-advanced__content">
+            <div class="app-advanced__actions">
+              <button type="button" class="wm-button secondary" id="app-discover">Discover Scripts</button>
+              <label class="wm-checkbox" for="app-discover-enabled">
+                <input id="app-discover-enabled" type="checkbox" checked />
+                <span>Auto-discover commands from package.json when available</span>
+              </label>
+            </div>
+
+            <div class="wm-field-grid app-script-grid">
+              <div>
+                <label for="app-script-start">Start Command</label>
+                <input id="app-script-start" type="text" autocomplete="off" placeholder="bun run start" />
+              </div>
+              <div>
+                <label for="app-script-stop">Stop Command</label>
+                <input id="app-script-stop" type="text" autocomplete="off" placeholder="bun run stop" />
+              </div>
+              <div>
+                <label for="app-script-restart">Restart Command</label>
+                <input id="app-script-restart" type="text" autocomplete="off" placeholder="bun run restart" />
+              </div>
+              <div>
+                <label for="app-script-setup">Setup Command</label>
+                <input id="app-script-setup" type="text" autocomplete="off" placeholder="bun run setup" />
+              </div>
+              <div>
+                <label for="app-script-build">Build Command</label>
+                <input id="app-script-build" type="text" autocomplete="off" placeholder="npm run build" />
+              </div>
+            </div>
+
+            <label for="app-tmux-session" id="app-tmux-session-label">tmux Session</label>
+            <input id="app-tmux-session" type="text" readonly value="wingman-apps" />
+            <p class="wm-field-note" id="app-tmux-session-note">All apps launch inside this shared tmux session.</p>
+
+            <label for="app-tmux-window" id="app-tmux-window-label">tmux Window</label>
+            <input id="app-tmux-window" type="text" readonly placeholder="Auto-generated from the app name" />
+
+            <div class="app-env-editor" data-testid="app-env-editor">
+              <div class="app-env-editor__header">
+                <label id="app-env-label">Managed Environment</label>
+                <button
+                  type="button"
+                  class="wm-button secondary"
+                  id="app-env-add"
+                  aria-label="Add managed environment variable"
+                  data-testid="app-env-add"
+                >Add Variable</button>
+              </div>
+              <div id="app-env-list" class="app-env-list" aria-labelledby="app-env-label"></div>
+              <p class="wm-field-note">Values are injected when Wingman starts the app. Saved values stay hidden.</p>
+            </div>
+          </div>
+        </details>
+
+        <label for="app-notes">Notes</label>
+        <textarea id="app-notes" rows="3" placeholder="Additional context for operators"></textarea>
+
+        <menu>
+          <button value="cancel" id="app-cancel" data-role="cancel">Cancel</button>
+          <button value="confirm" id="app-save">Save</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="app-clone-dialog">
+      <form method="dialog">
+        <h2>Clone Repository</h2>
+        <p class="wm-dialog-help">Provide a Git URL and destination folder to clone the project into your workspace.</p>
+        <label for="app-clone-url">Repository URL</label>
+        <input id="app-clone-url" type="url" autocomplete="off" placeholder="https://github.com/org/repo.git" required />
+        <label for="app-clone-name">Folder Name</label>
+        <input id="app-clone-name" type="text" autocomplete="off" placeholder="repo-folder" />
+        <menu>
+          <button type="button" id="app-clone-cancel">Cancel</button>
+          <button type="submit" id="app-clone-confirm">Clone</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="app-logs-dialog">
+      <form method="dialog">
+        <h2 id="app-logs-title">App Logs</h2>
+        <p id="app-logs-order-note" class="wm-dialog-help">Newest log entries are shown at the bottom.</p>
+        <pre id="app-logs-content" class="wm-app-log"></pre>
+        <menu>
+          <button type="button" class="wm-button secondary" id="app-logs-refresh">Refresh</button>
+          <button type="button" class="wm-button secondary" id="app-logs-clear" aria-label="Clear app logs" data-testid="app-logs-clear">Clear logs</button>
+          <button value="close" id="app-logs-close">Close</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="app-deploy-dialog">
+      <form method="dialog">
+        <h2 id="app-deploy-title">Deploy to CapRover</h2>
+        <p class="wm-dialog-help">Deploy this app to CapRover using its captain-definition file.</p>
+
+        <label for="app-deploy-name">CapRover App Name</label>
+        <input id="app-deploy-name" type="text" pattern="[a-z][a-z0-9-]*" autocomplete="off" required />
+        <p class="wm-field-note">Lowercase letters, numbers, and hyphens only. Must start with a letter.</p>
+
+        <label for="app-deploy-target">CapRover Target</label>
+        <select id="app-deploy-target" aria-label="CapRover deployment target" data-testid="app-deploy-target">
+          <option value="all">All configured targets</option>
+        </select>
+
+        <label class="wm-checkbox-row" for="app-deploy-enable-https">
+          <input id="app-deploy-enable-https" type="checkbox" data-testid="app-deploy-enable-https" />
+          <span>Enable HTTPS after deploy</span>
+        </label>
+
+        <div id="app-deploy-status" class="wm-deploy-status" hidden>
+          <p id="app-deploy-message"></p>
+          <a id="app-deploy-url" href="#" target="_blank" rel="noopener noreferrer" hidden>Open App</a>
+        </div>
+
+        <menu>
+          <button type="button" class="wm-button secondary" id="app-deploy-cancel">Cancel</button>
+          <button type="submit" class="wm-button" id="app-deploy-confirm">Deploy</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="app-caprover-dialog" class="wm-caprover-dialog">
+      <form method="dialog">
+        <h2 id="app-caprover-title">CapRover Setup</h2>
+        <p class="wm-dialog-help">Manage GitHub-backed CapRover deployments for this app across configured targets.</p>
+
+        <label for="app-caprover-name">CapRover App Name</label>
+        <input id="app-caprover-name" type="text" pattern="[a-z][a-z0-9-]*" autocomplete="off" />
+
+        <div id="app-caprover-deployments" class="wm-caprover-deployments"></div>
+
+        <label for="app-caprover-target">Target</label>
+        <div class="wm-caprover-inline-row">
+          <select id="app-caprover-target" aria-label="CapRover target">
+            <option value="">Select target</option>
+          </select>
+          <button type="button" class="wm-button secondary" id="app-caprover-refresh">Refresh</button>
+        </div>
+
+        <label for="app-caprover-copy-source">Copy from</label>
+        <select id="app-caprover-copy-source" aria-label="CapRover source target">
+          <option value="">Select source target</option>
+        </select>
+
+        <label for="app-caprover-repo">Repository</label>
+        <input id="app-caprover-repo" type="text" autocomplete="off" placeholder="git@github.com:org/repo.git" />
+
+        <label for="app-caprover-branch">Branch</label>
+        <input id="app-caprover-branch" type="text" autocomplete="off" placeholder="release/website" />
+
+        <label class="wm-checkbox-row" for="app-caprover-enable-https">
+          <input id="app-caprover-enable-https" type="checkbox" />
+          <span>Enable HTTPS</span>
+        </label>
+
+        <label for="app-caprover-env-vars">Environment variables</label>
+        <textarea id="app-caprover-env-vars" autocomplete="off" spellcheck="false" placeholder="KEY=value"></textarea>
+
+        <label for="app-caprover-user">Username</label>
+        <input id="app-caprover-user" type="text" autocomplete="username" placeholder="Optional when using SSH key" />
+
+        <label for="app-caprover-password">Password or token</label>
+        <input id="app-caprover-password" type="password" autocomplete="off" placeholder="Stored by CapRover only" />
+
+        <label for="app-caprover-ssh-key">SSH private key</label>
+        <textarea id="app-caprover-ssh-key" autocomplete="off" spellcheck="false" placeholder="Optional PEM deploy key"></textarea>
+
+        <div id="app-caprover-status" class="wm-deploy-status" hidden>
+          <p id="app-caprover-message"></p>
+          <div id="app-caprover-webhook-row" class="wm-caprover-webhook-row" hidden>
+            <input id="app-caprover-webhook" type="text" readonly />
+            <button type="button" class="wm-button secondary" id="app-caprover-copy-webhook">Copy</button>
+          </div>
+          <a id="app-caprover-url" href="#" target="_blank" rel="noopener noreferrer" hidden>Open App</a>
+        </div>
+
+        <menu>
+          <button type="button" class="wm-button secondary" id="app-caprover-cancel">Close</button>
+          <button type="button" class="wm-button secondary" id="app-caprover-replicate">Copy Deployment</button>
+          <button type="button" class="wm-button" id="app-caprover-save">Register GitHub Deploy</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="project-dialog" class="wm-project-dialog">
+      <form method="dialog" class="wm-project-dialog__form">
+        <header class="wm-project-dialog__header">
+          <h2>New Project</h2>
+          <p class="wm-dialog-help">Define a project root so related apps stay grouped.</p>
+        </header>
+        <section class="wm-project-dialog__body">
+          <label class="wm-project-field">
+            <span class="wm-project-field__label">Project name</span>
+            <input id="project-dialog-name" type="text" placeholder="Wingman Demo" autocomplete="off" />
+          </label>
+          <label class="wm-project-field">
+            <span class="wm-project-field__label">Project folder</span>
+            <div class="working-directory-field">
+              <input
+                id="project-dialog-root"
+                type="text"
+                autocomplete="off"
+                placeholder="/Users/you/code/wingman-demo"
+                list="directory-suggestions"
+              />
+              <div class="working-directory-actions">
+                <button type="button" class="wm-button secondary" id="project-dialog-root-browse">Browse…</button>
+              </div>
+            </div>
+          </label>
+          <p id="project-dialog-error" class="wm-project-form__error" hidden></p>
+        </section>
+        <footer class="wm-project-dialog__footer">
+          <button type="button" class="wm-button secondary" id="project-dialog-cancel">Cancel</button>
+          <button type="submit" class="wm-button" id="project-dialog-submit">Create Project</button>
+        </footer>
+      </form>
+    </dialog>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

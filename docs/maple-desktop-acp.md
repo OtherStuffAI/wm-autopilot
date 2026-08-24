@@ -1,0 +1,9 @@
+# Maple Desktop ACP agent
+
+Autopilot can launch a fresh Maple Desktop-backed agent through Maple's packaged ACP connector. On macOS the Instance Settings default is `/Applications/Maple.app/Contents/MacOS/maple`; operators on another installation must set **Maple Desktop ACP Executable** to an absolute path. Autopilot invokes that executable directly with the single argument `acp` and never resolves it through `PATH` or a shell.
+
+Maple's current ACP v1 connector can create, list, load, and close sessions; prompt; stream text/thought updates; request allow-once/reject-once permissions; and cancel. Autopilot persists the native Maple session ID and uses ACP `session/load` to resume it from live or archived session records and after an Autopilot restart. If a stored session no longer exists in Maple, the normal restart recovery policy records the native-resume failure and creates a fresh replacement.
+
+The launcher lists every model currently available in Maple Desktop: **OpenAI GPT-OSS 120B**, **Gemma 4 31B**, **Kimi K3**, **Kimi K2.6**, **GLM 5.2**, **DeepSeek V4 Flash**, and **Llama 3.3 70B**. DeepSeek V4 Flash remains first as the intended default. Maple ACP v1 does not expose a model configuration capability, so Autopilot does not send a made-up model identifier or claim to enforce the selection. Choose the same model in Maple Desktop before launching.
+
+New Maple sessions default to the `auto_approve` ACP permission policy. Autopilot prefers an offered persistent allow option and otherwise selects allow-once for every permission request, which matches Maple's current ACP behavior. An explicit session or instance policy can select `ask` when interactive approval is required. Startup errors retain Maple's connector detail so operators can distinguish a missing executable, stopped/unavailable Desktop ACP service, signed-out Desktop, connection-limit failure, or protocol mismatch.

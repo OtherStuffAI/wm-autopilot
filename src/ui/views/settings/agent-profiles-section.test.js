@@ -1,0 +1,195 @@
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
+
+let createPayload = null;
+let updatePayload = null;
+let listedAgents = [];
+let rotatePayload = null;
+
+mock.module('../../services/agent-chat.js', () => ({
+  createAgentChatProfile: async (input) => {
+    createPayload = input;
+    return { agent: { agentId: 'Builder', label: 'Builder', botNpub: 'npub1Builder' } };
+  },
+  updateAgentChatProfile: async (profileId, input) => {
+    updatePayload = { profileId, input };
+    return { agent: { ...listedAgents[0], ...input }, published: false };
+  },
+  rotateAgentChatProfileKey: async (...args) => { rotatePayload = args; return { state: 'completed', newNpub: 'npub1rotated', warnings: [], externalActions: [], tower: { status: 'completed', migrationCounts: { memberships: 2 } } }; },
+  listAgentChatAgents: async () => ({ agents: listedAgents, permissions: { canManage: true }, defaults: {} }),
+}));
+
+mock.module('../../services/config.js', () => ({
+  fetchConfigApi: async () => ({
+    defaultAgent: 'codex',
+    agents: [
+      { id: 'codex', label: 'Codex', modelOptions: ['default', 'gpt-5.5'] },
+      { id: 'goose', label: 'Goose', modelOptions: ['default', 'qwen/qwen3.7-flash', 'deepseek/deepseek-v4-flash-0731'] },
+    ],
+  }),
+}));
+
+class FakeElement {
+  constructor(tagName) {
+    this.tagName = tagName;
+    this.attributes = new Map();
+    this.children = [];
+    this.dataset = {};
+    this.style = {};
+    this.listeners = new Map();
+    this.value = '';
+    this.hidden = false;
+    this.disabled = false;
+  }
+
+  get options() { return this.children; }
+  get selectedIndex() { return this.children.findIndex((child) => child.value === this.value); }
+
+  append(...children) { this.children.push(...children.filter(Boolean)); }
+  replaceChildren(...children) { this.children = children; }
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+    if (name === 'data-testid') this.dataset.testid = String(value);
+  }
+  addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
+  dispatchEvent(event) { (this.listeners.get(event.type) || []).forEach((listener) => listener(event)); }
+  click() { this.dispatchEvent({ type: 'click', target: this, preventDefault() {} }); }
+  focus() {}
+  select() {}
+}
+
+function findByTestId(root, testId) {
+  if (root?.dataset?.testid === testId) return root;
+  for (const child of root?.children || []) {
+    const match = findByTestId(child, testId);
+    if (match) return match;
+  }
+  return null;
+}
+
+describe('Agent Profiles Settings entry', () => {
+  beforeEach(() => { createPayload = null; updatePayload = null; rotatePayload = null; listedAgents = []; });
+
+  test('shows Add Agent Profile with no subscriptions and opens the complete create form', async () => {
+    const originalDocument = globalThis.document;
+    globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+    try {
+      const { createAgentProfilesSection } = await import('./agent-profiles-section.js');
+      const section = createAgentProfilesSection();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const addButton = findByTestId(section, 'agent-profiles-add');
+      const modal = findByTestId(section, 'agent-chat-agent-name-modal');
+      expect(addButton?.textContent).toBe('Add Agent Profile');
+      expect(findByTestId(section, 'agent-profiles-empty')?.textContent).toContain('workspace connection is not required');
+
+      addButton.click();
+      expect(modal.hidden).toBe(false);
+      expect(findByTestId(modal, 'agent-chat-agent-name')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-chat-agent-working-directory')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-chat-agent-create-harness')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-chat-agent-create-model')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-chat-agent-create-picture')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-chat-agent-create-about')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-chat-agent-create-nip05')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-chat-agent-name-advanced-panel')?.style.display).toBe('');
+
+      const harnessSelect = findByTestId(modal, 'agent-chat-agent-create-harness');
+      const modelSelect = findByTestId(modal, 'agent-chat-agent-create-model');
+      expect(harnessSelect.children.map((option) => [option.value, option.textContent])).toEqual([
+        ['codex', 'Codex'],
+        ['goose', 'Goose'],
+      ]);
+      harnessSelect.value = 'goose';
+      harnessSelect.dispatchEvent({ type: 'change' });
+      modelSelect.value = 'qwen/qwen3.7-flash';
+      const nameInput = findByTestId(modal, 'agent-chat-agent-name');
+      nameInput.value = 'Builder';
+      nameInput.dispatchEvent({ type: 'input' });
+      const directoryInput = findByTestId(modal, 'agent-chat-agent-working-directory');
+      directoryInput.value = '/Users/example/wingmen/Builder21';
+      directoryInput.dispatchEvent({ type: 'input' });
+      findByTestId(modal, 'agent-chat-agent-name-submit').click();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(createPayload).toMatchObject({
+        profileId: 'builder',
+        label: 'Builder',
+        name: 'Builder',
+        harness: 'goose',
+        model: 'qwen/qwen3.7-flash',
+        workingDirectory: '/Users/example/wingmen/Builder21',
+      });
+    } finally {
+      globalThis.document = originalDocument;
+    }
+  });
+
+  test('exposes Edit Agent Profile and opens current immutable and runtime values', async () => {
+    listedAgents = [{
+      agentId: 'Builder', label: 'Builder', botNpub: 'npub1Builder',
+      workingDirectory: '/Users/example/wingmen/agent-workspace', harness: 'goose', model: 'deepseek/deepseek-v4-flash-0731',
+      enabled: true, capabilities: ['chat_intercept'], directChat: { enabled: true },
+      publicProfile: { name: 'Builder', about: 'Builder', picture: null, nip05: null },
+    }];
+    const originalDocument = globalThis.document;
+    globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+    try {
+      const { createAgentProfilesSection } = await import('./agent-profiles-section.js');
+      const section = createAgentProfilesSection();
+      await Promise.resolve();
+      await Promise.resolve();
+      findByTestId(section, 'agent-profile-edit-Builder').click();
+      const modal = findByTestId(section, 'agent-profile-editor-modal');
+      expect(modal.hidden).toBe(false);
+      expect(findByTestId(modal, 'agent-profile-edit-npub').value).toBe('npub1Builder');
+      expect(findByTestId(modal, 'agent-profile-edit-npub').readOnly).toBe(true);
+      expect(findByTestId(modal, 'agent-profile-edit-directory').value).toBe('/Users/example/wingmen/agent-workspace');
+      expect(findByTestId(modal, 'agent-profile-edit-harness').value).toBe('goose');
+      expect(findByTestId(modal, 'agent-profile-edit-model').value).toBe('deepseek/deepseek-v4-flash-0731');
+      findByTestId(modal, 'agent-profile-edit-directory').value = '/Users/example/wingmen/Builder21';
+      findByTestId(modal, 'agent-profile-edit-save').click();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(updatePayload).toMatchObject({
+        profileId: 'Builder',
+        input: {
+          workingDirectory: '/Users/example/wingmen/Builder21',
+          harness: 'goose',
+          model: 'deepseek/deepseek-v4-flash-0731',
+        },
+      });
+      expect(updatePayload.input).not.toHaveProperty('botNpub');
+    } finally {
+      globalThis.document = originalDocument;
+    }
+  });
+
+  test('shows manager rotation action and requires the irreversible confirmation', async () => {
+    listedAgents = [{
+      agentId: 'Builder', label: 'Builder', botNpub: 'npub1Builder', workingDirectory: '/tmp/Builder', harness: 'codex', model: null,
+      enabled: true, capabilities: ['chat_intercept'], directChat: { enabled: true }, publicProfile: { name: 'Builder' },
+    }];
+    const originalDocument = globalThis.document;
+    const originalConfirm = globalThis.confirm;
+    let confirmation = '';
+    globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+    globalThis.confirm = (message) => { confirmation = message; return true; };
+    try {
+      const { createAgentProfilesSection } = await import('./agent-profiles-section.js');
+      const section = createAgentProfilesSection();
+      await Promise.resolve(); await Promise.resolve();
+      findByTestId(section, 'agent-profile-rotate-Builder').click();
+      await Promise.resolve(); await Promise.resolve();
+      expect(confirmation).toContain('Builder (Builder)');
+      expect(confirmation).toContain('npub1Builder');
+      expect(confirmation).toContain('sessions using it will stop working');
+      expect(confirmation).toContain('private key is never displayed or exported');
+      expect(rotatePayload?.slice(0, 2)).toEqual(['Builder', 'npub1Builder']);
+      expect(findByTestId(section, 'agent-profiles-status')?.textContent).toContain('Tower completed (memberships: 2)');
+    } finally {
+      globalThis.document = originalDocument;
+      globalThis.confirm = originalConfirm;
+    }
+  });
+});

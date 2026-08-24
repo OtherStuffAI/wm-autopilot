@@ -1,0 +1,155 @@
+{
+  "name": "fd-task-invocation",
+  "description": "Flight Deck PG task invocation pipeline. It loads the invoked task, gives an agent the invocation prompt and task context, launches the right child pipeline when needed, and comments back on the task.",
+  "tags": [
+    "flightdeck-pg",
+    "task",
+    "invocation"
+  ],
+  "input": {
+    "source": "flightdeck-pg-task-invocation"
+  },
+  "steps": [
+    {
+      "id": "prepare-task-invocation-context",
+      "name": "prepare-task-invocation-context",
+      "description": "Load the invoked Flight Deck PG task, comments, channel context, prompt, and local snapshot for the agent.",
+      "type": "code",
+      "function": "dispatch.prepareTaskInvocationContext",
+      "input": {
+        "pick": {
+          "dispatch": "$.dispatch",
+          "workspace": "$.workspace",
+          "agent": "$.agent",
+          "record": "$.record",
+          "routing": "$.routing",
+          "flightDeckContext": "$.flightDeckContext"
+        }
+      },
+      "assign": "$.invocationContext",
+      "display": {
+        "in": [
+          { "label": "Prompt", "path": "$.record.payload.prompt", "format": "text" },
+          { "label": "Target Task", "path": "$.record.payload.target_title", "format": "text" }
+        ],
+        "out": [
+          { "label": "Task", "path": "$.task.title", "format": "text" },
+          { "label": "State", "path": "$.task.state", "format": "text" },
+          { "label": "Snapshot", "path": "$.task.localPath", "format": "text" },
+          { "label": "Comments", "path": "$.task.comments", "format": "count" }
+        ]
+      }
+    },
+    {
+      "id": "classify-task-invocation",
+      "name": "classify-task-invocation",
+      "description": "Decide whether to answer on the task directly or launch software, research, or generic child work.",
+      "type": "agent",
+      "agent": "$.agent.defaultAgent",
+      "directory": "$.agent.workingDirectory",
+      "input": {
+        "pick": {
+          "invocationContext": "$.invocationContext"
+        }
+      },
+      "prompt": "You are the configured workspace agent handling a Flight Deck Postgres task invocation.\n\nContext rules:\n- This is not a chat thread. The invocation is attached to invocationContext.task.\n- The task is in the workspace/scope/channel described by invocationContext.workspace and invocationContext.location.\n- The exact invocation prompt is available at invocationContext.invocation.prompt; read it first and treat it as the immediate instruction.\n- Any answer/status must go back to the task, not chat, unless a child pipeline later has a valid task-backed reporting path.\n\nDecision rules:\n- Use action \"start_pipeline\" when the prompt asks for substantial work that should run through an existing child pipeline.\n- For software/code/repo/build/UI/API/database/deploy work, choose workStyle \"software_implementation\" and provide workdir and targetSurface. If you cannot identify a concrete workdir or target surface, use action \"needs_input\" and ask for the missing detail instead of launching software work.\n- For research/report work, choose workStyle \"research_and_report\".\n- For other durable operational/writing/planning work, choose workStyle \"do_and_review\".\n- Use action \"direct_response\" for small answers or status notes that can be handled now with a task comment.\n- Use action \"needs_input\" when the invocation cannot proceed without one focused answer.\n- Do not create a new task. The target task is the work surface.\n\nReturn compact JSON only:\n{\n  \"accepted\": true,\n  \"action\": \"start_pipeline|direct_response|needs_input|ignore\",\n  \"workStyle\": \"software_implementation|research_and_report|do_and_review|null\",\n  \"childPipelineDefinitionId\": \"software-implementation-review-loop|research-and-report|do-and-review|null\",\n  \"taskSummary\": \"short summary of the requested work\",\n  \"instructions\": \"full instructions to pass to child work, including the invocation prompt and relevant task context\",\n  \"workdir\": \"absolute repo path or null\",\n  \"targetSurface\": {\"route\":\"\", \"surface\":\"\", \"files\":[], \"notes\":\"\"},\n  \"designDocumentUrl\": \"reference document URL/path/mention or null\",\n  \"visualReferences\": [],\n  \"executionPlan\": [],\n  \"managerChecklist\": [],\n  \"taskComment\": \"task comment to post now, especially for direct_response or needs_input\",\n  \"openQuestions\": [],\n  \"blockers\": [],\n  \"confidence\": 0.0\n}",
+      "assign": "$.agentResponse",
+      "timeoutMs": 600000,
+      "display": {
+        "in": [
+          { "label": "Task", "path": "$.invocationContext.task.title", "format": "text" },
+          { "label": "Prompt", "path": "$.invocationContext.invocation.prompt", "format": "text" }
+        ],
+        "out": [
+          { "label": "Action", "path": "$.action", "format": "text" },
+          { "label": "Work Style", "path": "$.workStyle", "format": "text" },
+          { "label": "Summary", "path": "$.taskSummary", "format": "text" },
+          { "label": "Workdir", "path": "$.workdir", "format": "text" },
+          { "label": "Open Questions", "path": "$.openQuestions", "format": "list", "limit": 5 }
+        ]
+      }
+    },
+    {
+      "id": "normalise-task-invocation-plan",
+      "name": "normalise-task-invocation-plan",
+      "description": "Turn the task invocation decision into a child-pipeline work plan or task-comment response.",
+      "type": "code",
+      "function": "dispatch.normaliseTaskInvocationPlan",
+      "input": {
+        "pick": {
+          "invocationContext": "$.invocationContext",
+          "agentResponse": "$.agentResponse"
+        }
+      },
+      "assign": "$.taskInvocationPlan",
+      "display": {
+        "in": [
+          { "label": "Action", "path": "$.agentResponse.action", "format": "text" },
+          { "label": "Work Style", "path": "$.agentResponse.workStyle", "format": "text" }
+        ],
+        "out": [
+          { "label": "Action", "path": "$.action", "format": "text" },
+          { "label": "Child Pipeline", "path": "$.childPipelineDefinitionId", "format": "text" },
+          { "label": "Task", "path": "$.taskTitle", "format": "text" }
+        ]
+      }
+    },
+    {
+      "id": "start-task-child-pipeline",
+      "name": "start-task-child-pipeline",
+      "description": "Start the selected child pipeline with task-backed reporting when the invocation requires durable work.",
+      "type": "code",
+      "function": "dispatch.startChildPipeline",
+      "when": {
+        "path": "$.taskInvocationPlan.shouldStartChild",
+        "equals": true
+      },
+      "input": {
+        "pick": {
+          "pipelineDefinitionId": "$.taskInvocationPlan.childPipelineDefinitionId",
+          "workPlan": "$.taskInvocationPlan.workPlan",
+          "childInput": "$"
+        }
+      },
+      "assign": "$.childPipeline",
+      "display": {
+        "in": [
+          { "label": "Child Pipeline", "path": "$.taskInvocationPlan.childPipelineDefinitionId", "format": "text" },
+          { "label": "Task", "path": "$.taskInvocationPlan.taskTitle", "format": "text" }
+        ],
+        "out": [
+          { "label": "Started", "path": "$.started" },
+          { "label": "Run", "path": "$.pipelineRunId", "format": "text" },
+          { "label": "Status", "path": "$.status", "format": "text" },
+          { "label": "Reason", "path": "$.reason", "format": "text" }
+        ]
+      }
+    },
+    {
+      "id": "publish-task-invocation-response",
+      "name": "publish-task-invocation-response",
+      "description": "Comment on the invoked task with the direct answer, needs-input question, or launched child pipeline status.",
+      "type": "code",
+      "function": "dispatch.publishTaskInvocationResponse",
+      "input": {
+        "pick": {
+          "invocationContext": "$.invocationContext",
+          "plan": "$.taskInvocationPlan",
+          "childPipeline": "$.childPipeline"
+        }
+      },
+      "assign": "$.publishResult",
+      "display": {
+        "in": [
+          { "label": "Action", "path": "$.taskInvocationPlan.action", "format": "text" },
+          { "label": "Summary", "path": "$.taskInvocationPlan.summary", "format": "text" }
+        ],
+        "out": [
+          { "label": "Published", "path": "$.published" },
+          { "label": "Task", "path": "$.taskId", "format": "text" },
+          { "label": "Reason", "path": "$.reason", "format": "text" }
+        ]
+      }
+    }
+  ]
+}

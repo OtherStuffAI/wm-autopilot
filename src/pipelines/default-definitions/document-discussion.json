@@ -1,0 +1,187 @@
+{
+  "name": "document-discussion",
+  "description": "No-task chat child pipeline for planning/design/document discussion. It refreshes the thread, ensures a working Flight Deck document, updates it when useful, reviews the result against the discussion goal, and asks the next useful question in chat.",
+  "tags": [
+    "chat",
+    "discussion",
+    "document",
+    "design",
+    "planning",
+    "no-task"
+  ],
+  "input": {
+    "source": "wingman-document-discussion-chat"
+  },
+  "steps": [
+    {
+      "id": "reload-thread",
+      "name": "reload-thread",
+      "description": "Re-read the chat thread before document analysis.",
+      "type": "code",
+      "function": "dispatch.reloadChatThread",
+      "input": {
+        "pick": {
+          "dispatch": "$.dispatch",
+          "workspace": "$.workspace",
+          "agent": "$.agent",
+          "chat": "$.chat",
+          "record": "$.record",
+          "routing": "$.routing",
+          "runtime": "$.runtime",
+          "chatContext": "$.chatContext"
+        }
+      },
+      "assign": "$.freshChatContext"
+    },
+    {
+      "id": "compact-document-discussion-context",
+      "name": "compact-document-discussion-context",
+      "description": "Build a compact, agent-safe document discussion context from the refreshed thread.",
+      "type": "code",
+      "function": "dispatch.prepareChatIntentInput",
+      "input": {
+        "pick": {
+          "dispatch": "$.dispatch",
+          "workspace": "$.workspace",
+          "agent": "$.agent",
+          "chat": "$.chat",
+          "record": "$.record",
+          "routing": "$.routing",
+          "runtime": "$.runtime",
+          "chatContext": "$.freshChatContext",
+          "flightDeckContext": "$.flightDeckContext"
+        }
+      },
+      "assign": "$.discussionContext"
+    },
+    {
+      "id": "load-document-and-comments",
+      "name": "load-document-and-comments",
+      "description": "Load any referenced document and comments using thread mentions, referenced records, and available Wingman Flight Deck helpers.",
+      "type": "agent",
+      "agent": "$.agent.defaultAgent",
+      "directory": "$.agent.workingDirectory",
+      "input": {
+        "pick": {
+          "latestThread": "$.discussionContext.latestThread",
+          "channelId": "$.discussionContext.source.channelId",
+          "threadId": "$.discussionContext.source.threadId",
+          "messageId": "$.discussionContext.source.messageId",
+          "requesterNpub": "$.discussionContext.source.requesterNpub",
+          "channelContext": "$.discussionContext.channelContext",
+          "referencedRecords": "$.discussionContext.referencedRecords"
+        }
+      },
+      "prompt": "You are loading context for a no-task Flight Deck document discussion. Use latestThread as authoritative. Inspect referencedRecords, mentions, attachments, and any visible document/comment ids. If a document id is available, use Wingman/Autopilot Flight Deck helpers exposed in the agent runtime to read it. Do not run Yoke, do not sync a Yoke workspace, and do not use runtime.commandPrefix for Flight Deck PG work. If no current Flight Deck helper is available for a referenced document or comment, summarize what is visible in the provided context and mark the missing helper in loadNotes. Do not create a Flight Deck task and do not reply to chat; a deterministic follow-up step will create or reuse the working document when supported.\n\nReturn compact JSON only:\n{\n  \"documentLoaded\": true,\n  \"documentId\": \"id or null\",\n  \"documentTitle\": \"title or null\",\n  \"documentUrl\": \"url or null\",\n  \"documentSummary\": \"current document summary or null\",\n  \"commentsLoaded\": true,\n  \"comments\": [{\"commentId\":\"\", \"authorNpub\":\"\", \"body\":\"\", \"status\":\"\", \"location\":\"\"}],\n  \"discussionGoal\": \"what the user wants to decide or improve\",\n  \"constraints\": [\"visible constraints\"],\n  \"openQuestions\": [\"unknowns before editing\"],\n  \"loadNotes\": \"short note on how context was found\"\n}",
+      "assign": "$.documentContext",
+      "timeoutMs": 600000
+    },
+    {
+      "id": "ensure-discussion-document",
+      "name": "ensure-discussion-document",
+      "description": "Reuse the referenced Flight Deck document or create a scaffold document for the discussion.",
+      "type": "code",
+      "function": "dispatch.ensureDiscussionDocument",
+      "input": {
+        "pick": {
+          "chatDispatchInput": "$.discussionContext",
+          "chatContext": "$.discussionContext",
+          "decision": "$.decision",
+          "workPlan": "$.workPlan",
+          "documentContext": "$.documentContext"
+        }
+      },
+      "assign": "$.discussionDocument"
+    },
+    {
+      "id": "update-document",
+      "name": "update-document",
+      "description": "Update the ensured discussion document when the latest thread clearly implies a useful change.",
+      "type": "agent",
+      "agent": "$.agent.defaultAgent",
+      "directory": "$.agent.workingDirectory",
+      "input": {
+        "pick": {
+          "latestThread": "$.discussionContext.latestThread",
+          "channelId": "$.discussionContext.source.channelId",
+          "threadId": "$.discussionContext.source.threadId",
+          "messageId": "$.discussionContext.source.messageId",
+          "documentId": "$.discussionDocument.documentId",
+          "documentTitle": "$.discussionDocument.documentTitle",
+          "documentSummary": "$.documentContext.documentSummary",
+          "comments": "$.documentContext.comments",
+          "discussionGoal": "$.documentContext.discussionGoal",
+          "constraints": "$.documentContext.constraints",
+          "openQuestions": "$.documentContext.openQuestions"
+        }
+      },
+      "prompt": "You are the document update step for a no-task planning/design discussion. Use latestThread as authoritative and documentId as the working Flight Deck document. If the latest thread makes a concrete document change useful, update that document only through Wingman/Autopilot Flight Deck helpers exposed in the agent runtime. Do not run Yoke, do not sync a Yoke workspace, and do not use runtime.commandPrefix for Flight Deck PG work. Keep edits narrowly scoped to discussionGoal and constraints. If no current Flight Deck helper is available to update the document, do not claim it was updated; return updated false with the missing helper in summary. If the user is only asking a question or there is not enough context, leave the scaffold as-is. Do not create a Flight Deck task and do not reply to chat.\n\nReturn compact JSON only:\n{\n  \"updated\": true,\n  \"documentId\": \"id or null\",\n  \"changedSections\": [\"section or line references\"],\n  \"summary\": \"what changed or why no edit was made\",\n  \"remainingConcerns\": [\"concerns after update\"],\n  \"confidence\": 0.0\n}",
+      "assign": "$.documentUpdate",
+      "timeoutMs": 900000
+    },
+    {
+      "id": "review-document-against-goal",
+      "name": "review-document-against-goal",
+      "description": "Review the document/update against the discussion goal and identify the next useful question.",
+      "type": "agent",
+      "agent": "$.agent.defaultAgent",
+      "directory": "$.agent.workingDirectory",
+      "input": {
+        "pick": {
+          "latestThread": "$.discussionContext.latestThread",
+          "documentId": "$.discussionDocument.documentId",
+          "documentTitle": "$.discussionDocument.documentTitle",
+          "documentSummary": "$.documentContext.documentSummary",
+          "discussionGoal": "$.documentContext.discussionGoal",
+          "constraints": "$.documentContext.constraints",
+          "documentUpdate": "$.documentUpdate"
+        }
+      },
+      "prompt": "You are reviewing the document discussion result against the user's goal. Check whether the current document state and any update actually answer the planning/design/comment issue. Identify the next most useful question only if it would materially improve the document or decision. Do not create a task and do not reply to chat yet.\n\nReturn compact JSON only:\n{\n  \"meetsGoal\": true,\n  \"reviewSummary\": \"short assessment\",\n  \"risks\": [\"remaining risks or mismatches\"],\n  \"nextUsefulQuestion\": \"one focused question or null\",\n  \"confidence\": 0.0\n}",
+      "assign": "$.documentReview",
+      "timeoutMs": 600000
+    },
+    {
+      "id": "draft-next-question",
+      "name": "draft-next-question",
+      "description": "Draft the chat response with the update summary, review result, and next useful question.",
+      "type": "agent",
+      "agent": "$.agent.defaultAgent",
+      "directory": "$.agent.workingDirectory",
+      "input": {
+        "pick": {
+          "latestThread": "$.discussionContext.latestThread",
+          "documentId": "$.discussionDocument.documentId",
+          "documentTitle": "$.discussionDocument.documentTitle",
+          "documentMention": "$.discussionDocument.documentMention",
+          "documentStatus": "$.discussionDocument.status",
+          "discussionGoal": "$.documentContext.discussionGoal",
+          "documentUpdate": "$.documentUpdate",
+          "documentReview": "$.documentReview"
+        }
+      },
+      "prompt": "You are the configured workspace agent replying in a Flight Deck chat thread after a no-task document discussion. Be concise and concrete. Link the working document using documentMention. Mention whether the document was created, reused, or updated, summarize the review against the goal, and ask the next useful question when one exists. Do not mention internal pipeline mechanics. Do not create or refer to a task.\n\nReturn compact JSON only:\n{\n  \"shouldRespond\": true,\n  \"responseDraft\": \"message to send to the chat thread, including the working document mention\",\n  \"reasoningSummary\": \"private summary of why this response fits\",\n  \"documentUpdated\": true,\n  \"nextUsefulQuestion\": \"question or null\",\n  \"confidence\": 0.0\n}",
+      "assign": "$.agentResponse",
+      "timeoutMs": 600000
+    },
+    {
+      "id": "publish-document-discussion-reply",
+      "name": "publish-document-discussion-reply",
+      "description": "Publish the drafted document discussion response to the source Flight Deck thread.",
+      "type": "code",
+      "function": "dispatch.publishFlightDeckResponse",
+      "input": {
+        "pick": {
+          "dispatch": "$.dispatch",
+          "workspace": "$.workspace",
+          "agent": "$.agent",
+          "record": "$.record",
+          "routing": "$.routing",
+          "runtime": "$.runtime",
+          "agentResponse": "$.agentResponse"
+        }
+      },
+      "assign": "$.publishResult"
+    }
+  ]
+}
