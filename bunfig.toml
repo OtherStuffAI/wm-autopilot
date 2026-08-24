@@ -1,0 +1,2 @@
+[scripts]
+"scripts/purge-wingman-db.sh" = "bash scripts/purge-wingman-db.sh"

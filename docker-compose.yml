@@ -1,0 +1,60 @@
+services:
+  wingman:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${WINGMAN_IMAGE:-wingman-autopilot:local}
+    init: true
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "${WINGMAN_HOST_PORT:-3600}:3600"
+    environment:
+      PORT: "3600"
+      HOME: /home/wingman
+      AGENT_PORTS: "${WINGMAN_AGENT_PORTS:-3700}"
+      AGENT_MAX: "${WINGMAN_AGENT_MAX:-10}"
+      DIRECTORY_DEF: "${WINGMAN_DIRECTORY_DEF:-/workspace}"
+      AGENT_DISPATCH_DIRECTORY: "${WINGMAN_AGENT_DISPATCH_DIRECTORY:-${WINGMAN_DIRECTORY_DEF:-/workspace}}"
+      FOLDERACCESS: "${WINGMAN_FOLDERACCESS:-/workspace}"
+      WINGMAN_BASE_URL: "${WINGMAN_BASE_URL:-http://localhost:3600}"
+      IDENTITY_COOKIE_SECURE: "${WINGMAN_IDENTITY_COOKIE_SECURE:-false}"
+      APP_ROUTING: "${WINGMAN_APP_ROUTING:-path}"
+      SUBDOMAIN_BASE_DOMAIN: "${WINGMAN_SUBDOMAIN_BASE_DOMAIN:-}"
+      SUBDOMAIN_PROXY_ENABLED: "${WINGMAN_SUBDOMAIN_PROXY_ENABLED:-true}"
+      AGENT_SPAWN_MODE: "${WINGMAN_AGENT_SPAWN_MODE:-bun}"
+      AGENTAPI_ALLOWED_HOSTS: "${WINGMAN_AGENTAPI_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}"
+      DEFAULT_AGENT: "${WINGMAN_DEFAULT_AGENT:-codex}"
+      CODEX_CLI: "${WINGMAN_CODEX_CLI:-/usr/local/bin/codex}"
+      CODEX_TRUSTED_WORKSPACE: "${WINGMAN_CODEX_TRUSTED_WORKSPACE:-/workspace}"
+      CLAUDE_CLI: "${WINGMAN_CLAUDE_CLI:-/usr/local/bin/claude}"
+      GLOVES: "${WINGMAN_GLOVES:-OFF}"
+      CLAUDE_CODE_ENABLE_FEEDBACK_SURVEY_FOR_OTEL: "0"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      GOOSE_CLI: "${WINGMAN_GOOSE_CLI:-/usr/local/bin/goose}"
+      OPENCODE_CLI: "${WINGMAN_OPENCODE_CLI:-/usr/local/bin/opencode}"
+      GEMINI_CLI: "${WINGMAN_GEMINI_CLI:-/usr/local/bin/gemini}"
+      PI_CLI: "${WINGMAN_PI_CLI:-/usr/local/bin/pi}"
+      IDENTITY_SESSION_SECRET: "${WINGMAN_IDENTITY_SESSION_SECRET:?Run bun run docker:provision before docker compose up}"
+      ADMIN_NPUB: "${WINGMAN_ADMIN_NPUB:?Run bun run docker:provision --admin-npub npub1... before docker compose up}"
+      WINGMAN_PRIV: "${WINGMAN_PRIV:-}"
+      KEYTELEPORT_PRIVKEY: "${WINGMAN_KEYTELEPORT_PRIVKEY:-}"
+      KEYTELEPORT_WELCOME_PUBKEY: "${WINGMAN_KEYTELEPORT_WELCOME_PUBKEY:-}"
+      KEYTELEPORT_WELCOME_URL: "${WINGMAN_KEYTELEPORT_WELCOME_URL:-https://welcome.nostr.com}"
+      REGISTER: "${WINGMAN_REGISTER:-false}"
+      WINGMAN_INSTANCE_NAME: "${WINGMAN_INSTANCE_NAME:-wingman-01}"
+      WINGMAN_WORKSPACE_HOST_PATH: "${WINGMAN_WORKSPACE_HOST_PATH:-${HOME}/.wm-ap}"
+      WINGMAN_SHARED_INSTANCE: "${WINGMAN_SHARED_INSTANCE:-true}"
+      WINGMAN_SHARED_AGENT_DISPATCH: "${WINGMAN_SHARED_AGENT_DISPATCH:-}"
+      WINGMAN_SEE_AGENT_SUBS: "${WINGMAN_SEE_AGENT_SUBS:-}"
+      WINGMAN_SETUP_NONINTERACTIVE: "true"
+    volumes:
+      - wingman-home:/home/wingman
+      - wingman-data:/app/data
+      - wingman-tmp:/app/tmp
+      - "${WINGMAN_WORKSPACE_HOST_PATH:-${HOME}/.wm-ap}:/workspace"
+
+volumes:
+  wingman-home:
+  wingman-data:
+  wingman-tmp:

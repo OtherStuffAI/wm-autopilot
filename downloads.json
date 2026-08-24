@@ -1,0 +1,136 @@
+{
+  "releases": [
+    {
+      "version": "0.12.2",
+      "date": "2026-05-27",
+      "platforms": {
+        "Apple ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.12.2/agentapi-darwin-arm64",
+          "sha256": "sha256:ae1488e7e12c6fc4ea4005ad655564e004b4cc0bb7574366840c71b5a1d4ddc9"
+        },
+        "Apple Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.12.2/agentapi-darwin-amd64",
+          "sha256": "sha256:5f781c0ca989e76f094a999b0e1e76168a6e14ff95fe397b9e65b90115a210e8"
+        },
+        "Linux ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.12.2/agentapi-linux-arm64",
+          "sha256": "sha256:d4f76702f1ce852c4ba2027f51dae1a94d5b27e02b4aee20cd37eda8a8996c11"
+        },
+        "Linux Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.12.2/agentapi-linux-amd64",
+          "sha256": "sha256:fcc9318c50183c22e5fcbda1fa5a4838dc082b36fc91b6f01172730e86813125"
+        }
+      }
+    },
+    {
+      "version": "0.12.1",
+      "date": "2026-03-05",
+      "platforms": {
+        "Apple ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.12.1/agentapi-darwin-arm64",
+          "sha256": "sha256:de53daab7fa77ff86194468fde6a3d5eeaa37307e535e2ee649b39445c2e8bde"
+        },
+        "Apple Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.12.1/agentapi-darwin-amd64",
+          "sha256": "sha256:2d3ac418dae036434cdae6742008a4b288d85c751f2df7018b70eee9f69eba7c"
+        },
+        "Linux ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.12.1/agentapi-linux-arm64",
+          "sha256": "sha256:0b94e855e330f3d9b7aa6472cd2c1f8daedaf369bb72ec1de7e6bbe91c2c0b56"
+        },
+        "Linux Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.12.1/agentapi-linux-amd64",
+          "sha256": "sha256:c65243f84bd70906f336e2ea3f3e4aa160b74fff09efcdeed5f255f659bc63bf"
+        }
+      }
+    },
+    {
+      "version": "0.11.8",
+      "date": "2026-02-01",
+      "platforms": {
+        "Apple ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.8/agentapi-darwin-arm64",
+          "sha256": "sha256:5469c3c7144e00d0a5f662a76aa5b404449e9f63d1990d977855e0ab19cee73e"
+        },
+        "Apple Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.8/agentapi-darwin-amd64",
+          "sha256": "sha256:df275170d73d0ed393318810d4f74803cc9455b9d540f051c3acadf3e67d0dc6"
+        },
+        "Linux ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.8/agentapi-linux-arm64",
+          "sha256": "sha256:d3272a152ecc75b791e0a93bae3760bb701161089d2f4ce8d5e1a53d8f605bfb"
+        },
+        "Linux Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.8/agentapi-linux-amd64",
+          "sha256": "sha256:222aa0668ba004833c73a9e4c15429b32448d9bc78c17e778c61e9b071a1b81b"
+        }
+      }
+    },
+    {
+      "version": "0.11.6",
+      "date": "2025-12-27",
+      "platforms": {
+        "Apple ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.6/agentapi-darwin-arm64",
+          "sha256": "sha256:fe7d692adf9b0056cb635516ba025b4cbab366ff41b05de30f9d462f2790b274"
+        },
+        "Apple Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.6/agentapi-darwin-amd64",
+          "sha256": "sha256:9f679c22b7ea145f1ca0c94cc7e28bb09a6e44bc134d0c40304a3f7ca611003e"
+        },
+        "Linux ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.6/agentapi-linux-arm64",
+          "sha256": "sha256:9e7e6d3e80ba52d1af24a57c4273679bc85e2c117383b29dbdf6f8570da38617"
+        },
+        "Linux Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.6/agentapi-linux-amd64",
+          "sha256": "sha256:253eec087f8c02876325b2e7bf16078258bab2a92bccb01cc0d8a815c68de29b"
+        }
+      }
+    },
+    {
+      "version": "0.11.4",
+      "date": "2025-01-15",
+      "platforms": {
+        "Apple ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.4/agentapi-darwin-arm64",
+          "sha256": "sha256:85b7dc841667004ccf979f43cff632f81fca7e4dd436e2e0f8384233d83a4103"
+        },
+        "Apple Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.4/agentapi-darwin-amd64",
+          "sha256": "sha256:TODO_VERIFY"
+        },
+        "Linux ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.4/agentapi-linux-arm64",
+          "sha256": "sha256:TODO_VERIFY"
+        },
+        "Linux Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/v0.11.4/agentapi-linux-amd64",
+          "sha256": "sha256:TODO_VERIFY"
+        }
+      }
+    },
+    {
+      "version": "agentapi_147",
+      "date": "2024-12-01",
+      "platforms": {
+        "Apple Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/agentapi_147/agentapi-darwin-amd64",
+          "sha256": "sha256:2793cb82725919e6c778e6c907d996cce6c6fed9cdc1afc0d899817536a4e547"
+        },
+        "Apple ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/agentapi_147/agentapi-darwin-arm64",
+          "sha256": "sha256:3805eaf8f108b74665090a6e5cf546d8e8a361e1051dd2f5c4c1576e4609347d"
+        },
+        "Linux Intel": {
+          "link": "https://github.com/coder/agentapi/releases/download/agentapi_147/agentapi-linux-amd64",
+          "sha256": "sha256:03a6a7f11f5064af44c6233fd71e2cd66ab5fdd9ddb8977c13cf1f5d1473957f"
+        },
+        "Linux ARM": {
+          "link": "https://github.com/coder/agentapi/releases/download/agentapi_147/agentapi-linux-arm64",
+          "sha256": "sha256:8b902152995f90e0b38c6b9ed433f639ac35925624075003ce2e87beebaccfc9"
+        }
+      }
+    }
+  ]
+}

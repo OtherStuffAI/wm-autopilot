@@ -1,0 +1,15 @@
+diff --git a/lib/httpapi/server.go b/lib/httpapi/server.go
+--- a/lib/httpapi/server.go
++++ b/lib/httpapi/server.go
+@@ -616,10 +616,10 @@ func (s *Server) subscribeScreen(ctx context.Context, input *struct{}, send sse.S
+ }
+ 
+ // Start starts the HTTP server
+ func (s *Server) Start() error {
+-	addr := fmt.Sprintf(":%d", s.port)
++	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
+ 	s.srv = &http.Server{
+ 		Addr:    addr,
+ 		Handler: s.router,
+ 	}
+ 

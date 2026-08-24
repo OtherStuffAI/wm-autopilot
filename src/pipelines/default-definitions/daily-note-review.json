@@ -1,0 +1,62 @@
+{
+  "name": "daily-note-review",
+  "description": "Evaluates progress against today's daily note and returns a gentle reminder state for heartbeat review.",
+  "tags": [
+    "default",
+    "daily-note",
+    "heartbeat",
+    "progress"
+  ],
+  "input": {
+    "noteDate": "",
+    "towerBaseUrl": "",
+    "workspaceId": "",
+    "appNpub": "",
+    "scopeIds": [],
+    "channelIds": [],
+    "dailyNote": null,
+    "dailyNotes": [],
+    "recentTaskChanges": [],
+    "taskChanges": []
+  },
+  "steps": [
+    {
+      "id": "fetch-tower-pg-context",
+      "name": "fetch-tower-pg-daily-context",
+      "description": "Fetch today's typed PG daily note and optional recent task context directly from Tower when workspace details are provided.",
+      "type": "code",
+      "function": "daily.fetchTowerPgContext",
+      "input": {
+        "pick": {
+          "towerBaseUrl": "$.towerBaseUrl",
+          "workspaceId": "$.workspaceId",
+          "appNpub": "$.appNpub",
+          "noteDate": "$.noteDate",
+          "scopeIds": "$.scopeIds",
+          "channelIds": "$.channelIds",
+          "dailyNote": "$.dailyNote",
+          "dailyNotes": "$.dailyNotes",
+          "recentTaskChanges": "$.recentTaskChanges"
+        }
+      },
+      "assign": "$.dailyContext"
+    },
+    {
+      "id": "evaluate-progress",
+      "name": "evaluate-daily-note-progress",
+      "description": "Review the latest daily note and recent task changes to produce an on_track/partial/off_track status and a gentle reminder payload.",
+      "type": "code",
+      "function": "daily.evaluateProgress",
+      "input": {
+        "pick": {
+          "dailyNote": "$.dailyContext.dailyNote",
+          "dailyNotes": "$.dailyContext.dailyNotes",
+          "recentTaskChanges": "$.dailyContext.recentTaskChanges",
+          "taskChanges": "$.taskChanges",
+          "noteDate": "$.noteDate"
+        }
+      },
+      "assign": "$.dailyNoteReview"
+    }
+  ]
+}
