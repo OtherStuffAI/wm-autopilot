@@ -8,41 +8,58 @@ const records = new Map([
   ["npub1beta", { botNpub: "npub1beta", userNpub: ownerNpub }],
 ]);
 const profiles = [
-  { botNpub: "npub1alpha", workingDirectory: "/wingmen/alpha", enabled: true },
-  { botNpub: "npub1beta", workingDirectory: "/wingmen/beta", enabled: true },
+  { profileId: "alpha", botNpub: "npub1alpha", enabled: true },
+  { profileId: "beta", botNpub: "npub1beta", enabled: true },
 ];
 
 describe("session capability identity resolution", () => {
-  test("replaces a retired requested identity with the unique active profile for the session directory", () => {
+  test("replaces a retired requested identity from its explicit profile binding", () => {
     expect(resolveSessionCapabilityBotRecord({
       ownerNpub,
+      requestedProfileId: "beta",
       requestedBotNpub: "npub1retired",
-      workingDirectory: "/wingmen/beta",
       profiles,
+      defaultProfile: profiles[0],
       getActiveByBotNpub: (botNpub) => records.get(botNpub) ?? null,
-      getActiveForOwner: () => records.get("npub1alpha")!,
-    })?.botNpub).toBe("npub1beta");
+    })?.record.botNpub).toBe("npub1beta");
   });
 
   test("preserves an explicitly requested active identity", () => {
     expect(resolveSessionCapabilityBotRecord({
       ownerNpub,
+      requestedProfileId: "alpha",
       requestedBotNpub: "npub1alpha",
-      workingDirectory: "/wingmen/beta",
       profiles,
+      defaultProfile: profiles[1],
       getActiveByBotNpub: (botNpub) => records.get(botNpub) ?? null,
-      getActiveForOwner: () => records.get("npub1beta")!,
-    })?.botNpub).toBe("npub1alpha");
+    })?.record.botNpub).toBe("npub1alpha");
   });
 
-  test("fails closed for a retired identity when the directory does not identify one profile", () => {
+  test("uses the configured default profile for an ordinary Autopilot session", () => {
+    expect(resolveSessionCapabilityBotRecord({
+      ownerNpub,
+      profiles,
+      defaultProfile: profiles[0],
+      getActiveByBotNpub: (botNpub) => records.get(botNpub) ?? null,
+    })).toMatchObject({ record: { botNpub: "npub1alpha" }, profileId: "alpha" });
+  });
+
+  test("fails closed for a retired identity without an explicit profile", () => {
     expect(resolveSessionCapabilityBotRecord({
       ownerNpub,
       requestedBotNpub: "npub1retired",
-      workingDirectory: "/wingmen/shared",
       profiles,
+      defaultProfile: profiles[0],
       getActiveByBotNpub: (botNpub) => records.get(botNpub) ?? null,
-      getActiveForOwner: () => records.get("npub1alpha")!,
     })).toBeNull();
+  });
+
+  test("does not infer identity from a session working directory", () => {
+    expect(resolveSessionCapabilityBotRecord({
+      ownerNpub,
+      profiles,
+      defaultProfile: profiles[0],
+      getActiveByBotNpub: (botNpub) => records.get(botNpub) ?? null,
+    })?.profileId).toBe("alpha");
   });
 });

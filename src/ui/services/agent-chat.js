@@ -124,6 +124,16 @@ export async function republishAgentChatProfile(profileId) {
   return payload;
 }
 
+export async function setDefaultAgentChatProfile(profileId) {
+  const response = await fetch(`/api/agent-chat/profiles/${encodeURIComponent(profileId)}/default`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || 'Failed to set default agent profile');
+  return payload;
+}
+
 export async function rotateAgentChatProfileKey(profileId, currentNpub, requestId) {
   const response = await fetch(`/api/agent-chat/profiles/${encodeURIComponent(profileId)}/rotate-key`, {
     method: 'POST',

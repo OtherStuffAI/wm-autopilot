@@ -10,37 +10,65 @@ type SessionCapabilityBindingManager = Pick<
   "getSession" | "bindSessionCapabilityIdentity"
 >;
 
+interface AgentProfileIdentitySource {
+  agentId: string;
+  botNpub: string;
+  enabled: boolean;
+  archived?: boolean;
+}
+
+export function buildSessionCapabilityProfileContext(
+  profiles: AgentProfileIdentitySource[],
+  defaultProfile: AgentProfileIdentitySource | null,
+): {
+  profiles: SessionCapabilityAgentProfile[];
+  defaultProfile: SessionCapabilityAgentProfile | null;
+} {
+  const toCapabilityProfile = (profile: AgentProfileIdentitySource): SessionCapabilityAgentProfile => ({
+    profileId: profile.agentId,
+    botNpub: profile.botNpub,
+    enabled: profile.enabled,
+    archived: profile.archived,
+  });
+  return {
+    profiles: profiles.map(toCapabilityProfile),
+    defaultProfile: defaultProfile ? toCapabilityProfile(defaultProfile) : null,
+  };
+}
+
 export function resolveAndBindSessionCapabilityBotRecord<
   T extends SessionCapabilityBotRecord,
 >(input: {
   manager: SessionCapabilityBindingManager;
   sessionId: string;
   ownerNpub: string;
+  requestedProfileId?: string | null;
   requestedBotNpub?: string | null;
   profiles: SessionCapabilityAgentProfile[];
+  defaultProfile?: SessionCapabilityAgentProfile | null;
   getActiveByBotNpub: (botNpub: string) => T | null;
-  getActiveForOwner: (ownerNpub: string) => T | null;
-}): { record: T; session: SessionSnapshot } {
+}): { record: T; profileId: string; session: SessionSnapshot } {
   const session = input.manager.getSession(input.sessionId);
   if (!session || session.npub !== input.ownerNpub) {
     throw new Error("Cannot bind capability identity for an unknown or mismatched session");
   }
 
-  const record = resolveSessionCapabilityBotRecord({
+  const resolved = resolveSessionCapabilityBotRecord({
     ownerNpub: input.ownerNpub,
+    requestedProfileId: input.requestedProfileId,
     requestedBotNpub: input.requestedBotNpub,
-    workingDirectory: session.workingDirectory,
     profiles: input.profiles,
+    defaultProfile: input.defaultProfile,
     getActiveByBotNpub: input.getActiveByBotNpub,
-    getActiveForOwner: input.getActiveForOwner,
   });
-  if (!record) throw new Error("Session owner has no active bot identity");
+  if (!resolved) throw new Error("Session has no active bound or default agent profile");
+  const { record, profileId } = resolved;
   if (record.userNpub !== input.ownerNpub) {
     throw new Error("Selected agent identity is not managed by the session owner");
   }
 
-  const boundSession = input.manager.bindSessionCapabilityIdentity(input.sessionId, record.botNpub);
+  const boundSession = input.manager.bindSessionCapabilityIdentity(input.sessionId, record.botNpub, profileId);
   if (!boundSession) throw new Error("Cannot bind capability identity for an inactive session");
 
-  return { record, session: boundSession };
+  return { record, profileId, session: boundSession };
 }

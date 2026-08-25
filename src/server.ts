@@ -122,7 +122,10 @@ import { InstallationIntentConsumer } from "./wapps/installation-intent-consumer
 import { isAgentDispatchAdminOnlyEnabled, isSharedAgentDispatchEnabled, isSharedInstanceAccessEnabled } from "./shared-instance";
 import { WorkspaceSubscriptionManager } from './agent-chat/subscription-runtime';
 import { agentDefinitionStore } from './agent-chat/agent-definition-store';
-import { resolveAndBindSessionCapabilityBotRecord } from './agents/session-capability-binding';
+import {
+  buildSessionCapabilityProfileContext,
+  resolveAndBindSessionCapabilityBotRecord,
+} from './agents/session-capability-binding';
 import { DispatchPipelineRuntime } from './agent-chat/dispatch-pipelines/runtime';
 import { AgentCommentSessionRuntime } from './agent-chat/comment-session-runtime';
 import { AgentChatSessionRuntime } from './agent-chat/session-runtime';
@@ -870,14 +873,18 @@ manager = new ProcessManager(config, {
     });
   },
   issueSessionCapability: ({ sessionId, ownerNpub, profileId, botNpub }) => {
-    const { record } = resolveAndBindSessionCapabilityBotRecord({
+    const profileContext = buildSessionCapabilityProfileContext(
+      agentDefinitionStore.listForManagerNpub(ownerNpub),
+      agentDefinitionStore.getDefaultForManagerNpub(ownerNpub),
+    );
+    const { record, profileId: resolvedProfileId } = resolveAndBindSessionCapabilityBotRecord({
       manager,
       sessionId,
       ownerNpub,
+      requestedProfileId: profileId,
       requestedBotNpub: botNpub,
-      profiles: agentDefinitionStore.listForManagerNpub(ownerNpub),
+      ...profileContext,
       getActiveByBotNpub: (candidateBotNpub) => botKeyStore.getActiveKeyForBotNpub(candidateBotNpub),
-      getActiveForOwner: (candidateOwnerNpub) => botKeyStore.getActiveKeyForUser(candidateOwnerNpub),
     });
     ensureLegacyBrokerRecordProvisioned({
       vault: brokerKeyVault,
@@ -887,7 +894,7 @@ manager = new ProcessManager(config, {
     return capabilityBroker.issueSessionCapability({
       sessionId,
       ownerNpub,
-      profileId,
+      profileId: resolvedProfileId,
       botNpub: record.botNpub,
       policy: buildDefaultAgentCapabilityPolicy({
         towerUrl: defaultTowerUrl,

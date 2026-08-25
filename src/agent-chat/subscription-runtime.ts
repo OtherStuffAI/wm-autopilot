@@ -1358,6 +1358,14 @@ export class WorkspaceSubscriptionManager {
     return this.agentStore.listForManagerNpub(npub);
   }
 
+  getDefaultAgentForManager(npub: string): AgentDefinitionRecord | null {
+    return this.agentStore.getDefaultForManagerNpub(npub);
+  }
+
+  setDefaultAgentForManager(agentId: string, npub: string): AgentDefinitionRecord {
+    return this.agentStore.setDefaultForManagerNpub(npub, agentId);
+  }
+
   listBackendConnectionsForManager(npub: string) {
     this.backfillLegacyBackendConnections();
     return this.backendStore.listAvailableForManagerNpub(npub);
