@@ -29,7 +29,7 @@ import {
 import { readCombinedLogs, readLogTail } from "../agents/log-reader";
 import { sanitizeLogEntry } from "../logging/log-sanitizer";
 import { runtimePortRegistry } from "./runtime-port-registry";
-import { waitForListeningPort, waitForTcpPort } from "../utils/port-utils";
+import { waitForAvailableTcpPort, waitForListeningPort, waitForTcpPort } from "../utils/port-utils";
 import { wappStore, type WappStore } from "../wapps/wapp-store";
 import { getWappRuntimeEnvForWapp } from "../wapps/runtime-env";
 import type { RuntimeBotIdentity } from "../agent-chat/types";
@@ -406,7 +406,11 @@ export class AppProcessManager {
       // Check if PM2 process is actually running
       if (app.pm2Name) {
         const running = await this.isPM2ProcessRunning(app.pm2Name);
-        existing.status = running ? "running" : "idle";
+        if (running) {
+          existing.status = "running";
+        } else if (existing.status === "running") {
+          existing.status = "idle";
+        }
         existing.updatedAt = new Date().toISOString();
       }
       return existing;
@@ -506,6 +510,15 @@ export class AppProcessManager {
   }
 
   private async startManagedAppProcess(app: AppRecord): Promise<string> {
+    if (
+      app.webApp
+      && typeof app.webAppPort === "number"
+      && app.webAppPort > 0
+      && !await waitForAvailableTcpPort(app.webAppPort)
+    ) {
+      throw new Error(`App ${app.id} cannot start because assigned port ${app.webAppPort} is already in use`);
+    }
+
     const { userAlias, userRootDir, isAdmin } = this.resolveUserContext(app);
     const launch = await addUserAppToEcosystem({
       app,
@@ -546,7 +559,19 @@ export class AppProcessManager {
           }
           throw new Error(`App ${app.id} did not listen on assigned port ${app.webAppPort} after PM2 start`);
         }
-        runtimePortRegistry.set(app.id, app.webAppPort, pid);
+        const managedRuntime = await getProcessRuntimeInfo(processName);
+        if (managedRuntime?.status !== "online" || !managedRuntime.pid) {
+          const { userRootDir, isAdmin } = this.resolveUserContext(app);
+          const logs = await readCombinedLogs(getLogsDirectory(userRootDir, isAdmin), processName, 50)
+            .catch(() => []);
+          const detail = summarizeAppStartupLogs(logs);
+          throw new Error(
+            detail
+              ? `App ${app.id} failed to start: ${detail}`
+              : `App ${app.id} stopped before startup completed`,
+          );
+        }
+        runtimePortRegistry.set(app.id, app.webAppPort, managedRuntime.pid);
         console.log(`[app-process-manager] Registered known port ${app.webAppPort} for ${processName}`);
         return;
       }

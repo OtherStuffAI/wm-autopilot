@@ -44,6 +44,23 @@ export function isPortAvailable(port: number): boolean {
 }
 
 /**
+ * Poll until a TCP port can be bound by a new process.
+ */
+export async function waitForAvailableTcpPort(
+  port: number,
+  options: { maxAttempts?: number; delayMs?: number } = {},
+): Promise<boolean> {
+  const { maxAttempts = 20, delayMs = 250 } = options;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (isPortAvailable(port)) return true;
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return false;
+}
+
+/**
  * Find the first available port from a list of candidates.
  * Checks both the provided exclusion set and actual system availability.
  * Returns undefined if no port is available.
