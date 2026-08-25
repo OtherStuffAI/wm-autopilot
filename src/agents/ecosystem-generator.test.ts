@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
@@ -19,6 +19,7 @@ import {
   getEcosystemPath,
   getLogsDirectory,
   readEcosystemConfig,
+  writeEcosystemConfig,
   withEcosystemConfigLock,
   type SessionConfig,
 } from "./ecosystem-generator";
@@ -134,6 +135,35 @@ describe("createUserAppEcosystemConfig WApp env injection", () => {
     }
   });
 
+  test("filters non-runtime parent variables before PM2 records app metadata", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ecosystem-app-parent-env-"));
+    try {
+      const config = await createUserAppEcosystemConfig({
+        app: makeApp("plain-app", join(dir, "app")),
+        userAlias: "tester",
+        userRootDir: dir,
+        isAdmin: false,
+        hostEnv: {
+          PATH: "/runtime/bin",
+          HOME: "/runtime/home",
+          IDENTITY_SESSION_SECRET: "session-secret-sentinel",
+          WINGMEN_PIPELINE_HTTP_TRIGGER_TOKEN: "pipeline-secret-sentinel",
+          FUTURE_UNCLASSIFIED_CREDENTIAL: "future-secret-sentinel",
+        },
+      });
+
+      expect(config.env).toMatchObject({ PATH: "/runtime/bin", HOME: "/runtime/home" });
+      expect(config.filter_env).toContain("IDENTITY_SESSION_SECRET");
+      expect(config.filter_env).toContain("WINGMEN_PIPELINE_HTTP_TRIGGER_TOKEN");
+      expect(config.filter_env).toContain("FUTURE_UNCLASSIFIED_CREDENTIAL");
+      expect(JSON.stringify(config)).not.toContain("session-secret-sentinel");
+      expect(JSON.stringify(config)).not.toContain("pipeline-secret-sentinel");
+      expect(JSON.stringify(config)).not.toContain("future-secret-sentinel");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("fails closed for Tower-backed WApps until an installation-scoped broker capability exists", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ecosystem-wapp-tower-"));
     try {
@@ -185,6 +215,19 @@ describe("createUserAppEcosystemConfig WApp env injection", () => {
         isAdmin: false,
         wappStore: store,
       })).rejects.toThrow("installation-scoped NIP-98 signing broker capability");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("PM2 ecosystem state permissions", () => {
+  test("writes generated ecosystem configuration for the current account only", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ecosystem-permissions-"));
+    try {
+      const path = join(dir, "ecosystem.config.cjs");
+      await writeEcosystemConfig(path, { apps: [] });
+      expect(statSync(path).mode & 0o777).toBe(0o600);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
