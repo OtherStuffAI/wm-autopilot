@@ -528,6 +528,77 @@ describe("runDeclarativePipeline", () => {
     expect(step?.wingmanSessionId).toBeNull();
   });
 
+  test("binds routed profiles and leaves unbound sessions to the configured default", async () => {
+    process.env.PIPELINE_AGENT_STEP_MAX_ATTEMPTS = "1";
+    const capturedMetadata: Array<Record<string, unknown>> = [];
+    const capturedAgents: string[] = [];
+    const capturedModels: Array<string | null | undefined> = [];
+    const sessionApiContext = {
+      manager: {
+        async createSession(...args: unknown[]) {
+          capturedAgents.push(args[0] as string);
+          capturedMetadata.push(args[6] as Record<string, unknown>);
+          capturedModels.push(args[7] as string | null | undefined);
+          throw new Error("captured test launch");
+        },
+      },
+      isAgentType(value: string) {
+        return value === "codex" || value === "goose";
+      },
+    } as unknown as SessionApiContext;
+
+    const run = async (id: string, pipelineInput: Record<string, unknown>) => {
+      const definition: PipelineDefinitionRecord = {
+        id,
+        slug: id,
+        name: id,
+        scope: "user",
+        ownerAlias: "alpha-beta-gamma",
+        path: join(tempDir, `${id}.json`),
+        spec: {
+          name: id,
+          input: pipelineInput,
+          steps: [{ name: "agent", type: "agent", agent: "$.agent.defaultAgent", prompt: "Return JSON." }],
+        },
+      };
+      return await runDeclarativePipeline({
+        store: new PipelineStore(join(tempDir, `${id}.sqlite`)),
+        sessionApiContext,
+        definition,
+        registry: builtinPipelineFunctions,
+        input: pipelineInput,
+        ownerNpub: "npub-owner",
+        ownerAlias: "alpha-beta-gamma",
+        callbackOrigin: "http://callback.local",
+      });
+    };
+
+    const routed = await run("routed-profile", {
+      agent: {
+        profileId: "brick",
+        agentId: "brick",
+        botNpub: "npub1brick",
+        defaultAgent: "goose",
+        model: "brick-model",
+      },
+    });
+    const unbound = await run("default-profile", {
+      agent: { agentId: "legacy-descriptive-agent", workingDirectory: "/tmp/legacy" },
+    });
+
+    expect(routed.status).toBe("error");
+    expect(unbound.status).toBe("error");
+    expect(capturedMetadata[0]).toMatchObject({
+      role: "pipeline-step",
+      agentProfileId: "brick",
+      agentChatBotNpub: "npub1brick",
+    });
+    expect(capturedMetadata[1]?.agentProfileId).toBeUndefined();
+    expect(capturedMetadata[1]?.agentChatBotNpub).toBeUndefined();
+    expect(capturedAgents).toEqual(["goose", "codex"]);
+    expect(capturedModels).toEqual(["brick-model", undefined]);
+  });
+
   test("delivers agent steps through the session adapter when the active transport is native", async () => {
     const store = makeStore();
     const sessionId = "native-codex-session";

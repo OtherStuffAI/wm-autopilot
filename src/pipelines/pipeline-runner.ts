@@ -42,6 +42,11 @@ interface PipelineRunnerInput {
   onRunCreated?: (run: ReturnType<PipelineStore["createRun"]>) => void;
 }
 
+interface PipelineAgentProfileBinding {
+  agentProfileId: string;
+  agentChatBotNpub: string;
+}
+
 export class PipelineHalt extends Error {
   constructor(
     readonly status: PipelineStatus,
@@ -386,7 +391,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
             prompt: childStep.prompt,
             callbackToken: token,
             agent: resolveStringTemplate(input.current, childStep.agent),
-            model: resolveStringTemplate(input.current, childStep.model),
+            model: resolveStringTemplate(input.current, childStep.model) ?? resolvePipelineAgentModel(input.input),
             directory: resolveStringTemplate(input.current, childStep.directory),
             callbackTimeoutMs: resolveDurationMs(input.current, childStep.timeoutMs, CALLBACK_TIMEOUT_MS),
           });
@@ -513,7 +518,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       prompt: step.prompt,
       callbackToken: token,
       agent: resolveStringTemplate(input.current, step.agent),
-      model: resolveStringTemplate(input.current, step.model),
+      model: resolveStringTemplate(input.current, step.model) ?? resolvePipelineAgentModel(input.input),
       directory: resolveStringTemplate(input.current, step.directory),
       callbackTimeoutMs: resolveDurationMs(input.current, step.timeoutMs, CALLBACK_TIMEOUT_MS),
     });
@@ -892,6 +897,7 @@ async function runAgentStep(input: PipelineRunnerInput & {
   let result: { status: PipelineStatus; result: JsonObject | null; error: string | null } | null = null;
   let lastError: unknown = null;
   const maxAttempts = resolveAgentStepMaxAttempts();
+  const profileBinding = resolvePipelineAgentProfileBinding(input.input);
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const latest = input.store.getStep(input.stepId);
     if (latest?.status === "ok") {
@@ -927,6 +933,7 @@ async function runAgentStep(input: PipelineRunnerInput & {
           bindingId: input.runId,
           flowRunId: input.runId,
           retryAttempt: attempt,
+          ...profileBinding,
         },
         input.model,
       );
@@ -994,6 +1001,27 @@ async function runAgentStep(input: PipelineRunnerInput & {
     throw new PipelineHalt("needs_input", result.result ?? {}, "Agent step needs input");
   }
   return result.result ?? {};
+}
+
+function resolvePipelineAgentProfileBinding(input: JsonObject): PipelineAgentProfileBinding | Record<string, never> {
+  const agent = input.agent;
+  if (!agent || typeof agent !== "object" || Array.isArray(agent)) return {};
+  const values = agent as Record<string, unknown>;
+  const profileId = typeof values.profileId === "string" ? values.profileId.trim() : "";
+  const botNpub = typeof values.botNpub === "string" ? values.botNpub.trim() : "";
+  if (!profileId) return {};
+  if (!botNpub) {
+    throw new Error("Pipeline agent profile binding requires both profileId and botNpub");
+  }
+  return { agentProfileId: profileId, agentChatBotNpub: botNpub };
+}
+
+function resolvePipelineAgentModel(input: JsonObject): string | undefined {
+  const agent = input.agent;
+  if (!agent || typeof agent !== "object" || Array.isArray(agent)) return undefined;
+  const values = agent as Record<string, unknown>;
+  if (typeof values.profileId !== "string" || !values.profileId.trim()) return undefined;
+  return typeof values.model === "string" && values.model.trim() ? values.model.trim() : undefined;
 }
 
 function assertAgentInputWithinLimit(selectedInput: JsonObject, pipelineName: string, stepName: string): void {
