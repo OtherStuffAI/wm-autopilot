@@ -13,6 +13,7 @@ describe("buildUserAppSpawnPlan", () => {
         startCommand: appCommand("bun", "run", "start"),
         userAlias: "owner",
         port: "4100",
+        runtimeEnvEnvelope: { path: "/tmp/runtime-env.json", key: "test-key" },
       },
       {
         hostEnv: {
@@ -25,7 +26,7 @@ describe("buildUserAppSpawnPlan", () => {
           HOME: "/host/home",
           PATH: "/runtime/bin",
         },
-        appEnvReader: async () => ({
+        runtimeEnvReader: async () => ({
           API_TOKEN: "from-card",
           APP_ID: "ignored-by-runtime",
         }),
