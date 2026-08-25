@@ -10,6 +10,8 @@ import { WappStore } from "../wapps/wapp-store";
 const ecosystemCalls: string[] = [];
 const pm2Starts: string[] = [];
 let assignedPortReady = true;
+let assignedPortAvailable = true;
+let pm2RuntimeStatus = "online";
 
 mock.module("../agents/ecosystem-generator", () => ({
   addUserAppToEcosystem: async () => {
@@ -29,7 +31,7 @@ mock.module("../agents/ecosystem-generator", () => ({
 mock.module("../agents/pm2-wrapper", () => ({
   deleteProcess: async () => undefined,
   getProcessByName: async () => null,
-  getProcessRuntimeInfo: async () => ({ pid: 1234, port: 4100, memory: 1024 }),
+  getProcessRuntimeInfo: async () => ({ pid: 1234, port: 4100, memory: 1024, status: pm2RuntimeStatus }),
   startProcessFromConfig: async (_ecosystemPath: string, processName: string) => {
     pm2Starts.push(processName);
   },
@@ -38,6 +40,7 @@ mock.module("../agents/pm2-wrapper", () => ({
 
 mock.module("../utils/port-utils", () => ({
   isPortAvailable: () => true,
+  waitForAvailableTcpPort: async () => assignedPortAvailable,
   waitForListeningPort: async () => 4100,
   waitForTcpPort: async () => assignedPortReady,
 }));
@@ -64,6 +67,8 @@ function makeManager(input: {
   ecosystemCalls.length = 0;
   pm2Starts.length = 0;
   assignedPortReady = true;
+  assignedPortAvailable = true;
+  pm2RuntimeStatus = "online";
   const dir = mkdtempSync(join(tmpdir(), "app-process-manager-"));
   const store = new WappStore(join(dir, "wapps.sqlite"));
   store.createTowerBinding({
@@ -213,6 +218,46 @@ describe("AppProcessManager Tower WApp lifecycle registration", () => {
       const status = await manager.getStatus(app.id);
       expect(status.status).toBe("failed");
       expect(status.message).toContain("did not listen on assigned port 4100");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("rejects launch before PM2 start when the assigned port is occupied", async () => {
+    const { manager, cleanup } = makeManager({
+      registrar: {
+        register: async (registration) => ({
+          workspaceOwnerNpub: registration.workspaceOwnerNpub,
+          appNpub: registration.appNpub,
+          app: { app_npub: registration.appNpub },
+        }),
+      },
+    });
+    assignedPortAvailable = false;
+    try {
+      await expect(manager.start(app.id)).rejects.toThrow("assigned port 4100 is already in use");
+      expect(pm2Starts).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("rejects a foreign listener when the managed PM2 process has stopped", async () => {
+    const { manager, cleanup } = makeManager({
+      registrar: {
+        register: async (registration) => ({
+          workspaceOwnerNpub: registration.workspaceOwnerNpub,
+          appNpub: registration.appNpub,
+          app: { app_npub: registration.appNpub },
+        }),
+      },
+    });
+    pm2RuntimeStatus = "stopped";
+    try {
+      await expect(manager.start(app.id)).rejects.toThrow("stopped before startup completed");
+      const status = await manager.getStatus(app.id);
+      expect(status.status).toBe("failed");
+      expect(status.message).toContain("stopped before startup completed");
     } finally {
       cleanup();
     }

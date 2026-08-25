@@ -37,6 +37,80 @@ export interface UserAppSpawnPlan {
   env: Record<string, string>;
 }
 
+interface UserAppChildProcess {
+  pid: number;
+  exited: Promise<number>;
+  kill: (signal?: NodeJS.Signals | number) => void;
+}
+
+interface UserAppSignalSource {
+  on: (signal: NodeJS.Signals, listener: () => void) => unknown;
+  off: (signal: NodeJS.Signals, listener: () => void) => unknown;
+}
+
+export interface UserAppSupervisorDeps {
+  signalSource?: UserAppSignalSource;
+  platform?: NodeJS.Platform;
+  killProcessGroup?: (pid: number, signal: NodeJS.Signals | number) => void;
+  forceKillAfterMs?: number;
+}
+
+const FORWARDED_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+
+function terminateUserAppChild(
+  child: UserAppChildProcess,
+  signal: NodeJS.Signals | number,
+  deps: UserAppSupervisorDeps,
+): void {
+  const platform = deps.platform ?? process.platform;
+  if (platform !== "win32" && child.pid > 0) {
+    try {
+      (deps.killProcessGroup ?? process.kill)(-child.pid, signal);
+      return;
+    } catch {
+      // Fall back to the direct child when process-group signalling is unavailable.
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // The child may already have exited between the signal and this call.
+  }
+}
+
+export async function superviseUserAppChild(
+  child: UserAppChildProcess,
+  deps: UserAppSupervisorDeps = {},
+): Promise<number> {
+  const signalSource = deps.signalSource ?? process;
+  let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+  let terminating = false;
+  const listeners = new Map<NodeJS.Signals, () => void>();
+
+  for (const signal of FORWARDED_SIGNALS) {
+    const listener = () => {
+      if (terminating) return;
+      terminating = true;
+      terminateUserAppChild(child, signal, deps);
+      forceKillTimer = setTimeout(() => {
+        terminateUserAppChild(child, "SIGKILL", deps);
+      }, deps.forceKillAfterMs ?? 1_000);
+      forceKillTimer.unref?.();
+    };
+    listeners.set(signal, listener);
+    signalSource.on(signal, listener);
+  }
+
+  try {
+    return await child.exited;
+  } finally {
+    if (forceKillTimer) clearTimeout(forceKillTimer);
+    for (const [signal, listener] of listeners) {
+      signalSource.off(signal, listener);
+    }
+  }
+}
+
 function requireValue(value: string | undefined, field: string): string {
   const trimmed = value?.trim();
   if (!trimmed) throw new Error(`${field} is required`);
@@ -130,8 +204,9 @@ export async function runUserApp(input: UserAppRunnerInput, deps: UserAppRunnerD
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
+    detached: process.platform !== "win32",
   });
-  return await child.exited;
+  return await superviseUserAppChild(child);
 }
 
 async function main(): Promise<void> {
