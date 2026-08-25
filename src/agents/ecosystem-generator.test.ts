@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
 import { generateSecretKey, nip19 } from "nostr-tools";
@@ -7,14 +7,17 @@ import { generateSecretKey, nip19 } from "nostr-tools";
 import type { AppRecord } from "../apps/app-registry";
 import type { WingmanConfig } from "../config";
 import { WappStore } from "../wapps/wapp-store";
+import { getWappRuntimeEnvForWapp } from "../wapps/runtime-env";
 import { buildUserAppSpawnPlan } from "../apps/app-runner";
 import { appCommand } from "../apps/app-command";
+import { consumeAppRuntimeEnvelope } from "../apps/app-runtime-envelope";
 import {
   addAppToEcosystem,
   addUserAppToEcosystem,
   createAgentPm2StartOptions,
   createUserAppEcosystemConfig,
   getEcosystemPath,
+  getLogsDirectory,
   readEcosystemConfig,
   withEcosystemConfigLock,
   type SessionConfig,
@@ -59,6 +62,10 @@ function makeSessionConfig(root: string, index: number): SessionConfig {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("createUserAppEcosystemConfig WApp env injection", () => {
+  test("uses an absolute admin log directory so PM2 and the log API agree", () => {
+    expect(isAbsolute(getLogsDirectory("/ignored", true))).toBe(true);
+  });
+
   test("injects WAPP vars only for active WApp assignments", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ecosystem-wapp-"));
     try {
@@ -107,10 +114,10 @@ describe("createUserAppEcosystemConfig WApp env injection", () => {
         userAlias: "tester",
         port: "4010",
         wappId: "wapp-1",
+        runtimeEnvEnvelope: { path: "/tmp/runtime-env.json", key: "test-key" },
       }, {
-        store,
         hostEnv: {},
-        appEnvReader: async () => ({}),
+        runtimeEnvReader: async () => getWappRuntimeEnvForWapp("wapp-1", wappRoot, store),
         redshiftDetector: async () => false,
       });
       expect(runnerPlan.env.WAPP_ID).toBe("wapp-1");
@@ -171,20 +178,13 @@ describe("createUserAppEcosystemConfig WApp env injection", () => {
       expect(serializedConfig).not.toContain(appNsec);
       expect(wappConfig.filter_env).toContain("WAPP_NSEC");
 
-      await expect(buildUserAppSpawnPlan({
-          appId: "wapp-app",
-          appLabel: "WApp App",
-          appRoot: join(dir, "wapp-root"),
-          startCommand: appCommand("bun", "src/server.ts"),
-          userAlias: "tester",
-          port: "4010",
-          wappId: "wapp-tower",
-        }, {
-          store,
-          hostEnv: {},
-          appEnvReader: async () => ({}),
-          redshiftDetector: async () => false,
-        })).rejects.toThrow("installation-scoped NIP-98 signing broker capability");
+      await expect(addUserAppToEcosystem({
+        app: makeApp("wapp-app", join(dir, "wapp-root")),
+        userAlias: "tester",
+        userRootDir: dir,
+        isAdmin: false,
+        wappStore: store,
+      })).rejects.toThrow("installation-scoped NIP-98 signing broker capability");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -275,6 +275,36 @@ describe("agent ecosystem config concurrency", () => {
 });
 
 describe("user app ecosystem config concurrency", () => {
+  test("keeps managed app environment plaintext out of the PM2 ecosystem file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ecosystem-user-app-env-"));
+    try {
+      const app = {
+        ...makeApp("plain-app", join(dir, "app")),
+        env: { API_TOKEN: "managed-secret-sentinel" },
+      };
+      const launch = await addUserAppToEcosystem({
+        app,
+        userAlias: "tester",
+        userRootDir: dir,
+        isAdmin: false,
+      });
+      const config = await readEcosystemConfig(getEcosystemPath(dir, false));
+      const pm2App = config.apps.find((entry) => entry.name === launch.processName);
+      const pathIndex = pm2App?.args.indexOf("--runtime-env-path") ?? -1;
+      const keyIndex = pm2App?.args.indexOf("--runtime-env-key") ?? -1;
+
+      expect(JSON.stringify(config)).not.toContain("managed-secret-sentinel");
+      expect(pathIndex).toBeGreaterThanOrEqual(0);
+      expect(keyIndex).toBeGreaterThanOrEqual(0);
+      await expect(consumeAppRuntimeEnvelope({
+        path: pm2App!.args[pathIndex + 1]!,
+        key: pm2App!.args[keyIndex + 1]!,
+      }, app.id)).resolves.toEqual({ API_TOKEN: "managed-secret-sentinel" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("preserves all app entries across concurrent user app additions", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ecosystem-user-apps-"));
     try {

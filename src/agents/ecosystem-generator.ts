@@ -7,10 +7,17 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { AgentType, WingmanConfig } from "../config";
 import type { AppRecord } from "../apps/app-registry";
+import {
+  createAppRuntimeEnvelope,
+  removeAppRuntimeEnvelope,
+  type AppRuntimeEnvelopeReference,
+} from "../apps/app-runtime-envelope";
 import { wappStore, type WappStore } from "../wapps/wapp-store";
+import { getWappRuntimeEnvForWapp } from "../wapps/runtime-env";
 import { sanitizeInjectedAgentEnvironment } from "./agent-environment";
 
 export interface EcosystemApp {
@@ -75,7 +82,8 @@ export interface SessionConfig {
 }
 
 const ECOSYSTEM_FILENAME = "ecosystem.config.cjs";
-const ADMIN_DATA_DIR = "./data/admin";
+const AUTOPILOT_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const ADMIN_DATA_DIR = join(AUTOPILOT_ROOT, "data", "admin");
 const USER_APP_RUNNER_PATH = new URL("../apps/app-runner.ts", import.meta.url).pathname;
 const BILLING_COMPATIBLE_AGENTS = new Set<AgentType>(["codex", "claude", "goose"]);
 const PROVIDER_AUTH_ENV_KEYS = [
@@ -532,7 +540,10 @@ export function generateAppProcessName(userAlias: string, appLabel: string): str
  * Create an ecosystem app entry for a user app.
  * Runs the reviewed lifecycle argv through the dedicated app runner.
  */
-export async function createUserAppEcosystemConfig(config: UserAppConfig): Promise<EcosystemApp> {
+export async function createUserAppEcosystemConfig(
+  config: UserAppConfig,
+  runtimeEnvEnvelope?: AppRuntimeEnvelopeReference,
+): Promise<EcosystemApp> {
   const { app, userAlias, userRootDir, isAdmin } = config;
   const processName = generateAppProcessName(userAlias, app.label);
   const logsDir = getLogsDirectory(userRootDir, isAdmin);
@@ -565,6 +576,10 @@ export async function createUserAppEcosystemConfig(config: UserAppConfig): Promi
   if (wapp) {
     args.push("--wapp-id", wapp.id);
   }
+  if (runtimeEnvEnvelope) {
+    args.push("--runtime-env-path", runtimeEnvEnvelope.path);
+    args.push("--runtime-env-key", runtimeEnvEnvelope.key);
+  }
 
   return {
     name: processName,
@@ -594,7 +609,7 @@ export async function createUserAppEcosystemConfig(config: UserAppConfig): Promi
  */
 export async function addUserAppToEcosystem(
   config: UserAppConfig,
-): Promise<{ ecosystemPath: string; processName: string; logsDir: string }> {
+): Promise<{ ecosystemPath: string; processName: string; logsDir: string; runtimeEnvPath: string }> {
   const ecosystemPath = getEcosystemPath(config.userRootDir, config.isAdmin);
   return withEcosystemConfigLock(ecosystemPath, () => addUserAppToEcosystemUnlocked(config, ecosystemPath));
 }
@@ -602,34 +617,51 @@ export async function addUserAppToEcosystem(
 async function addUserAppToEcosystemUnlocked(
   config: UserAppConfig,
   ecosystemPath: string,
-): Promise<{ ecosystemPath: string; processName: string; logsDir: string }> {
+): Promise<{ ecosystemPath: string; processName: string; logsDir: string; runtimeEnvPath: string }> {
   const logsDir = getLogsDirectory(config.userRootDir, config.isAdmin);
 
   // Ensure logs directory exists
   await mkdir(logsDir, { recursive: true });
 
-  // Read existing config
-  const ecosystemConfig = await readEcosystemConfig(ecosystemPath);
-
-  // Create app config (async to read .env file)
-  const appConfig = await createUserAppEcosystemConfig(config);
-
-  // Check if app with same name already exists
-  const existingIndex = ecosystemConfig.apps.findIndex((a) => a.name === appConfig.name);
-  if (existingIndex >= 0) {
-    // Update existing entry
-    ecosystemConfig.apps[existingIndex] = appConfig;
-  } else {
-    // Add new entry
-    ecosystemConfig.apps.push(appConfig);
-  }
-
-  // Write updated config
-  await writeEcosystemConfig(ecosystemPath, ecosystemConfig);
-
-  return {
-    ecosystemPath,
-    processName: appConfig.name,
-    logsDir,
+  const store = config.wappStore ?? wappStore;
+  const wapp = store.getByAppId(config.app.id);
+  const runtimeEnv = {
+    ...(config.app.env ?? {}),
+    ...(wapp ? getWappRuntimeEnvForWapp(wapp.id, config.app.root, store) : {}),
   };
+  const runtimeEnvEnvelope = await createAppRuntimeEnvelope(
+    join(logsDir, ".runtime-env"),
+    config.app.id,
+    runtimeEnv,
+  );
+
+  try {
+    // Read existing config
+    const ecosystemConfig = await readEcosystemConfig(ecosystemPath);
+
+    const appConfig = await createUserAppEcosystemConfig(config, runtimeEnvEnvelope);
+
+    // Check if app with same name already exists
+    const existingIndex = ecosystemConfig.apps.findIndex((a) => a.name === appConfig.name);
+    if (existingIndex >= 0) {
+      // Update existing entry
+      ecosystemConfig.apps[existingIndex] = appConfig;
+    } else {
+      // Add new entry
+      ecosystemConfig.apps.push(appConfig);
+    }
+
+    // Write updated config
+    await writeEcosystemConfig(ecosystemPath, ecosystemConfig);
+
+    return {
+      ecosystemPath,
+      processName: appConfig.name,
+      logsDir,
+      runtimeEnvPath: runtimeEnvEnvelope.path,
+    };
+  } catch (error) {
+    await removeAppRuntimeEnvelope(runtimeEnvEnvelope.path);
+    throw error;
+  }
 }

@@ -6,6 +6,8 @@ import { appRegistry } from "./app-registry";
 import type { AppLifecycleAction, AppRecord, AppRegistry } from "./app-registry";
 import type { AppCommand } from "./app-command";
 import { buildManagedAppSpawnPlan } from "./app-runtime-env";
+import { removeAppRuntimeEnvelope } from "./app-runtime-envelope";
+import { summarizeAppStartupLogs } from "./app-startup-diagnostics";
 import { AppActionError, AppActionInProgressError, AppScriptMissingError } from "./app-process-errors";
 import { clearAppLogFiles } from "./app-log-files";
 import { generateIdentityAlias } from "../identity/identity-alias";
@@ -167,29 +169,9 @@ export class AppProcessManager {
 
   async start(appId: string): Promise<AppProcessStatus> {
     return this.runAction(appId, "start", async (app) => {
-      const script = this.requireScript(app, "start");
+      this.requireScript(app, "start");
       await this.ensureTowerWappRegistered(app);
-
-      // Resolve user info
-      const { userAlias, userRootDir, isAdmin } = this.resolveUserContext(app);
-
-      // Add to ecosystem and start via PM2
-      const { ecosystemPath, processName, logsDir } = await addUserAppToEcosystem({
-        app,
-        userAlias,
-        userRootDir,
-        isAdmin,
-        wappStore: this.wappStore,
-      });
-
-      // Update app record with PM2 info
-      await this.registry.updateApp(app.id, { pm2Name: processName, logsDir });
-
-      // Start the process
-      await startProcessFromConfig(ecosystemPath, processName);
-
-      // Register runtime port - use known webAppPort if available, otherwise detect
-      await this.registerRuntimePort(app, processName);
+      const processName = await this.startManagedAppProcess(app);
 
       return {
         finalStatus: "running" as AppRuntimeStatus,
@@ -249,51 +231,19 @@ export class AppProcessManager {
 
       const processName = app.pm2Name;
       if (processName) {
-        try {
-          const proc = await getProcessByName(processName);
-          if (proc) {
-            const { userAlias, userRootDir, isAdmin } = this.resolveUserContext(app);
-            const { ecosystemPath, processName: refreshedProcessName, logsDir } = await addUserAppToEcosystem({
-              app,
-              userAlias,
-              userRootDir,
-              isAdmin,
-              wappStore: this.wappStore,
-            });
-
-            await this.registry.updateApp(app.id, { pm2Name: refreshedProcessName, logsDir });
-            await deleteProcess(processName);
-            await startProcessFromConfig(ecosystemPath, refreshedProcessName);
-
-            // Register runtime port after restart
-            await this.registerRuntimePort(app, refreshedProcessName);
-
-            return {
-              finalStatus: "running" as AppRuntimeStatus,
-              exitCode: 0,
-              message: `Restarted PM2 process ${refreshedProcessName}`,
-            };
-          }
-        } catch {
-          // Process doesn't exist, fall through to fresh start
+        const proc = await getProcessByName(processName).catch(() => null);
+        if (proc) {
+          await deleteProcess(processName);
+          const refreshedProcessName = await this.startManagedAppProcess(app);
+          return {
+            finalStatus: "running" as AppRuntimeStatus,
+            exitCode: 0,
+            message: `Restarted PM2 process ${refreshedProcessName}`,
+          };
         }
       }
 
-      // Fresh start
-      const { userAlias, userRootDir, isAdmin } = this.resolveUserContext(app);
-      const { ecosystemPath, processName: newProcessName, logsDir } = await addUserAppToEcosystem({
-        app,
-        userAlias,
-        userRootDir,
-        isAdmin,
-        wappStore: this.wappStore,
-      });
-
-      await this.registry.updateApp(app.id, { pm2Name: newProcessName, logsDir });
-      await startProcessFromConfig(ecosystemPath, newProcessName);
-
-      // Register runtime port
-      await this.registerRuntimePort(app, newProcessName);
+      const newProcessName = await this.startManagedAppProcess(app);
 
       return {
         finalStatus: "running" as AppRuntimeStatus,
@@ -555,6 +505,25 @@ export class AppProcessManager {
     }
   }
 
+  private async startManagedAppProcess(app: AppRecord): Promise<string> {
+    const { userAlias, userRootDir, isAdmin } = this.resolveUserContext(app);
+    const launch = await addUserAppToEcosystem({
+      app,
+      userAlias,
+      userRootDir,
+      isAdmin,
+      wappStore: this.wappStore,
+    });
+    try {
+      await this.registry.updateApp(app.id, { pm2Name: launch.processName, logsDir: launch.logsDir });
+      await startProcessFromConfig(launch.ecosystemPath, launch.processName);
+      await this.registerRuntimePort(app, launch.processName);
+      return launch.processName;
+    } finally {
+      await removeAppRuntimeEnvelope(launch.runtimeEnvPath);
+    }
+  }
+
   /**
    * Register the runtime port for an app after start/restart.
    * Uses the known webAppPort if available, otherwise falls back to detection.
@@ -568,6 +537,13 @@ export class AppProcessManager {
       if (app.webApp && typeof app.webAppPort === "number" && app.webAppPort > 0) {
         const ready = await waitForTcpPort(app.webAppPort);
         if (!ready) {
+          const { userRootDir, isAdmin } = this.resolveUserContext(app);
+          const logs = await readCombinedLogs(getLogsDirectory(userRootDir, isAdmin), processName, 50)
+            .catch(() => []);
+          const detail = summarizeAppStartupLogs(logs);
+          if (detail) {
+            throw new Error(`App ${app.id} failed to start: ${detail}`);
+          }
           throw new Error(`App ${app.id} did not listen on assigned port ${app.webAppPort} after PM2 start`);
         }
         runtimePortRegistry.set(app.id, app.webAppPort, pid);

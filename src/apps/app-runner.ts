@@ -3,11 +3,12 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 
-import { appRegistry } from "./app-registry";
-import { getWappRuntimeEnvForWapp } from "../wapps/runtime-env";
-import { wappStore, type WappStore } from "../wapps/wapp-store";
 import { buildManagedAppEnvironment } from "./app-runtime-env";
 import { validateAppCommand, type AppCommand } from "./app-command";
+import {
+  consumeAppRuntimeEnvelope,
+  type AppRuntimeEnvelopeReference,
+} from "./app-runtime-envelope";
 
 export interface UserAppRunnerInput {
   appId: string;
@@ -17,12 +18,15 @@ export interface UserAppRunnerInput {
   userAlias: string;
   port?: string;
   wappId?: string;
+  runtimeEnvEnvelope?: AppRuntimeEnvelopeReference;
 }
 
 export interface UserAppRunnerDeps {
-  store?: WappStore;
   hostEnv?: Record<string, string | undefined>;
-  appEnvReader?: (appId: string) => Promise<Record<string, string>>;
+  runtimeEnvReader?: (
+    reference: AppRuntimeEnvelopeReference,
+    appId: string,
+  ) => Promise<Record<string, string>>;
   redshiftDetector?: (directory: string) => Promise<boolean>;
   spawn?: typeof Bun.spawn;
 }
@@ -67,6 +71,12 @@ function parseRunnerArgs(args: string[]): UserAppRunnerInput {
     userAlias: requireValue(values.get("user-alias"), "user-alias"),
     port: values.get("port"),
     wappId: values.get("wapp-id"),
+    runtimeEnvEnvelope: values.has("runtime-env-path") || values.has("runtime-env-key")
+      ? {
+          path: requireValue(values.get("runtime-env-path"), "runtime-env-path"),
+          key: requireValue(values.get("runtime-env-key"), "runtime-env-key"),
+        }
+      : undefined,
   };
 }
 
@@ -81,27 +91,14 @@ async function hasRedshiftConfig(directory: string): Promise<boolean> {
   }
 }
 
-async function readManagedAppEnv(appId: string): Promise<Record<string, string>> {
-  const app = await appRegistry.getApp(appId);
-  if (!app) {
-    throw new Error(`Unable to load managed environment for unknown app: ${appId}`);
-  }
-  return app.env ?? {};
-}
-
 export async function buildUserAppSpawnPlan(
   input: UserAppRunnerInput,
   deps: UserAppRunnerDeps = {},
 ): Promise<UserAppSpawnPlan> {
   const hostEnv = deps.hostEnv ?? process.env;
-  const managedEnv = await (deps.appEnvReader ?? readManagedAppEnv)(input.appId);
-  const wappEnv: Record<string, string> = {};
-  if (input.wappId) {
-    Object.assign(
-      wappEnv,
-      getWappRuntimeEnvForWapp(input.wappId, input.appRoot, deps.store ?? wappStore),
-    );
-  }
+  const managedEnv = input.runtimeEnvEnvelope
+    ? await (deps.runtimeEnvReader ?? consumeAppRuntimeEnvelope)(input.runtimeEnvEnvelope, input.appId)
+    : {};
 
   const env = buildManagedAppEnvironment({
     app: {
@@ -112,7 +109,6 @@ export async function buildUserAppSpawnPlan(
     },
     userAlias: input.userAlias,
     hostEnv,
-    wappEnv,
   });
 
   const hasRedshift = await (deps.redshiftDetector ?? hasRedshiftConfig)(input.appRoot);
