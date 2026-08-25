@@ -3870,27 +3870,6 @@ export class WorkspaceSubscriptionManager {
       return this.saveRecord(this.recomputeHealth(record));
     }
 
-    const eventActorId = typeof event.actor_id === 'string' ? event.actor_id : null;
-    if (eventActorId && runtime.flightDeckPgActorId && eventActorId === runtime.flightDeckPgActorId) {
-      return this.appendDispatchHistory(record, {
-        at: new Date().toISOString(),
-        kind: 'chat',
-        action: 'chat_pipeline_suppressed',
-        agentId: 'dispatch-pipeline',
-        sessionId: null,
-        recordId: eventEntityId,
-        bindingId: event.thread_id ?? eventEntityId,
-        bindingType: 'thread',
-        sourceLabel: sourceLabelForFlightDeckChat({ event }),
-        details: {
-          suppression_reason: 'self_authored',
-          event_actor_id: eventActorId,
-          bot_actor_id: runtime.flightDeckPgActorId,
-          source: 'flightdeck_pg',
-        },
-      });
-    }
-
     try {
       const subscriptionAudience = this.enabledFlightDeckAudience(record);
       const visibilityEvidence = event.visible_to_audience_npubs ?? event.visible_to_agent_npubs;

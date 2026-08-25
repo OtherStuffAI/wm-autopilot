@@ -62,8 +62,8 @@ The legacy `activation: mention_then_continue` configuration value remains accep
 - all channels are Direct-enabled by product default; `metadata.agent_chat.enabled: false` is the explicit opt-out;
 - malformed or multi-party DMs, DMs missing this agent, and messages authored outside the declared pair require a canonical mention;
 - an existing binding or live session never makes an otherwise ineligible message actionable;
-- target agent authored the message: ignore;
-- mapped workspace/session key for the target agent authored the message: ignore;
+- target agent or its mapped workspace/session key authored the message without canonically mentioning the target: ignore;
+- an explicit canonical self-mention is actionable, so an agent can deliberately dispatch a new turn to itself;
 - another agent alone is mentioned: do not activate this agent;
 - Agent Direct Chat is disabled on the channel: ignore;
 - duplicate event/message: acknowledge internally without another turn.
@@ -135,8 +135,8 @@ Event payloads are notifications, not the complete source of truth. Before routi
 2. fetch the triggering message from the typed Tower route or authoritative channel message list;
 3. fetch the complete canonical thread in stable order;
 4. resolve the message authors supplied by Tower;
-5. verify the latest relevant message is not authored by this agent or its mapped key;
-6. compute the undelivered human-message delta from persisted message IDs.
+5. verify the latest relevant message is not unmentioned output authored by this agent or its mapped key; preserve an explicit canonical self-mention as an intentional dispatch;
+6. compute the undelivered actionable-message delta from persisted message IDs.
 
 Do not reason from a stale event excerpt when the Tower thread can be fetched.
 
@@ -209,7 +209,7 @@ The complete source coordinates also remain in session metadata so later turns d
 
 ## Follow-Up Prompt Contract
 
-For every bound-thread follow-up, fetch and include the complete authoritative Flight Deck thread in stable order. This `thread_history` is context only and includes prior human messages, intervening unmentioned shared-channel messages, agent-published replies, canonical author IDs/npubs, mentions, and attachments. Separately compute `actionable_messages` from human messages after `last_human_message_id_delivered`, filtered through the same per-message eligibility rule: canonical mention in shared/system channels, or the sole other participant in a strict two-party DM. Only `actionable_messages` are new instructions for the turn. Preserve both arrays in authoritative arrival order.
+For every bound-thread follow-up, fetch and include the complete authoritative Flight Deck thread in stable order. This `thread_history` is context only and includes prior human messages, intervening unmentioned shared-channel messages, agent-published replies, canonical author IDs/npubs, mentions, and attachments. Separately compute `actionable_messages` after `last_human_message_id_delivered`, filtered through the same per-message eligibility rule: canonical mention in shared/system channels, including an intentional canonical self-mention, or the sole other participant in a strict two-party DM. Only `actionable_messages` are new instructions for the turn. Preserve both arrays in authoritative arrival order.
 
 ```json
 {
@@ -229,7 +229,7 @@ For every bound-thread follow-up, fetch and include the complete authoritative F
       "mentions": []
     }
   ],
-  "actionable_semantics": "Only these newly eligible human messages are instructions for this turn.",
+  "actionable_semantics": "Only these newly eligible messages are instructions for this turn.",
   "actionable_messages": [
     {
       "message_id": "...",
@@ -403,7 +403,7 @@ The existing native session/process-manager implementation is the MVP adapter. A
 2. Literal mention-like text without canonical mention metadata does not activate an unbound thread.
 3. The bootstrap prompt contains channel context, source coordinates, complete ordered history, and a clearly marked next message.
 4. A completed final response produces exactly one Tower message authored by the workspace agent, with Markdown preserved verbatim.
-5. A the workspace agent-authored message event does not retrigger the workspace agent.
+5. An unmentioned workspace-agent-authored message event does not retrigger the workspace agent; an explicit canonical self-mention does.
 6. A later unmentioned shared-channel reply is ignored and leaves the existing session binding intact; a later mentioned reply reuses it.
 7. An unmentioned message from the sole other participant in a strict two-party DM creates or reuses the session.
 8. A strict two-party DM works without `metadata.agent_chat`; its legacy `metadata.basePrompt` supplies context when no Direct context prompt exists.

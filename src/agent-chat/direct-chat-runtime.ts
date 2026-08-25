@@ -13,10 +13,11 @@ import {
   buildDirectChatTurnId,
   channelDirectChatConfig,
   channelLegacyBasePrompt,
+  hasCanonicalNpubMention,
   isAgentDirectMessageEligible,
   isImplicitTwoPartyDirectMessage,
   orderDirectChatMessages,
-  selectUndeliveredHumanMessages,
+  selectUndeliveredActionableMessages,
 } from './direct-chat-contract';
 import { directChatTurnStore, type DirectChatTurnStore } from './direct-chat-turn-store';
 import { AgentActivityPublisher, type AgentActivityContext } from './agent-activity-publisher';
@@ -160,7 +161,11 @@ export class AgentDirectChatRuntime {
     if (agents.length === 0) return { handled: false, reason: 'no_direct_chat_agent' };
     let handled = false;
     for (const agent of agents) {
-      if (!eventMessage || eventMessage.userNpub === agent.botNpub || eventMessage.userNpub === input.subscription.wsKeyNpub) continue;
+      if (!eventMessage) continue;
+      const explicitlyMentioned = hasCanonicalNpubMention(eventMessage, agent.botNpub);
+      const authoredByAgent = eventMessage.userNpub === agent.botNpub
+        || eventMessage.userNpub === input.subscription.wsKeyNpub;
+      if (authoredByAgent && !explicitlyMentioned) continue;
       if (revisionDispatch
         ? !revisionDispatch.newlyAddedMentionNpubs.has(agent.botNpub)
         : !isAgentDirectMessageEligible(input.channel, eventMessage, agent.botNpub)) continue;
@@ -285,9 +290,9 @@ export class AgentDirectChatRuntime {
         const history = orderDirectChatMessages(input.messages);
         const undelivered = pendingAwaiting
           ? history.filter((message) => pending.sourceMessageIds.includes(message.messageId)
-              || selectUndeliveredHumanMessages(history, intercept, agent.botNpub, [input.subscription.wsKeyNpub ?? ''])
+              || selectUndeliveredActionableMessages(history, intercept, agent.botNpub, [input.subscription.wsKeyNpub ?? ''])
                 .some((undeliveredMessage) => undeliveredMessage.messageId === message.messageId))
-          : selectUndeliveredHumanMessages(history, intercept, agent.botNpub, [input.subscription.wsKeyNpub ?? '']);
+          : selectUndeliveredActionableMessages(history, intercept, agent.botNpub, [input.subscription.wsKeyNpub ?? '']);
         const revisionDispatch = messageRevisionDispatch(input.event);
         const delta = pendingAwaiting
           ? undelivered
@@ -299,7 +304,7 @@ export class AgentDirectChatRuntime {
           // A pre-session failure has no transcript for the delivery reconciler
           // to inspect. Older builds incorrectly converted these failed turns
           // into awaiting_reply forever. Terminalize the orphan and replay all
-          // still-undelivered human input through normal session creation.
+          // still-undelivered actionable input through normal session creation.
           if (!pending.sessionId && !intercept.sessionId) {
             this.turnStore.save({
               ...pending,

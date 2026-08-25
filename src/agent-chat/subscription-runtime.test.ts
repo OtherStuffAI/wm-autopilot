@@ -2136,7 +2136,7 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(dispatchCount).toBe(1);
   });
 
-  test('suppresses self-authored Flight Deck PG message events by actor id', async () => {
+  test('lets an explicitly mentioned self-authored Flight Deck PG message reach dispatch', async () => {
     const dbPath = makeTempDb();
     const routeStore = new DispatchRouteStore(dbPath);
     let dispatchCalled = false;
@@ -2148,13 +2148,47 @@ describe('WorkspaceSubscriptionManager', () => {
         return { handled: false, lastPipelineRunId: null, historyEntries: [] };
       },
     } as unknown as DispatchPipelineRuntime;
-    const instanceIdentity = makeInstanceIdentity();
+    const signer = makeSignedInstructionIdentity();
+    const instanceIdentity = makeInstanceIdentity({
+      npub: signer.npub,
+      pubkeyHex: signer.pubkey,
+      secretKey: signer.secretKey,
+    });
+    const body = '@Wingman start a deliberate follow-up';
     const { manager, store } = createTestManager(
       dbPath,
       new Map(),
       undefined,
       instanceIdentity,
       dispatchPipelineRuntime,
+      {
+        fetchFlightDeckPgChannelMessages: async () => ({
+          messages: [{
+            id: 'message-self',
+            workspace_id: 'workspace-1',
+            scope_id: 'scope-1',
+            channel_id: 'channel-1',
+            thread_id: 'thread-self',
+            body,
+            metadata: {
+              mentions: [{ type: 'agent', npub: signer.npub, label: 'Wingman' }],
+              agent_instruction_signature: makeInstructionSignature({
+                body,
+                signer,
+                workspaceId: 'workspace-1',
+                channelId: 'channel-1',
+                threadId: 'thread-self',
+              }),
+            },
+            sender_npub: signer.npub,
+            created_by_actor_npub: signer.npub,
+            created_by_actor_id: 'actor-bot',
+            row_version: 100,
+            created_at: '2026-06-10T00:00:00.000Z',
+          }],
+          next_cursor: null,
+        }),
+      },
     );
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
@@ -2186,19 +2220,13 @@ describe('WorkspaceSubscriptionManager', () => {
       entity_id: 'message-self',
       operation: 'created',
       row_version: 100,
+      visible_to_audience_npubs: [signer.npub],
       payload: {},
     });
 
     const saved = store.getBySubscriptionId(imported.subscription.subscriptionId);
-    expect(dispatchCalled).toBe(false);
-    expect(saved?.recentDispatches.at(-1)).toMatchObject({
-      action: 'chat_pipeline_suppressed',
-      details: {
-        suppression_reason: 'self_authored',
-        event_actor_id: 'actor-bot',
-        bot_actor_id: 'actor-bot',
-      },
-    });
+    expect(dispatchCalled).toBe(true);
+    expect(saved?.lastRoutingResult?.code).toBe('flightdeck_pg_chat_pipeline_not_handled');
   });
 
   test('removes dispatch routes when deleting a manual subscription', async () => {
