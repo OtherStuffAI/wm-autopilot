@@ -18,6 +18,33 @@ function makeTempDb(): string {
 }
 
 describe('AgentDefinitionStore', () => {
+  test('persists one explicit default profile per manager', () => {
+    const store = new AgentDefinitionStore(makeTempDb());
+    const first = '2026-01-01T00:00:00.000Z';
+    const second = '2026-01-02T00:00:00.000Z';
+    const create = (agentId: string, botNpub: string, createdAt: string) => store.save({
+      agentId,
+      label: agentId,
+      botNpub,
+      workspaceOwnerNpub: 'npub1workspace',
+      groupNpubs: [],
+      workingDirectory: `/tmp/${agentId}`,
+      capabilities: ['chat_intercept'],
+      enabled: true,
+      createdAt,
+      updatedAt: createdAt,
+      managedByNpub: 'npub1manager',
+    });
+
+    create('rick', 'npub1rick', first);
+    create('brick', 'npub1brick', second);
+    expect(store.getDefaultForManagerNpub('npub1manager')?.agentId).toBe('rick');
+
+    store.setDefaultForManagerNpub('npub1manager', 'brick');
+    expect(store.getDefaultForManagerNpub('npub1manager')?.agentId).toBe('brick');
+    expect(() => store.setDefaultForManagerNpub('npub1other', 'rick')).toThrow('Agent profile not found');
+  });
+
   test('persists and filters local agent definitions', () => {
     const store = new AgentDefinitionStore(makeTempDb());
     const now = new Date().toISOString();

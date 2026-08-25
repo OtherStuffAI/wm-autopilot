@@ -536,13 +536,14 @@ export class ProcessManager {
    * that is not bound in its metadata. Identity recovery therefore has to
    * update the session synchronously before calling the broker.
    */
-  bindSessionCapabilityIdentity(id: string, botNpub: string): SessionSnapshot | null {
+  bindSessionCapabilityIdentity(id: string, botNpub: string, profileId?: string | null): SessionSnapshot | null {
     const session = this.sessions.get(id);
     const normalizedBotNpub = botNpub.trim();
     if (!session || !normalizedBotNpub) return null;
 
     session.metadata = normaliseSessionMetadata({
       ...session.metadata,
+      ...(!session.metadata.agentChatAgentId && profileId ? { agentProfileId: profileId } : {}),
       agentChatBotNpub: normalizedBotNpub,
       ...(session.metadata.flightdeckAgentNpub
         ? { flightdeckAgentNpub: normalizedBotNpub }

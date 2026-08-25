@@ -1171,4 +1171,27 @@ describe('agent-chat routes', () => {
     expect(body.error).toContain('Flight Deck');
     expect(removed).toBe(false);
   });
+
+  test('sets the explicit default profile used by ordinary Autopilot sessions', async () => {
+    const rick = {
+      agentId: 'rick', label: 'Rick', botNpub: 'npub1rick', workspaceOwnerNpub: 'npub1manager',
+      groupNpubs: [], workingDirectory: '/Users/example/wingmen/rick', capabilities: ['chat_intercept'],
+      enabled: true, createdAt: '', updatedAt: '', managedByNpub: 'npub1manager',
+    } as const;
+    let selected: string | null = null;
+    const manager = {
+      setDefaultAgentForManager: (profileId: string, managerNpub: string) => {
+        expect(managerNpub).toBe('npub1manager');
+        selected = profileId;
+        return rick;
+      },
+    } as unknown as WorkspaceSubscriptionManager;
+    const request = new Request('http://localhost/api/agent-chat/profiles/rick/default', { method: 'POST' });
+    const response = await handleAgentChatApi(request, new URL(request.url), 'POST', authContext, { manager });
+    const body = await response!.json();
+
+    expect(response?.status).toBe(200);
+    expect(selected).toBe('rick');
+    expect(body.defaultAgentProfileId).toBe('rick');
+  });
 });

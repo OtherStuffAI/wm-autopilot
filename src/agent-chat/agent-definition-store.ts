@@ -129,6 +129,37 @@ class AgentDefinitionStore {
     return this.getWhere('bot_npub = ?1', [botNpub]);
   }
 
+  getDefaultForManagerNpub(npub: string): AgentDefinitionRecord | null {
+    const binding = this.db.query(
+      `SELECT agent_id
+       FROM agent_definition_defaults
+       WHERE managed_by_npub = ?1
+       LIMIT 1`,
+    ).get(npub) as { agent_id?: string } | null;
+    if (!binding?.agent_id) return null;
+    const agent = this.getByAgentId(binding.agent_id);
+    return agent?.managedByNpub === npub && agent.enabled && agent.archived !== true ? agent : null;
+  }
+
+  setDefaultForManagerNpub(npub: string, agentId: string): AgentDefinitionRecord {
+    const agent = this.getByAgentId(agentId);
+    if (!agent || agent.managedByNpub !== npub) {
+      throw new Error('Agent profile not found');
+    }
+    if (!agent.enabled || agent.archived === true) {
+      throw new Error('The default agent profile must be enabled and active');
+    }
+    const now = new Date().toISOString();
+    this.db.query(
+      `INSERT INTO agent_definition_defaults (managed_by_npub, agent_id, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?3)
+       ON CONFLICT(managed_by_npub) DO UPDATE SET
+         agent_id = excluded.agent_id,
+         updated_at = excluded.updated_at`,
+    ).run(npub, agentId, now);
+    return agent;
+  }
+
   save(record: AgentDefinitionRecord): AgentDefinitionRecord {
     const identityOwner = this.getByBotNpub(record.botNpub);
     if (identityOwner && identityOwner.agentId !== record.agentId) {
@@ -194,7 +225,11 @@ class AgentDefinitionStore {
       }),
     ];
     statement.run(...bindings);
-    return this.getByAgentId(record.agentId) ?? record;
+    const saved = this.getByAgentId(record.agentId) ?? record;
+    if (saved.managedByNpub && saved.enabled && saved.archived !== true) {
+      this.ensureDefaultForManager(saved.managedByNpub, saved.agentId);
+    }
+    return saved;
   }
 
   updatePublicProfileSnapshot(
@@ -221,8 +256,29 @@ class AgentDefinitionStore {
   }
 
   delete(agentId: string): boolean {
+    const existing = this.getByAgentId(agentId);
+    if (existing?.managedByNpub) {
+      this.db.query(
+        'DELETE FROM agent_definition_defaults WHERE managed_by_npub = ?1 AND agent_id = ?2',
+      ).run(existing.managedByNpub, agentId);
+    }
     const result = this.db.query('DELETE FROM agent_definitions WHERE agent_id = ?1').run(agentId);
+    if (result.changes > 0 && existing?.managedByNpub) {
+      const replacement = this.listForManagerNpub(existing.managedByNpub)
+        .filter((agent) => agent.enabled && agent.archived !== true)
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.agentId.localeCompare(right.agentId))[0];
+      if (replacement) this.ensureDefaultForManager(existing.managedByNpub, replacement.agentId);
+    }
     return result.changes > 0;
+  }
+
+  private ensureDefaultForManager(npub: string, agentId: string): void {
+    const now = new Date().toISOString();
+    this.db.query(
+      `INSERT OR IGNORE INTO agent_definition_defaults (
+         managed_by_npub, agent_id, created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?3)`,
+    ).run(npub, agentId, now);
   }
 
   private listWhere(whereClause: string, args: SQLQueryBindings[]): AgentDefinitionRecord[] {
@@ -419,6 +475,13 @@ class AgentDefinitionStore {
       CREATE INDEX IF NOT EXISTS idx_agent_definitions_workspace_bot
         ON agent_definitions(workspace_owner_npub, bot_npub, enabled);
 
+      CREATE TABLE IF NOT EXISTS agent_definition_defaults (
+        managed_by_npub TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
     `);
     const columns = this.db.query('PRAGMA table_info(agent_definitions)').all() as Array<{ name?: string }>;
     const hasChatTemplate = columns.some((row) => row.name === 'chat_prompt_template');
@@ -455,6 +518,25 @@ class AgentDefinitionStore {
     if (!hasArchived) this.db.exec('ALTER TABLE agent_definitions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
     if (!hasPublicProfile) this.db.exec("ALTER TABLE agent_definitions ADD COLUMN public_profile_json TEXT NOT NULL DEFAULT '{}'");
     if (!hasPublicProfileRefresh) this.db.exec("ALTER TABLE agent_definitions ADD COLUMN public_profile_refresh_json TEXT NOT NULL DEFAULT '{}'");
+    this.db.exec(`
+      INSERT OR IGNORE INTO agent_definition_defaults (
+        managed_by_npub, agent_id, created_at, updated_at
+      )
+      SELECT candidate.managed_by_npub, candidate.agent_id, candidate.created_at, candidate.updated_at
+      FROM agent_definitions AS candidate
+      WHERE candidate.managed_by_npub IS NOT NULL
+        AND candidate.enabled = 1
+        AND candidate.archived = 0
+        AND candidate.agent_id = (
+          SELECT eligible.agent_id
+          FROM agent_definitions AS eligible
+          WHERE eligible.managed_by_npub = candidate.managed_by_npub
+            AND eligible.enabled = 1
+            AND eligible.archived = 0
+          ORDER BY eligible.created_at ASC, eligible.agent_id ASC
+          LIMIT 1
+        );
+    `);
   }
 }
 

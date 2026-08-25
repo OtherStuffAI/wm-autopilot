@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 let createPayload = null;
 let updatePayload = null;
 let listedAgents = [];
+let listedDefaults = {};
 let rotatePayload = null;
+let defaultPayload = null;
 
 mock.module('../../services/agent-chat.js', () => ({
   createAgentChatProfile: async (input) => {
@@ -15,7 +17,8 @@ mock.module('../../services/agent-chat.js', () => ({
     return { agent: { ...listedAgents[0], ...input }, published: false };
   },
   rotateAgentChatProfileKey: async (...args) => { rotatePayload = args; return { state: 'completed', newNpub: 'npub1rotated', warnings: [], externalActions: [], tower: { status: 'completed', migrationCounts: { memberships: 2 } } }; },
-  listAgentChatAgents: async () => ({ agents: listedAgents, permissions: { canManage: true }, defaults: {} }),
+  setDefaultAgentChatProfile: async (profileId) => { defaultPayload = profileId; return { defaultAgentProfileId: profileId }; },
+  listAgentChatAgents: async () => ({ agents: listedAgents, permissions: { canManage: true }, defaults: listedDefaults }),
 }));
 
 mock.module('../../services/config.js', () => ({
@@ -67,7 +70,14 @@ function findByTestId(root, testId) {
 }
 
 describe('Agent Profiles Settings entry', () => {
-  beforeEach(() => { createPayload = null; updatePayload = null; rotatePayload = null; listedAgents = []; });
+  beforeEach(() => {
+    createPayload = null;
+    updatePayload = null;
+    rotatePayload = null;
+    defaultPayload = null;
+    listedAgents = [];
+    listedDefaults = {};
+  });
 
   test('shows Add Agent Profile with no subscriptions and opens the complete create form', async () => {
     const originalDocument = globalThis.document;
@@ -190,6 +200,28 @@ describe('Agent Profiles Settings entry', () => {
     } finally {
       globalThis.document = originalDocument;
       globalThis.confirm = originalConfirm;
+    }
+  });
+
+  test('marks the default profile and allows choosing another one', async () => {
+    listedAgents = [
+      { agentId: 'rick', label: 'Rick', botNpub: 'npub1rick', workingDirectory: '/tmp/rick', enabled: true, capabilities: [], publicProfile: { name: 'Rick' } },
+      { agentId: 'brick', label: 'Brick', botNpub: 'npub1brick', workingDirectory: '/tmp/brick', enabled: true, capabilities: [], publicProfile: { name: 'Brick' } },
+    ];
+    listedDefaults = { defaultAgentProfileId: 'rick' };
+    const originalDocument = globalThis.document;
+    globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+    try {
+      const { createAgentProfilesSection } = await import('./agent-profiles-section.js');
+      const section = createAgentProfilesSection();
+      await Promise.resolve(); await Promise.resolve();
+      expect(findByTestId(section, 'agent-profile-default-rick')?.textContent).toBe('Default agent');
+      expect(findByTestId(section, 'agent-profile-make-default-rick')).toBeNull();
+      findByTestId(section, 'agent-profile-make-default-brick').click();
+      await Promise.resolve(); await Promise.resolve();
+      expect(defaultPayload).toBe('brick');
+    } finally {
+      globalThis.document = originalDocument;
     }
   });
 });

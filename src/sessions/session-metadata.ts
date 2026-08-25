@@ -31,6 +31,8 @@ export interface SessionMetadata {
   routerRunId?: string;
   autoStop?: boolean;
   routedBy?: string;
+  /** Durable local profile used for ordinary Autopilot session identity. */
+  agentProfileId?: string;
   agentChatAgentId?: string;
   agentChatBotNpub?: string;
   sessionClass?: "flightdeck_chat";
@@ -183,6 +185,7 @@ export const normaliseSessionMetadata = (
   const flowRunId = typeof metadata?.flowRunId === "string" ? metadata.flowRunId.trim() : "";
   const routerRunId = typeof metadata?.routerRunId === "string" ? metadata.routerRunId.trim() : "";
   const routedBy = typeof metadata?.routedBy === "string" ? metadata.routedBy.trim() : "";
+  const agentProfileId = typeof metadata?.agentProfileId === "string" ? metadata.agentProfileId.trim() : "";
   const agentChatAgentId = typeof metadata?.agentChatAgentId === "string" ? metadata.agentChatAgentId.trim() : "";
   const agentChatBotNpub = typeof metadata?.agentChatBotNpub === "string" ? metadata.agentChatBotNpub.trim() : "";
   const ownerNpub = typeof metadata?.ownerNpub === "string" ? metadata.ownerNpub.trim() : "";
@@ -242,6 +245,7 @@ export const normaliseSessionMetadata = (
     routerRunId: routerRunId || undefined,
     autoStop: Boolean(metadata?.autoStop),
     routedBy: routedBy || undefined,
+    agentProfileId: agentProfileId || undefined,
     agentChatAgentId: agentChatAgentId || undefined,
     agentChatBotNpub: agentChatBotNpub || undefined,
     ownerNpub: ownerNpub || undefined,

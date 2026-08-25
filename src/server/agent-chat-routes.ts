@@ -623,6 +623,7 @@ export async function handleAgentChatApi(
   }
 
   if (url.pathname === '/api/agent-chat/agents' && method === 'GET') {
+    const defaultAgentProfile = ctx.manager.getDefaultAgentForManager(scope.managerNpub);
     return Response.json({
       permissions: {
         shared: scope.shared,
@@ -630,6 +631,7 @@ export async function handleAgentChatApi(
       },
       agents: ctx.manager.listAgentsForManager(scope.managerNpub).map(serialiseAgent),
       defaults: {
+        defaultAgentProfileId: defaultAgentProfile?.agentId ?? null,
         agentTypes: ctx.agentTypes ?? [],
         chatPromptTemplate: DEFAULT_CHAT_DISPATCH_PROMPT_TEMPLATE,
         taskPromptTemplate: DEFAULT_TASK_DISPATCH_PROMPT_TEMPLATE,
@@ -1095,10 +1097,23 @@ export async function handleAgentChatApi(
   const profileWorkspaceMatch = url.pathname.match(/^\/api\/agent-chat\/subscriptions\/([^/]+)\/profile-workspace$/);
   const agentMatch = url.pathname.match(/^\/api\/agent-chat\/agents\/([^/]+)$/);
   const profileMatch = url.pathname.match(/^\/api\/agent-chat\/profiles\/([^/]+)$/);
+  const profileDefaultMatch = url.pathname.match(/^\/api\/agent-chat\/profiles\/([^/]+)\/default$/);
   const profilePublishMatch = url.pathname.match(/^\/api\/agent-chat\/profiles\/([^/]+)\/publish$/);
   const profileRotateMatch = url.pathname.match(/^\/api\/agent-chat\/profiles\/([^/]+)\/rotate-key$/);
   const dispatchRouteMatch = url.pathname.match(/^\/api\/agent-chat\/dispatch-routes\/([^/]+)$/);
   const actionMatch = url.pathname.match(/^\/api\/agent-chat\/subscriptions\/([^/]+)\/actions\/([^/]+)$/);
+  if (profileDefaultMatch && method === 'POST') {
+    const denied = requireAgentChatManagement(scope);
+    if (denied) return denied;
+    const profileId = decodeURIComponent(profileDefaultMatch[1]!);
+    try {
+      const agent = ctx.manager.setDefaultAgentForManager(profileId, scope.managerNpub);
+      return Response.json({ defaultAgentProfileId: agent.agentId, agent: serialiseAgent(agent) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to set default agent profile.';
+      return Response.json({ error: message }, { status: message === 'Agent profile not found' ? 404 : 400 });
+    }
+  }
   if (profilePublishMatch && method === 'POST') {
     const denied = requireAgentChatManagement(scope);
     if (denied) return denied;

@@ -2,6 +2,7 @@ import {
   createAgentChatProfile,
   listAgentChatAgents,
   rotateAgentChatProfileKey,
+  setDefaultAgentChatProfile,
   updateAgentChatProfile,
 } from '../../services/agent-chat.js';
 import { createPrimaryAgentNameModal } from './agent-chat-editor-cards.js';
@@ -17,12 +18,21 @@ function createProfileFact(label, value) {
   return [term, detail];
 }
 
-function createProfileCard(agent, canManage, onEdit, onRotate) {
+function createProfileCard(agent, canManage, isDefault, onEdit, onRotate, onSetDefault) {
   const card = document.createElement('article');
   card.className = 'wm-card';
   card.dataset.testid = `agent-profile-${agent.agentId}`;
   const heading = document.createElement('h2');
   heading.textContent = agent.publicProfile?.name || agent.label || agent.agentId;
+  if (isDefault) {
+    const defaultStatus = document.createElement('p');
+    defaultStatus.textContent = 'Default agent';
+    defaultStatus.dataset.testid = `agent-profile-default-${agent.agentId}`;
+    defaultStatus.setAttribute('aria-label', `${agent.label || agent.agentId} is the default Autopilot agent`);
+    card.append(heading, defaultStatus);
+  } else {
+    card.append(heading);
+  }
   const facts = document.createElement('dl');
   facts.className = 'wm-settings__detail-list';
   facts.append(
@@ -36,8 +46,13 @@ function createProfileCard(agent, canManage, onEdit, onRotate) {
   );
   const editButton = createButton('Edit Agent Profile', `agent-profile-edit-${agent.agentId}`, `Edit ${agent.label || agent.agentId} agent profile`);
   editButton.addEventListener('click', () => onEdit(agent));
-  card.append(heading, facts, editButton);
+  card.append(facts, editButton);
   if (canManage) {
+    if (!isDefault) {
+      const defaultButton = createButton('Make default', `agent-profile-make-default-${agent.agentId}`, `Use ${agent.label || agent.agentId} for ordinary Autopilot sessions`);
+      defaultButton.addEventListener('click', () => onSetDefault(agent, defaultButton));
+      card.append(defaultButton);
+    }
     const rotateButton = createButton('Rotate agent key', `agent-profile-rotate-${agent.agentId}`, `Rotate signing key for ${agent.label || agent.agentId}`);
     rotateButton.addEventListener('click', () => onRotate(agent, rotateButton));
     card.append(rotateButton);
@@ -133,6 +148,20 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
     }
   }
 
+  async function setDefault(agent, button) {
+    button.disabled = true;
+    status.textContent = `Setting ${agent.label || agent.agentId} as the default agent…`;
+    try {
+      await setDefaultAgentChatProfile(agent.agentId);
+      status.textContent = `${agent.label || agent.agentId} is now the default for ordinary Autopilot sessions.`;
+      await refresh();
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : 'Failed to set the default agent profile.';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   void fetchConfigApi()
     .then((config) => {
       modal.setRuntimeConfig(config, config?.defaultAgent || '');
@@ -154,7 +183,14 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
         empty.textContent = 'No agent profiles yet. Create one now; a workspace connection is not required.';
         list.append(empty);
       } else {
-        list.append(...payload.agents.map((agent) => createProfileCard(agent, payload.permissions?.canManage === true, editor.open, rotate)));
+        list.append(...payload.agents.map((agent) => createProfileCard(
+          agent,
+          payload.permissions?.canManage === true,
+          payload.defaults?.defaultAgentProfileId === agent.agentId,
+          editor.open,
+          rotate,
+          setDefault,
+        )));
       }
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : 'Failed to load agent profiles.';

@@ -66,23 +66,25 @@ async function launch(metadata?: Parameters<ProcessManager["createSession"]>[6])
 
   manager = new ProcessManager(config, {
     issueSessionCapability: ({ sessionId, ownerNpub: requestedOwnerNpub, profileId, botNpub }) => {
-      const { record } = resolveAndBindSessionCapabilityBotRecord({
+      const profile = {
+        profileId: "agent-alpha",
+        botNpub: activeBotNpub,
+        enabled: true,
+      };
+      const { record, profileId: resolvedProfileId } = resolveAndBindSessionCapabilityBotRecord({
         manager,
         sessionId,
         ownerNpub: requestedOwnerNpub,
+        requestedProfileId: profileId,
         requestedBotNpub: botNpub,
-        profiles: [{
-          botNpub: activeBotNpub,
-          workingDirectory,
-          enabled: true,
-        }],
+        profiles: [profile],
+        defaultProfile: profile,
         getActiveByBotNpub: (candidateBotNpub) => candidateBotNpub === activeBotNpub ? activeRecord : null,
-        getActiveForOwner: () => activeRecord,
       });
       return broker.issueSessionCapability({
         sessionId,
         ownerNpub: requestedOwnerNpub,
-        profileId,
+        profileId: resolvedProfileId,
         botNpub: record.botNpub,
         policy,
       });
@@ -133,6 +135,19 @@ describe("session capability binding", () => {
     const { snapshot } = await launch();
 
     expect(snapshot.metadata?.AGENT).toBe(false);
+    expect(snapshot.metadata?.agentProfileId).toBe("agent-alpha");
+    expect(snapshot.metadata?.agentChatBotNpub).toBe(activeBotNpub);
+    expect(snapshot.logs).toContainEqual(expect.stringContaining("BROKER_ENV=ready"));
+  });
+
+  test("preserves an ordinary session profile binding through native resume metadata", async () => {
+    const { snapshot } = await launch({
+      resumedFromWingmanSessionId: "ordinary-session",
+      agentProfileId: "agent-alpha",
+      agentChatBotNpub: activeBotNpub,
+    });
+
+    expect(snapshot.metadata?.agentProfileId).toBe("agent-alpha");
     expect(snapshot.metadata?.agentChatBotNpub).toBe(activeBotNpub);
     expect(snapshot.logs).toContainEqual(expect.stringContaining("BROKER_ENV=ready"));
   });
