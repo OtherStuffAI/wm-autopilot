@@ -4,7 +4,9 @@ import { describe, expect, test } from 'bun:test';
 import { generateSecretKey, getPublicKey, nip19, verifyEvent } from 'nostr-tools';
 
 import {
+  buildStreamUrl,
   buildFlightDeckPgMessageInstructionSignature,
+  connectFlightDeckPgEventStream,
   createFlightDeckPgChannelDocument,
   decodeFlightDeckPgDocumentBody,
   fetchFlightDeckPgDailyScope,
@@ -15,8 +17,59 @@ import {
   upsertFlightDeckPgDailyScope,
 } from './tower-client';
 
+function decodeNip98Event(token: string): { tags: string[][] } {
+  return JSON.parse(Buffer.from(token, 'base64').toString('utf8')) as { tags: string[][] };
+}
+
+function nip98Tag(event: { tags: string[][] }, name: string): string | undefined {
+  return event.tags.find((tag) => tag[0] === name)?.[1];
+}
+
+describe('legacy Tower stream URL', () => {
+  test('signs the semantic last event cursor before appending the transport token', async () => {
+    const workspaceSecret = generateSecretKey();
+    const workspaceNpub = nip19.npubEncode(getPublicKey(workspaceSecret));
+    const lastEventId = 'cursor / + ü';
+    const result = await buildStreamUrl(
+      'https://tower.test/base/',
+      workspaceNpub,
+      { npub: workspaceNpub, secret: workspaceSecret, isWorkspaceKey: true },
+      lastEventId,
+    );
+
+    const eventSourceUrl = new URL(result);
+    const token = eventSourceUrl.searchParams.get('token');
+    expect(token).not.toBeNull();
+    const signedUrl = nip98Tag(decodeNip98Event(token!), 'u');
+    expect(signedUrl).toBe(
+      `https://tower.test/api/v4/workspaces/${workspaceNpub}/stream?last_event_id=cursor+%2F+%2B+%C3%BC`,
+    );
+    expect(new URL(signedUrl!).searchParams.get('token')).toBeNull();
+    expect(eventSourceUrl.searchParams.get('last_event_id')).toBe(lastEventId);
+    expect(eventSourceUrl.searchParams.get('token')).toBe(token);
+  });
+
+  test('signs a valid cursor-free URL before appending the transport token', async () => {
+    const workspaceSecret = generateSecretKey();
+    const workspaceNpub = nip19.npubEncode(getPublicKey(workspaceSecret));
+    const result = await buildStreamUrl(
+      'https://tower.test',
+      workspaceNpub,
+      { npub: workspaceNpub, secret: workspaceSecret, isWorkspaceKey: true },
+    );
+
+    const eventSourceUrl = new URL(result);
+    const token = eventSourceUrl.searchParams.get('token');
+    expect(token).not.toBeNull();
+    expect(nip98Tag(decodeNip98Event(token!), 'u')).toBe(
+      `https://tower.test/api/v4/workspaces/${workspaceNpub}/stream`,
+    );
+    expect(eventSourceUrl.searchParams.get('last_event_id')).toBeNull();
+  });
+});
+
 describe('Flight Deck PG Tower client', () => {
-  test('signs one event stream request with a sorted repeatable agent audience', async () => {
+  test('signs one event poll request with a sorted repeatable agent audience', async () => {
     const botSecret = generateSecretKey();
     const botPubkeyHex = getPublicKey(botSecret);
     const botNpub = nip19.npubEncode(botPubkeyHex);
@@ -35,6 +88,44 @@ describe('Flight Deck PG Tower client', () => {
       globalThis.fetch = originalFetch;
     }
     expect(new URL(requestedUrl).searchParams.getAll('audience_npub')).toEqual(['npub1Builder', 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg']);
+  });
+
+  test('signs the complete PG stream URL with cursor, limit, and repeated audience values', async () => {
+    const originalFetch = globalThis.fetch;
+    let requestedUrl = '';
+    let signedRequest: { url: string; method: string; body?: unknown } | undefined;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requestedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      return new Response('data: ready\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+    }) as typeof fetch;
+    try {
+      await connectFlightDeckPgEventStream({
+        backendBaseUrl: 'https://tower.test',
+        workspaceId: 'workspace-1',
+        appNpub: 'npub1app',
+        botIdentity: {
+          botNpub: 'npub1bot',
+          botPubkeyHex: '00'.repeat(32),
+          signNip98: async (request) => {
+            signedRequest = request;
+            return 'Nostr signed-request';
+          },
+          signNostrEvent: async () => ({}),
+        },
+        cursor: 'cursor / + ü',
+        limit: 25,
+        audienceNpubs: ['npub1z', 'npub1a', 'npub1z'],
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(signedRequest).toEqual({ url: requestedUrl, method: 'GET', body: undefined });
+    const url = new URL(requestedUrl);
+    expect(url.searchParams.get('cursor')).toBe('cursor / + ü');
+    expect(url.searchParams.get('limit')).toBe('25');
+    expect(url.searchParams.getAll('audience_npub')).toEqual(['npub1a', 'npub1z']);
+    expect(requestedUrl).toContain('cursor=cursor+%2F+%2B+%C3%BC');
   });
 
   test('atomically reconciles the managed agent audience with the legacy response field', async () => {
