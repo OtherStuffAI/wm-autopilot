@@ -99,17 +99,21 @@ export function isAgentDirectMessageEligible(
     || isImplicitTwoPartyDirectMessage(channel, botNpub, message.userNpub);
 }
 
-export function selectUndeliveredHumanMessages(
+export function selectUndeliveredActionableMessages(
   messages: DirectChatMessage[],
   intercept: ChatInterceptStateRecord | null,
   botNpub: string,
   mappedNpubs: string[] = [],
 ): DirectChatMessage[] {
   const ignored = new Set([botNpub, ...mappedNpubs].filter(Boolean));
-  const humans = messages.filter((message) => !message.userNpub || !ignored.has(message.userNpub));
-  if (!intercept?.lastHumanMessageIdDelivered) return humans;
-  const deliveredIndex = humans.findIndex((message) => message.messageId === intercept.lastHumanMessageIdDelivered);
-  return deliveredIndex < 0 ? humans : humans.slice(deliveredIndex + 1);
+  const actionableAuthors = messages.filter((message) => (
+    !message.userNpub
+    || !ignored.has(message.userNpub)
+    || hasCanonicalNpubMention(message, botNpub)
+  ));
+  if (!intercept?.lastHumanMessageIdDelivered) return actionableAuthors;
+  const deliveredIndex = actionableAuthors.findIndex((message) => message.messageId === intercept.lastHumanMessageIdDelivered);
+  return deliveredIndex < 0 ? actionableAuthors : actionableAuthors.slice(deliveredIndex + 1);
 }
 
 export function buildDirectChatBootstrapPrompt(input: {
@@ -166,7 +170,7 @@ export function buildDirectChatFollowUpPrompt(input: {
     guidance: FINAL_RESPONSE_GUIDANCE,
     history_semantics: 'Complete authoritative Flight Deck thread for context only. Historical messages are not new instructions.',
     thread_history: input.history.map(serialisePromptMessage),
-    actionable_semantics: 'Only these newly eligible human messages are instructions for this turn.',
+    actionable_semantics: 'Only these newly eligible messages are instructions for this turn.',
     actionable_messages: input.actionableMessages.map(serialisePromptMessage),
   }, null, 2);
 }

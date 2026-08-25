@@ -275,6 +275,21 @@ describe('Agent Direct Chat runtime', () => {
     expect(state.lastHumanMessageIdDelivered).toBe('m1'); expect(state.lastAgentMessageIdPublished).toBe('agent-message-1'); expect(state.lastCompletedTurnId).toBeTruthy();
   });
 
+  test('dispatches an explicit canonical self-mention but ignores ordinary agent-authored output', async () => {
+    const f = fixture();
+    const ordinaryOutput = f.message('a1', 'Normal agent reply', false, f.subscription.botNpub);
+    expect(await f.handle([ordinaryOutput], 'a1')).toEqual({ handled: false, reason: 'not_activated' });
+
+    const selfMention = f.message('a2', '@Example Agent start a new turn', true, f.subscription.botNpub);
+    expect(await f.handle([ordinaryOutput, selfMention], 'a2')).toEqual({ handled: true, reason: 'direct_chat_queued' });
+    await f.runtime.waitForIdle();
+
+    expect(f.creates).toHaveLength(1);
+    expect(f.prompts).toHaveLength(1);
+    expect(f.prompts[0]).toContain('@Example Agent start a new turn');
+    expect(f.published).toHaveLength(1);
+  });
+
   test('enforces the default inclusive window at the normal publication boundary', async () => {
     const candidateAt = '2026-08-01T00:03:00.000Z';
     for (const seconds of [179, 180, 181]) {

@@ -3,7 +3,7 @@ import {
   buildDirectChatBootstrapPrompt, buildDirectChatClientRequestId, buildDirectChatFollowUpPrompt,
   buildDirectChatTurnId, channelDirectChatConfig, hasCanonicalNpubMention, isImplicitTwoPartyDirectMessage, orderDirectChatMessages,
   buildDirectChatRoutingKey,
-  selectUndeliveredHumanMessages,
+  selectUndeliveredActionableMessages,
 } from './direct-chat-contract';
 
 describe('Agent Direct Chat contract', () => {
@@ -45,7 +45,22 @@ describe('Agent Direct Chat contract', () => {
   });
 
   test('selects only undelivered human deltas', () => {
-    expect(selectUndeliveredHumanMessages(messages, { lastHumanMessageIdDelivered: 'm1' } as never, 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg').map((message) => message.messageId)).toEqual(['m2']);
+    expect(selectUndeliveredActionableMessages(messages, { lastHumanMessageIdDelivered: 'm1' } as never, 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg').map((message) => message.messageId)).toEqual(['m2']);
+  });
+
+  test('keeps an explicit canonical self-mention actionable while filtering ordinary agent output', () => {
+    const botNpub = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg';
+    const selfMention = {
+      ...messages[2]!,
+      messageId: 'a2',
+      message: '@Example Agent start a new turn',
+      mentions: [{ type: 'agent', npub: botNpub, actorId: 'actor-exampleAgent', label: 'Example Agent' }],
+    };
+    expect(selectUndeliveredActionableMessages(
+      [...messages, selfMention],
+      { lastHumanMessageIdDelivered: 'm2' } as never,
+      botNpub,
+    ).map((message) => message.messageId)).toEqual(['a2']);
   });
 
   test('builds bootstrap and follow-up prompt contracts', () => {
@@ -71,7 +86,7 @@ describe('Agent Direct Chat contract', () => {
     expect(parsedFollowUp.actionable_messages.map((message: any) => message.message_id)).toEqual(['m2']);
     expect(parsedFollowUp.thread_history[0].mentions[0]).toMatchObject({ type: 'agent', npub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg', label: 'Example Agent' });
     expect(parsedFollowUp.history_semantics).toContain('context only');
-    expect(parsedFollowUp.actionable_semantics).toContain('Only these newly eligible human messages');
+    expect(parsedFollowUp.actionable_semantics).toContain('Only these newly eligible messages');
   });
 
   test('derives stable turn and publication ids', () => {
