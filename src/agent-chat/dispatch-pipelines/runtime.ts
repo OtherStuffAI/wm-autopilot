@@ -805,12 +805,30 @@ export class DispatchPipelineRuntime {
   }
 
   private selectAgent(input: DispatchPipelineEventInput): AgentDefinitionRecord | null {
-    const agents = this.agentStore
-      .listByWorkspaceAndBot(getEffectiveWorkspaceNpub(input.subscription), input.subscription.botNpub)
-      .filter((agent) => agent.managedByNpub === input.subscription.managedByNpub)
-      .filter((agent) => agent.enabled)
-      .sort((left, right) => left.agentId.localeCompare(right.agentId));
-    return agents.find((agent) => agent.capabilities.includes(input.capability)) ?? agents[0] ?? null;
+    const managerNpub = input.subscription.managedByNpub;
+    const selectedProfileId = input.subscription.agentProfileId?.trim();
+    if (selectedProfileId) {
+      const selected = this.agentStore.getByAgentId(selectedProfileId);
+      if (!selected || selected.managedByNpub !== managerNpub || !selected.enabled) {
+        throw new Error(`Selected dispatch agent profile is unavailable: ${selectedProfileId}`);
+      }
+      if (selected.botNpub !== input.subscription.botNpub) {
+        throw new Error(`Selected dispatch agent profile identity does not match subscription: ${selectedProfileId}`);
+      }
+      return selected;
+    }
+
+    const exactBotProfile = this.agentStore.getByBotNpub(input.subscription.botNpub);
+    if (
+      exactBotProfile
+      && exactBotProfile.managedByNpub === managerNpub
+      && exactBotProfile.enabled
+    ) {
+      return exactBotProfile;
+    }
+    if (!managerNpub) return null;
+    const defaultProfile = this.agentStore.getDefaultForManagerNpub(managerNpub);
+    return defaultProfile?.enabled ? defaultProfile : null;
   }
 
   private buildMissingRouteHistoryEntry(input: DispatchPipelineEventInput): AgentChatDispatchHistoryEntry {
@@ -1046,11 +1064,13 @@ function buildDispatchEnvelope(input: {
       subscriptionId: eventInput.subscription.subscriptionId,
     },
     agent: {
+      profileId: agent?.agentId ?? null,
       agentId: agent?.agentId ?? null,
-      label: agent?.label ?? null,
-      botNpub: eventInput.subscription.botNpub,
+      label: agent?.publicProfile?.name?.trim() || agent?.label || null,
+      botNpub: agent?.botNpub ?? null,
       workingDirectory: agent?.workingDirectory ?? null,
-      defaultAgent: input.defaultAgent,
+      defaultAgent: agent?.harness?.trim() || input.defaultAgent,
+      model: agent?.model ?? null,
     },
     record: {
       recordId: eventInput.recordId,

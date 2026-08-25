@@ -208,12 +208,25 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     const subscription = makeSubscription();
     const now = new Date().toISOString();
     agentStore.save({
-      agentId: 'agent-chat',
-      label: 'Chat Agent',
+      agentId: 'brick',
+      label: 'Brick',
+      botNpub: 'npub1brick',
+      workspaceOwnerNpub: subscription.managedByNpub!,
+      groupNpubs: ['npub1group'],
+      workingDirectory: '/tmp/brick',
+      capabilities: ['chat_intercept'],
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      managedByNpub: subscription.managedByNpub,
+    });
+    agentStore.save({
+      agentId: 'rick',
+      label: 'Rick',
       botNpub: subscription.botNpub,
       workspaceOwnerNpub: subscription.workspaceOwnerNpub,
       groupNpubs: ['npub1group'],
-      workingDirectory: '/tmp/agent-chat',
+      workingDirectory: '/tmp/rick',
       capabilities: ['chat_intercept'],
       enabled: true,
       createdAt: now,
@@ -302,6 +315,11 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     expect((runInputs[0]?.chat as any)?.messageText).toBe('Can you see this message?');
     expect((runInputs[0]?.chat as any)?.channelId).toBe('channel-1');
     expect((runInputs[0]?.chat as any)?.threadId).toBe('thread-1');
+    expect((runInputs[0]?.agent as any)?.profileId).toBe('rick');
+    expect((runInputs[0]?.agent as any)?.agentId).toBe('rick');
+    expect((runInputs[0]?.agent as any)?.label).toBe('Rick');
+    expect((runInputs[0]?.agent as any)?.botNpub).toBe(subscription.botNpub);
+    expect((runInputs[0]?.agent as any)?.workingDirectory).toBe('/tmp/rick');
     expect((runInputs[0]?.agent as any)?.defaultAgent).toBe('codex');
     expect((runInputs[0]?.runtime as any)?.acknowledgement).toMatchObject({
       acknowledged: true,
@@ -314,6 +332,115 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       acknowledged: true,
       status: 'ok',
       operation: 'chat.acknowledge-message',
+    });
+  });
+
+  test('uses an explicit dispatch profile, rejects mismatches, and falls back to the default profile', async () => {
+    const agentStore = new AgentDefinitionStore(makeTempDb('selected-agent-pipeline-agents'));
+    const now = new Date().toISOString();
+    agentStore.save({
+      agentId: 'rick',
+      label: 'Flight Deck Agent',
+      botNpub: 'npub1rick',
+      workspaceOwnerNpub: 'npub1workspace',
+      groupNpubs: ['npub1group'],
+      workingDirectory: '/tmp/rick',
+      publicProfile: { name: 'Rick', picture: null, about: null, nip05: null },
+      capabilities: ['task_dispatch'],
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      managedByNpub: 'npub1manager',
+    });
+    agentStore.save({
+      agentId: 'brick',
+      label: 'Brick',
+      botNpub: 'npub1brick',
+      workspaceOwnerNpub: 'npub1workspace',
+      groupNpubs: ['npub1group'],
+      workingDirectory: '/tmp/brick',
+      harness: 'goose',
+      model: 'brick-model',
+      capabilities: ['task_dispatch'],
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      managedByNpub: 'npub1manager',
+    });
+
+    const dispatch = async (botNpub: string, suffix: string, agentProfileId: string | null = 'brick') => {
+      const subscription = { ...makeSubscription(), subscriptionId: `sub-${suffix}`, agentProfileId, botNpub };
+      const routeStore = new DispatchRouteStore(makeTempDb(`selected-agent-pipeline-routes-${suffix}`));
+      routeStore.save({
+        managedByNpub: subscription.managedByNpub!,
+        subscriptionId: subscription.subscriptionId,
+        workspaceOwnerNpub: subscription.workspaceOwnerNpub,
+        botNpub: subscription.botNpub,
+        sourceAppNpub: subscription.sourceAppNpub,
+        triggerKind: 'task',
+        capability: 'task_dispatch',
+        pipelineDefinitionId: 'task-pipeline',
+      });
+      const runInputs: Record<string, unknown>[] = [];
+      const runtime = new DispatchPipelineRuntime({
+        routeStore,
+        agentStore,
+        pipelineStore: new PipelineStore(makeTempDb(`selected-agent-pipeline-runs-${suffix}`)),
+        getSessionApiContext: () => ({} as never),
+        callbackOrigin: 'http://localhost',
+        loadDefinition: async () => ({
+          id: 'task-pipeline', slug: 'task-pipeline', name: 'Task Pipeline', scope: 'user', ownerAlias: 'manager',
+          path: '/tmp/task-pipeline.json', spec: { name: 'Task Pipeline', input: {}, steps: [] },
+        }),
+        loadFunctions: async () => ({ registry: {}, records: [] }),
+        runPipeline: async (input: any) => {
+          runInputs.push(input.input);
+          return makePipelineRun(`selected-agent-run-${suffix}`, input.input);
+        },
+      });
+      const result = await runtime.dispatch({
+        subscription,
+        triggerKind: 'task',
+        capability: 'task_dispatch',
+        recordId: `task-${suffix}`,
+        record: {},
+        payload: { task_id: `task-${suffix}`, title: 'Selected agent task' },
+        recordFamily: 'task',
+        recordState: 'ready',
+        recordVersion: 1,
+        updaterNpub: 'npub1human',
+        bindingType: 'task',
+        bindingId: `task-${suffix}`,
+        groupNpubs: ['npub1group'],
+      });
+      return { result, runInputs };
+    };
+
+    const selected = await dispatch('npub1brick', 'valid');
+    expect(selected.result.handled).toBe(true);
+    expect((selected.runInputs[0]?.agent as any)).toMatchObject({
+      profileId: 'brick',
+      agentId: 'brick',
+      label: 'Brick',
+      botNpub: 'npub1brick',
+      workingDirectory: '/tmp/brick',
+      defaultAgent: 'goose',
+      model: 'brick-model',
+    });
+
+    await expect(dispatch('npub1wrong', 'mismatch')).rejects.toThrow(
+      'Selected dispatch agent profile identity does not match subscription: brick',
+    );
+
+    const fallback = await dispatch('npub1unmapped', 'default', null);
+    expect((fallback.runInputs[0]?.agent as any)).toMatchObject({
+      profileId: 'rick',
+      agentId: 'rick',
+      label: 'Rick',
+      botNpub: 'npub1rick',
+      workingDirectory: '/tmp/rick',
+      defaultAgent: 'codex',
+      model: null,
     });
   });
 
