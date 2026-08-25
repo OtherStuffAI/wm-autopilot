@@ -593,17 +593,17 @@ export async function buildStreamUrl(
   lastEventId?: string | null,
 ): Promise<string> {
   const helpers = await loadYokeBotHelpers();
-  const baseUrl = new URL(`/api/v4/workspaces/${encodeURIComponent(workspaceNpub)}/stream`, backendBaseUrl).toString();
-  const signed = helpers.signWorkspaceRequest({
-    wsSession,
-    url: baseUrl,
-    method: 'GET',
-  });
-  const streamUrl = new URL(baseUrl);
-  streamUrl.searchParams.set('token', stripNostrAuthPrefix(signed));
+  const streamUrl = new URL(`/api/v4/workspaces/${encodeURIComponent(workspaceNpub)}/stream`, backendBaseUrl);
   if (lastEventId) {
     streamUrl.searchParams.set('last_event_id', lastEventId);
   }
+  const signedUrl = streamUrl.toString();
+  const signed = helpers.signWorkspaceRequest({
+    wsSession,
+    url: signedUrl,
+    method: 'GET',
+  });
+  streamUrl.searchParams.set('token', stripNostrAuthPrefix(signed));
   return streamUrl.toString();
 }
 
