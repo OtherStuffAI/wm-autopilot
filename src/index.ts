@@ -1,5 +1,6 @@
 import { runSetupWizard } from "./setup/wizard";
 import { assertNoPersistentRootMcpConfig } from "./server/bootstrap/runtime-privacy-tripwires";
+import { hardenProcessStatePermissions } from "./server/bootstrap/process-state-permissions";
 
 function errorMessage(value: unknown): string {
   if (value instanceof Error) return value.message;
@@ -41,6 +42,7 @@ const main = async () => {
   if (!proceed) {
     process.exit(0);
   }
+  await hardenProcessStatePermissions();
   // Dynamic import after wizard completes so env vars are loaded
   await import("./server");
 };

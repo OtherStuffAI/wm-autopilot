@@ -5,11 +5,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { AgentType, WingmanConfig } from "../config";
+import { buildAppPm2EnvironmentBoundary } from "../apps/app-pm2-environment";
 import type { AppRecord } from "../apps/app-registry";
 import {
   createAppRuntimeEnvelope,
@@ -241,8 +242,9 @@ module.exports = ${JSON.stringify(config, null, 2)};
 
   const tmpPath = join(ecosystemDir, `.${ECOSYSTEM_FILENAME}.${process.pid}.${randomUUID()}.tmp`);
   try {
-    await writeFile(tmpPath, content, "utf-8");
+    await writeFile(tmpPath, content, { encoding: "utf-8", mode: 0o600 });
     await rename(tmpPath, ecosystemPath);
+    await chmod(ecosystemPath, 0o600);
   } catch (error) {
     await rm(tmpPath, { force: true }).catch(() => undefined);
     throw error;
@@ -518,6 +520,7 @@ export interface UserAppConfig {
   userRootDir: string;
   isAdmin: boolean;
   wappStore?: WappStore;
+  hostEnv?: Record<string, string | undefined>;
 }
 
 /**
@@ -556,6 +559,7 @@ export async function createUserAppEcosystemConfig(
 
   const store = config.wappStore ?? wappStore;
   const wapp = store.getByAppId(app.id);
+  const pm2Environment = buildAppPm2EnvironmentBoundary(config.hostEnv ?? Bun.env);
   const args = [
     USER_APP_RUNNER_PATH,
     "--app-id",
@@ -588,12 +592,16 @@ export async function createUserAppEcosystemConfig(
     args,
     cwd: app.root,
     env: {
+      ...pm2Environment.env,
       WINGMAN_PROCESS_KIND: "user-app",
       APP_ID: app.id,
       USER_ALIAS: userAlias,
       ...(wapp ? { WAPP_ID: wapp.id } : {}),
     },
-    filter_env: [...PM2_FILTERED_PARENT_ENV_PREFIXES],
+    filter_env: Array.from(new Set([
+      ...PM2_FILTERED_PARENT_ENV_PREFIXES,
+      ...pm2Environment.filteredParentKeys,
+    ])),
     out_file: join(logsDir, `${processName}-out.log`),
     error_file: join(logsDir, `${processName}-error.log`),
     log_date_format: "YYYY-MM-DD HH:mm:ss",
