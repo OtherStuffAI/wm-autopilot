@@ -211,8 +211,9 @@ export const proxyRequestToApp = async (
   const targetUrl = new URL(url.pathname + url.search, `http://127.0.0.1:${targetPort}`);
   logRouting(`proxyRequestToApp`, { targetPort, targetUrl: targetUrl.toString(), method: request.method });
 
-  // Clone headers, removing hop-by-hop headers and sensitive credentials
-  // that must never cross the trust boundary into a managed app.
+  // Clone headers, removing only hop-by-hop transport headers. Cookie and
+  // Authorization belong to the app hostname and are part of the managed app
+  // contract: WApps use them for session cookies and NIP-98 APIs.
   const headers = new Headers();
   const hopByHopHeaders = new Set([
     "connection",
@@ -224,14 +225,9 @@ export const proxyRequestToApp = async (
     "transfer-encoding",
     "upgrade",
   ]);
-  const sensitiveHeaders = new Set([
-    "cookie",
-    "authorization",
-  ]);
-
   for (const [key, value] of request.headers) {
     const lower = key.toLowerCase();
-    if (!hopByHopHeaders.has(lower) && !sensitiveHeaders.has(lower)) {
+    if (!hopByHopHeaders.has(lower)) {
       headers.set(key, value);
     }
   }
@@ -247,6 +243,7 @@ export const proxyRequestToApp = async (
       headers,
       body: request.body,
       duplex: "half",
+      redirect: "manual",
     });
 
     // Clone response headers, removing hop-by-hop, content-length, and content-encoding.
@@ -260,8 +257,32 @@ export const proxyRequestToApp = async (
     const responseHeaders = new Headers();
     for (const [key, value] of proxyResponse.headers) {
       const lower = key.toLowerCase();
-      if (!hopByHopHeaders.has(lower) && lower !== "content-length" && lower !== "content-encoding") {
+      if (
+        !hopByHopHeaders.has(lower)
+        && lower !== "content-length"
+        && lower !== "content-encoding"
+        && lower !== "set-cookie"
+      ) {
         responseHeaders.set(key, value);
+      }
+    }
+
+    for (const cookie of proxyResponse.headers.getSetCookie()) {
+      responseHeaders.append("set-cookie", cookie);
+    }
+
+    const location = proxyResponse.headers.get("location");
+    if (location) {
+      const resolvedLocation = new URL(location, targetUrl);
+      if (
+        resolvedLocation.hostname === "127.0.0.1"
+        || resolvedLocation.hostname === "localhost"
+        || resolvedLocation.host === url.host
+      ) {
+        responseHeaders.set(
+          "location",
+          `${url.origin}${resolvedLocation.pathname}${resolvedLocation.search}${resolvedLocation.hash}`,
+        );
       }
     }
 
