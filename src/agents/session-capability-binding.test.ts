@@ -2,7 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import type { WingmanConfig } from "../config";
 import type { BotKeyRecord } from "../identity/bot-key-store";
-import { CapabilityBroker, type SessionCapabilityPolicy } from "../signing/capability-broker";
+import {
+  CapabilityBroker,
+  DEFAULT_AGENT_NOSTR_EVENT_KINDS,
+  buildDefaultAgentCapabilityPolicy,
+  type SessionCapabilityPolicy,
+} from "../signing/capability-broker";
 import { ProcessManager } from "./process-manager";
 import { resolveAndBindSessionCapabilityBotRecord } from "./session-capability-binding";
 
@@ -10,7 +15,11 @@ const ownerNpub = "npub1owner";
 const activeBotNpub = "npub1active";
 const retiredBotNpub = "npub1retired";
 const workingDirectory = "/tmp";
-const policy: SessionCapabilityPolicy = { operations: ["identity.read"] };
+const defaultPolicy = buildDefaultAgentCapabilityPolicy({
+  towerUrl: "https://tower.example",
+  autopilotUrl: "http://localhost:3600",
+  ownerNpub,
+});
 
 const activeRecord = {
   id: "active-record",
@@ -44,9 +53,13 @@ async function waitForBrokerEnvironment(manager: ProcessManager, sessionId: stri
   throw new Error(`spawned session ${sessionId} did not report its broker environment`);
 }
 
-async function launch(metadata?: Parameters<ProcessManager["createSession"]>[6]) {
+async function launch(input: {
+  metadata?: Parameters<ProcessManager["createSession"]>[6];
+  origin?: Parameters<ProcessManager["createSession"]>[3];
+} = {}) {
   let manager!: ProcessManager;
   let broker!: CapabilityBroker;
+  let issuedPolicy: SessionCapabilityPolicy | null = null;
   const config = {
     allowedHosts: "localhost,127.0.0.1",
     agentPortStart: 48770,
@@ -86,7 +99,7 @@ async function launch(metadata?: Parameters<ProcessManager["createSession"]>[6])
         ownerNpub: requestedOwnerNpub,
         profileId: resolvedProfileId,
         botNpub: record.botNpub,
-        policy,
+        policy: issuedPolicy = structuredClone(defaultPolicy),
       });
     },
     revokeSessionCapabilities: (sessionId) => broker.revokeSession(sessionId),
@@ -107,23 +120,25 @@ async function launch(metadata?: Parameters<ProcessManager["createSession"]>[6])
     "codex",
     workingDirectory,
     "Capability binding regression",
-    null,
+    input.origin ?? null,
     undefined,
     ownerNpub,
-    metadata,
+    input.metadata,
   );
   await waitForBrokerEnvironment(manager, snapshot.id);
-  return { manager, snapshot: manager.getSession(snapshot.id)! };
+  return { manager, snapshot: manager.getSession(snapshot.id)!, issuedPolicy };
 }
 
 describe("session capability binding", () => {
   test("rebinds a stale resumed identity before issuing capability and MCP environment", async () => {
     const { snapshot } = await launch({
-      AGENT: true,
-      resumedFromWingmanSessionId: "retired-session",
-      agentChatAgentId: "agent-alpha",
-      agentChatBotNpub: retiredBotNpub,
-      flightdeckAgentNpub: retiredBotNpub,
+      metadata: {
+        AGENT: true,
+        resumedFromWingmanSessionId: "retired-session",
+        agentChatAgentId: "agent-alpha",
+        agentChatBotNpub: retiredBotNpub,
+        flightdeckAgentNpub: retiredBotNpub,
+      },
     });
 
     expect(snapshot.metadata?.agentChatBotNpub).toBe(activeBotNpub);
@@ -142,13 +157,32 @@ describe("session capability binding", () => {
 
   test("preserves an ordinary session profile binding through native resume metadata", async () => {
     const { snapshot } = await launch({
-      resumedFromWingmanSessionId: "ordinary-session",
-      agentProfileId: "agent-alpha",
-      agentChatBotNpub: activeBotNpub,
+      metadata: {
+        resumedFromWingmanSessionId: "ordinary-session",
+        agentProfileId: "agent-alpha",
+        agentChatBotNpub: activeBotNpub,
+      },
     });
 
     expect(snapshot.metadata?.agentProfileId).toBe("agent-alpha");
     expect(snapshot.metadata?.agentChatBotNpub).toBe(activeBotNpub);
     expect(snapshot.logs).toContainEqual(expect.stringContaining("BROKER_ENV=ready"));
+  });
+
+  test.each([
+    ["manager", null, undefined],
+    ["dispatched worker", { type: "session-dispatch", id: "manager-session" } as const,
+      { role: "dispatched-worker", callbackSessionId: "manager-session" }],
+  ])("issues the corrected default policy to a %s session", async (_label, origin, metadata) => {
+    const { snapshot, issuedPolicy } = await launch({ origin, metadata });
+
+    expect(snapshot.logs).toContainEqual(expect.stringContaining("BROKER_ENV=ready"));
+    expect(issuedPolicy?.nostr?.kinds).toEqual([...DEFAULT_AGENT_NOSTR_EVENT_KINDS]);
+    expect(issuedPolicy?.operations).toEqual(expect.arrayContaining([
+      "nostr.sign",
+      "nip44.encrypt",
+      "nip44.decrypt",
+      "blossom.authorize",
+    ]));
   });
 });

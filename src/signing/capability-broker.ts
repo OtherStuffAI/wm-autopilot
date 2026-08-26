@@ -16,6 +16,23 @@ const NIP98_KIND = 27_235;
 const BLOSSOM_AUTH_KIND = 24_242;
 const FLIGHTDECK_PG_MESSAGE_INSTRUCTION_KIND = 33_358;
 const SESSION_BINDING_TAG = "wm-session-capability";
+const DEFAULT_NIP44_MAX_PLAINTEXT_BYTES = 1_048_576;
+const DEFAULT_NIP44_MAX_CIPHERTEXT_BYTES = 1_500_000;
+
+// Keep this list explicit: ordinary agent work needs a small, reviewable set
+// of social/profile, relay-discovery, app-data, release, and Flight Deck kinds.
+// Blossom kind 24242 is included for compatible clients that request generic
+// event signing; the dedicated blossom.authorize operation remains preferred.
+export const DEFAULT_AGENT_NOSTR_EVENT_KINDS = Object.freeze([
+  0, 1, 3, 4, 7,
+  3_063,
+  10_002,
+  BLOSSOM_AUTH_KIND,
+  30_063,
+  30_078,
+  32_267,
+  FLIGHTDECK_PG_MESSAGE_INSTRUCTION_KIND,
+]);
 
 export type BrokerOperation =
   | "identity.read"
@@ -55,6 +72,8 @@ export interface NostrConstraint {
 export interface Nip44Constraint {
   encryptPeers: string[];
   decryptPeers: string[];
+  maxPlaintextBytes?: number;
+  maxCiphertextBytes?: number;
 }
 
 export interface BlossomConstraint {
@@ -643,12 +662,20 @@ export class CapabilityBroker {
     if (authorized instanceof Response) return authorized;
     const plaintext = typeof body.plaintext === "string" ? body.plaintext : null;
     const peer = typeof body.recipientPubkey === "string" ? normalizeHex(body.recipientPubkey) : "";
-    if (plaintext === null || !isHex64(peer)) return this.denied(authorized.capability, "nip44.encrypt", "plaintext and recipientPubkey are required", 400);
+    if (!plaintext || !isHex64(peer)) return this.denied(authorized.capability, "nip44.encrypt", "plaintext and recipientPubkey are required", 400);
     const constraint = authorized.capability.policy.nip44;
     if (!constraint || !peerAllowed(constraint.encryptPeers, peer)) return this.denied(authorized.capability, "nip44.encrypt", "NIP-44 recipient is not allowed");
-    const ciphertext = await this.withBotKey(authorized.botRecord, (secretKey) => nip44Encrypt(plaintext, secretKey, peer));
-    this.audit(authorized.capability, "nip44.encrypt", "allowed");
-    return Response.json({ ciphertext, senderPubkey: authorized.capability.botPubkeyHex, senderNpub: authorized.capability.botNpub });
+    if (constraint.maxPlaintextBytes !== undefined && Buffer.byteLength(plaintext) > constraint.maxPlaintextBytes) {
+      return this.denied(authorized.capability, "nip44.encrypt", "NIP-44 plaintext exceeds policy", 400);
+    }
+    try {
+      const ciphertext = await this.withBotKey(authorized.botRecord, (secretKey) => nip44Encrypt(plaintext, secretKey, peer));
+      this.audit(authorized.capability, "nip44.encrypt", "allowed");
+      return Response.json({ ciphertext, senderPubkey: authorized.capability.botPubkeyHex, senderNpub: authorized.capability.botNpub });
+    } catch (error) {
+      if (error instanceof BrokerKeyNotProvisionedError) throw error;
+      return this.denied(authorized.capability, "nip44.encrypt", "NIP-44 encryption failed", 400);
+    }
   }
 
   private async handleNip44Decrypt(request: Request): Promise<Response> {
@@ -661,11 +688,15 @@ export class CapabilityBroker {
     if (!ciphertext || !isHex64(peer)) return this.denied(authorized.capability, "nip44.decrypt", "ciphertext and senderPubkey are required", 400);
     const constraint = authorized.capability.policy.nip44;
     if (!constraint || !peerAllowed(constraint.decryptPeers, peer)) return this.denied(authorized.capability, "nip44.decrypt", "NIP-44 sender is not allowed");
+    if (constraint.maxCiphertextBytes !== undefined && Buffer.byteLength(ciphertext) > constraint.maxCiphertextBytes) {
+      return this.denied(authorized.capability, "nip44.decrypt", "NIP-44 ciphertext exceeds policy", 400);
+    }
     try {
       const plaintext = await this.withBotKey(authorized.botRecord, (secretKey) => nip44Decrypt(ciphertext, secretKey, peer));
       this.audit(authorized.capability, "nip44.decrypt", "allowed");
       return Response.json({ plaintext, decryptedBy: authorized.capability.botPubkeyHex, decryptedByNpub: authorized.capability.botNpub });
-    } catch {
+    } catch (error) {
+      if (error instanceof BrokerKeyNotProvisionedError) throw error;
       return this.denied(authorized.capability, "nip44.decrypt", "NIP-44 decryption failed", 400);
     }
   }
@@ -815,12 +846,17 @@ export function buildDefaultAgentCapabilityPolicy(input: {
       ],
     },
     nostr: {
-      kinds: [0, 1, 3, 4, 7, 10_002, 30_078, FLIGHTDECK_PG_MESSAGE_INSTRUCTION_KIND],
+      kinds: [...DEFAULT_AGENT_NOSTR_EVENT_KINDS],
       maxContentBytes: 1_048_576,
       maxTags: 256,
       maxTagBytes: 65_536,
     },
-    nip44: { encryptPeers: ["*"], decryptPeers: ["*"] },
+    nip44: {
+      encryptPeers: ["*"],
+      decryptPeers: ["*"],
+      maxPlaintextBytes: DEFAULT_NIP44_MAX_PLAINTEXT_BYTES,
+      maxCiphertextBytes: DEFAULT_NIP44_MAX_CIPHERTEXT_BYTES,
+    },
     blossom: {
       servers: (input.blossomServers ?? towerOrigins).map((server) => new URL(server).origin),
       methods: ["upload", "delete", "list"],
