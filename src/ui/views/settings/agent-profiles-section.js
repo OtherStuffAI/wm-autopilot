@@ -4,6 +4,7 @@ import {
   rotateAgentChatProfileKey,
   setDefaultAgentChatProfile,
   updateAgentChatProfile,
+  uploadAgentChatProfileMedia,
 } from '../../services/agent-chat.js';
 import { createPrimaryAgentNameModal } from './agent-chat-editor-cards.js';
 import { createAgentProfileEditor } from './agent-profile-editor.js';
@@ -91,17 +92,25 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
         picture: defaults.picture,
         about: defaults.about,
         nip05: defaults.nip05,
+        mediaFile: defaults.mediaFile,
       });
-      status.textContent = `Created ${created.agent.label}. Immutable identity: ${created.agent.botNpub}`;
+      status.textContent = created.media?.savedLocally && created.media?.publishedToRelays
+        ? `Created ${created.agent.label}. Image saved locally and profile published to relays. Immutable identity: ${created.agent.botNpub}`
+        : `Created ${created.agent.label}. Immutable identity: ${created.agent.botNpub}`;
       await refresh();
     },
   });
   const editor = createAgentProfileEditor({
     onBrowseDirectory: openDirectoryBrowser,
     onSave: async (_agent, input) => {
-      const result = await updateAgentChatProfile(_agent.agentId, input);
-      status.textContent = result.published
-        ? `Saved ${result.agent.label} and published its public profile without changing ${result.agent.botNpub}.`
+      const { mediaFile, ...profileInput } = input;
+      const result = mediaFile
+        ? await uploadAgentChatProfileMedia(_agent.agentId, mediaFile, profileInput)
+        : await updateAgentChatProfile(_agent.agentId, profileInput);
+      status.textContent = result.media?.savedLocally && result.media?.publishedToRelays
+        ? `Saved ${result.agent.label}'s image locally and published its profile without changing ${result.agent.botNpub}.`
+        : result.published
+        ? `Saved ${result.agent.label} and published its public profile. Its picture URL remains externally hosted.`
         : `Saved local runtime settings for ${result.agent.label}; public profile was unchanged.`;
       await refresh();
       return result;

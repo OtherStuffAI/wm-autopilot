@@ -82,6 +82,7 @@ describe("createStaticRouteHandler", () => {
       "/scheduler/form-support.js",
       "/sessions/actions-core.js",
       "/views/settings/restart-settings-section.js",
+      "/views/settings/agent-profile-media-picker.js",
     ]) {
       const moduleResponse = await handler.serveBeforeApi(new Request(`http://localhost${pathname}`), pathname);
       expect(moduleResponse?.status).toBe(200);

@@ -1,5 +1,6 @@
 import { createAgentModelLookupController, modelValueForPayload } from '../../common/agent-model-lookups.js';
 import { createButton, createCheckbox, createInput, createStatusLine, createTextarea } from './agent-chat-shared-ui.js';
+import { createAgentProfileMediaPicker } from './agent-profile-media-picker.js';
 
 function createSelect(label, testId, ariaLabel) {
   const row = document.createElement('label');
@@ -49,6 +50,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
   const directChatEnabled = createCheckbox('Respond to direct chat / dispatch', 'agent-profile-edit-direct-chat-enabled', true);
   const name = createInput('Public Nostr name', '', 'agent-profile-edit-name');
   const picture = createInput('Public picture URL', '', 'agent-profile-edit-picture');
+  const mediaPicker = createAgentProfileMediaPicker('agent-profile-edit-picture');
   const about = createTextarea('Public about', '', 'agent-profile-edit-about', 4);
   const nip05 = createInput('NIP-05', '', 'agent-profile-edit-nip05');
   const status = createStatusLine();
@@ -62,7 +64,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
   actions.className = 'wm-settings-page__actions';
   actions.append(save, cancel);
   form.append(title, identity.row, label.row, directory.row, harness.row, model.row, lookupStatus,
-    enabled.row, directChatEnabled.row, name.row, picture.row, about.row, nip05.row, status, actions);
+    enabled.row, directChatEnabled.row, name.row, picture.row, mediaPicker.element, about.row, nip05.row, status, actions);
   overlay.append(form);
   let current = null;
   let runtimeConfig = null;
@@ -80,6 +82,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
     directChatEnabled.input.checked = agent.directChat?.enabled !== false;
     name.input.value = agent.publicProfile?.name || agent.label || '';
     picture.input.value = agent.publicProfile?.picture || '';
+    mediaPicker.reset(picture.input.value);
     about.input.value = agent.publicProfile?.about || '';
     nip05.input.value = agent.publicProfile?.nip05 || '';
     lookup.setConfig(runtimeConfig, { harness: agent.harness || agent.directChat?.sessionAgent || '', model: agent.model || agent.directChat?.model || '' });
@@ -89,6 +92,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
     label.input.focus();
   }
   cancel.addEventListener('click', close);
+  picture.input.addEventListener('input', () => mediaPicker.setExternalUrl(picture.input.value));
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
   async function submit(event) {
     event.preventDefault();
@@ -108,8 +112,13 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
           name: name.input.value.trim(), picture: picture.input.value.trim(),
           about: about.input.value.trim(), nip05: nip05.input.value.trim(),
         },
+        mediaFile: mediaPicker.file,
       });
-      status.textContent = result.published ? 'Saved locally and published a fresh public kind-0.' : 'Saved local runtime changes. No public publication was needed.';
+      status.textContent = result.media?.savedLocally && result.media?.publishedToRelays
+        ? 'Image saved locally and profile published to relays.'
+        : result.published
+          ? 'Saved profile fields and published them to relays. Any picture URL remains externally hosted.'
+          : 'Saved local runtime changes. No public publication was needed.';
       close();
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : 'Failed to save agent profile.';

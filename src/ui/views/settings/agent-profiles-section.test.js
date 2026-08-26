@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 let createPayload = null;
 let updatePayload = null;
+let uploadPayload = null;
 let listedAgents = [];
 let listedDefaults = {};
 let rotatePayload = null;
@@ -15,6 +16,14 @@ mock.module('../../services/agent-chat.js', () => ({
   updateAgentChatProfile: async (profileId, input) => {
     updatePayload = { profileId, input };
     return { agent: { ...listedAgents[0], ...input }, published: false };
+  },
+  uploadAgentChatProfileMedia: async (profileId, mediaFile, input) => {
+    uploadPayload = { profileId, mediaFile, input };
+    return {
+      agent: { ...listedAgents[0], ...input },
+      published: true,
+      media: { savedLocally: true, publishedToRelays: true },
+    };
   },
   rotateAgentChatProfileKey: async (...args) => { rotatePayload = args; return { state: 'completed', newNpub: 'npub1rotated', warnings: [], externalActions: [], tower: { status: 'completed', migrationCounts: { memberships: 2 } } }; },
   setDefaultAgentChatProfile: async (profileId) => { defaultPayload = profileId; return { defaultAgentProfileId: profileId }; },
@@ -73,6 +82,7 @@ describe('Agent Profiles Settings entry', () => {
   beforeEach(() => {
     createPayload = null;
     updatePayload = null;
+    uploadPayload = null;
     rotatePayload = null;
     defaultPayload = null;
     listedAgents = [];
@@ -100,6 +110,8 @@ describe('Agent Profiles Settings entry', () => {
       expect(findByTestId(modal, 'agent-chat-agent-create-harness')).not.toBeNull();
       expect(findByTestId(modal, 'agent-chat-agent-create-model')).not.toBeNull();
       expect(findByTestId(modal, 'agent-chat-agent-create-picture')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-chat-agent-create-picture-file')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-chat-agent-create-picture-preview')?.alt).toBe('Agent profile image preview');
       expect(findByTestId(modal, 'agent-chat-agent-create-about')).not.toBeNull();
       expect(findByTestId(modal, 'agent-chat-agent-create-nip05')).not.toBeNull();
       expect(findByTestId(modal, 'agent-chat-agent-name-advanced-panel')?.style.display).toBe('');
@@ -119,6 +131,10 @@ describe('Agent Profiles Settings entry', () => {
       const directoryInput = findByTestId(modal, 'agent-chat-agent-working-directory');
       directoryInput.value = '/Users/example/wingmen/Builder21';
       directoryInput.dispatchEvent({ type: 'input' });
+      const mediaFile = new File([new Uint8Array([1, 2, 3])], 'builder.png', { type: 'image/png' });
+      const mediaInput = findByTestId(modal, 'agent-chat-agent-create-picture-file');
+      mediaInput.files = [mediaFile];
+      mediaInput.dispatchEvent({ type: 'change' });
       findByTestId(modal, 'agent-chat-agent-name-submit').click();
       await Promise.resolve();
       await Promise.resolve();
@@ -129,6 +145,7 @@ describe('Agent Profiles Settings entry', () => {
         harness: 'goose',
         model: 'qwen/qwen3.7-flash',
         workingDirectory: '/Users/example/wingmen/Builder21',
+        mediaFile,
       });
     } finally {
       globalThis.document = originalDocument;
@@ -157,6 +174,8 @@ describe('Agent Profiles Settings entry', () => {
       expect(findByTestId(modal, 'agent-profile-edit-directory').value).toBe('/Users/example/wingmen/agent-workspace');
       expect(findByTestId(modal, 'agent-profile-edit-harness').value).toBe('goose');
       expect(findByTestId(modal, 'agent-profile-edit-model').value).toBe('deepseek/deepseek-v4-flash-0731');
+      expect(findByTestId(modal, 'agent-profile-edit-picture-file')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-profile-edit-picture-status')?.attributes.get('aria-live')).toBe('polite');
       findByTestId(modal, 'agent-profile-edit-directory').value = '/Users/example/wingmen/Builder21';
       findByTestId(modal, 'agent-profile-edit-save').click();
       await Promise.resolve();
@@ -170,6 +189,40 @@ describe('Agent Profiles Settings entry', () => {
         },
       });
       expect(updatePayload.input).not.toHaveProperty('botNpub');
+    } finally {
+      globalThis.document = originalDocument;
+    }
+  });
+
+  test('imports a selected edit image through the owned media path', async () => {
+    listedAgents = [{
+      agentId: 'profile-one', label: 'Profile One', botNpub: 'npub1profileone', workingDirectory: '/tmp/profile-one', harness: 'codex', model: null,
+      enabled: true, capabilities: ['chat_intercept'], directChat: { enabled: true },
+      publicProfile: { name: 'Profile One', about: 'Agent', picture: 'https://external.host/profile-one.jpg', nip05: null },
+    }];
+    const originalDocument = globalThis.document;
+    globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+    try {
+      const { createAgentProfilesSection } = await import('./agent-profiles-section.js');
+      const section = createAgentProfilesSection();
+      await Promise.resolve(); await Promise.resolve();
+      findByTestId(section, 'agent-profile-edit-profile-one').click();
+      const modal = findByTestId(section, 'agent-profile-editor-modal');
+      const mediaFile = new File([new Uint8Array([4, 5, 6])], 'profile-one.png', { type: 'image/png' });
+      const mediaInput = findByTestId(modal, 'agent-profile-edit-picture-file');
+      mediaInput.files = [mediaFile];
+      mediaInput.dispatchEvent({ type: 'change' });
+      expect(findByTestId(modal, 'agent-profile-edit-picture-preview').hidden).toBe(false);
+      expect(findByTestId(modal, 'agent-profile-edit-picture-status').textContent).toContain('saved locally');
+      findByTestId(modal, 'agent-profile-edit-save').click();
+      await Promise.resolve(); await Promise.resolve();
+      expect(uploadPayload).toMatchObject({
+        profileId: 'profile-one',
+        mediaFile,
+        input: { publicProfile: { name: 'Profile One', about: 'Agent' } },
+      });
+      expect(updatePayload).toBeNull();
+      expect(findByTestId(section, 'agent-profiles-status').textContent).toContain('image locally and published');
     } finally {
       globalThis.document = originalDocument;
     }

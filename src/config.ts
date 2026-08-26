@@ -34,8 +34,10 @@ export interface AgentDefinition {
 
 export interface WingmanConfig {
   port: number;
-  /** Public base URL for this Wingman instance (e.g. https://wingman.example.invalid) */
+  /** Public base URL for this Wingman instance (e.g. https://wingman.your-domain.tld) */
   baseUrl: string;
+  /** Whether WINGMAN_BASE_URL was explicitly configured rather than defaulted to localhost. */
+  baseUrlConfigured: boolean;
   agentPortStart: number;
   agentPortMax: number;
   defaultWorkingDirectory: string;
@@ -466,7 +468,8 @@ export const loadConfig = (): WingmanConfig => {
   }
 
   // Public base URL (for external links in notifications, etc.)
-  const baseUrl = parseEnvironmentString(effectiveEnv.WINGMAN_BASE_URL, `http://localhost:${port}`);
+  const configuredBaseUrl = readTrimmedEnvValue(effectiveEnv, 'WINGMAN_BASE_URL');
+  const baseUrl = parseEnvironmentString(configuredBaseUrl ?? undefined, `http://localhost:${port}`);
   console.log(`[Config] Base URL: ${baseUrl}`);
 
   // Maple Proxy configuration for private chat
@@ -498,6 +501,7 @@ export const loadConfig = (): WingmanConfig => {
   return {
     port,
     baseUrl,
+    baseUrlConfigured: configuredBaseUrl !== null,
     agentPortStart,
     agentPortMax,
     defaultWorkingDirectory,

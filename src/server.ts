@@ -122,6 +122,8 @@ import { InstallationIntentConsumer } from "./wapps/installation-intent-consumer
 import { isAgentDispatchAdminOnlyEnabled, isSharedAgentDispatchEnabled, isSharedInstanceAccessEnabled } from "./shared-instance";
 import { WorkspaceSubscriptionManager } from './agent-chat/subscription-runtime';
 import { agentDefinitionStore } from './agent-chat/agent-definition-store';
+import { AgentProfileMediaStore } from './agent-chat/agent-profile-media-store';
+import { handleAgentProfileMediaPublicRoute } from './server/agent-profile-media-public-route';
 import {
   buildSessionCapabilityProfileContext,
   resolveAndBindSessionCapabilityBotRecord,
@@ -534,6 +536,7 @@ const nightWatchApiHandler = createNightWatchApiHandler({
   featureFlagStore,
 });
 const botKeyStore = new BotKeyStore();
+const agentProfileMediaStore = new AgentProfileMediaStore();
 const brokerKeyVault = createBrokerKeyVaultBackend();
 const capabilityStateStore = new FileCapabilityBrokerStateStore(
   Bun.env.WINGMAN_CAPABILITY_STATE_FILE?.trim() || new URL("../data/capability-broker-state.json", import.meta.url).pathname,
@@ -2690,6 +2693,7 @@ const handleApi = createApiRouteHandler({
   config: {
     port: config.port,
     baseUrl: config.baseUrl,
+    baseUrlConfigured: config.baseUrlConfigured,
     agentPortStart: config.agentPortStart,
     agentPortMax: config.agentPortMax,
     hostUrlBase: config.hostUrlBase,
@@ -2858,6 +2862,9 @@ const handleApi = createApiRouteHandler({
       });
     },
     rotateAgentProfileKey: (input) => agentProfileKeyRotation.rotate(input),
+    profileMediaStore: agentProfileMediaStore,
+    profileMediaBaseUrl: config.baseUrl,
+    profileMediaBaseUrlConfigured: config.baseUrlConfigured,
   },
   voiceNoteUploadApiContext: {
     imageRoot,
@@ -3125,6 +3132,11 @@ const server = Bun.serve<WingmanWebSocketData>({
       const appHostResponse = await handleAppHostRequest(request, subdomainProxyConfig, requestServer);
       if (appHostResponse) {
         return appHostResponse;
+      }
+
+      const profileMediaResponse = handleAgentProfileMediaPublicRoute(request, url, agentProfileMediaStore);
+      if (profileMediaResponse) {
+        return profileMediaResponse;
       }
 
       const terminalUpgradeResponse = await handleTerminalWebSocketUpgrade(
