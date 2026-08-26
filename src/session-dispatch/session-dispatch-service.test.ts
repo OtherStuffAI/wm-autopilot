@@ -23,27 +23,45 @@ function fixture(options: { supervisorRuntime?: "running" | "stable" } = {}) {
   const sessions = new Map([["supervisor", session("supervisor", "npub1owner", options.supervisorRuntime)]]);
   let workerNumber = 0;
   const adapters = new Map<string, any>();
+  const createSession = mock(async () => {
+    const index = ++workerNumber;
+    const worker = session(`worker-${index}`);
+    sessions.set(worker.id, worker);
+    adapters.set(worker.id, { deliversPromptsDirectly: () => true, fetchStatus: async () => "stable",
+      fetchMessages: async () => [{ role: "user", content: `Work ${index}`, createdAt: "2026-01-01T00:00:00Z" },
+        { role: "assistant", content: `Done ${index}`, createdAt: `2026-01-01T00:01:${String(index).padStart(2, "0")}Z` }] });
+    return worker;
+  });
   const manager = {
     getSession: (id: string) => sessions.get(id),
     getAdapter: (id: string) => adapters.get(id) ?? null,
-    createSession: async () => {
-      const index = ++workerNumber;
-      const worker = session(`worker-${index}`);
-      sessions.set(worker.id, worker);
-      adapters.set(worker.id, { deliversPromptsDirectly: () => true, fetchStatus: async () => "stable",
-        fetchMessages: async () => [{ role: "user", content: `Work ${index}`, createdAt: "2026-01-01T00:00:00Z" },
-          { role: "assistant", content: `Done ${index}`, createdAt: `2026-01-01T00:01:${String(index).padStart(2, "0")}Z` }] });
-      return worker;
-    },
+    createSession,
   } as any;
   const requested = mock(async () => {});
   const closedWorkers: string[] = [];
   const service = new SessionDispatchService(store, manager, queue, () => {}, {},
     (id) => { closedWorkers.push(id); }, inbox, requested);
-  return { store, queue, inbox, sessions, adapters, service, requested, closedWorkers };
+  return { store, queue, inbox, sessions, adapters, service, requested, closedWorkers, createSession };
 }
 
 describe("SessionDispatchService callback inbox", () => {
+  test("creates an owned dispatched-worker session through the manager issuance path", async () => {
+    const f = fixture();
+
+    await f.service.create({ agent: "codex", prompt: "Use broker capability", callbackEnabled: true,
+      callbackSessionId: "supervisor" });
+
+    expect(f.createSession).toHaveBeenCalledWith(
+      "codex",
+      undefined,
+      undefined,
+      { type: "session-dispatch", id: "supervisor" },
+      undefined,
+      "npub1owner",
+      { role: "dispatched-worker", callbackSessionId: "supervisor" },
+    );
+  });
+
   test("captures a terminal result without adding a supervisor queue prompt", async () => {
     const f = fixture();
     const created = await f.service.create({ agent: "claude", prompt: "Work 1", callbackEnabled: true,

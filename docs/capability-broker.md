@@ -54,8 +54,8 @@ that is optional hardening, not required for normal Autopilot operation.
 | --- | --- | --- |
 | Public identity | Own stable bot only | Live session, bound owner and bot record |
 | NIP-98 | Configured Tower `/api/v4`, explicit local Autopilot API prefixes, and exact brokered restart/status routes | Origin-specific scheme/host/port/path/method targets; POST/PUT/PATCH require an exact body hash |
-| Nostr event | Explicit kind allowlist excluding NIP-98/Blossom auth kinds; the default includes Flight Deck PG instruction kind `33358` | Kind, broker-owned timestamp, content/tag byte limits, tag count and optional tag constraints |
-| NIP-44 encrypt/decrypt | Stable bot identity | Direction plus peer policy; no instance fallback |
+| Nostr event | Explicit named kind allowlist; the default includes common profile/social/app-release kinds plus Flight Deck PG instruction kind `33358` | Kind, broker-owned timestamp, content/tag byte limits, tag count and optional tag constraints |
+| NIP-44 encrypt/decrypt | Stable bot identity; separate operations, not event kinds | Direction, valid peer pubkey, payload byte limits, and decryption errors; no instance fallback |
 | Blossom authorization | Configured server origin | Method, SHA-256 object hash, object size and optional exact-hash list |
 | Wallet read | No production default | Separate adapter and allowlisted methods required |
 | Wallet spend | No production default | Separate operation, method, per-call and cumulative msat budgets |
@@ -63,8 +63,21 @@ that is optional hardening, not required for normal Autopilot operation.
 
 The default peer policy currently permits any valid NIP-44 peer because normal
 encrypted messaging needs dynamic correspondents. A deployment that knows its
-counterpart set should issue a narrower policy. The signer identity remains
-strictly fixed even with the wildcard peer set.
+counterpart set should issue a narrower policy. Default payload limits bound
+plaintext to 1 MiB and ciphertext to 1.5 MB before cryptographic work. The
+signer identity remains strictly fixed even with the wildcard peer set.
+
+The default Nostr event allowlist is the named
+`DEFAULT_AGENT_NOSTR_EVENT_KINDS` constant. It preserves the existing profile,
+note, contact, legacy encrypted-message, reaction, relay-list, app-data, and
+Flight Deck instruction kinds, and adds the explicit Zapstore release set:
+software asset `3063`, Blossom authorization `24242`, software release `30063`,
+and app metadata `32267`. Kind `24242` is present for publishing clients that
+request generic event signing, while broker-native Blossom clients should use
+`blossom.authorize`, which independently enforces server origin, method, object
+hash, and object size. NIP-44 encryption/decryption likewise remain dedicated
+operations with their own constraints; neither Blossom nor NIP-44 widens the
+event-kind allowlist. Unknown kinds remain denied.
 
 ## Agent use
 

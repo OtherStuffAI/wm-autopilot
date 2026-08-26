@@ -6,6 +6,7 @@ import type { SessionSnapshot } from "../agents/process-manager";
 import type { BotKeyRecord } from "../identity/bot-key-store";
 import {
   CapabilityBroker,
+  DEFAULT_AGENT_NOSTR_EVENT_KINDS,
   SESSION_CAPABILITY_TTL_MS,
   buildDefaultAgentCapabilityPolicy,
   type CapabilityAuditEntry,
@@ -245,6 +246,19 @@ describe("CapabilityBroker", () => {
     const response = (await missing.handle(input.request, input.url, "POST"))!;
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ code: "broker_key_not_provisioned" });
+
+    const missingEncrypt = request("/api/mcp/capabilities/nip44/encrypt", issued.token, {
+      sessionId: "session-a",
+      plaintext: "still fail closed",
+      recipientPubkey: botPubkeyB,
+    });
+    expect((await missing.handle(missingEncrypt.request, missingEncrypt.url, "POST"))!.status).toBe(503);
+    const missingDecrypt = request("/api/mcp/capabilities/nip44/decrypt", issued.token, {
+      sessionId: "session-a",
+      ciphertext: nip44Encrypt("still fail closed", botSecretB, botPubkeyA),
+      senderPubkey: botPubkeyB,
+    });
+    expect((await missing.handle(missingDecrypt.request, missingDecrypt.url, "POST"))!.status).toBe(503);
   });
 
   test("signs exact NIP-98 semantics with the stable agent identity", async () => {
@@ -357,6 +371,111 @@ describe("CapabilityBroker", () => {
     const signedInstruction = await flightDeckInstruction.json() as { event: { kind: number; pubkey: string } };
     expect(signedInstruction.event.kind).toBe(33_358);
     expect(signedInstruction.event.pubkey).toBe(botPubkeyA);
+  });
+
+  test("allows the explicit common agent kinds and denies an unapproved kind by default", async () => {
+    const defaultPolicy = buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example",
+      autopilotUrl: "http://localhost:3600",
+      ownerNpub: ownerA,
+    });
+    expect(defaultPolicy.nostr?.kinds).toEqual([...DEFAULT_AGENT_NOSTR_EVENT_KINDS]);
+
+    const issued = issue("session-a", ownerA, defaultPolicy);
+    for (const kind of [3_063, 24_242, 30_063, 32_267, 33_358]) {
+      expect((await call("/api/mcp/capabilities/nostr-event", issued.token, {
+        sessionId: "session-a",
+        event: { kind, content: `default kind ${kind}`, tags: [] },
+      })).status).toBe(200);
+    }
+    expect((await call("/api/mcp/capabilities/nostr-event", issued.token, {
+      sessionId: "session-a",
+      event: { kind: 31_337, content: "unapproved", tags: [] },
+    })).status).toBe(403);
+  });
+
+  test("keeps default NIP-44 operations separate and size/error constrained", async () => {
+    const defaultPolicy = buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example",
+      autopilotUrl: "http://localhost:3600",
+    });
+    expect(defaultPolicy.operations).toEqual(expect.arrayContaining(["nip44.encrypt", "nip44.decrypt"]));
+    expect(defaultPolicy.nostr?.kinds.every(Number.isInteger)).toBe(true);
+    expect(defaultPolicy.nip44).toMatchObject({
+      encryptPeers: ["*"],
+      decryptPeers: ["*"],
+      maxPlaintextBytes: 1_048_576,
+      maxCiphertextBytes: 1_500_000,
+    });
+
+    const issued = issue("session-a", ownerA, defaultPolicy);
+    const encryptedResponse = await call("/api/mcp/capabilities/nip44/encrypt", issued.token, {
+      sessionId: "session-a",
+      plaintext: "default NIP-44",
+      recipientPubkey: botPubkeyB,
+    });
+    expect(encryptedResponse.status).toBe(200);
+    const encrypted = await encryptedResponse.json() as { ciphertext: string };
+    expect((await call("/api/mcp/capabilities/nip44/decrypt", issued.token, {
+      sessionId: "session-a",
+      ciphertext: encrypted.ciphertext,
+      senderPubkey: botPubkeyB,
+    })).status).toBe(200);
+    expect((await call("/api/mcp/capabilities/nip44/decrypt", issued.token, {
+      sessionId: "session-a",
+      ciphertext: "not-valid-ciphertext",
+      senderPubkey: botPubkeyB,
+    })).status).toBe(400);
+    expect((await call("/api/mcp/capabilities/nip44/encrypt", issued.token, {
+      sessionId: "session-a",
+      plaintext: "x".repeat(1_048_577),
+      recipientPubkey: botPubkeyB,
+    })).status).toBe(400);
+    expect((await call("/api/mcp/capabilities/nip44/decrypt", issued.token, {
+      sessionId: "session-a",
+      ciphertext: "x".repeat(1_500_001),
+      senderPubkey: botPubkeyB,
+    })).status).toBe(400);
+    expect((await call("/api/mcp/capabilities/nip44/encrypt", issued.token, {
+      sessionId: "session-a",
+      plaintext: "invalid peer",
+      recipientPubkey: "not-a-pubkey",
+    })).status).toBe(400);
+    expect((await call("/api/mcp/capabilities/nip44/encrypt", issued.token, {
+      sessionId: "session-a",
+      plaintext: "",
+      recipientPubkey: botPubkeyB,
+    })).status).toBe(400);
+  });
+
+  test("keeps default Blossom authorization scoped independently of generic kind 24242 signing", async () => {
+    const defaultPolicy = buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example/path-is-normalized-to-origin",
+      autopilotUrl: "http://localhost:3600",
+    });
+    expect(defaultPolicy.blossom).toEqual({
+      servers: ["https://tower.example"],
+      methods: ["upload", "delete", "list"],
+      maxObjectBytes: 25 * 1_024 * 1_024,
+    });
+
+    const issued = issue("session-a", ownerA, defaultPolicy);
+    const valid = {
+      sessionId: "session-a",
+      server: "https://tower.example/upload",
+      method: "upload",
+      objectHash: "ab".repeat(32),
+      objectSize: 1_024,
+    };
+    expect((await call("/api/mcp/capabilities/blossom/authorize", issued.token, valid)).status).toBe(200);
+    expect((await call("/api/mcp/capabilities/blossom/authorize", issued.token, {
+      ...valid,
+      server: "https://other.example",
+    })).status).toBe(403);
+    expect((await call("/api/mcp/capabilities/blossom/authorize", issued.token, {
+      ...valid,
+      objectSize: 25 * 1_024 * 1_024 + 1,
+    })).status).toBe(403);
   });
 
   test("uses the configured public Autopilot origin for hosted session capabilities", async () => {
