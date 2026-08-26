@@ -14,6 +14,7 @@ import {
   createAgentModelLookupController,
   modelValueForPayload,
 } from '../../common/agent-model-lookups.js';
+import { createAgentProfileMediaPicker } from './agent-profile-media-picker.js';
 
 function createLookupField(label, testId, ariaLabel) {
   const row = document.createElement('label');
@@ -548,6 +549,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     status: lookupStatus,
   });
   const pictureField = createInput('Public picture URL (optional)', 'https://...', 'agent-chat-agent-create-picture');
+  const mediaPicker = createAgentProfileMediaPicker('agent-chat-agent-create-picture');
   const aboutField = createTextarea('Public about (optional)', 'What this agent does', 'agent-chat-agent-create-about', 3);
   const nip05Field = createInput('NIP-05 (optional)', 'agent@example.com', 'agent-chat-agent-create-nip05');
   const advancedPanel = document.createElement('div');
@@ -593,6 +595,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     modelField.row,
     lookupStatus,
     pictureField.row,
+    mediaPicker.element,
     aboutField.row,
     nip05Field.row,
   );
@@ -650,6 +653,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
       harness: harnessField.select.value.trim(),
       model: modelValueForPayload(modelField.select.value),
       picture: pictureField.input.value.trim() || null,
+      mediaFile: mediaPicker.file,
       about: aboutField.input.value.trim() || null,
       nip05: nip05Field.input.value.trim() || null,
       capabilities: ['chat_intercept', 'task_dispatch', 'comment_dispatch', 'task_review'],
@@ -712,6 +716,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     directoryTouched = true;
     renderPreview();
   });
+  pictureField.input.addEventListener('input', () => mediaPicker.setExternalUrl(pictureField.input.value));
   nameField.input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -786,6 +791,8 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
       nameField.input.value = defaultName;
       directoryTouched = false;
       workingDirectoryField.input.value = deriveDefaults(defaultName).workingDirectory;
+      pictureField.input.value = '';
+      mediaPicker.reset();
       setAdvancedOpen(standalone);
       renderPreview();
       setModalVisible(modal.overlay, true);

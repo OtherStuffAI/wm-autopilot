@@ -75,6 +75,7 @@ export interface ApiRoutesContext {
   config: {
     port: number;
     baseUrl: string;
+    baseUrlConfigured: boolean;
     agentPortStart: number;
     agentPortMax: number;
     hostUrlBase: string | null;

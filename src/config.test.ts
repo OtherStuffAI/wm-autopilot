@@ -26,6 +26,7 @@ const ENV_KEYS = [
   "SUBDOMAIN_PROXY_ENABLED",
   "WINGMAN_APP_ROUTING",
   "WINGMAN_AGENT_DISPATCH_DIRECTORY",
+  "WINGMAN_BASE_URL",
   "WINGMAN_SUBDOMAIN_BASE_DOMAIN",
   "WINGMAN_SUBDOMAIN_PROXY_ENABLED",
   "WINGMAN_DISABLE_INSTANCE_SETTINGS",
@@ -139,6 +140,18 @@ describe("resolveAgentLaunchConfig", () => {
 });
 
 describe("loadConfig", () => {
+  test("distinguishes the localhost default from an explicitly configured public base URL", () => {
+    applyEnv({ WINGMAN_BASE_URL: undefined });
+    const defaulted = loadConfig();
+    expect(defaulted.baseUrl).toStartWith("http://localhost:");
+    expect(defaulted.baseUrlConfigured).toBe(false);
+
+    applyEnv({ WINGMAN_BASE_URL: " https://wingman.acme.co " });
+    const configured = loadConfig();
+    expect(configured.baseUrl).toBe("https://wingman.acme.co");
+    expect(configured.baseUrlConfigured).toBe(true);
+  });
+
   test("exposes all Maple Desktop models with its Desktop-owned default first", () => {
     applyEnv({ MAPLE_ACP_CLI: undefined });
     const config = loadConfig();

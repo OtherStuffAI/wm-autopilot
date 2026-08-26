@@ -1,7 +1,7 @@
 import { isAbsolute } from 'node:path';
 
 import type { RequestAuthContext } from '../auth/request-context';
-import { AgentProfileCreationError, type WorkspaceSubscriptionManager } from '../agent-chat/subscription-runtime';
+import type { WorkspaceSubscriptionManager } from '../agent-chat/subscription-runtime';
 import {
   DEFAULT_APPROVAL_DISPATCH_PROMPT_TEMPLATE,
   DEFAULT_CHAT_DISPATCH_PROMPT_TEMPLATE,
@@ -36,10 +36,15 @@ import {
 import { directChatTurnStore } from '../agent-chat/direct-chat-turn-store';
 import type { SignedNostrEvent } from '../identity/bot-identity-publisher';
 import type { AgentProfileRotationResult } from '../agent-chat/agent-profile-key-rotation';
+import {
+  handleAgentProfileCreateApi,
+  handleAgentProfileMediaUploadApi,
+  type AgentProfileMediaApiContext,
+} from './agent-profile-media-routes';
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
-export interface AgentChatApiContext {
+export interface AgentChatApiContext extends AgentProfileMediaApiContext {
   manager: WorkspaceSubscriptionManager;
   agentTypes?: Array<{ id: string; label: string; modelOptions?: string[] }>;
   adminNpub?: string | null;
@@ -642,76 +647,10 @@ export async function handleAgentChatApi(
     });
   }
 
-  if (url.pathname === '/api/agent-chat/profiles' && method === 'POST') {
-    const denied = requireAgentChatManagement(scope);
-    if (denied) return denied;
-    if (!ctx.publishAgentProfile) {
-      return Response.json({ error: 'Durable agent identity publishing is unavailable' }, { status: 503 });
-    }
-    let body: Record<string, unknown>;
-    try {
-      body = await request.json() as Record<string, unknown>;
-    } catch {
-      return Response.json({ error: 'Invalid JSON payload' }, { status: 400 });
-    }
-    const profileId = typeof body.profileId === 'string' ? body.profileId.trim() : '';
-    const label = typeof body.label === 'string' ? body.label.trim() : '';
-    const workingDirectory = typeof body.workingDirectory === 'string' ? body.workingDirectory.trim() : '';
-    const workspaceOwnerNpub = typeof body.workspaceOwnerNpub === 'string' && body.workspaceOwnerNpub.trim()
-      ? body.workspaceOwnerNpub.trim()
-      : scope.managerNpub;
-    const harness = typeof body.harness === 'string' ? body.harness.trim() : '';
-    const requestedModel = typeof body.model === 'string' ? body.model.trim() || null : null;
-    const model = requestedModel === 'default' ? null : requestedModel;
-    const agentType = ctx.agentTypes?.find((item) => item.id === harness);
-    if (!profileId || !label || !workingDirectory || !harness) {
-      return Response.json({ error: 'profileId, label, workingDirectory, and harness are required.' }, { status: 400 });
-    }
-    if (ctx.agentTypes && !agentType) {
-      return Response.json({ error: `Unknown agent harness: ${harness}.` }, { status: 400 });
-    }
-    if (model && agentType && !agentType.modelOptions?.includes(model)) {
-      return Response.json({ error: `Model ${model} is not available for ${harness}.` }, { status: 400 });
-    }
-    const publicProfile = {
-      name: typeof body.name === 'string' && body.name.trim() ? body.name.trim() : label,
-      picture: typeof body.picture === 'string' && body.picture.trim() ? body.picture.trim() : null,
-      about: typeof body.about === 'string' && body.about.trim() ? body.about.trim() : null,
-      nip05: typeof body.nip05 === 'string' && body.nip05.trim() ? body.nip05.trim() : null,
-    };
-    try {
-      const created = await ctx.manager.createAgentProfileForManager({
-        managedByNpub: scope.managerNpub,
-        agentId: profileId,
-        label,
-        workspaceOwnerNpub,
-        workingDirectory,
-        harness,
-        model,
-        publicProfile,
-        capabilities: ['chat_intercept', 'task_dispatch', 'comment_dispatch'],
-        directChat: { enabled: true, sessionAgent: harness, directory: workingDirectory, model, idleRetentionMinutes: 60 },
-        enabled: body.enabled !== false,
-      });
-      try {
-        const publication = await ctx.publishAgentProfile({ event: created.signedProfileEvent, agent: created.agent });
-        return Response.json({ agent: serialiseAgent(created.agent), publication }, { status: 201 });
-      } catch (error) {
-        await ctx.manager.rollbackCreatedAgentProfile(created.agent.agentId, created.agent.botNpub);
-        return Response.json({
-          error: error instanceof Error ? error.message : 'Agent profile publication failed.',
-          code: 'agent_profile_publication_failed',
-        }, { status: 502 });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create agent profile.';
-      const creationError = error instanceof AgentProfileCreationError ? error : null;
-      return Response.json({
-        error: message,
-        code: creationError?.code ?? 'agent_profile_persistence_failed',
-      }, { status: creationError?.stage === 'vault' ? 503 : 500 });
-    }
-  }
+  const profileCreateResponse = await handleAgentProfileCreateApi(request, url, method, scope, ctx);
+  if (profileCreateResponse) return profileCreateResponse;
+  const profileMediaResponse = await handleAgentProfileMediaUploadApi(request, url, method, scope, ctx);
+  if (profileMediaResponse) return profileMediaResponse;
 
   if (url.pathname === '/api/agent-chat/backend-connections' && method === 'GET') {
     return Response.json({

@@ -103,14 +103,50 @@ export async function saveAgentChatAgent(input) {
 }
 
 export async function createAgentChatProfile(input) {
+  const mediaFile = input?.mediaFile;
+  const profile = { ...input };
+  delete profile.mediaFile;
+  const form = mediaFile ? new FormData() : null;
+  if (form) {
+    form.set('profile', JSON.stringify(profile));
+    form.set('file', mediaFile);
+  }
   const response = await fetch('/api/agent-chat/profiles', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    ...(form ? {} : { headers: { 'Content-Type': 'application/json' } }),
     credentials: 'include',
-    body: JSON.stringify(input),
+    body: form || JSON.stringify(profile),
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || 'Failed to create agent profile');
+  if (!response.ok) {
+    const error = new Error(payload.error || 'Failed to create agent profile');
+    error.details = payload;
+    throw error;
+  }
+  return payload;
+}
+
+export async function uploadAgentChatProfileMedia(profileId, mediaFile, input = {}) {
+  if (!mediaFile) throw new Error('A profile image file is required');
+  const form = new FormData();
+  form.set('profile', JSON.stringify(input));
+  form.set('file', mediaFile);
+  const response = await fetch(`/api/agent-chat/profiles/${encodeURIComponent(profileId)}/media`, {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const localStatus = payload.media?.savedLocally && payload.media?.publishedToRelays
+      ? 'Image saved locally and published to relays, but the local profile update failed. '
+      : payload.media?.savedLocally
+        ? 'Image saved locally, but relay publication failed and the profile URL was not changed. '
+        : '';
+    const error = new Error(`${localStatus}${payload.error || 'Failed to import agent profile media'}`);
+    error.details = payload;
+    throw error;
+  }
   return payload;
 }
 
