@@ -206,7 +206,9 @@ import {
   forwardedRequestUrl,
   redirectInsecurePublicRequest,
 } from "./server/request-url";
-import { handleAppHostRequest, resolveAliasToPort, proxyRequestToApp, type SubdomainProxyConfig } from "./server/subdomain-proxy";
+import { handleAppHostRequest, type SubdomainProxyConfig } from "./server/subdomain-proxy";
+import { handlePathBasedAppRequest } from "./server/path-app-proxy";
+import { createBrowserSecurityHeadersContext } from "./server/browser-security-headers";
 import { isAgentRuntimeStatus } from "./types/agent-status";
 import { scheduleCleanup } from "./uploads/cleanup";
 import { createSessionEventsHandler } from "./server/session-events";
@@ -236,7 +238,6 @@ import { instanceSettingsStore } from "./storage/instance-settings-store";
 import {
   handleTerminalWebSocketUpgrade,
 } from "./server/terminal-websocket";
-import { handleAppWebSocketUpgrade, type AppWebSocketUpgradeServer } from "./server/app-websocket-proxy";
 import { createWingmanWebSocketHandler, type WingmanWebSocketData } from "./server/websocket-handler";
 import { ensureAgentApiBinary } from "./server/bootstrap/agentapi";
 import { SchedulerStore } from "./scheduler/scheduler-store";
@@ -431,80 +432,6 @@ if (subdomainProxyConfig.enabled) {
   console.log(`[subdomain-proxy] Enabled for base domain: ${subdomainProxyConfig.baseDomain}`);
 }
 
-/**
- * Handle path-based app routing (/host/<alias> and /host/<alias>/*).
- * Extracts alias from path and proxies to the app's local port.
- */
-const handlePathBasedAppRequest = async (
-  request: Request,
-  pathname: string,
-  requestServer: AppWebSocketUpgradeServer,
-): Promise<Response | null> => {
-  // Extract alias from path: /host/<alias> or /host/<alias>/...
-  const pathParts = pathname.split("/").filter(Boolean);
-  if (pathParts.length < 2 || pathParts[0] !== "host") {
-    return null;
-  }
-
-  const alias = pathParts[1];
-  if (!alias) {
-    return null;
-  }
-
-  // Redirect /host/<alias> to /host/<alias>/ to ensure correct relative path resolution
-  // Without trailing slash, browser resolves ./logo.png to /host/logo.png instead of /host/<alias>/logo.png
-  if (pathParts.length === 2 && !pathname.endsWith("/") && request.method === "GET") {
-    const url = new URL(request.url);
-    return Response.redirect(`${url.origin}${pathname}/${url.search}`, 302);
-  }
-
-  // Resolve alias to port
-  const resolved = await resolveAliasToPort(alias);
-  if (!resolved.success) {
-    const errorMessages: Record<string, string> = {
-      alias_not_found: `No app registered for alias "${alias}".`,
-      app_not_found: `App ID ${resolved.appId} not found in registry.`,
-      app_not_running: `App is not running (status: ${resolved.status}).`,
-      port_not_registered: `App is running but port not detected. Try restarting the app.`,
-      invalid_runtime_port: `App resolved to an invalid runtime port (${resolved.port}). Restart the app so its assigned port can be registered.`,
-    };
-    console.warn(`[path-proxy] ${alias}: ${resolved.reason}`, resolved);
-    return new Response(
-      JSON.stringify({
-        error: "App not available",
-        reason: resolved.reason,
-        message: errorMessages[resolved.reason],
-        alias,
-        appId: resolved.appId,
-      }),
-      {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-  }
-
-  // Rewrite the path to remove /host/<alias> prefix
-  const remainingPath = "/" + pathParts.slice(2).join("/");
-  const url = new URL(request.url);
-  const rewrittenUrl = new URL(remainingPath + url.search, request.url);
-
-  // Create a new request with the rewritten path
-  const rewrittenRequest = new Request(rewrittenUrl.toString(), {
-    method: request.method,
-    headers: request.headers,
-    body: request.body,
-    duplex: "half",
-  });
-
-  // Check for WebSocket upgrade
-  const upgradeHeader = request.headers.get("upgrade");
-  if (upgradeHeader?.toLowerCase() === "websocket") {
-    return handleAppWebSocketUpgrade(rewrittenRequest, resolved.port, requestServer) ?? null;
-  }
-
-  return proxyRequestToApp(rewrittenRequest, resolved.port);
-};
 ensureManagedFeatureFlags(featureFlagStore);
 process.env.WINGMAN_PID = process.pid.toString();
 const projectStore = new ProjectStore();
@@ -3091,24 +3018,6 @@ const handleApi = createApiRouteHandler({
   },
 });
 
-/**
- * Apply browser security headers to every control-plane response.
- * CSP is deferred to report-only mode in a follow-up — it requires
- * an inventory of script/style/image/connect sources first.
- */
-function applySecurityHeaders(response: Response): Response {
-  const headers = new Headers(response.headers);
-  headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  headers.set("X-Frame-Options", "DENY");
-  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
-
 const server = Bun.serve<WingmanWebSocketData>({
   port: config.port,
   // Disable idle timeout for SSE connections (default is 10 seconds)
@@ -3117,6 +3026,7 @@ const server = Bun.serve<WingmanWebSocketData>({
     const url = new URL(request.url);
     const method = request.method as HttpMethod;
     const authContext = resolveRequestAuthContext(request);
+    const securityHeaders = createBrowserSecurityHeadersContext();
 
     const response = await runWithRequestContext(authContext, async () => {
       if (authContext.error) {
@@ -3131,7 +3041,7 @@ const server = Bun.serve<WingmanWebSocketData>({
 
       const appHostResponse = await handleAppHostRequest(request, subdomainProxyConfig, requestServer);
       if (appHostResponse) {
-        return appHostResponse;
+        return securityHeaders.markManagedAppResponse(appHostResponse, "hostname");
       }
 
       const profileMediaResponse = handleAgentProfileMediaPublicRoute(request, url, agentProfileMediaStore);
@@ -3159,7 +3069,7 @@ const server = Bun.serve<WingmanWebSocketData>({
       if (pathname.startsWith("/host/")) {
         const pathHostResponse = await handlePathBasedAppRequest(request, pathname, requestServer);
         if (pathHostResponse) {
-          return pathHostResponse;
+          return securityHeaders.markManagedAppResponse(pathHostResponse, "path");
         }
       }
 
@@ -3198,7 +3108,7 @@ const server = Bun.serve<WingmanWebSocketData>({
       return undefined;
     }
     return maybeRefreshSessionCookie(
-      applySecurityHeaders(response),
+      securityHeaders.apply(response),
       authContext,
       { secureCookie: shouldUseSecureCookies(request) },
     );
