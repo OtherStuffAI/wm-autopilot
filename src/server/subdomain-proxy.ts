@@ -4,6 +4,9 @@ import { appRegistry } from "../apps/app-registry";
 import { appProcessManager } from "../apps/app-process-manager";
 import { isValidAppRuntimePort, runtimePortRegistry } from "../apps/runtime-port-registry";
 import { handleAppWebSocketUpgrade, type AppWebSocketUpgradeServer } from "./app-websocket-proxy";
+import { proxyRequestToApp } from "./managed-app-http-proxy";
+
+export { proxyRequestToApp } from "./managed-app-http-proxy";
 
 function logRouting(message: string, data?: unknown): void {
   if (Bun.env.WINGMAN_ROUTING_DEBUG !== "1") {
@@ -192,131 +195,6 @@ export const resolveHostToPort = async (
   }
 
   return resolveAppIdToPort(aliasRecord.appId, { routeKind: "subdomain_alias", alias });
-};
-
-/**
- * Proxy a request to an app running on a specific port.
- *
- * @param request - Original incoming request
- * @param targetPort - Port to proxy to
- * @returns Proxied response
- */
-export const proxyRequestToApp = async (
-  request: Request,
-  targetPort: number,
-): Promise<Response> => {
-  const url = new URL(request.url);
-
-  // Build target URL
-  const targetUrl = new URL(url.pathname + url.search, `http://127.0.0.1:${targetPort}`);
-  logRouting(`proxyRequestToApp`, { targetPort, targetUrl: targetUrl.toString(), method: request.method });
-
-  // Clone headers, removing only hop-by-hop transport headers. Cookie and
-  // Authorization belong to the app hostname and are part of the managed app
-  // contract: WApps use them for session cookies and NIP-98 APIs.
-  const headers = new Headers();
-  const hopByHopHeaders = new Set([
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-  ]);
-  for (const [key, value] of request.headers) {
-    const lower = key.toLowerCase();
-    if (!hopByHopHeaders.has(lower)) {
-      headers.set(key, value);
-    }
-  }
-
-  // Add X-Forwarded headers
-  headers.set("X-Forwarded-Host", url.host);
-  headers.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
-  headers.set("X-Forwarded-For", request.headers.get("x-forwarded-for") ?? "127.0.0.1");
-
-  try {
-    const proxyResponse = await fetch(targetUrl.toString(), {
-      method: request.method,
-      headers,
-      body: request.body,
-      duplex: "half",
-      redirect: "manual",
-    });
-
-    // Clone response headers, removing hop-by-hop, content-length, and content-encoding.
-    // Content-Length must be removed because Bun.serve() may auto-compress
-    // the response body (brotli/gzip), changing its size. If the original
-    // Content-Length is forwarded, the mismatch causes reverse proxies
-    // (nginx/CapRover) to drop the body.
-    // Content-Encoding must also be removed because fetch() exposes decoded
-    // response bytes; forwarding the original encoding header makes browsers
-    // try to decompress an already-decoded JS/CSS body.
-    const responseHeaders = new Headers();
-    for (const [key, value] of proxyResponse.headers) {
-      const lower = key.toLowerCase();
-      if (
-        !hopByHopHeaders.has(lower)
-        && lower !== "content-length"
-        && lower !== "content-encoding"
-        && lower !== "set-cookie"
-      ) {
-        responseHeaders.set(key, value);
-      }
-    }
-
-    for (const cookie of proxyResponse.headers.getSetCookie()) {
-      responseHeaders.append("set-cookie", cookie);
-    }
-
-    const location = proxyResponse.headers.get("location");
-    if (location) {
-      const resolvedLocation = new URL(location, targetUrl);
-      if (
-        resolvedLocation.hostname === "127.0.0.1"
-        || resolvedLocation.hostname === "localhost"
-        || resolvedLocation.host === url.host
-      ) {
-        responseHeaders.set(
-          "location",
-          `${url.origin}${resolvedLocation.pathname}${resolvedLocation.search}${resolvedLocation.hash}`,
-        );
-      }
-    }
-
-    // Buffer the response body to ensure it's fully read before returning
-    // This fixes issues where streaming bodies may not be properly forwarded
-    const bodyBuffer = await proxyResponse.arrayBuffer();
-    logRouting(`proxy fetch success`, {
-      targetPort,
-      status: proxyResponse.status,
-      contentLength: proxyResponse.headers.get("content-length"),
-      bodySize: bodyBuffer.byteLength
-    });
-
-    return new Response(bodyBuffer, {
-      status: proxyResponse.status,
-      statusText: proxyResponse.statusText,
-      headers: responseHeaders,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    logRouting(`proxy fetch FAILED`, { targetPort, error: message });
-    console.error(`[subdomain-proxy] Failed to proxy to port ${targetPort}: ${message}`);
-
-    return new Response(
-      JSON.stringify({
-        error: "App unavailable",
-        message: "The application is not responding. It may be starting up or has stopped.",
-      }),
-      {
-        status: 502,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-  }
 };
 
 /**
