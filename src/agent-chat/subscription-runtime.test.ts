@@ -1562,16 +1562,230 @@ describe('WorkspaceSubscriptionManager', () => {
       onboardingSource: 'nostr_33357',
     });
 
+    const controller = new AbortController();
+    const runtime = (manager as unknown as {
+      runtimes: Map<string, { abortController: AbortController | null }>;
+    }).runtimes.get(imported.subscription.subscriptionId);
+    if (runtime) runtime.abortController = controller;
     await (manager as unknown as {
       runFlightDeckPgEventLoop: (subscriptionId: string, signal: AbortSignal, isStartupReload: boolean) => Promise<void>;
-    }).runFlightDeckPgEventLoop(imported.subscription.subscriptionId, new AbortController().signal, false);
+    }).runFlightDeckPgEventLoop(imported.subscription.subscriptionId, controller.signal, false);
 
     const saved = store.getBySubscriptionId(imported.subscription.subscriptionId);
+    manager.shutdown();
     expect(pollAborted).toBe(true);
     expect(saved?.sseStatus).toBe('connected');
     expect(saved?.lastEventPollErrorCode).toBe('flightdeck_pg_event_poll_timeout');
     expect(saved?.lastEventPollErrorAt).toBeString();
   });
+
+  test('keeps a freshly polling Flight Deck PG subscription healthy without restarting it', async () => {
+    const dbPath = makeTempDb();
+    const instanceIdentity = makeInstanceIdentity();
+    let accessChecks = 0;
+    let pollCalls = 0;
+    const { manager, store } = createTestManager(dbPath, new Map(), undefined, instanceIdentity, undefined, {
+      flightDeckPgEventPollIntervalMs: 2,
+      flightDeckPgEventPollTimeoutMs: 100,
+      flightDeckPgEventPollFreshnessThresholdMs: 100,
+      flightDeckPgEventPollStartupGraceMs: 200,
+      flightDeckPgEventPollWatchdogIntervalMs: 2,
+      fetchFlightDeckPgWorkspaceMe: async () => {
+        accessChecks += 1;
+        return { actor: { actor_id: 'actor-bot' }, membership: { role: 'member' }, permissions: ['workspace.read'] };
+      },
+      fetchFlightDeckPgEvents: async () => {
+        pollCalls += 1;
+        return { events: [], next_cursor: null };
+      },
+    });
+    const imported = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+      onboardingSource: 'nostr_33357',
+    });
+    await (manager as unknown as {
+      ensureFlightDeckPgConnected: (record: WorkspaceSubscriptionRecord, botIdentity: RuntimeBotIdentity, startup: boolean) => Promise<void>;
+    }).ensureFlightDeckPgConnected(imported.subscription, {
+      botNpub: instanceIdentity.npub,
+      botPubkeyHex: instanceIdentity.pubkeyHex,
+      botSecret: instanceIdentity.secretKey.slice(),
+    }, false);
+    for (let attempt = 0; attempt < 100 && pollCalls < 2; attempt += 1) await Bun.sleep(2);
+    const accessChecksAfterConnect = accessChecks;
+    await Bun.sleep(250);
+
+    const saved = store.getBySubscriptionId(imported.subscription.subscriptionId);
+    manager.shutdown();
+    expect(pollCalls).toBeGreaterThan(2);
+    expect(accessChecks).toBe(accessChecksAfterConnect);
+    expect(saved?.healthStatus).toBe('healthy');
+    expect(saved?.lastEventPollOkAt).toBeString();
+    expect(saved?.lastEventPollErrorCode).toBeNull();
+  });
+
+  test('degrades and recreates a stale Flight Deck PG runtime, then clears the diagnostic after recovery', async () => {
+    const dbPath = makeTempDb();
+    const instanceIdentity = makeInstanceIdentity();
+    let accessChecks = 0;
+    let pollCalls = 0;
+    let releaseRecoveryPoll: (() => void) | null = null;
+    const { manager, store } = createTestManager(dbPath, new Map(), undefined, instanceIdentity, undefined, {
+      flightDeckPgEventPollIntervalMs: 2,
+      flightDeckPgEventPollTimeoutMs: 1_000,
+      flightDeckPgEventPollFreshnessThresholdMs: 12,
+      flightDeckPgEventPollStartupGraceMs: 20,
+      flightDeckPgEventPollWatchdogIntervalMs: 2,
+      fetchFlightDeckPgWorkspaceMe: async () => {
+        accessChecks += 1;
+        return { actor: { actor_id: 'actor-bot' }, membership: { role: 'member' }, permissions: ['workspace.read'] };
+      },
+      fetchFlightDeckPgEvents: async ({ signal }) => {
+        pollCalls += 1;
+        if (pollCalls === 1 || pollCalls > 3) {
+          return { events: [], next_cursor: null };
+        }
+        return await new Promise<{ events: []; next_cursor: null }>((resolve, reject) => {
+          if (pollCalls === 3) {
+            releaseRecoveryPoll = () => resolve({ events: [], next_cursor: null });
+          }
+          signal?.addEventListener('abort', () => reject(new Error('poll aborted')), { once: true });
+        });
+      },
+    });
+    const imported = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+      onboardingSource: 'nostr_33357',
+    });
+    await (manager as unknown as {
+      ensureFlightDeckPgConnected: (record: WorkspaceSubscriptionRecord, botIdentity: RuntimeBotIdentity, startup: boolean) => Promise<void>;
+    }).ensureFlightDeckPgConnected(imported.subscription, {
+      botNpub: instanceIdentity.npub,
+      botPubkeyHex: instanceIdentity.pubkeyHex,
+      botSecret: instanceIdentity.secretKey.slice(),
+    }, false);
+    for (let attempt = 0; attempt < 100 && accessChecks < 3; attempt += 1) await Bun.sleep(2);
+
+    const stale = store.getBySubscriptionId(imported.subscription.subscriptionId);
+    expect(accessChecks).toBeGreaterThanOrEqual(3);
+    expect(pollCalls).toBe(3);
+    expect(stale?.healthStatus).toBe('degraded');
+    expect(stale?.lastEventPollErrorCode).toBe('flightdeck_pg_event_poll_stale');
+    expect(stale?.lastErrorCode).toBe('flightdeck_pg_event_poll_stale');
+
+    releaseRecoveryPoll?.();
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const current = store.getBySubscriptionId(imported.subscription.subscriptionId);
+      if (current?.healthStatus === 'healthy' && current.lastEventPollErrorCode == null) break;
+      await Bun.sleep(2);
+    }
+    const recovered = store.getBySubscriptionId(imported.subscription.subscriptionId);
+    manager.shutdown();
+    expect(recovered?.healthStatus).toBe('healthy');
+    expect(recovered?.lastEventPollOkAt).toBeString();
+    expect(recovered?.lastEventPollErrorCode).toBeNull();
+    expect(recovered?.lastErrorCode).toBeNull();
+  });
+
+  test('allows startup grace before reconnecting a PG runtime without a first poll heartbeat', async () => {
+    const dbPath = makeTempDb();
+    const instanceIdentity = makeInstanceIdentity();
+    let accessChecks = 0;
+    let pollCalls = 0;
+    const { manager, store } = createTestManager(dbPath, new Map(), undefined, instanceIdentity, undefined, {
+      flightDeckPgEventPollIntervalMs: 1,
+      flightDeckPgEventPollTimeoutMs: 1_000,
+      flightDeckPgEventPollFreshnessThresholdMs: 5,
+      flightDeckPgEventPollStartupGraceMs: 50,
+      flightDeckPgEventPollWatchdogIntervalMs: 1,
+      fetchFlightDeckPgWorkspaceMe: async () => {
+        accessChecks += 1;
+        return { actor: { actor_id: 'actor-bot' }, membership: { role: 'member' }, permissions: ['workspace.read'] };
+      },
+      fetchFlightDeckPgEvents: async ({ signal }) => await new Promise((_, reject) => {
+        pollCalls += 1;
+        signal?.addEventListener('abort', () => reject(new Error('poll aborted')), { once: true });
+      }),
+    });
+    const imported = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+      onboardingSource: 'nostr_33357',
+    });
+    await (manager as unknown as {
+      ensureFlightDeckPgConnected: (record: WorkspaceSubscriptionRecord, botIdentity: RuntimeBotIdentity, startup: boolean) => Promise<void>;
+    }).ensureFlightDeckPgConnected(imported.subscription, {
+      botNpub: instanceIdentity.npub,
+      botPubkeyHex: instanceIdentity.pubkeyHex,
+      botSecret: instanceIdentity.secretKey.slice(),
+    }, false);
+    for (let attempt = 0; attempt < 100 && pollCalls === 0; attempt += 1) await Bun.sleep(1);
+    const accessChecksAfterConnect = accessChecks;
+    await Bun.sleep(20);
+
+    const saved = store.getBySubscriptionId(imported.subscription.subscriptionId);
+    manager.shutdown();
+    expect(pollCalls).toBe(1);
+    expect(accessChecks).toBe(accessChecksAfterConnect);
+    expect(saved?.healthStatus).toBe('healthy');
+    expect(saved?.lastEventPollErrorCode).toBeNull();
+  });
+
+  for (const lifecycle of ['disable', 'remove', 'shutdown'] as const) {
+    test(`cancels the PG freshness watchdog on subscription ${lifecycle}`, async () => {
+      const dbPath = makeTempDb();
+      const instanceIdentity = makeInstanceIdentity();
+      let accessChecks = 0;
+      let pollCalls = 0;
+      const { manager, store } = createTestManager(dbPath, new Map(), undefined, instanceIdentity, undefined, {
+        flightDeckPgEventPollIntervalMs: 1,
+        flightDeckPgEventPollTimeoutMs: 1_000,
+        flightDeckPgEventPollFreshnessThresholdMs: 5,
+        flightDeckPgEventPollStartupGraceMs: 8,
+        flightDeckPgEventPollWatchdogIntervalMs: 1,
+        fetchFlightDeckPgWorkspaceMe: async () => {
+          accessChecks += 1;
+          return { actor: { actor_id: 'actor-bot' }, membership: { role: 'member' }, permissions: ['workspace.read'] };
+        },
+        fetchFlightDeckPgEvents: async ({ signal }) => await new Promise((_, reject) => {
+          pollCalls += 1;
+          signal?.addEventListener('abort', () => reject(new Error('poll aborted')), { once: true });
+        }),
+      });
+      const imported = await manager.importAgentConnectPackage({
+        managedByNpub: 'npub1manager',
+        packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+        onboardingSource: 'nostr_33357',
+      });
+      await (manager as unknown as {
+        ensureFlightDeckPgConnected: (record: WorkspaceSubscriptionRecord, botIdentity: RuntimeBotIdentity, startup: boolean) => Promise<void>;
+      }).ensureFlightDeckPgConnected(imported.subscription, {
+        botNpub: instanceIdentity.npub,
+        botPubkeyHex: instanceIdentity.pubkeyHex,
+        botSecret: instanceIdentity.secretKey.slice(),
+      }, false);
+      for (let attempt = 0; attempt < 100 && pollCalls === 0; attempt += 1) await Bun.sleep(1);
+      const accessChecksBeforeStop = accessChecks;
+
+      if (lifecycle === 'disable') {
+        await manager.setEnabledForManager(imported.subscription.subscriptionId, 'npub1manager', false);
+      } else if (lifecycle === 'remove') {
+        manager.removeForManager(imported.subscription.subscriptionId, 'npub1manager');
+      } else {
+        manager.shutdown();
+      }
+      await Bun.sleep(25);
+
+      expect(accessChecks).toBe(accessChecksBeforeStop);
+      if (lifecycle === 'disable') {
+        expect(store.getBySubscriptionId(imported.subscription.subscriptionId)?.sseStatus).toBe('disabled');
+      } else if (lifecycle === 'remove') {
+        expect(store.getBySubscriptionId(imported.subscription.subscriptionId)).toBeNull();
+      }
+      manager.shutdown();
+    });
+  }
 
   test('keeps Flight Deck PG workspace access retryable after transient Tower 5xx', async () => {
     const dbPath = makeTempDb();

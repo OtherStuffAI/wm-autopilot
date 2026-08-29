@@ -121,6 +121,11 @@ import type {
   WorkspaceSubscriptionRecord,
   YokeWorkspaceSession,
 } from './types';
+import {
+  FLIGHT_DECK_PG_EVENT_POLL_STALE_CODE,
+  FlightDeckPgEventFreshnessWatchdog,
+  resolveFlightDeckPgEventWatchdogTiming,
+} from './flightdeck-pg-event-watchdog';
 
 interface RuntimeContext {
   abortController: AbortController | null;
@@ -893,6 +898,9 @@ export interface WorkspaceSubscriptionManagerDependencies {
   checkBackendHealth?: typeof checkBackendConnectionHealth;
   flightDeckPgEventPollIntervalMs?: number;
   flightDeckPgEventPollTimeoutMs?: number;
+  flightDeckPgEventPollFreshnessThresholdMs?: number;
+  flightDeckPgEventPollStartupGraceMs?: number;
+  flightDeckPgEventPollWatchdogIntervalMs?: number;
   chatRecordPullTimeoutMs?: number;
   chatRecordPullMaxAttempts?: number;
   chatRecordPullRetryDelayMs?: number;
@@ -1067,6 +1075,7 @@ export class WorkspaceSubscriptionManager {
   private readonly checkBackendHealthImpl: typeof checkBackendConnectionHealth;
   private readonly flightDeckPgEventPollIntervalMs: number;
   private readonly flightDeckPgEventPollTimeoutMs: number;
+  private readonly flightDeckPgEventWatchdog: FlightDeckPgEventFreshnessWatchdog;
   private readonly chatRecordPullTimeoutMs: number;
   private readonly chatRecordPullMaxAttempts: number;
   private readonly chatRecordPullRetryDelayMs: number;
@@ -1115,6 +1124,18 @@ export class WorkspaceSubscriptionManager {
     this.checkBackendHealthImpl = deps.checkBackendHealth ?? checkBackendConnectionHealth;
     this.flightDeckPgEventPollIntervalMs = Math.max(1, deps.flightDeckPgEventPollIntervalMs ?? FLIGHT_DECK_PG_EVENT_POLL_INTERVAL_MS);
     this.flightDeckPgEventPollTimeoutMs = Math.max(1, deps.flightDeckPgEventPollTimeoutMs ?? FLIGHT_DECK_PG_EVENT_POLL_TIMEOUT_MS);
+    this.flightDeckPgEventWatchdog = new FlightDeckPgEventFreshnessWatchdog(
+      resolveFlightDeckPgEventWatchdogTiming({
+        pollIntervalMs: this.flightDeckPgEventPollIntervalMs,
+        pollTimeoutMs: this.flightDeckPgEventPollTimeoutMs,
+        checkIntervalMs: deps.flightDeckPgEventPollWatchdogIntervalMs,
+        freshnessThresholdMs: deps.flightDeckPgEventPollFreshnessThresholdMs,
+        startupGraceMs: deps.flightDeckPgEventPollStartupGraceMs,
+      }),
+      (subscriptionId, runtimeToken) => {
+        void this.recoverStaleFlightDeckPgEventRuntime(subscriptionId, runtimeToken);
+      },
+    );
     this.chatRecordPullTimeoutMs = Math.max(1, deps.chatRecordPullTimeoutMs ?? CHAT_ADVISORY_RECORD_PULL_TIMEOUT_MS);
     this.chatRecordPullMaxAttempts = Math.max(1, deps.chatRecordPullMaxAttempts ?? CHAT_ADVISORY_RECORD_PULL_MAX_ATTEMPTS);
     this.chatRecordPullRetryDelayMs = Math.max(0, deps.chatRecordPullRetryDelayMs ?? CHAT_ADVISORY_RECORD_PULL_RETRY_DELAY_MS);
@@ -2981,8 +3002,10 @@ export class WorkspaceSubscriptionManager {
         workspace_id: record.workspaceId,
         permission_count: Array.isArray(result.permissions) ? result.permissions.length : 0,
       });
-      record.lastErrorCode = null;
-      record.lastErrorAt = null;
+      if (record.lastErrorCode !== FLIGHT_DECK_PG_EVENT_POLL_STALE_CODE) {
+        record.lastErrorCode = null;
+        record.lastErrorAt = null;
+      }
       const saved = this.saveRecord(this.recomputeHealth(record));
       this.clearRuntimeFailure(saved.subscriptionId, 'flightdeck_pg_access_verified');
       return saved;
@@ -3183,6 +3206,7 @@ export class WorkspaceSubscriptionManager {
     const runtime = this.getRuntime(record.subscriptionId);
     runtime.botIdentity = botIdentity;
     runtime.removed = false;
+    this.flightDeckPgEventWatchdog.stop(record.subscriptionId);
     if (runtime.reconnectTimer) {
       clearTimeout(runtime.reconnectTimer);
       runtime.reconnectTimer = null;
@@ -3195,6 +3219,37 @@ export class WorkspaceSubscriptionManager {
     record.sseStatus = 'connecting';
     this.saveRecord(this.recomputeHealth(record));
     void this.runFlightDeckPgEventLoop(record.subscriptionId, controller.signal, isStartupReload);
+  }
+
+  private async recoverStaleFlightDeckPgEventRuntime(
+    subscriptionId: string,
+    runtimeToken: object,
+  ): Promise<void> {
+    const runtime = this.runtimes.get(subscriptionId);
+    const record = this.store.getBySubscriptionId(subscriptionId);
+    if (
+      !runtime
+      || runtime.removed
+      || runtime.abortController?.signal !== runtimeToken
+      || !record
+      || !isFlightDeckPgSubscription(record)
+      || record.sseStatus === 'disabled'
+      || isRevokedWorkspaceSubscription(record)
+    ) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const staleRecord = this.saveRecord(this.recomputeHealth({
+      ...record,
+      sseStatus: 'backoff',
+      lastEventPollErrorAt: now,
+      lastEventPollErrorCode: FLIGHT_DECK_PG_EVENT_POLL_STALE_CODE,
+      lastErrorCode: FLIGHT_DECK_PG_EVENT_POLL_STALE_CODE,
+      lastErrorAt: now,
+    }));
+    runtime.abortController.abort();
+    await this.ensureFlightDeckPgConnected(staleRecord, runtime.botIdentity, false);
   }
 
   private enabledFlightDeckAudience(record: WorkspaceSubscriptionRecord): AgentDefinitionRecord[] {
@@ -3425,7 +3480,12 @@ export class WorkspaceSubscriptionManager {
     const workspaceId = record.workspaceId;
     try {
       record = await this.verifyFlightDeckPgWorkspaceAccess(record, runtime.botIdentity, { signal });
-      if (record.wsKeyStatus === 'failed') {
+      if (
+        record.wsKeyStatus === 'failed'
+        || signal.aborted
+        || runtime.removed
+        || runtime.abortController?.signal !== signal
+      ) {
         return;
       }
       runtime.reconnectAttempts = 0;
@@ -3434,6 +3494,7 @@ export class WorkspaceSubscriptionManager {
         record.lastSuccessfulStartupReloadAt = new Date().toISOString();
       }
       record = this.saveRecord(this.recomputeHealth(record));
+      this.flightDeckPgEventWatchdog.start(subscriptionId, signal);
       this.clearRuntimeFailure(record.subscriptionId, 'flightdeck_pg_events_connected');
 
       while (!signal.aborted && !runtime.removed) {
@@ -3461,6 +3522,10 @@ export class WorkspaceSubscriptionManager {
         ).finally(() => {
           signal.removeEventListener('abort', abortPoll);
         });
+        if (signal.aborted || runtime.removed || runtime.abortController?.signal !== signal) {
+          return;
+        }
+        this.flightDeckPgEventWatchdog.recordSuccessfulPoll(subscriptionId, signal);
         const events = result.events;
         for (const event of events) {
           if (signal.aborted || runtime.removed) {
@@ -3478,6 +3543,10 @@ export class WorkspaceSubscriptionManager {
         record.lastEventPollErrorCode = null;
         record.lastEventPollEventCount = events.length;
         record.lastEventPollLagMs = Date.now() - pollStartedAt;
+        if (record.lastErrorCode === FLIGHT_DECK_PG_EVENT_POLL_STALE_CODE) {
+          record.lastErrorCode = null;
+          record.lastErrorAt = null;
+        }
         record = this.saveRecord(this.recomputeHealth(record));
         await sleepWithAbort(this.flightDeckPgEventPollIntervalMs, signal);
       }
@@ -5892,6 +5961,7 @@ export class WorkspaceSubscriptionManager {
   }
 
   private stopRuntime(subscriptionId: string, removed: boolean): void {
+    this.flightDeckPgEventWatchdog.stop(subscriptionId);
     const runtime = this.runtimes.get(subscriptionId);
     if (!runtime) {
       return;
@@ -6194,12 +6264,14 @@ export class WorkspaceSubscriptionManager {
       record.healthStatus = 'unhealthy';
       return record;
     }
-    const groupStateHealthy = isFlightDeckPgSubscription(record) || record.groupKeyStatus === 'active';
+    const flightDeckPgSubscription = isFlightDeckPgSubscription(record);
+    const groupStateHealthy = flightDeckPgSubscription || record.groupKeyStatus === 'active';
     if ((!groupStateHealthy && (record.groupKeyStatus === 'failed' || record.groupKeyStatus === 'refresh_required')) || record.sseStatus === 'backoff') {
       record.healthStatus = 'degraded';
       return record;
     }
-    if (record.sseStatus === 'connected' && record.wsKeyStatus === 'active' && groupStateHealthy) {
+    const eventPollingHealthy = !flightDeckPgSubscription || !record.lastEventPollErrorCode;
+    if (record.sseStatus === 'connected' && record.wsKeyStatus === 'active' && groupStateHealthy && eventPollingHealthy) {
       record.healthStatus = 'healthy';
       return record;
     }
