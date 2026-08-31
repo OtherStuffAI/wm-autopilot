@@ -97,17 +97,81 @@ inactive installations, missing custody or bindings, and any app identity or
 Tower binding drift since process start. It is not a general NIP-98 signer or
 HTTP proxy.
 
-For an app record migrated from legacy `WAPP_NSEC` configuration, an operator
-can re-discover structured lifecycle scripts and clear only the obsolete
-broker-migration review reason after confirming the WApp has a complete Tower
-assignment:
+## One-time legacy identity custody migration
+
+An existing Tower app namespace must keep its existing public app identity.
+The loopback-only, Admin-authenticated migration route provides a one-time
+bridge from an exact app-local env file into `WappStore` broker custody:
+
+```text
+POST /api/admin/wapps/legacy-custody-migration
+```
+
+Its JSON body contains only the exact app id, source file path, expected public
+app npub, Tower binding id, installation metadata, `apply`, and optional
+`autoStart`. There is deliberately no request field for `WAPP_NSEC`. The local
+Autopilot process reads only that assignment from the named regular file inside
+the registered app root. Requests with extra fields are rejected.
+
+Use the dedicated CLI. It is a dry-run unless `--apply` is present:
+
+```bash
+bun clis/migrate-legacy-wapp-custody.ts <exact-app-id> \
+  --source-env-file <absolute-app-root-env-file> \
+  --expected-app-npub <existing-public-app-npub> \
+  --installation-id <exact-installation-id> \
+  --title <title> \
+  --installation-owner-npub <owner-npub> \
+  --created-by-npub <creator-npub> \
+  --workspace-owner-npub <workspace-owner-npub> \
+  --scope-id <scope-id> \
+  --allowed-npub <owner-npub> \
+  --allowed-npub <collaborator-npub> \
+  --launch-url <url> \
+  --tower-binding-id <binding-id>
+```
+
+Repeat `--allowed-npub` and `--registered-open-origin` as needed. Omit
+`--auto-start` to preserve the current registry value; an explicit
+`--auto-start true` or `--auto-start false` is the only way this command changes
+it. Use the existing operator environment authentication (`WINGMAN_NSEC`) so
+neither the operator key nor the legacy WApp key appears in argv.
+
+Dry-run validates the registered app, safe script discovery, source path,
+Tower binding, expected public identity, and any existing assignment without
+writing. Apply creates or strictly verifies the exact assignment, verifies that
+encrypted custody derives the same public npub, then atomically replaces the
+source env file with only the `WAPP_NSEC` line removed. Every other byte and the
+file mode are preserved. Only after custody verification and plaintext cleanup
+does it clear `raw-signing-secret-removed-use-capability-broker`; unrelated
+review reasons remain. A successful invocation can be rerun after the source
+line is gone without rotating or duplicating the assignment.
+
+Kindling's compatibility invariants for the reviewed migration are:
+
+```text
+app id: 64765f89-035a-4832-acba-b633068ba2e0
+app npub: npub1x3khwkg426qrrlc25ekzg8k3l8y9hyut6fcxqkxpkm4d0ds45sdsqayt83
+Tower binding: be7f5e54-becc-4283-aba6-d88d56e9f6ec
+workspace owner: npub1jss47s4fvv6usl7tn6yp5zamv2u60923ncgfea0e6thkza5p7c3q0afmzy
+scope: bbfd13f9-1cdf-4f56-8213-cf0cffbe4d3c
+```
+
+The operator must supply the reviewed installation id, source file, launch
+metadata, creator, and the complete Pete/Rick/Andy allowlist. The command
+refuses metadata or identity drift rather than editing an existing assignment.
+
+For records whose WApp assignment and custody are already complete, the
+smaller review-only command remains available to re-discover structured
+lifecycle scripts and clear only the obsolete broker review reason:
 
 ```bash
 bun clis/appctl.ts review-wapp-tower-broker <app-id>
 ```
 
 Other lifecycle review reasons remain in place and must be handled through
-their existing review path. The command does not re-enable `autoStart`.
+their existing review path. The review-only command does not re-enable
+`autoStart`.
 
 ## Reusable client
 
