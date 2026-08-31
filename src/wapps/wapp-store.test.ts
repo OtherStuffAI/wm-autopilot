@@ -152,8 +152,22 @@ describe("WApp store and helpers", () => {
     expect(await store.withAppSigningKey(record.id, (nsec) => nsec)).toBe(importedNsec);
     expect(store.getDefaultTowerBinding()?.id).toBe("binding-1");
     expect(() => getWappRuntimeEnvForWapp(record.id, "/tmp/wapp", store)).toThrow(
-      "installation-scoped NIP-98 signing broker capability",
+      "installation-scoped Tower DB broker capability",
     );
+    const runtimeEnv = getWappRuntimeEnvForWapp(record.id, "/tmp/wapp", store, {
+      brokerUrl: "http://127.0.0.1:3600/api/internal/wapps/tower-db",
+      capability: "runtime-only-capability",
+    });
+    expect(runtimeEnv).toMatchObject({
+      WAPP_APP_NPUB: importedNpub,
+      WAPP_TOWER_DB_BROKER_URL: "http://127.0.0.1:3600/api/internal/wapps/tower-db",
+      WAPP_TOWER_DB_CAPABILITY: "runtime-only-capability",
+      WAPP_TOWER_URL: "https://tower.example",
+      WAPP_TOWER_WORKSPACE_ID: "workspace-1",
+      WAPP_TOWER_WORKSPACE_OWNER_NPUB: "npub1workspace",
+    });
+    expect(runtimeEnv).not.toHaveProperty("WAPP_NSEC");
+    expect(JSON.stringify(store.get(record.id))).not.toContain("runtime-only-capability");
   }));
 
   test("migrates legacy records while preserving the installation id", () => {

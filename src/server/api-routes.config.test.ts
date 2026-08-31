@@ -27,6 +27,7 @@ function createHandler(options: {
   npubProjectApiHandler?: (...args: any[]) => Promise<Response | null>;
   wingmanMcpApiHandler?: (...args: any[]) => Promise<Response | null>;
   capabilityBrokerApiHandler?: (...args: any[]) => Promise<Response | null>;
+  wappTowerDbRequestBroker?: any;
   requestIp?: string;
 } = {}) {
   const authContext = options.authContext ?? anonymousAuth;
@@ -83,6 +84,7 @@ function createHandler(options: {
     ngitApiHandler: async () => null,
     wingmanMcpApiHandler: options.wingmanMcpApiHandler ?? (async () => null),
     capabilityBrokerApiHandler: options.capabilityBrokerApiHandler,
+    wappTowerDbRequestBroker: options.wappTowerDbRequestBroker,
     getRequestIP: options.requestIp ? () => ({ address: options.requestIp! }) : undefined,
     schedulerApiHandler: async () => null,
     schedulerStore: {} as any,
@@ -747,6 +749,43 @@ describe("createApiRouteHandler config defaults", () => {
     }), url, "POST", anonymousAuth);
 
     expect(response.status).toBe(403);
+  });
+
+  test("requires both a loopback peer and loopback hostname for the WApp Tower DB broker", async () => {
+    let brokerCalls = 0;
+    const broker = {
+      request: async () => {
+        brokerCalls += 1;
+        return Response.json({ ok: true });
+      },
+    };
+    const body = JSON.stringify({ method: "GET", path: "/migrations" });
+    const publicHostHandler = createHandler({ requestIp: "127.0.0.1", wappTowerDbRequestBroker: broker });
+    const publicUrl = new URL("https://wingman.example/api/internal/wapps/tower-db");
+    const publicResponse = await publicHostHandler(new Request(publicUrl, {
+      method: "POST",
+      headers: { authorization: `Bearer ${"A".repeat(43)}` },
+      body,
+    }), publicUrl, "POST", anonymousAuth);
+    expect(publicResponse.status).toBe(403);
+
+    const remotePeerHandler = createHandler({ requestIp: "203.0.113.10", wappTowerDbRequestBroker: broker });
+    const loopbackUrl = new URL("http://127.0.0.1:3000/api/internal/wapps/tower-db");
+    const remoteResponse = await remotePeerHandler(new Request(loopbackUrl, {
+      method: "POST",
+      headers: { authorization: `Bearer ${"A".repeat(43)}` },
+      body,
+    }), loopbackUrl, "POST", anonymousAuth);
+    expect(remoteResponse.status).toBe(403);
+
+    const localHandler = createHandler({ requestIp: "127.0.0.1", wappTowerDbRequestBroker: broker });
+    const localResponse = await localHandler(new Request(loopbackUrl, {
+      method: "POST",
+      headers: { authorization: `Bearer ${"A".repeat(43)}` },
+      body,
+    }), loopbackUrl, "POST", anonymousAuth);
+    expect(localResponse.status).toBe(200);
+    expect(brokerCalls).toBe(1);
   });
 
   test("binds the Flight Deck MCP helper to the caller's session capability", async () => {

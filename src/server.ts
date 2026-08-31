@@ -118,6 +118,7 @@ import { CapabilityBroker, buildDefaultAgentCapabilityPolicy } from "./signing/c
 import { FileCapabilityBrokerStateStore } from "./signing/capability-state-store";
 import { writeServerLog } from "./logging/server-logger";
 import { HttpTowerWappRegistrar } from "./wapps/tower-registration";
+import { wappTowerDbRequestBroker } from "./wapps/tower-db-request-broker";
 import { InstallationIntentConsumer } from "./wapps/installation-intent-consumer";
 import { isAgentDispatchAdminOnlyEnabled, isSharedAgentDispatchEnabled, isSharedInstanceAccessEnabled } from "./shared-instance";
 import { WorkspaceSubscriptionManager } from './agent-chat/subscription-runtime';
@@ -2645,6 +2646,7 @@ const handleApi = createApiRouteHandler({
   nip98ApiHandler,
   botCryptoApiHandler,
   capabilityBrokerApiHandler: (request, url, method) => capabilityBroker.handle(request, url, method),
+  wappTowerDbRequestBroker,
   botKeyApiHandler,
   giteaApiHandler,
   gitWorkflowApiHandler,

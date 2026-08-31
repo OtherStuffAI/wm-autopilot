@@ -32,6 +32,12 @@ import { runtimePortRegistry } from "./runtime-port-registry";
 import { waitForAvailableTcpPort, waitForListeningPort, waitForTcpPort } from "../utils/port-utils";
 import { wappStore, type WappStore } from "../wapps/wapp-store";
 import { getWappRuntimeEnvForWapp } from "../wapps/runtime-env";
+import {
+  WAPP_TOWER_DB_BROKER_PATH,
+  wappTowerDbRequestBroker,
+  type WappTowerDbRequestBroker,
+  type WappTowerDbRuntimeCapability,
+} from "../wapps/tower-db-request-broker";
 import type { RuntimeBotIdentity } from "../agent-chat/types";
 import {
   HttpTowerWappRegistrar,
@@ -131,6 +137,7 @@ export class AppProcessManager {
   private towerRegistrationIdentity: RuntimeBotIdentity | null;
   private towerWappRegistrar: TowerWappRegistrar;
   private readonly spawn: typeof Bun.spawn;
+  private readonly towerDbRequestBroker: WappTowerDbRequestBroker;
 
   constructor(
     registry: AppRegistry = appRegistry,
@@ -139,6 +146,7 @@ export class AppProcessManager {
     towerRegistrationIdentity: RuntimeBotIdentity | null = null,
     towerWappRegistrar: TowerWappRegistrar = new HttpTowerWappRegistrar(),
     spawn: typeof Bun.spawn = Bun.spawn,
+    towerDbRequestBroker: WappTowerDbRequestBroker = wappTowerDbRequestBroker,
   ) {
     this.registry = registry;
     this.adminNpubs = adminNpubs === undefined ? getConfiguredAdminNpubs() : normaliseNpubList(adminNpubs);
@@ -146,6 +154,7 @@ export class AppProcessManager {
     this.towerRegistrationIdentity = towerRegistrationIdentity;
     this.towerWappRegistrar = towerWappRegistrar;
     this.spawn = spawn;
+    this.towerDbRequestBroker = towerDbRequestBroker;
   }
 
   configureTowerRegistration(input: {
@@ -183,6 +192,7 @@ export class AppProcessManager {
 
   async stop(appId: string): Promise<AppProcessStatus> {
     return this.runAction(appId, "stop", async (app) => {
+      this.towerDbRequestBroker.revokeApp(app.id);
       // Clear runtime port first
       runtimePortRegistry.clear(app.id);
 
@@ -225,6 +235,7 @@ export class AppProcessManager {
         throw new AppScriptMissingError(app.id, "restart");
       }
       await this.ensureTowerWappRegistered(app);
+      this.towerDbRequestBroker.revokeApp(app.id);
 
       // Clear runtime port before restart
       runtimePortRegistry.clear(app.id);
@@ -336,6 +347,7 @@ export class AppProcessManager {
       throw new Error(`Unknown app: ${appId}`);
     }
 
+    this.towerDbRequestBroker.revokeApp(app.id);
     if (app.pm2Name) {
       try {
         await stopProcess(app.pm2Name);
@@ -520,21 +532,47 @@ export class AppProcessManager {
     }
 
     const { userAlias, userRootDir, isAdmin } = this.resolveUserContext(app);
-    const launch = await addUserAppToEcosystem({
-      app,
-      userAlias,
-      userRootDir,
-      isAdmin,
-      wappStore: this.wappStore,
-    });
+    const wapp = this.wappStore.getByAppId(app.id);
+    let capability: WappTowerDbRuntimeCapability | null = null;
+    let launch: Awaited<ReturnType<typeof addUserAppToEcosystem>> | undefined;
     try {
+      if (wapp?.towerBindingId) {
+        this.towerDbRequestBroker.revokeApp(app.id);
+        capability = this.towerDbRequestBroker.issue({ installationId: wapp.id, appId: app.id });
+      }
+      const wappRuntimeEnv = wapp
+        ? getWappRuntimeEnvForWapp(
+          wapp.id,
+          app.root,
+          this.wappStore,
+          capability ? {
+            brokerUrl: this.towerDbBrokerUrl(),
+            capability: capability.token,
+          } : undefined,
+        )
+        : {};
+      launch = await addUserAppToEcosystem({
+        app,
+        userAlias,
+        userRootDir,
+        isAdmin,
+        wappStore: this.wappStore,
+        wappRuntimeEnv,
+      });
       await this.registry.updateApp(app.id, { pm2Name: launch.processName, logsDir: launch.logsDir });
       await startProcessFromConfig(launch.ecosystemPath, launch.processName);
       await this.registerRuntimePort(app, launch.processName);
       return launch.processName;
+    } catch (error) {
+      if (capability) this.towerDbRequestBroker.revokeToken(capability.token);
+      throw error;
     } finally {
-      await removeAppRuntimeEnvelope(launch.runtimeEnvPath);
+      await removeAppRuntimeEnvelope(launch?.runtimeEnvPath);
     }
+  }
+
+  private towerDbBrokerUrl(): string {
+    return new URL(WAPP_TOWER_DB_BROKER_PATH, `http://127.0.0.1:${this.config.port}`).toString();
   }
 
   /**
@@ -614,26 +652,44 @@ export class AppProcessManager {
     }
 
     const wapp = this.wappStore.getByAppId(app.id);
-    const wappEnv = wapp ? getWappRuntimeEnvForWapp(wapp.id, app.root, this.wappStore) : {};
-    const plan = buildManagedAppSpawnPlan({
-      app,
-      command,
-      cwd: app.root,
-      userAlias: this.resolveUserContext(app).userAlias,
-      wappEnv,
-    });
-    const subprocess = this.spawn(plan.cmd, {
-      cwd: plan.cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-      env: plan.env,
-    });
+    const capability = wapp?.towerBindingId
+      ? this.towerDbRequestBroker.issue({ installationId: wapp.id, appId: app.id })
+      : null;
+    let stdout: string;
+    let stderr: string;
+    let exitCode: number;
+    try {
+      const wappEnv = wapp ? getWappRuntimeEnvForWapp(
+        wapp.id,
+        app.root,
+        this.wappStore,
+        capability ? {
+          brokerUrl: this.towerDbBrokerUrl(),
+          capability: capability.token,
+        } : undefined,
+      ) : {};
+      const plan = buildManagedAppSpawnPlan({
+        app,
+        command,
+        cwd: app.root,
+        userAlias: this.resolveUserContext(app).userAlias,
+        wappEnv,
+      });
+      const subprocess = this.spawn(plan.cmd, {
+        cwd: plan.cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: plan.env,
+      });
 
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(subprocess.stdout).text(),
-      new Response(subprocess.stderr).text(),
-      subprocess.exited,
-    ]);
+      [stdout, stderr, exitCode] = await Promise.all([
+        new Response(subprocess.stdout).text(),
+        new Response(subprocess.stderr).text(),
+        subprocess.exited,
+      ]);
+    } finally {
+      if (capability) this.towerDbRequestBroker.revokeToken(capability.token);
+    }
 
     // Write to log file
     const logFileName = app.pm2Name ? `${app.pm2Name}-${action}.log` : `${app.id}-${action}.log`;

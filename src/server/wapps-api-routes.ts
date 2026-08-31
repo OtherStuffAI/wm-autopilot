@@ -475,7 +475,7 @@ export async function handleWappsApi(
   if (action === "nsec" && method === "GET") {
     return Response.json({
       error: "wapp-secret-not-exportable",
-      message: "WAPP_NSEC is available only to the managed WApp process environment",
+      message: "WAPP_NSEC remains only in encrypted Autopilot custody; managed Tower-backed WApps use the local request broker",
     }, { status: 410 });
   }
 

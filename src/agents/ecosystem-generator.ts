@@ -130,6 +130,7 @@ export const PM2_FILTERED_PARENT_ENV_PREFIXES = [
   "OPENAI_API_KEY",
   "OPENROUTER_API_KEY",
   "S3_SECRET_KEY",
+  "WAPP_TOWER_DB_CAPABILITY",
   "WAPP_NSEC",
   "WINGMAN_BROKER_MASTER_KEY",
   "WINGMAN_NSEC",
@@ -520,6 +521,7 @@ export interface UserAppConfig {
   userRootDir: string;
   isAdmin: boolean;
   wappStore?: WappStore;
+  wappRuntimeEnv?: Record<string, string>;
   hostEnv?: Record<string, string | undefined>;
 }
 
@@ -635,7 +637,7 @@ async function addUserAppToEcosystemUnlocked(
   const wapp = store.getByAppId(config.app.id);
   const runtimeEnv = {
     ...(config.app.env ?? {}),
-    ...(wapp ? getWappRuntimeEnvForWapp(wapp.id, config.app.root, store) : {}),
+    ...(config.wappRuntimeEnv ?? (wapp ? getWappRuntimeEnvForWapp(wapp.id, config.app.root, store) : {})),
   };
   const runtimeEnvEnvelope = await createAppRuntimeEnvelope(
     join(logsDir, ".runtime-env"),

@@ -180,6 +180,7 @@ export interface AppsApiContext {
         webAppPort?: number | null;
       },
     ) => Promise<AppRecord>;
+    reviewWappTowerBrokerMigration: (id: string) => Promise<AppRecord>;
     removeApp: (id: string) => Promise<boolean>;
   };
 
@@ -210,6 +211,7 @@ export interface AppsApiContext {
 
   wappStore?: {
     list: () => WappRecord[];
+    getByAppId: (appId: string) => WappRecord | null;
   };
 
   npubProjectStore: {
@@ -1205,6 +1207,37 @@ export async function handleAppsApi(
         return Response.json({ error: 'Action is required' }, { status: 400 });
       }
       const normalizedAction = actionValue.toLowerCase();
+      if (normalizedAction === 'review-wapp-tower-broker') {
+        const wapp = ctx.wappStore?.getByAppId(id);
+        if (!wapp?.towerBindingId || !wapp.appNpub) {
+          return Response.json({ error: 'App is not a complete Tower-backed WApp assignment' }, { status: 409 });
+        }
+        try {
+          const reviewed = await ctx.appRegistry.reviewWappTowerBrokerMigration(id);
+          ctx.appProcessManager.forget(id);
+          const status = await ctx.appProcessManager.getStatus(id);
+          const aliasRecord = await ctx.appAliasRegistry.getByAppId(id);
+          const subdomainAlias = aliasRecord?.alias ?? null;
+          return Response.json({
+            app: withWappAssignments(
+              withCaproverDeploymentInfo(
+                await buildAppResponseWithDomains(ctx, reviewed, status, { subdomainAlias }),
+                reviewed.id,
+                ctx.caproverStore,
+              ),
+              reviewed.id,
+              buildWappsByAppId(ctx),
+            ),
+            review: {
+              clearedReason: 'raw-signing-secret-removed-use-capability-broker',
+              remainingReasons: reviewed.lifecycleReviewReasons ?? [],
+              scripts: reviewed.scripts,
+            },
+          });
+        } catch (error) {
+          return Response.json({ error: (error as Error).message }, { status: 400 });
+        }
+      }
       if (normalizedAction === 'clear-logs') {
         try {
           await ctx.appProcessManager.clearLogs(id);

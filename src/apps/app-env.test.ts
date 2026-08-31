@@ -55,12 +55,14 @@ describe("app env helpers", () => {
     const input = {
       API_TOKEN: "ordinary-secret",
       WAPP_NSEC: "nsec1must-not-survive",
+      WAPP_TOWER_DB_CAPABILITY: "must-not-be-configured",
       AGENT_NSEC: "f".repeat(64),
     };
     expect(hydrateAppEnv(input)).toEqual({ API_TOKEN: "ordinary-secret" });
     const stored = serialiseAppEnvForStorage(input);
     expect(stored).toHaveProperty("API_TOKEN");
     expect(stored).not.toHaveProperty("WAPP_NSEC");
+    expect(stored).not.toHaveProperty("WAPP_TOWER_DB_CAPABILITY");
     expect(stored).not.toHaveProperty("AGENT_NSEC");
   });
 });
