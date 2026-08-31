@@ -70,30 +70,35 @@ export function createAccessGrantListener(deps: AccessGrantListenerDeps): Access
       };
       subscriptions.set(normalizedHex, state);
 
-      const handleEvent = (event: NostrAccessGrantEvent) => {
-        processAccessGrantEvent({
-          event,
-          recipientSecretKey,
-          recipientNpub,
-          managedByNpub,
-          subscriptionManager: deps.subscriptionManager,
-          processedKeys,
-          isAuthorizedIssuerNpub: deps.isAuthorizedIssuerNpub,
-        }).then((result) => {
+      const handleEvent = async (event: NostrAccessGrantEvent) => {
+        try {
+          const result = await processAccessGrantEvent({
+            event,
+            recipientSecretKey,
+            recipientNpub,
+            managedByNpub,
+            subscriptionManager: deps.subscriptionManager,
+            processedKeys,
+            isAuthorizedIssuerNpub: deps.isAuthorizedIssuerNpub,
+          });
           const id = event.id?.slice(0, 12) ?? 'unknown';
           if (result.ok) {
             console.log(`[onboarding-33357] ${result.code} for event ${id}`);
           } else {
             console.warn(`[onboarding-33357] ${result.code} for event ${id}: ${result.message}`);
           }
-        }).catch((error) => {
+        } catch (error) {
           console.error('[onboarding-33357] Failed to process onboarding event:', error);
-        });
+        }
       };
 
       void pool.querySync(deps.relays, filter, { maxWait: deps.replayTimeoutMs ?? 5000 })
-        .then((events) => {
-          for (const event of events) handleEvent(event);
+        .then(async (events) => {
+          const ordered = [...events].sort((left, right) => {
+            const timeOrder = Number(left.created_at || 0) - Number(right.created_at || 0);
+            return timeOrder || String(right.id || '').localeCompare(String(left.id || ''));
+          });
+          for (const event of ordered) await handleEvent(event);
         })
         .catch((error) => {
           console.warn('[onboarding-33357] Initial access-grant replay failed:', error);
@@ -101,7 +106,9 @@ export function createAccessGrantListener(deps: AccessGrantListenerDeps): Access
         .finally(() => {
           if (closed) return;
           liveSub = pool.subscribe(deps.relays, filter, {
-            onevent: handleEvent,
+            onevent(event) {
+              void handleEvent(event);
+            },
             oneose() {
               console.log(`[onboarding-33357] Listening for onboarding events for ${normalizedHex.slice(0, 12)}...`);
             },

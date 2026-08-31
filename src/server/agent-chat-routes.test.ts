@@ -1145,7 +1145,7 @@ describe('agent-chat routes', () => {
     expect(saved).toBe(false);
   });
 
-  test('blocks manual deletion of Flight Deck onboarded subscriptions', async () => {
+  test('allows a Flight Deck onboarded subscription to be disconnected locally', async () => {
     let removed = false;
     const manager = {
       getForManager: () => makeSubscription({ onboardingSource: 'nostr_33357' }),
@@ -1165,11 +1165,8 @@ describe('agent-chat routes', () => {
       authContext,
       { manager },
     );
-    const body = await response!.json();
-
-    expect(response?.status).toBe(409);
-    expect(body.error).toContain('Flight Deck');
-    expect(removed).toBe(false);
+    expect(response?.status).toBe(204);
+    expect(removed).toBe(true);
   });
 
   test('sets the explicit default profile used by ordinary Autopilot sessions', async () => {

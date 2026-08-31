@@ -5,6 +5,7 @@ export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 export type BackendConnectionSharePolicy = 'private' | 'selected_users' | 'shared_service';
 export type BackendConnectionGrantKind = 'manager_npub' | 'shared_service';
 export type WorkspaceOnboardingSource = 'manual' | 'agent_connect_import' | 'nostr_33357';
+export type WorkspaceSubscriptionLifecycleStatus = 'active' | 'locally_disconnected' | 'revoked' | 'deleted';
 export type AgentCapability =
   | 'chat_intercept'
   | 'task_dispatch'
@@ -143,6 +144,11 @@ export interface WorkspaceSubscriptionRecord {
   botNpub: string;
   sourceAppNpub: string;
   onboardingSource: WorkspaceOnboardingSource;
+  lifecycleStatus: WorkspaceSubscriptionLifecycleStatus;
+  lifecycleChangedAt: string;
+  discoveryEventId?: string | null;
+  discoveryEventCreatedAt?: number | null;
+  discoveryDedupeKey?: string | null;
   connectionTokenRef?: string | null;
   agentProfileId?: string | null;
   sourceAppSchemaNamespace?: string | null;
@@ -271,6 +277,13 @@ export interface CreateWorkspaceSubscriptionInput {
   capabilityDefaults?: AgentCapability[];
   dispatchRouteIds?: string[];
   triggerConfigRecordId?: string | null;
+  /** Verified kind-33357 replacement metadata used for replay ordering and local disconnect suppression. */
+  discoveryEvent?: {
+    eventId: string;
+    createdAt: number;
+    dedupeKey: string;
+    recipientNpub: string;
+  };
 }
 
 export interface UpdateWorkspaceSubscriptionInput extends WorkspaceSubscriptionRecord {}

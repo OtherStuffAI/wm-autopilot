@@ -1340,7 +1340,8 @@ export class WorkspaceSubscriptionManager {
     agentNpub: string;
   }): { subscriptionId: string; backendBaseUrl: string; appNpub: string; botIdentity: RuntimeBotIdentity } | null {
     const subscription = this.store.listAll().find((record) =>
-      record.towerServiceNpub === input.towerServiceNpub
+      (record.lifecycleStatus ?? 'active') === 'active'
+      && record.towerServiceNpub === input.towerServiceNpub
       && record.workspaceId === input.workspaceId
       && record.botNpub === input.agentNpub);
     if (!subscription) return null;
@@ -1354,7 +1355,8 @@ export class WorkspaceSubscriptionManager {
   }
 
   listForManager(npub: string): WorkspaceSubscriptionRecord[] {
-    return this.store.listForManagerNpub(npub);
+    return this.store.listForManagerNpub(npub)
+      .filter((record) => (record.lifecycleStatus ?? 'active') === 'active');
   }
 
   listDispatchOutcomesForManager(
@@ -1794,7 +1796,8 @@ export class WorkspaceSubscriptionManager {
     }
     for (const subscription of this.store.listForManagerNpub(agent.managedByNpub)) {
       if (
-        this.getEffectiveWorkspaceNpub(subscription) !== agent.workspaceOwnerNpub
+        (subscription.lifecycleStatus ?? 'active') !== 'active'
+        || this.getEffectiveWorkspaceNpub(subscription) !== agent.workspaceOwnerNpub
         || subscription.botNpub !== agent.botNpub
       ) {
         continue;
@@ -2014,7 +2017,8 @@ export class WorkspaceSubscriptionManager {
     }
 
     const pgSubscription = this.store.listForManagerNpub(input.managedByNpub).find((subscription) => (
-      isFlightDeckPgSubscription(subscription)
+      (subscription.lifecycleStatus ?? 'active') === 'active'
+      && isFlightDeckPgSubscription(subscription)
       && this.getEffectiveWorkspaceNpub(subscription) === workspaceOwnerNpub
       && subscription.botNpub === botNpub
     ));
@@ -2163,7 +2167,8 @@ export class WorkspaceSubscriptionManager {
       return null;
     }
     const linkedSubscriptions = this.store.listForManagerNpub(npub).filter((subscription) => (
-      subscription.agentProfileId === agentId || subscription.botNpub === record.botNpub
+      (subscription.lifecycleStatus ?? 'active') === 'active'
+      && (subscription.agentProfileId === agentId || subscription.botNpub === record.botNpub)
     ));
     if (linkedSubscriptions.length > 0) {
       throw Object.assign(new Error(
@@ -2217,11 +2222,18 @@ export class WorkspaceSubscriptionManager {
     allowedManagerNpubs?: string[];
     grantSharedService?: boolean;
     onboardingSource?: CreateWorkspaceSubscriptionInput['onboardingSource'];
+    discoveryEvent?: CreateWorkspaceSubscriptionInput['discoveryEvent'];
   }): Promise<{
     backendConnection: BackendConnectionRecord;
     subscription: WorkspaceSubscriptionRecord;
+    ignoredLocally?: boolean;
+    staleDiscoveryEvent?: boolean;
   }> {
-    const agentProfileId = input.agentProfileId?.trim() || null;
+    const discoveredProfile = input.discoveryEvent?.recipientNpub
+      ? this.agentStore.getByBotNpub(input.discoveryEvent.recipientNpub)
+      : null;
+    const agentProfileId = input.agentProfileId?.trim()
+      || (discoveredProfile?.managedByNpub === input.managedByNpub ? discoveredProfile.agentId : null);
     const agentProfile = agentProfileId
       ? this.resolveOwnedAgentProfile(agentProfileId, input.managedByNpub)
       : null;
@@ -2261,6 +2273,7 @@ export class WorkspaceSubscriptionManager {
       ...importResult.subscriptionInput,
       agentProfileId,
       onboardingSource: input.onboardingSource ?? 'agent_connect_import',
+      discoveryEvent: input.discoveryEvent,
     });
     this.profilePolicyStore.ensureProfileWorkspaceForSubscription({
       managedByNpub: input.managedByNpub,
@@ -2272,7 +2285,18 @@ export class WorkspaceSubscriptionManager {
       relayOnboardingStatus: subscription.wsKeyStatus === 'active' ? 'ready' : 'verified',
       workspaceTitle: validation.workspaceTitle,
     });
-    return { backendConnection, subscription };
+    return {
+      backendConnection,
+      subscription,
+      ...(input.discoveryEvent && subscription.lifecycleStatus === 'locally_disconnected'
+        ? { ignoredLocally: true }
+        : {}),
+      ...(input.discoveryEvent
+        && subscription.discoveryEventId !== input.discoveryEvent.eventId
+        && (subscription.discoveryEventCreatedAt ?? -1) >= input.discoveryEvent.createdAt
+        ? { staleDiscoveryEvent: true }
+        : {}),
+    };
   }
 
   async createOrUpdate(input: CreateWorkspaceSubscriptionInput): Promise<WorkspaceSubscriptionRecord> {
@@ -2398,6 +2422,28 @@ export class WorkspaceSubscriptionManager {
         triggerConfigRecordId: input.triggerConfigRecordId ?? null,
       });
 
+    const discoveryEvent = input.discoveryEvent;
+    if (discoveryEvent) {
+      const currentCreatedAt = record.discoveryEventCreatedAt;
+      const sameTimestampWins = currentCreatedAt === discoveryEvent.createdAt
+        && Boolean(record.discoveryEventId)
+        && record.discoveryEventId! < discoveryEvent.eventId;
+      const staleReplacement = currentCreatedAt != null && (
+        currentCreatedAt > discoveryEvent.createdAt || sameTimestampWins
+      );
+      const disconnectedAt = Math.floor(Date.parse(record.lifecycleChangedAt || record.updatedAt) / 1000);
+      const disconnectedWatermark = Math.max(
+        Number.isFinite(disconnectedAt) ? disconnectedAt : 0,
+        currentCreatedAt ?? 0,
+      );
+      if (
+        staleReplacement
+        || (record.lifecycleStatus === 'locally_disconnected' && discoveryEvent.createdAt <= disconnectedWatermark)
+      ) {
+        return record;
+      }
+    }
+
     record.backendConnectionId = backendConnection?.backendConnectionId ?? record.backendConnectionId ?? null;
     record.backendBaseUrl = subscriptionBackendBaseUrl;
     record.towerServiceNpub = towerServiceNpub ?? record.towerServiceNpub ?? backendConnection?.serviceNpub ?? null;
@@ -2406,6 +2452,13 @@ export class WorkspaceSubscriptionManager {
     record.workspaceOwnerNpub = workspaceOwnerNpub;
     record.sourceAppNpub = sourceAppNpub;
     record.onboardingSource = input.onboardingSource ?? record.onboardingSource ?? 'manual';
+    record.lifecycleStatus = 'active';
+    record.lifecycleChangedAt = new Date().toISOString();
+    if (discoveryEvent) {
+      record.discoveryEventId = discoveryEvent.eventId;
+      record.discoveryEventCreatedAt = discoveryEvent.createdAt;
+      record.discoveryDedupeKey = discoveryEvent.dedupeKey;
+    }
     record.connectionTokenRef = connectionTokenRef ?? record.connectionTokenRef ?? null;
     record.agentProfileId = agentProfile?.agentId ?? input.agentProfileId ?? record.agentProfileId ?? null;
     record.sourceAppSchemaNamespace = sourceAppSchemaNamespace ?? record.sourceAppSchemaNamespace ?? null;
@@ -2551,10 +2604,26 @@ export class WorkspaceSubscriptionManager {
       return false;
     }
     this.stopRuntime(subscriptionId, true);
-    const removed = this.store.delete(subscriptionId);
-    if (removed) {
-      this.dispatchPipelineRuntime?.deleteRoutesForSubscriptionForManager(subscriptionId, npub);
+    this.dispatchPipelineRuntime?.deleteRoutesForSubscriptionForManager(subscriptionId, npub);
+    if (record.onboardingSource === 'nostr_33357') {
+      const now = new Date().toISOString();
+      this.saveRecord({
+        ...record,
+        lifecycleStatus: 'locally_disconnected',
+        lifecycleChangedAt: now,
+        sseStatus: 'disabled',
+        healthStatus: 'degraded',
+        lastErrorCode: 'workspace_disconnected_locally',
+        lastErrorAt: now,
+        lastAuthResult: buildFailureDiagnostic(
+          'workspace_disconnected_locally',
+          'This workspace connection was disconnected locally. Tower workspace data and membership were not changed.',
+          'local_disconnect',
+        ),
+      });
+      return true;
     }
+    const removed = this.store.delete(subscriptionId);
     return removed;
   }
 
@@ -2587,6 +2656,7 @@ export class WorkspaceSubscriptionManager {
       const sameWorkspaceService = record.workspaceServiceNpub === expectedWorkspaceServiceNpub;
       const sameWorkspace = record.workspaceOwnerNpub === input.grant.workspaceOwnerNpub;
       const sameApp = record.sourceAppNpub === input.grant.appNpub;
+      const sameRecipient = record.botNpub === input.grant.recipientNpub;
       const sameProfile = input.agentProfileId ? record.agentProfileId === input.agentProfileId : true;
       return sameBackend
         && sameTowerService
@@ -2594,6 +2664,7 @@ export class WorkspaceSubscriptionManager {
         && sameWorkspaceService
         && sameWorkspace
         && sameApp
+        && sameRecipient
         && sameProfile;
     });
 
@@ -2631,6 +2702,12 @@ export class WorkspaceSubscriptionManager {
         ? 'deleted'
         : 'revoked';
       const now = new Date().toISOString();
+      const revocationIsNewestDiscovery = record.discoveryEventCreatedAt == null
+        || input.grant.event.created_at > record.discoveryEventCreatedAt
+        || (
+          input.grant.event.created_at === record.discoveryEventCreatedAt
+          && (!record.discoveryEventId || input.grant.event.id < record.discoveryEventId)
+        );
       const revocationEvent = {
         eventId: input.grant.event.id,
         eventType: `workspace-${lifecycleStatus}`,
@@ -2643,6 +2720,13 @@ export class WorkspaceSubscriptionManager {
       };
       const saved = this.saveRecord(this.recomputeHealth({
         ...record,
+        lifecycleStatus,
+        lifecycleChangedAt: now,
+        discoveryEventId: revocationIsNewestDiscovery ? input.grant.event.id : record.discoveryEventId,
+        discoveryEventCreatedAt: revocationIsNewestDiscovery
+          ? input.grant.event.created_at
+          : record.discoveryEventCreatedAt,
+        discoveryDedupeKey: revocationIsNewestDiscovery ? input.grant.dedupeKey : record.discoveryDedupeKey,
         wsKeyStatus: 'revoked',
         groupKeyStatus: 'revoked',
         sseStatus: 'disabled',
@@ -6356,7 +6440,8 @@ export class WorkspaceSubscriptionManager {
     const subscription = this.store
       .listForManagerNpub(input.managedByNpub)
       .find((record) => (
-        this.getEffectiveWorkspaceNpub(record) === input.workspaceOwnerNpub
+        (record.lifecycleStatus ?? 'active') === 'active'
+        && this.getEffectiveWorkspaceNpub(record) === input.workspaceOwnerNpub
         && record.botNpub === input.botNpub
       ));
     const cachedGroupNpubs = subscription ? this.deriveGroupNpubsFromSubscription(subscription) : [];

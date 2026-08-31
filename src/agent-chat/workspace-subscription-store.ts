@@ -61,7 +61,8 @@ class WorkspaceSubscriptionStore {
 
   listStartupCandidates(): WorkspaceSubscriptionRecord[] {
     return this.listWhere(
-      `sse_status != 'disabled'
+      `lifecycle_status = 'active'
+        AND sse_status != 'disabled'
         AND (
           health_status IN ('healthy', 'degraded')
           OR (
@@ -136,6 +137,11 @@ class WorkspaceSubscriptionStore {
       record.botNpub,
       record.sourceAppNpub,
       record.onboardingSource ?? 'manual',
+      record.lifecycleStatus ?? 'active',
+      record.lifecycleChangedAt ?? record.updatedAt,
+      record.discoveryEventId ?? null,
+      record.discoveryEventCreatedAt ?? null,
+      record.discoveryDedupeKey ?? null,
       record.connectionTokenRef ?? null,
       record.agentProfileId ?? null,
       record.sourceAppSchemaNamespace ?? null,
@@ -179,7 +185,9 @@ class WorkspaceSubscriptionStore {
       `INSERT INTO workspace_subscriptions (
          subscription_id, backend_connection_id, workspace_owner_npub, backend_base_url,
          tower_service_npub, workspace_id, workspace_service_npub, bot_npub, source_app_npub,
-         onboarding_source, connection_token_ref, agent_profile_id, source_app_schema_namespace, capability_defaults_json,
+         onboarding_source, lifecycle_status, lifecycle_changed_at,
+         discovery_event_id, discovery_event_created_at, discovery_dedupe_key,
+         connection_token_ref, agent_profile_id, source_app_schema_namespace, capability_defaults_json,
          dispatch_route_ids_json, last_sync_cursor, last_event_poll_ok_at, last_event_poll_error_at,
          last_event_poll_error_code, last_event_poll_event_count, last_event_poll_lag_ms, last_pipeline_run_id,
          ws_key_npub, ws_key_status, group_key_status, sse_status, health_status,
@@ -191,15 +199,16 @@ class WorkspaceSubscriptionStore {
        ) VALUES (
          ?1, ?2, ?3, ?4, ?5, ?6,
          ?7, ?8, ?9,
-         ?10, ?11, ?12, ?13, ?14,
-         ?15, ?16, ?17, ?18,
-         ?19, ?20, ?21, ?22,
-         ?23, ?24, ?25, ?26, ?27,
-         ?28, ?29, ?30, ?31,
-         ?32, ?33, ?34, ?35, ?36,
-         ?37, ?38, ?39,
-         ?40, ?41, ?42, ?43,
-         ?44, ?45, ?46, ?47
+         ?10, ?11, ?12, ?13, ?14, ?15,
+         ?16, ?17, ?18, ?19,
+         ?20, ?21, ?22, ?23,
+         ?24, ?25, ?26, ?27,
+         ?28, ?29, ?30, ?31, ?32,
+         ?33, ?34, ?35, ?36,
+         ?37, ?38, ?39, ?40, ?41,
+         ?42, ?43, ?44,
+         ?45, ?46, ?47, ?48,
+         ?49, ?50, ?51, ?52
        )
        ON CONFLICT(subscription_id) DO UPDATE SET
          backend_connection_id = excluded.backend_connection_id,
@@ -211,6 +220,11 @@ class WorkspaceSubscriptionStore {
          bot_npub = excluded.bot_npub,
          source_app_npub = excluded.source_app_npub,
          onboarding_source = excluded.onboarding_source,
+         lifecycle_status = excluded.lifecycle_status,
+         lifecycle_changed_at = excluded.lifecycle_changed_at,
+         discovery_event_id = excluded.discovery_event_id,
+         discovery_event_created_at = excluded.discovery_event_created_at,
+         discovery_dedupe_key = excluded.discovery_dedupe_key,
          connection_token_ref = excluded.connection_token_ref,
          agent_profile_id = excluded.agent_profile_id,
          source_app_schema_namespace = excluded.source_app_schema_namespace,
@@ -282,6 +296,11 @@ class WorkspaceSubscriptionStore {
       botNpub: input.botNpub,
       sourceAppNpub: input.sourceAppNpub,
       onboardingSource: input.onboardingSource ?? 'manual',
+      lifecycleStatus: 'active',
+      lifecycleChangedAt: now,
+      discoveryEventId: null,
+      discoveryEventCreatedAt: null,
+      discoveryDedupeKey: null,
       connectionTokenRef: input.connectionTokenRef ?? null,
       agentProfileId: input.agentProfileId ?? null,
       sourceAppSchemaNamespace: input.sourceAppSchemaNamespace ?? null,
@@ -343,6 +362,11 @@ class WorkspaceSubscriptionStore {
            bot_npub,
            source_app_npub,
            onboarding_source,
+           lifecycle_status,
+           lifecycle_changed_at,
+           discovery_event_id,
+           discovery_event_created_at,
+           discovery_dedupe_key,
            connection_token_ref,
            agent_profile_id,
            source_app_schema_namespace,
@@ -402,6 +426,11 @@ class WorkspaceSubscriptionStore {
            bot_npub,
            source_app_npub,
            onboarding_source,
+           lifecycle_status,
+           lifecycle_changed_at,
+           discovery_event_id,
+           discovery_event_created_at,
+           discovery_dedupe_key,
            connection_token_ref,
            agent_profile_id,
            source_app_schema_namespace,
@@ -459,6 +488,11 @@ class WorkspaceSubscriptionStore {
       botNpub: row.bot_npub!,
       sourceAppNpub: row.source_app_npub!,
       onboardingSource: row.onboarding_source as WorkspaceSubscriptionRecord['onboardingSource'] || 'manual',
+      lifecycleStatus: row.lifecycle_status as WorkspaceSubscriptionRecord['lifecycleStatus'] || 'active',
+      lifecycleChangedAt: row.lifecycle_changed_at || row.updated_at!,
+      discoveryEventId: row.discovery_event_id ?? null,
+      discoveryEventCreatedAt: row.discovery_event_created_at == null ? null : Number(row.discovery_event_created_at),
+      discoveryDedupeKey: row.discovery_dedupe_key ?? null,
       connectionTokenRef: row.connection_token_ref ?? null,
       agentProfileId: row.agent_profile_id ?? null,
       sourceAppSchemaNamespace: row.source_app_schema_namespace ?? null,
@@ -512,6 +546,11 @@ class WorkspaceSubscriptionStore {
         bot_npub TEXT NOT NULL,
         source_app_npub TEXT NOT NULL,
         onboarding_source TEXT NOT NULL DEFAULT 'manual',
+        lifecycle_status TEXT NOT NULL DEFAULT 'active',
+        lifecycle_changed_at TEXT NOT NULL DEFAULT '',
+        discovery_event_id TEXT,
+        discovery_event_created_at INTEGER,
+        discovery_dedupe_key TEXT,
         connection_token_ref TEXT,
         agent_profile_id TEXT,
         source_app_schema_namespace TEXT,
@@ -590,6 +629,22 @@ class WorkspaceSubscriptionStore {
     }
     if (!hasColumn(this.db, 'workspace_subscriptions', 'onboarding_source')) {
       this.db.exec("ALTER TABLE workspace_subscriptions ADD COLUMN onboarding_source TEXT NOT NULL DEFAULT 'manual'");
+    }
+    if (!hasColumn(this.db, 'workspace_subscriptions', 'lifecycle_status')) {
+      this.db.exec("ALTER TABLE workspace_subscriptions ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'active'");
+    }
+    if (!hasColumn(this.db, 'workspace_subscriptions', 'lifecycle_changed_at')) {
+      this.db.exec("ALTER TABLE workspace_subscriptions ADD COLUMN lifecycle_changed_at TEXT NOT NULL DEFAULT ''");
+      this.db.exec("UPDATE workspace_subscriptions SET lifecycle_changed_at = updated_at WHERE lifecycle_changed_at = ''");
+    }
+    if (!hasColumn(this.db, 'workspace_subscriptions', 'discovery_event_id')) {
+      this.db.exec('ALTER TABLE workspace_subscriptions ADD COLUMN discovery_event_id TEXT');
+    }
+    if (!hasColumn(this.db, 'workspace_subscriptions', 'discovery_event_created_at')) {
+      this.db.exec('ALTER TABLE workspace_subscriptions ADD COLUMN discovery_event_created_at INTEGER');
+    }
+    if (!hasColumn(this.db, 'workspace_subscriptions', 'discovery_dedupe_key')) {
+      this.db.exec('ALTER TABLE workspace_subscriptions ADD COLUMN discovery_dedupe_key TEXT');
     }
     if (!hasColumn(this.db, 'workspace_subscriptions', 'agent_profile_id')) {
       this.db.exec('ALTER TABLE workspace_subscriptions ADD COLUMN agent_profile_id TEXT');

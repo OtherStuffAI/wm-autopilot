@@ -2,7 +2,9 @@ import { createConnectionDiagnosticsTables } from './flight-deck-section.js';
 
 function isRevoked(subscription) {
   const status = subscription?.profileWorkspace?.workspace?.relayOnboardingStatus;
-  return status === 'revoked'
+  return subscription?.lifecycleStatus === 'revoked'
+    || subscription?.lifecycleStatus === 'deleted'
+    || status === 'revoked'
     || status === 'deleted'
     || subscription?.wsKeyStatus === 'revoked'
     || subscription?.lastErrorCode === 'workspace_access_revoked';
@@ -57,17 +59,19 @@ export function createWorkspaceLifecycleSection({
   const remove = document.createElement('button');
   remove.type = 'button';
   remove.className = 'wm-button danger';
-  remove.textContent = 'Remove local subscription';
-  remove.disabled = subscription?.onboardingSource === 'nostr_33357' || canManage === false;
+  remove.textContent = subscription?.onboardingSource === 'nostr_33357'
+    ? 'Disconnect locally'
+    : 'Remove local subscription';
+  remove.disabled = canManage === false;
   remove.title = subscription?.onboardingSource === 'nostr_33357'
-    ? 'Flight Deck-onboarded subscriptions are removed through Flight Deck membership events; the current Autopilot API rejects local deletion.'
+    ? 'Stops and hides this local connection without changing Tower membership. Replayed older discovery events remain ignored.'
     : '';
   remove.addEventListener('click', onRemove);
 
   controls.append(reconnect, toggle, remove);
   actions.append(heading, explanation, controls);
   if (reconnect.disabled && revoked) actions.append(createStatus('Reconnect unavailable: Tower verification revoked this grant. Import a new AgentConnect grant.'));
-  if (remove.disabled && subscription?.onboardingSource === 'nostr_33357') actions.append(createStatus('Remove is managed by Flight Deck membership events for this subscription; local deletion is not exposed by the current API.'));
+  if (subscription?.onboardingSource === 'nostr_33357') actions.append(createStatus('Disconnecting is local only. Tower membership remains authoritative, and a genuinely newer verified grant can make the workspace discoverable again.'));
   wrapper.append(actions, createConnectionDiagnosticsTables(subscription));
   return wrapper;
 }

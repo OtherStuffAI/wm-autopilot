@@ -65,7 +65,36 @@ describe('WorkspaceSubscriptionStore', () => {
     }));
 
     expect(record.onboardingSource).toBe('nostr_33357');
+    expect(record.lifecycleStatus).toBe('active');
     expect(store.getBySubscriptionId(record.subscriptionId)?.onboardingSource).toBe('nostr_33357');
+  });
+
+  test('persists disconnected discovery lifecycle state and excludes it from startup', () => {
+    const store = new WorkspaceSubscriptionStore(makeTempDb());
+    const record = store.save({
+      ...store.createDefault({
+        managedByNpub: 'npub1manager',
+        workspaceOwnerNpub: 'npub1workspace',
+        backendBaseUrl: 'https://tower.example.com',
+        workspaceId: 'workspace-pg-1',
+        workspaceServiceNpub: 'npub1workspaceservice',
+        botNpub: 'npub1bot',
+        sourceAppNpub: 'npub1app',
+        onboardingSource: 'nostr_33357',
+      }),
+      lifecycleStatus: 'locally_disconnected',
+      lifecycleChangedAt: '2026-08-31T06:00:00.000Z',
+      discoveryEventId: 'event-1',
+      discoveryEventCreatedAt: 1_788_153_600,
+      discoveryDedupeKey: 'wingman-access-grant:v1:service:workspace:app:recipient',
+    });
+
+    expect(store.getBySubscriptionId(record.subscriptionId)).toMatchObject({
+      lifecycleStatus: 'locally_disconnected',
+      discoveryEventId: 'event-1',
+      discoveryEventCreatedAt: 1_788_153_600,
+    });
+    expect(store.listStartupCandidates()).toHaveLength(0);
   });
 
   test('retries failed Flight Deck PG access checks on startup reload', () => {

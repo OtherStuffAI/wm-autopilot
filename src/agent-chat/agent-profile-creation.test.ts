@@ -144,6 +144,26 @@ describe('sovereign Agent Profile creation', () => {
     expect(f.vault.has(record)).toBe(true);
   });
 
+  test('allows profile deletion after its workspace subscription is disconnected locally', async () => {
+    const f = fixture();
+    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub));
+    const subscription = f.store.createDefault({
+      managedByNpub: f.managedByNpub,
+      workspaceOwnerNpub: f.managedByNpub,
+      backendBaseUrl: 'https://tower.example.com',
+      botNpub: created.agent.botNpub,
+      sourceAppNpub: 'npub1source',
+      agentProfileId: created.agent.agentId,
+      onboardingSource: 'nostr_33357',
+    });
+    f.store.save(subscription);
+
+    expect(f.manager.removeForManager(subscription.subscriptionId, f.managedByNpub)).toBe(true);
+    expect(f.store.getBySubscriptionId(subscription.subscriptionId)?.lifecycleStatus).toBe('locally_disconnected');
+    await expect(f.manager.deleteAgentProfileForManager(created.agent.agentId, f.managedByNpub)).resolves.toBeTruthy();
+    expect(f.agentStore.getByAgentId(created.agent.agentId)).toBeNull();
+  });
+
   test('deletes an env-backed profile without claiming to remove WINGMAN_PRIV', async () => {
     const secretKey = generateSecretKey();
     const pubkeyHex = getPublicKey(secretKey);
