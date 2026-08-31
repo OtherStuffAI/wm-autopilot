@@ -112,12 +112,13 @@ function makeRevokedAccessGrant(input: {
   eventId: string;
   workspaceId: string;
   workspaceServiceNpub: string;
+  recipientNpub?: string;
   action?: 'revoked' | 'deleted';
   reason?: string;
 }) {
   return {
     event: { id: input.eventId },
-    recipientNpub: 'npub1wingmanbot',
+    recipientNpub: input.recipientNpub ?? 'npub1wingmanbot',
     payload: {
       action: input.action ?? 'deleted',
       app: { app_npub: 'npub1sourceapp', namespace: 'flightdeck_pg' },
@@ -1810,7 +1811,10 @@ describe('WorkspaceSubscriptionManager', () => {
       if (lifecycle === 'disable') {
         expect(store.getBySubscriptionId(imported.subscription.subscriptionId)?.sseStatus).toBe('disabled');
       } else if (lifecycle === 'remove') {
-        expect(store.getBySubscriptionId(imported.subscription.subscriptionId)).toBeNull();
+        expect(store.getBySubscriptionId(imported.subscription.subscriptionId)).toMatchObject({
+          lifecycleStatus: 'locally_disconnected',
+          sseStatus: 'disabled',
+        });
       }
       manager.shutdown();
     });
@@ -2526,6 +2530,12 @@ describe('WorkspaceSubscriptionManager', () => {
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
       onboardingSource: 'nostr_33357',
     });
+    const otherSubscription = store.save({
+      ...imported.subscription,
+      subscriptionId: crypto.randomUUID(),
+      botNpub: 'npub1otherrecipient',
+      agentProfileId: null,
+    });
 
     const result = await manager.handleAccessGrantRevocation({
       managedByNpub: 'npub1manager',
@@ -2547,10 +2557,12 @@ describe('WorkspaceSubscriptionManager', () => {
 
     const saved = store.getBySubscriptionId(imported.subscription.subscriptionId);
     expect(result.matchedSubscriptions).toBe(1);
+    expect(store.getBySubscriptionId(otherSubscription.subscriptionId)?.lifecycleStatus).toBe('active');
     expect(saved?.wsKeyStatus).toBe('revoked');
     expect(saved?.groupKeyStatus).toBe('revoked');
     expect(saved?.sseStatus).toBe('disabled');
     expect(saved?.lastErrorCode).toBe('workspace_access_revoked');
+    expect(saved?.lifecycleStatus).toBe('deleted');
     expect(saved?.lastRecordPullResult?.message).toContain('self-index tombstone');
     expect(saved?.lastRecordPullResult?.details?.state).toMatchObject({
       deleted: true,
@@ -2560,6 +2572,58 @@ describe('WorkspaceSubscriptionManager', () => {
 
     const workspaces = profilePolicyStore.listWorkspacesForProfile(instanceIdentity.npub, 'npub1manager');
     expect(workspaces[0]?.relayOnboardingStatus).toBe('deleted');
+  });
+
+  test('disconnects a 33357 subscription locally, ignores old replay, and accepts a newer grant', async () => {
+    const dbPath = makeTempDb();
+    const instanceIdentity = makeInstanceIdentity();
+    const { manager, store } = createTestManager(dbPath, new Map(), undefined, instanceIdentity);
+    const packageJson = makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice');
+    const first = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson,
+      onboardingSource: 'nostr_33357',
+      discoveryEvent: {
+        eventId: 'event-active-1',
+        createdAt: 1_700_000_000,
+        dedupeKey: 'grant-key',
+        recipientNpub: instanceIdentity.npub,
+      },
+    });
+
+    expect(manager.removeForManager(first.subscription.subscriptionId, 'npub1manager')).toBe(true);
+    expect(manager.listForManager('npub1manager')).toHaveLength(0);
+    const disconnected = store.getBySubscriptionId(first.subscription.subscriptionId)!;
+    expect(disconnected.lifecycleStatus).toBe('locally_disconnected');
+
+    const replay = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson,
+      onboardingSource: 'nostr_33357',
+      discoveryEvent: {
+        eventId: 'event-active-replay',
+        createdAt: 1_700_000_000,
+        dedupeKey: 'grant-key',
+        recipientNpub: instanceIdentity.npub,
+      },
+    });
+    expect(replay.ignoredLocally).toBe(true);
+    expect(manager.listForManager('npub1manager')).toHaveLength(0);
+
+    const newer = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson,
+      onboardingSource: 'nostr_33357',
+      discoveryEvent: {
+        eventId: 'event-active-2',
+        createdAt: Math.floor(Date.now() / 1000) + 60,
+        dedupeKey: 'grant-key',
+        recipientNpub: instanceIdentity.npub,
+      },
+    });
+    expect(newer.ignoredLocally).toBeUndefined();
+    expect(newer.subscription.lifecycleStatus).toBe('active');
+    expect(manager.listForManager('npub1manager')).toHaveLength(1);
   });
 
   test('records unconfirmed 33357 revocation without disabling SSE or hiding active workspace', async () => {
@@ -2641,6 +2705,7 @@ describe('WorkspaceSubscriptionManager', () => {
         eventId: 'event-revoked-workspace-two',
         workspaceId: 'workspace-two',
         workspaceServiceNpub: 'npub1workspacetwo',
+        recipientNpub: 'npub1botone',
       }) as never,
       verification: {
         confirmed: true,

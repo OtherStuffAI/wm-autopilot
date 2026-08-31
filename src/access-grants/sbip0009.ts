@@ -112,6 +112,12 @@ export interface AccessGrantSubscriptionManager {
     packageJson: string | Record<string, unknown>;
     agentProfileId?: string | null;
     onboardingSource?: 'manual' | 'agent_connect_import' | 'nostr_33357';
+    discoveryEvent?: {
+      eventId: string;
+      createdAt: number;
+      dedupeKey: string;
+      recipientNpub: string;
+    };
   }): Promise<unknown>;
   handleAccessGrantRevocation?(input: {
     managedByNpub: string;
@@ -1115,7 +1121,7 @@ export async function processAccessGrantEvent(input: ProcessAccessGrantInput): P
     return { ok: false, code: `grant_${grant.payload.status}`, message: `Grant status is ${grant.payload.status}.`, grant };
   }
 
-  const importKey = grant.dedupeKey;
+  const importKey = `${grant.event.id}:${grant.dedupeKey}:grant`;
   if (input.processedKeys?.has(importKey)) {
     return { ok: true, code: 'duplicate_skipped', message: 'Onboarding event already processed in this runtime.', grant };
   }
@@ -1144,9 +1150,43 @@ export async function processAccessGrantEvent(input: ProcessAccessGrantInput): P
       agentProfileId: input.agentProfileId ?? null,
       packageJson: buildGrantScopedAgentConnectPackage(grant),
       onboardingSource: 'nostr_33357',
+      discoveryEvent: {
+        eventId: grant.event.id,
+        createdAt: grant.event.created_at,
+        dedupeKey: grant.dedupeKey,
+        recipientNpub: grant.recipientNpub,
+      },
     });
-    await input.onPostConnectSync?.(grant, imported);
     input.processedKeys?.add(importKey);
+    if (
+      imported
+      && typeof imported === 'object'
+      && (imported as { ignoredLocally?: unknown }).ignoredLocally === true
+    ) {
+      return {
+        ok: true,
+        code: 'locally_disconnected',
+        message: 'A replayed discovery event was ignored because this workspace connection was disconnected locally.',
+        grant,
+        imported,
+        verified,
+      };
+    }
+    if (
+      imported
+      && typeof imported === 'object'
+      && (imported as { staleDiscoveryEvent?: unknown }).staleDiscoveryEvent === true
+    ) {
+      return {
+        ok: true,
+        code: 'stale_replacement_skipped',
+        message: 'An older discovery replacement was ignored because a newer event is already applied.',
+        grant,
+        imported,
+        verified,
+      };
+    }
+    await input.onPostConnectSync?.(grant, imported);
     return { ok: true, code: 'imported', message: 'Onboarding event verified and imported.', grant, imported, verified };
   } catch (error) {
     const code = typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : 'import_failed';

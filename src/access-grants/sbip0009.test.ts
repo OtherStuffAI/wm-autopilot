@@ -377,7 +377,7 @@ describe('Flight Deck 33357 onboarding validation', () => {
     ]);
   });
 
-  test('uses the derived dedupe key for current Flight Deck duplicate delivery', async () => {
+  test('processes distinct replacement events that share the derived dedupe key', async () => {
     const firstFixture = makeCurrentFlightDeckGrantEvent();
     const secondFixture = makeCurrentFlightDeckGrantEvent({
       recipient: firstFixture.recipient,
@@ -420,8 +420,8 @@ describe('Flight Deck 33357 onboarding validation', () => {
     expect(first.ok).toBe(true);
     expect(first.code).toBe('imported');
     expect(second.ok).toBe(true);
-    expect(second.code).toBe('duplicate_skipped');
-    expect(imports).toBe(1);
+    expect(second.code).toBe('imported');
+    expect(imports).toBe(2);
   });
 
   test('rejects public tags and decrypted payload mismatches', () => {

@@ -201,11 +201,16 @@ export function createWorkspaceSettingsSection({ openDirectoryBrowser = null } =
   }
 
   async function removeSubscription(subscription) {
-    const confirmed = window.confirm('Remove this local workspace subscription? This removes its local routes and binding reference. It does not delete the Tower workspace, backend connection, or local agent.');
+    const flightDeckDiscovered = subscription?.onboardingSource === 'nostr_33357';
+    const confirmed = window.confirm(flightDeckDiscovered
+      ? 'Disconnect this workspace locally? This stops and hides the local subscription and ignores older discovery events. It does not change Tower membership, delete the Tower workspace, or delete the local agent.'
+      : 'Remove this local workspace subscription? This removes its local routes and binding reference. It does not delete the Tower workspace, backend connection, or local agent.');
     if (!confirmed) return;
     try {
       await deleteAgentChatSubscription(subscription.subscriptionId);
-      actionMessage = 'Local workspace subscription and its routes removed. The backend connection and local agent were not deleted.';
+      actionMessage = flightDeckDiscovered
+        ? 'Workspace disconnected locally. Tower membership and the local agent were not deleted.'
+        : 'Local workspace subscription and its routes removed. The backend connection and local agent were not deleted.';
       selectedSubscriptionId = null;
       await refresh();
       navigate('', 'overview', { replace: true });
