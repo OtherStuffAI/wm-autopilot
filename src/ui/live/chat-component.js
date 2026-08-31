@@ -80,6 +80,11 @@ function isReadableAgentMessage(message) {
   return (role === "assistant" || role === "agent") && Boolean(content);
 }
 
+function isErrorMessage(message) {
+  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
+  return role === "agent-error";
+}
+
 /**
  * Check if Alpine chat is enabled via feature flag.
  * @returns {boolean}
@@ -427,6 +432,10 @@ export function registerChatComponent() {
       return "system";
     },
 
+    isErrorMessage(message) {
+      return isErrorMessage(message);
+    },
+
     get emptySessionInformation() {
       const session = Alpine.store("sessions")?.items?.find?.((item) => item.id === this.sessionId) ?? null;
       return buildEmptySessionInformation(session);
@@ -691,6 +700,9 @@ export function getChatTemplate(sessionId) {
     <template x-for="message in $store.chat.visibleMessages" :key="message.id">
       <article class="wm-message"
                :data-role="(message.role || message.type || 'assistant').toLowerCase()"
+               :role="$store.chat.isErrorMessage(message) ? 'alert' : null"
+               :aria-live="$store.chat.isErrorMessage(message) ? 'assertive' : null"
+               :data-testid="$store.chat.isErrorMessage(message) ? 'agent-error-message' : null"
                :class="$store.chat.getMessageClass(message)">
         <div class="wm-message-body" x-html="$store.chat.renderMessageContent(message)"></div>
         <template x-if="$store.chat.isIntermediateAssistantMessage(message)">

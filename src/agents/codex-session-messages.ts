@@ -170,6 +170,8 @@ async function readCodexTranscriptFromFile(
           latestActivity = null;
         } else if (event?.type === "agent_message" && event.phase === "commentary" && event.content.trim()) {
           latestActivity = { content: event.content.trim(), createdAt: event.createdAt };
+        } else if (extractCodexTurnError(record)) {
+          latestActivity = null;
         }
       });
       const messages = importer.finish();
@@ -206,6 +208,17 @@ class CodexMessageImporter {
   private finalAnswers: CodexAgentMessage[] = [];
 
   addRecord(record: Record<string, unknown>): void {
+    const turnError = extractCodexTurnError(record);
+    if (turnError) {
+      this.flushAgentTurn();
+      this.messages.push({
+        role: "agent-error",
+        content: formatCodexTurnError(turnError),
+        createdAt: turnError.createdAt,
+      });
+      return;
+    }
+
     const event = extractEventMessage(record);
     if (!event) {
       const toolNote = extractToolWorkingNote(record, this.toolNamesByCallId);
@@ -299,6 +312,38 @@ function isInjectedAgentContext(content: string): boolean {
 
 function joinMessageParts(messages: CodexAgentMessage[]): string {
   return messages.map((message) => message.content).join("\n\n");
+}
+
+interface CodexTurnError {
+  message: string;
+  code: string | null;
+  createdAt: string;
+}
+
+function extractCodexTurnError(record: Record<string, unknown>): CodexTurnError | null {
+  if (record.type !== "event_msg") return null;
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const data = payload as Record<string, unknown>;
+  if (data.type !== "task_complete") return null;
+
+  const error = data.error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) return null;
+  const errorData = error as Record<string, unknown>;
+  const message = typeof errorData.message === "string" ? errorData.message.trim() : "";
+  if (!message) return null;
+  const code = typeof errorData.codex_error_info === "string" && errorData.codex_error_info.trim()
+    ? errorData.codex_error_info.trim()
+    : null;
+  return { message, code, createdAt: normaliseTimestamp(record.timestamp) };
+}
+
+function formatCodexTurnError(error: CodexTurnError): string {
+  return [
+    "**Codex could not complete this turn.**",
+    error.message,
+    ...(error.code ? [`Error code: \`${error.code}\``] : []),
+  ].join("\n\n");
 }
 
 function extractToolWorkingNote(

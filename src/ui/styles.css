@@ -5037,6 +5037,12 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   align-self: flex-start;
 }
 
+.wm-message[data-role="agent-error"] {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.55);
+  box-shadow: 0 6px 16px rgba(127, 29, 29, 0.12);
+}
+
 .wm-session-information {
   align-self: flex-start;
   max-width: min(100%, 42rem);
