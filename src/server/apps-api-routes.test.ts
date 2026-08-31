@@ -7,6 +7,7 @@ import { AccessActions } from '../auth/access-control';
 import type { RequestAuthContext } from '../auth/request-context';
 import type { AppRecord } from '../apps/app-registry';
 import type { WappRecord } from '../wapps/types';
+import type { LegacyWappCustodyMigration } from '../wapps/legacy-custody-migration';
 import { appCommand } from '../apps/app-command';
 import { validateAppCommand } from '../apps/app-command';
 import { handleAppsApi, type AppsApiContext } from './apps-api-routes';
@@ -148,6 +149,36 @@ function createContext(
 }
 
 describe('handleAppsApi', () => {
+  test('runs legacy custody migration through the delegated app route', async () => {
+    const app = {
+      id: 'kindling-api',
+      ownerNpub: 'npub1viewer',
+    } as AppRecord;
+    let received: unknown = null;
+    const ctx = createContext({
+      appRegistry: {
+        ...createContext().appRegistry,
+        getApp: async () => app,
+      },
+      legacyWappCustodyMigration: {
+        migrate: async (input: unknown) => {
+          received = input;
+          return { dryRun: true, appId: 'kindling-api' } as never;
+        },
+      } as LegacyWappCustodyMigration,
+    });
+    const payload = { appId: 'kindling-api', installation: { ownerNpub: 'npub1viewer' } };
+    const request = new Request('http://localhost/api/apps/kindling-api/legacy-custody-migration', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const response = await handleAppsApi(request, new URL(request.url), 'POST', authContext, ctx);
+    expect(response?.status).toBe(200);
+    expect(received).toEqual(payload);
+    expect(await response?.json()).toMatchObject({ migration: { dryRun: true, appId: 'kindling-api' } });
+  });
+
   test('reviews a complete Tower WApp broker migration without clearing unrelated reasons', async () => {
     const app: AppRecord = {
       id: 'kindling-api',

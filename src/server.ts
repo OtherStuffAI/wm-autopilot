@@ -2950,6 +2950,7 @@ const handleApi = createApiRouteHandler({
       createCaproverTargetClientsFromEnv,
       createAppTarball,
       caproverStore,
+      legacyWappCustodyMigration,
     };
   },
   buildFeatureFlagsContext: (viewerIsAdmin) => ({
