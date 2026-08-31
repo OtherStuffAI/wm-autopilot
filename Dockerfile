@@ -50,10 +50,11 @@ RUN apt-get update \
     xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
-RUN case "${TARGETARCH}" in \
-      amd64) BUN_ARCH=x64 ;; \
-      arm64) BUN_ARCH=aarch64 ;; \
-      *) echo "Unsupported Docker target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+RUN BUILD_ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" \
+  && case "${BUILD_ARCH}" in \
+      amd64|x86_64) BUN_ARCH=x64 ;; \
+      arm64|aarch64) BUN_ARCH=aarch64 ;; \
+      *) echo "Unsupported Docker target architecture: ${BUILD_ARCH}" >&2; exit 1 ;; \
     esac \
   && BUN_ARCHIVE="bun-linux-${BUN_ARCH}.zip" \
   && curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${BUN_ARCHIVE}" -o "/tmp/${BUN_ARCHIVE}" \
