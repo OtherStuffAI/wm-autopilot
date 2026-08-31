@@ -156,7 +156,10 @@ export async function requestJson<T>(
       typeof (payload as { error?: unknown })?.error === "string"
         ? (payload as { error: string }).error
         : response.statusText || "Request failed";
-    throw new Error(`${response.status} ${message}`);
+    const detail = typeof (payload as { message?: unknown })?.message === "string"
+      ? `: ${(payload as { message: string }).message}`
+      : "";
+    throw new Error(`${response.status} ${message}${detail}`);
   }
 
   return payload as T;
@@ -201,7 +204,10 @@ export async function requestJsonBotCrypto<T>(
       typeof (payload as { error?: unknown })?.error === "string"
         ? (payload as { error: string }).error
         : response.statusText || "Request failed";
-    throw new Error(`${response.status} ${message}`);
+    const detail = typeof (payload as { message?: unknown })?.message === "string"
+      ? `: ${(payload as { message: string }).message}`
+      : "";
+    throw new Error(`${response.status} ${message}${detail}`);
   }
 
   return payload as T;

@@ -66,6 +66,7 @@ const app: AppRecord = {
 
 function makeManager(input: {
   registrar: { register: (registration: any) => Promise<any> };
+  namespaceStatus?: number;
 }): { manager: InstanceType<typeof AppProcessManager>; cleanup: () => void } {
   ecosystemCalls.length = 0;
   wappRuntimeEnvs.length = 0;
@@ -101,7 +102,12 @@ function makeManager(input: {
   };
   const broker = new WappTowerDbRequestBroker({
     store,
-    fetchImpl: async () => Response.json({ ok: true }),
+    fetchImpl: async (url) => String(url).endsWith("/db/descriptor")
+      ? Response.json(
+        input.namespaceStatus === 200 ? { namespace: "ready" } : { error: "workspace app not found" },
+        { status: input.namespaceStatus ?? 404 },
+      )
+      : Response.json({ ok: true }),
   });
   const manager = new AppProcessManager(registry as any, [], store, {
     botNpub: "npub1bot",
@@ -168,6 +174,31 @@ describe("AppProcessManager Tower WApp lifecycle registration", () => {
         WAPP_TOWER_DB_CAPABILITY: expect.any(String),
       });
       expect(wappRuntimeEnvs[0]).not.toHaveProperty("WAPP_NSEC");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("restarts an existing Tower namespace without workspace-manager registration", async () => {
+    const registrations: any[] = [];
+    const { manager, cleanup } = makeManager({
+      namespaceStatus: 200,
+      registrar: {
+        register: async (registration) => {
+          registrations.push(registration);
+          return {
+            workspaceOwnerNpub: registration.workspaceOwnerNpub,
+            appNpub: registration.appNpub,
+            app: { app_npub: registration.appNpub },
+          };
+        },
+      },
+    });
+    try {
+      const status = await manager.start(app.id);
+      expect(status.status).toBe("running");
+      expect(registrations).toEqual([]);
+      expect(pm2Starts).toEqual(["app-test-process"]);
     } finally {
       cleanup();
     }

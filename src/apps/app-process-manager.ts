@@ -43,6 +43,7 @@ import {
   HttpTowerWappRegistrar,
   registerTowerBackedWappAssignment,
   requireTowerWappRegistrationIdentity,
+  TowerWappRegistrationError,
   type TowerWappRegistrar,
 } from "../wapps/tower-registration";
 
@@ -503,6 +504,29 @@ export class AppProcessManager {
   private async ensureTowerWappRegistered(app: AppRecord): Promise<void> {
     const wapp = this.wappStore.getByAppId(app.id);
     if (!wapp?.towerBindingId) return;
+
+    // Existing Tower-backed WApps already own their namespace and can prove it
+    // with the app identity held in encrypted custody.  Verify that first so a
+    // routine process restart does not require workspace-management authority.
+    // Registration is only needed for a genuinely new namespace.
+    const capability = this.towerDbRequestBroker.issue({ installationId: wapp.id, appId: app.id });
+    try {
+      const descriptor = await this.towerDbRequestBroker.request(capability.token, {
+        method: "GET",
+        path: "/descriptor",
+      });
+      if (descriptor.ok) return;
+      if (descriptor.status !== 404) {
+        const detail = await descriptor.text().catch(() => "");
+        throw new TowerWappRegistrationError(
+          detail || `Tower namespace verification failed with HTTP ${descriptor.status}`,
+          { status: descriptor.status, detailCode: "tower_namespace_verification_failed" },
+        );
+      }
+    } finally {
+      this.towerDbRequestBroker.revokeToken(capability.token);
+    }
+
     const authority = requireTowerWappRegistrationIdentity(this.towerRegistrationIdentity);
     await registerTowerBackedWappAssignment({
       wapp,

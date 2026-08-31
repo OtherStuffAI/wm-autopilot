@@ -145,7 +145,9 @@ function normalizeAllowedPath(method: AllowedMethod, path: string): string {
 
   let allowedMethods: readonly AllowedMethod[] | null = null;
   let allowsListQuery = false;
-  if (rawPathname === "/provision") {
+  if (rawPathname === "/descriptor") {
+    allowedMethods = ["GET"];
+  } else if (rawPathname === "/provision") {
     allowedMethods = ["POST"];
   } else if (rawPathname === "/migrations") {
     allowedMethods = ["GET", "POST"];

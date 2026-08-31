@@ -90,6 +90,7 @@ function decodeAuthorization(init: RequestInit): Event {
 describe("WappTowerDbRequestBroker", () => {
   test("allows only the required own-app DB method and path combinations", () => withBroker(async ({ broker, token, calls, appNpub }) => {
     const requests = [
+      { method: "GET", path: "/descriptor" },
       { method: "POST", path: "/provision", body: { app_slug: "kindling" } },
       { method: "GET", path: "/migrations" },
       { method: "POST", path: "/migrations", body: { migrations: [] } },
@@ -133,7 +134,6 @@ describe("WappTowerDbRequestBroker", () => {
       "https://evil.example/api/v4/workspaces/other/apps/other/db/migrations",
       "//evil.example/migrations",
       "/api/v4/workspaces/other/apps/other/db/migrations",
-      "/descriptor",
       "/tables/companies/../migrations",
       "/tables/companies/rows?owner_npub=npub1other",
     ];
