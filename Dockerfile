@@ -102,7 +102,8 @@ RUN useradd --create-home --home-dir /home/wingman --shell /bin/bash --uid 10001
 WORKDIR /app
 
 COPY --chown=wingman:wingman package.json bun.lock bunfig.toml ./
-RUN bun install --frozen-lockfile \
+COPY --chown=wingman:wingman scripts/install-agentapi-loopback.ts ./scripts/
+RUN WINGMAN_SKIP_AGENTAPI_INSTALL=1 bun install --frozen-lockfile \
   && chown -R wingman:wingman /app/node_modules /usr/local/bun
 
 COPY --chown=wingman:wingman . .
@@ -137,7 +138,7 @@ ENV AGENT_CHAT_YOKE_CLIENT_PATH=/opt/flightdeck-cli/src/client.js
 ENV AGENT_CHAT_YOKE_WORKSPACE_KEYS_PATH=/opt/flightdeck-cli/src/workspace-keys.js
 ENV AGENT_CHAT_YOKE_NOSTR_PATH=/opt/flightdeck-cli/src/nostr.js
 
-RUN bun -e "import { createHash } from 'node:crypto'; import { readFile, writeFile } from 'node:fs/promises'; const binary = await readFile('/app/out/agentapi'); const sha256 = createHash('sha256').update(binary).digest('hex'); await writeFile('/app/out/agentapi.provenance.json', JSON.stringify({ upstream: 'https://github.com/coder/agentapi.git', upstream_commit: '9ff117e231822f670305254ef24f6389f75953f4', patch: 'vendor/agentapi/loopback-listener.patch', sha256 }, null, 2) + '\\n');"
+RUN bun -e "import { writeFile } from 'node:fs/promises'; import { createAgentApiProvenance, getAgentApiProvenancePath } from './src/server/bootstrap/agentapi-build.ts'; const binaryPath = '/app/out/agentapi'; const provenance = await createAgentApiProvenance(binaryPath, '/app'); await writeFile(getAgentApiProvenancePath(binaryPath), JSON.stringify(provenance, null, 2) + '\\n');"
 
 EXPOSE 3600
 
