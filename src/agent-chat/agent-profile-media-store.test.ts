@@ -60,6 +60,11 @@ describe('agent profile media validation and storage', () => {
     f.store.put(verified, { agentId: 'profile-one', botNpub: 'npub1profileone', managerNpub: 'npub1manager' });
     f.store.put(verified, { agentId: 'profile-two', botNpub: 'npub1profiletwo', managerNpub: 'npub1manager' });
     expect(f.store.listOwners(verified.digest).map((owner) => owner.agentId).sort()).toEqual(['profile-one', 'profile-two']);
+    f.store.releaseOwner({ agentId: 'profile-one', botNpub: 'npub1profileone', managerNpub: 'npub1manager' });
+    expect(f.store.listOwners(verified.digest).map((owner) => owner.agentId)).toEqual(['profile-two']);
+    expect(f.store.get(verified.digest)).not.toBeNull();
+    f.store.releaseOwner({ agentId: 'profile-two', botNpub: 'npub1profiletwo', managerNpub: 'npub1manager' });
+    expect(f.store.get(verified.digest)).toBeNull();
     f.store.close();
   });
 

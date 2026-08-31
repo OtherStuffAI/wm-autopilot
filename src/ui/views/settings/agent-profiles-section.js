@@ -1,5 +1,6 @@
 import {
   createAgentChatProfile,
+  deleteAgentChatProfile,
   listAgentChatAgents,
   rotateAgentChatProfileKey,
   setDefaultAgentChatProfile,
@@ -19,7 +20,7 @@ function createProfileFact(label, value) {
   return [term, detail];
 }
 
-function createProfileCard(agent, canManage, isDefault, onEdit, onRotate, onSetDefault) {
+function createProfileCard(agent, canManage, isDefault, onEdit, onRotate, onSetDefault, onDelete) {
   const card = document.createElement('article');
   card.className = 'wm-card';
   card.dataset.testid = `agent-profile-${agent.agentId}`;
@@ -56,7 +57,10 @@ function createProfileCard(agent, canManage, isDefault, onEdit, onRotate, onSetD
     }
     const rotateButton = createButton('Rotate agent key', `agent-profile-rotate-${agent.agentId}`, `Rotate signing key for ${agent.label || agent.agentId}`);
     rotateButton.addEventListener('click', () => onRotate(agent, rotateButton));
-    card.append(rotateButton);
+    const deleteButton = createButton('Delete profile', `agent-profile-delete-${agent.agentId}`, `Delete ${agent.label || agent.agentId} agent profile and its locally managed signing key`);
+    deleteButton.className = 'wm-button danger';
+    deleteButton.addEventListener('click', () => onDelete(agent, deleteButton));
+    card.append(rotateButton, deleteButton);
   }
   return card;
 }
@@ -171,6 +175,42 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
     }
   }
 
+  async function deleteProfile(agent, button) {
+    const confirmed = globalThis.confirm([
+      'Delete agent profile?',
+      `Agent: ${agent.label || agent.agentId} (${agent.agentId})`,
+      `Current npub: ${agent.botNpub}`,
+      '',
+      'A locally managed signing key will be permanently removed from the encrypted vault.',
+      'If this npub comes from WINGMAN_PRIV in Docker environment configuration, remove it from that environment file separately and recreate the container.',
+      'Workspace subscriptions must be deleted or rebound first.',
+      'Active sessions using this profile will stop working.',
+      '',
+      'This security action cannot be undone.',
+    ].join('\n'));
+    if (!confirmed) return;
+    button.disabled = true;
+    status.textContent = `Deleting ${agent.label || agent.agentId}…`;
+    try {
+      const result = await deleteAgentChatProfile(agent.agentId);
+      if (result.keyDisposition === 'env_configuration_retained') {
+        status.textContent = `Deleted ${agent.label || agent.agentId} locally. Its ${agent.botNpub} key is still supplied by WINGMAN_PRIV; remove that value from the Docker environment and recreate the container before using the instance identity again.`;
+      } else if (result.keyDisposition === 'instance_identity_retained') {
+        status.textContent = `Deleted ${agent.label || agent.agentId}. The shared instance identity ${agent.botNpub} was retained because other Autopilot services may use it.`;
+      } else {
+        status.textContent = `Deleted ${agent.label || agent.agentId} and permanently removed its locally managed signing key. Add Agent Profile will generate a fresh key inside this Docker instance.`;
+      }
+      if (result.mediaReleased === false) {
+        status.textContent += ' The profile was deleted, but its local image cleanup failed and needs operator attention.';
+      }
+      await refresh();
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : 'Failed to delete agent profile.';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   void fetchConfigApi()
     .then((config) => {
       modal.setRuntimeConfig(config, config?.defaultAgent || '');
@@ -199,6 +239,7 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
           editor.open,
           rotate,
           setDefault,
+          deleteProfile,
         )));
       }
     } catch (error) {

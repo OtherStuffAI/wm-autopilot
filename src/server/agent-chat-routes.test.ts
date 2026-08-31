@@ -1194,4 +1194,55 @@ describe('agent-chat routes', () => {
     expect(selected).toBe('rick');
     expect(body.defaultAgentProfileId).toBe('rick');
   });
+
+  test('deletes an agent profile through the secure key cleanup path', async () => {
+    let deleted: { profileId: string; managerNpub: string } | null = null;
+    const manager = {
+      deleteAgentProfileForManager: async (profileId: string, managerNpub: string) => {
+        deleted = { profileId, managerNpub };
+        return {
+          agent: {
+            agentId: profileId,
+            label: 'Builder',
+            botNpub: 'npub1builder',
+            workspaceOwnerNpub: managerNpub,
+            groupNpubs: [],
+            workingDirectory: '/tmp/builder',
+            capabilities: ['chat_intercept'],
+            enabled: true,
+            createdAt: '',
+            updatedAt: '',
+            managedByNpub: managerNpub,
+          },
+          keyDisposition: 'deleted_from_vault',
+        };
+      },
+    } as unknown as WorkspaceSubscriptionManager;
+    const request = new Request('http://localhost/api/agent-chat/profiles/builder', { method: 'DELETE' });
+    const response = await handleAgentChatApi(request, new URL(request.url), 'DELETE', authContext, { manager });
+    const body = await response!.json();
+
+    expect(response?.status).toBe(200);
+    expect(deleted).toEqual({ profileId: 'builder', managerNpub: 'npub1manager' });
+    expect(body).toMatchObject({
+      deleted: true,
+      profileId: 'builder',
+      botNpub: 'npub1builder',
+      keyDisposition: 'deleted_from_vault',
+    });
+  });
+
+  test('reports bound workspace subscriptions without partially deleting a profile', async () => {
+    const manager = {
+      deleteAgentProfileForManager: async () => {
+        throw Object.assign(new Error('Agent profile is still used by 1 workspace subscription.'), { statusCode: 409 });
+      },
+    } as unknown as WorkspaceSubscriptionManager;
+    const request = new Request('http://localhost/api/agent-chat/profiles/builder', { method: 'DELETE' });
+    const response = await handleAgentChatApi(request, new URL(request.url), 'DELETE', authContext, { manager });
+    const body = await response!.json();
+
+    expect(response?.status).toBe(409);
+    expect(body.error).toContain('workspace subscription');
+  });
 });

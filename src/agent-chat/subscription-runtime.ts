@@ -939,6 +939,17 @@ export class AgentProfileCreationError extends Error {
   }
 }
 
+export type AgentProfileDeletionKeyDisposition =
+  | 'deleted_from_vault'
+  | 'deactivated_in_vault'
+  | 'env_configuration_retained'
+  | 'instance_identity_retained';
+
+export interface AgentProfileDeletionResult {
+  agent: AgentDefinitionRecord;
+  keyDisposition: AgentProfileDeletionKeyDisposition;
+}
+
 function getErrorDetailCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') {
     return null;
@@ -2138,12 +2149,57 @@ export class WorkspaceSubscriptionManager {
     if (envelopeError) throw envelopeError;
   }
 
-  removeAgentForManager(agentId: string, npub: string): boolean {
+  async deleteAgentProfileForManager(agentId: string, npub: string): Promise<AgentProfileDeletionResult | null> {
     const record = this.getAgentForManager(agentId, npub);
     if (!record) {
-      return false;
+      return null;
     }
-    return this.agentStore.delete(agentId);
+    const linkedSubscriptions = this.store.listForManagerNpub(npub).filter((subscription) => (
+      subscription.agentProfileId === agentId || subscription.botNpub === record.botNpub
+    ));
+    if (linkedSubscriptions.length > 0) {
+      throw Object.assign(new Error(
+        `Agent profile is still used by ${linkedSubscriptions.length} workspace subscription${linkedSubscriptions.length === 1 ? '' : 's'}. Delete or rebind those subscriptions before deleting the profile.`,
+      ), { statusCode: 409 });
+    }
+
+    const keyRecord = this.botKeyStore.getActiveKeyForBotNpub(record.botNpub);
+    let keyDisposition: AgentProfileDeletionKeyDisposition;
+    if (keyRecord) {
+      if (keyRecord.userNpub !== npub) {
+        throw Object.assign(new Error('Agent profile key custody belongs to another manager.'), { statusCode: 409 });
+      }
+      if (!this.brokerKeyVault) {
+        throw Object.assign(new Error('Agent profile key vault is unavailable; the profile was not deleted.'), { statusCode: 503 });
+      }
+      if (!this.botKeyStore.deleteKey && !this.botKeyStore.deactivateKey) {
+        throw Object.assign(new Error('Agent profile key metadata cannot be retired; the profile was not deleted.'), { statusCode: 503 });
+      }
+      await this.brokerKeyVault.remove(keyRecord);
+      if (this.botKeyStore.deleteKey) {
+        this.botKeyStore.deleteKey(keyRecord.id);
+        keyDisposition = 'deleted_from_vault';
+      } else {
+        this.botKeyStore.deactivateKey!(keyRecord.id);
+        keyDisposition = 'deactivated_in_vault';
+      }
+    } else {
+      const instanceIdentity = this.getInstanceIdentity();
+      if (instanceIdentity?.npub !== record.botNpub) {
+        throw Object.assign(new Error(
+          'Agent profile key custody is missing or inconsistent; the profile was not deleted.',
+        ), { statusCode: 409 });
+      }
+      keyDisposition = instanceIdentity.source === 'env'
+        ? 'env_configuration_retained'
+        : 'instance_identity_retained';
+    }
+
+    if (!this.agentStore.delete(agentId)) {
+      throw new Error('Agent profile record could not be deleted after its signing key was retired.');
+    }
+    this.profilePolicyStore.deleteProfile(agentId, npub);
+    return { agent: record, keyDisposition };
   }
 
   async importAgentConnectPackage(input: {

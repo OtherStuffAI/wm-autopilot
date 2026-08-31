@@ -6,29 +6,40 @@ import { join } from 'node:path';
 import { finalizeEvent, generateSecretKey, getPublicKey, nip19, verifyEvent } from 'nostr-tools';
 
 import { AgentDefinitionStore } from './agent-definition-store';
+import { AgentProfilePolicyStore } from './agent-profile-policy-store';
 import { WorkspaceSubscriptionManager } from './subscription-runtime';
+import { WorkspaceSubscriptionStore } from './workspace-subscription-store';
 import { BotKeyStore } from '../identity/bot-key-store';
 import { BrokerKeyVault } from '../signing/broker-key-vault';
+import type { WingmanInstanceIdentity } from '../identity/wingman-instance-identity';
 
 const roots: string[] = [];
 
-function fixture(overrides: { provision?: BrokerKeyVault['provision'] } = {}) {
+function fixture(overrides: {
+  provision?: BrokerKeyVault['provision'];
+  instanceIdentity?: WingmanInstanceIdentity;
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), 'agent-profile-create-'));
   roots.push(root);
   const dbPath = join(root, 'profiles.sqlite');
   const botKeyStore = new BotKeyStore(dbPath);
   const agentStore = new AgentDefinitionStore(dbPath);
+  const store = new WorkspaceSubscriptionStore(dbPath);
+  const profilePolicyStore = new AgentProfilePolicyStore(dbPath);
   const vault = new BrokerKeyVault({ dataDir: root });
   if (overrides.provision) vault.provision = overrides.provision;
   const manager = new WorkspaceSubscriptionManager({
     agentStore,
+    store,
+    profilePolicyStore,
     botKeyStore,
     brokerKeyVault: vault,
+    getInstanceIdentity: () => overrides.instanceIdentity ?? null,
   });
   const ownerSecret = generateSecretKey();
   const managedByNpub = nip19.npubEncode(getPublicKey(ownerSecret));
   ownerSecret.fill(0);
-  return { root, botKeyStore, agentStore, vault, manager, managedByNpub };
+  return { root, botKeyStore, agentStore, store, vault, manager, managedByNpub };
 }
 
 function createInput(managedByNpub: string) {
@@ -97,5 +108,74 @@ describe('sovereign Agent Profile creation', () => {
     expect(f.agentStore.getByAgentId(created.agent.agentId)).toBeNull();
     expect(f.botKeyStore.getActiveKeyForBotNpub(created.agent.botNpub)).toBeNull();
     expect(f.vault.has(record)).toBe(false);
+  });
+
+  test('deletes a standalone profile and purges its brokered signing key', async () => {
+    const f = fixture();
+    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub));
+    const record = f.botKeyStore.getActiveKeyForBotNpub(created.agent.botNpub)!;
+
+    const deleted = await f.manager.deleteAgentProfileForManager(created.agent.agentId, f.managedByNpub);
+
+    expect(deleted?.keyDisposition).toBe('deleted_from_vault');
+    expect(f.agentStore.getByAgentId(created.agent.agentId)).toBeNull();
+    expect(f.botKeyStore.getActiveKeyForBotNpub(created.agent.botNpub)).toBeNull();
+    expect(f.vault.has(record)).toBe(false);
+  });
+
+  test('keeps a profile and key while a workspace subscription still uses its identity', async () => {
+    const f = fixture();
+    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub));
+    const record = f.botKeyStore.getActiveKeyForBotNpub(created.agent.botNpub)!;
+    const subscription = f.store.createDefault({
+      managedByNpub: f.managedByNpub,
+      workspaceOwnerNpub: f.managedByNpub,
+      backendBaseUrl: 'https://tower.example.com',
+      botNpub: created.agent.botNpub,
+      sourceAppNpub: 'npub1source',
+      agentProfileId: created.agent.agentId,
+    });
+    f.store.save(subscription);
+
+    await expect(f.manager.deleteAgentProfileForManager(created.agent.agentId, f.managedByNpub))
+      .rejects.toThrow('workspace subscription');
+    expect(f.agentStore.getByAgentId(created.agent.agentId)).not.toBeNull();
+    expect(f.botKeyStore.getActiveKeyForBotNpub(created.agent.botNpub)).not.toBeNull();
+    expect(f.vault.has(record)).toBe(true);
+  });
+
+  test('deletes an env-backed profile without claiming to remove WINGMAN_PRIV', async () => {
+    const secretKey = generateSecretKey();
+    const pubkeyHex = getPublicKey(secretKey);
+    const instanceIdentity: WingmanInstanceIdentity = {
+      nsec: nip19.nsecEncode(secretKey),
+      nsecHex: Buffer.from(secretKey).toString('hex'),
+      secretKey,
+      pubkeyHex,
+      npub: nip19.npubEncode(pubkeyHex),
+      displayName: 'Legacy instance identity',
+      source: 'env',
+    };
+    const f = fixture({ instanceIdentity });
+    const now = new Date().toISOString();
+    f.agentStore.save({
+      agentId: 'legacy-env-profile',
+      label: 'Legacy env profile',
+      botNpub: instanceIdentity.npub,
+      workspaceOwnerNpub: f.managedByNpub,
+      groupNpubs: [],
+      workingDirectory: '/tmp/legacy-env-profile',
+      capabilities: ['chat_intercept'],
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      managedByNpub: f.managedByNpub,
+    });
+
+    const deleted = await f.manager.deleteAgentProfileForManager('legacy-env-profile', f.managedByNpub);
+
+    expect(deleted?.keyDisposition).toBe('env_configuration_retained');
+    expect(f.agentStore.getByAgentId('legacy-env-profile')).toBeNull();
+    secretKey.fill(0);
   });
 });

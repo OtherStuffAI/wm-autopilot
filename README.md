@@ -182,6 +182,13 @@ Set `WINGMAN_PRIV=nsec1...` in the instance Docker env file when you want this i
 use a single shared Wingman bot identity. Admins can copy the nsec from the
 identity panel; normal operators only see the public bot identity details.
 
+Agent profiles use separate non-exportable keys generated inside the encrypted local vault.
+Deleting an Agent Profile permanently removes that locally managed key after its workspace
+subscriptions have been removed or rebound. If the profile used the shared `WINGMAN_PRIV`
+identity, profile deletion cannot edit Docker configuration: remove `WINGMAN_PRIV` from the
+instance `.env.<name>` file and recreate the container before trusting the instance identity.
+Use **Add Agent Profile** after that to generate a fresh agent key inside the container.
+
 Run the readiness checklist any time:
 
 ```bash
