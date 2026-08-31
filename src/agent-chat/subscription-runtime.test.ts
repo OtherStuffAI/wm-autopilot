@@ -711,6 +711,35 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(saved.capabilities).toEqual(['chat_intercept', 'task_dispatch']);
   });
 
+  test('does not let a retired onboarding identity overwrite a rotated Agent Profile', async () => {
+    const dbPath = makeTempDb();
+    const retiredIdentity = makeInstanceIdentity({ npub: 'npub1retired' });
+    const { manager, agentStore } = createTestManager(dbPath, new Map(), undefined, retiredIdentity);
+    const input = {
+      managedByNpub: 'npub1manager',
+      workspaceOwnerNpub: 'npub1owner',
+      workspaceServiceNpub: 'npub1workspace-service',
+      workspaceId: 'workspace-pg',
+      backendBaseUrl: 'https://tower.example.com',
+      sourceAppNpub: 'npub1sourceapp',
+      onboardingSource: 'nostr_33357' as const,
+    };
+    await manager.createOrUpdate(input);
+    const onboarded = agentStore.getByBotNpub(retiredIdentity.npub)!;
+    agentStore.save({
+      ...onboarded,
+      botNpub: 'npub1replacement',
+      updatedAt: new Date().toISOString(),
+    });
+
+    await expect(manager.createOrUpdate(input)).rejects.toMatchObject({
+      message: expect.stringContaining('identity conflicts with existing Agent Profile'),
+      statusCode: 409,
+      detailCode: 'agent_profile_identity_conflict',
+    });
+    expect(agentStore.getByAgentId(onboarded.agentId)?.botNpub).toBe('npub1replacement');
+  });
+
   test('imports the same Agent Connect workspace for two owned profiles with separate bot identities', async () => {
     const dbPath = makeTempDb();
     const botKeys = new Map([

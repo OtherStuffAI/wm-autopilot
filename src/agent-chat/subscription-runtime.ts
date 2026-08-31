@@ -1941,6 +1941,14 @@ export class WorkspaceSubscriptionManager {
     if (existingById && existingById.managedByNpub && existingById.managedByNpub !== subscription.managedByNpub) {
       throw new Error(`Auto Agent Dispatch binding ${agentId} is owned by another manager.`);
     }
+    if (existingById && existingById.botNpub !== subscription.botNpub) {
+      throw Object.assign(new Error(
+        `Auto Agent Dispatch identity conflicts with existing Agent Profile ${agentId}. The existing profile was left unchanged; remove or repair the stale subscription before reconnecting.`,
+      ), {
+        statusCode: 409,
+        detailCode: 'agent_profile_identity_conflict',
+      });
+    }
 
     const now = new Date().toISOString();
     const label = input.agentProfile?.label
