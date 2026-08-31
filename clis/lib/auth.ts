@@ -171,9 +171,11 @@ export async function requestJsonBotCrypto<T>(
   path: string,
   body?: unknown,
   brokerUrl = resolveCapabilityBrokerUrl(baseUrl),
+  signingBaseUrl = baseUrl,
 ): Promise<T> {
   const url = new URL(path, baseUrl).toString();
-  const authorization = await buildBotCryptoAuthHeader(brokerUrl, url, method, body);
+  const signingUrl = new URL(path, signingBaseUrl).toString();
+  const authorization = await buildBotCryptoAuthHeader(brokerUrl, signingUrl, method, body);
 
   const response = await fetch(url, {
     method,

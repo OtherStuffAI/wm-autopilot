@@ -330,7 +330,15 @@ describe("CapabilityBroker", () => {
     expect((await call("/api/mcp/capabilities/nip98", issued.token, {
       sessionId: "session-a", url: "http://localhost:3600/api/system/restart-and-resume", method: "POST",
     })).status).toBe(200);
+    expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a",
+      url: "http://localhost:3600/api/admin/wapps/legacy-custody-migration",
+      method: "POST",
+      bodyHash: "ab".repeat(32),
+    })).status).toBe(200);
     for (const [path, method] of [
+      ["/api/admin/wapps/legacy-custody-migration", "GET"],
+      ["/api/admin/wapps/legacy-custody-migration/extra", "POST"],
       ["/api/system/restart-and-resume", "GET"],
       ["/api/system/restart/status", "POST"],
       ["/api/system/restart/status/details", "GET"],
