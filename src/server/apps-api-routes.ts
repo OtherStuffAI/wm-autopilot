@@ -13,6 +13,10 @@ import { parseAppEnvInput, type AppEnvironmentVariables } from '../apps/app-env'
 import { readDotenvFile } from '../apps/dotenv-file';
 import { AppActionInProgressError, AppScriptMissingError } from '../apps/app-process-errors';
 import type { CaproverAppDefinition, CaproverRepoInfo, CaproverStore, CaproverTargetClient } from '../caprover';
+import {
+  AppCardCaproverDeployConfigError,
+  readAppCardCaproverDeployConfig,
+} from '../caprover/app-card-deploy-config';
 import type { WappRecord } from '../wapps/types';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD';
@@ -1642,6 +1646,15 @@ export async function handleAppsApi(
       }
 
       const record = payload as Record<string, unknown>;
+      let deployConfig;
+      try {
+        deployConfig = readAppCardCaproverDeployConfig(record);
+      } catch (error) {
+        if (error instanceof AppCardCaproverDeployConfigError) {
+          return Response.json({ error: error.message }, { status: 400 });
+        }
+        throw error;
+      }
       const caproverNameRaw = ctx.normaliseOptionalString(record.caproverName);
       if (!caproverNameRaw) {
         return Response.json({ error: 'caproverName is required' }, { status: 400 });
@@ -1749,7 +1762,20 @@ export async function handleAppsApi(
         try {
           const existingRemote = await target.client.getApp(tracked.caproverName);
           if (!existingRemote) {
-            await target.client.createApp(tracked.caproverName, false);
+            await target.client.createApp(tracked.caproverName, deployConfig.hasPersistentData === true);
+          }
+          if (
+            deployConfig.instanceCount !== undefined
+            || deployConfig.containerHttpPort !== undefined
+            || deployConfig.envVars !== undefined
+            || deployConfig.volumes !== undefined
+          ) {
+            await target.client.updateAppConfig(tracked.caproverName, {
+              ...(deployConfig.instanceCount === undefined ? {} : { instanceCount: deployConfig.instanceCount }),
+              ...(deployConfig.containerHttpPort === undefined ? {} : { containerHttpPort: deployConfig.containerHttpPort }),
+              ...(deployConfig.envVars === undefined ? {} : { envVars: deployConfig.envVars }),
+              ...(deployConfig.volumes === undefined ? {} : { volumes: deployConfig.volumes }),
+            });
           }
 
           const liveUrl = await target.client.getAppUrl(tracked.caproverName);
