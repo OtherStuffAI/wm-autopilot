@@ -1,5 +1,10 @@
 import type { ReplaceMessageInput } from "../storage/message-store";
 import { stat } from "node:fs/promises";
+import {
+  CodexMessageMirrorDeduper,
+  type CodexMessageMirrorCandidate,
+  type CodexMessageRecordSource,
+} from "./codex-message-mirror-deduper";
 import { readCodexJsonlRecords } from "./codex-jsonl-reader";
 import { findCodexSessionFileForReading, resolveCodexHome } from "./codex-session-fork";
 
@@ -195,6 +200,7 @@ interface CodexAgentMessage {
 class CodexMessageImporter {
   private readonly messages: ReplaceMessageInput[] = [];
   private readonly toolNamesByCallId = new Map<string, string>();
+  private readonly mirrorDeduper = new CodexMessageMirrorDeduper();
   private commentary: CodexAgentMessage[] = [];
   private tools: CodexAgentMessage[] = [];
   private finalAnswers: CodexAgentMessage[] = [];
@@ -211,6 +217,9 @@ class CodexMessageImporter {
           createdAt: toolNote.createdAt,
         });
       }
+      return;
+    }
+    if (this.mirrorDeduper.isMirrored(event)) {
       return;
     }
 
@@ -519,12 +528,9 @@ function truncateInline(value: string, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 14)).trimEnd()}...[truncated]`;
 }
 
-function extractEventMessage(record: Record<string, unknown>): {
-  type: "user_message" | "agent_message";
-  phase: string;
-  content: string;
+function extractEventMessage(record: Record<string, unknown>): (CodexMessageMirrorCandidate & {
   createdAt: string;
-} | null {
+}) | null {
   const payload = record.payload;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return null;
@@ -532,33 +538,36 @@ function extractEventMessage(record: Record<string, unknown>): {
 
   const data = payload as Record<string, unknown>;
   const createdAt = normaliseTimestamp(record.timestamp);
+  const timestampMs = parseTimestampMs(record.timestamp);
   if (record.type === "event_msg") {
+    const source: CodexMessageRecordSource = "event_msg";
     const content = typeof data.message === "string" ? data.message.trim() : "";
     if (!content) {
       return null;
     }
     if (data.type === "user_message") {
-      return { type: "user_message", phase: "", content, createdAt };
+      return { source, type: "user_message", phase: "", content, createdAt, timestampMs };
     }
     if (data.type === "agent_message") {
       const phase = typeof data.phase === "string" ? data.phase.trim() : "";
-      return { type: "agent_message", phase, content, createdAt };
+      return { source, type: "agent_message", phase, content, createdAt, timestampMs };
     }
     return null;
   }
 
   if (record.type === "response_item" && data.type === "message") {
+    const source: CodexMessageRecordSource = "response_item";
     const role = typeof data.role === "string" ? data.role.trim() : "";
     const content = extractResponseMessageContent(data.content);
     if (!content) {
       return null;
     }
     if (role === "user") {
-      return { type: "user_message", phase: "", content, createdAt };
+      return { source, type: "user_message", phase: "", content, createdAt, timestampMs };
     }
     const phase = typeof data.phase === "string" ? data.phase.trim() : "";
     if (role === "assistant" && (phase === "commentary" || phase === "final_answer")) {
-      return { type: "agent_message", phase, content, createdAt };
+      return { source, type: "agent_message", phase, content, createdAt, timestampMs };
     }
   }
   return null;
@@ -581,11 +590,17 @@ function extractResponseMessageContent(value: unknown): string {
 }
 
 function normaliseTimestamp(value: unknown): string {
-  if (typeof value === "string") {
-    const timestamp = Date.parse(value);
-    if (Number.isFinite(timestamp)) {
-      return new Date(timestamp).toISOString();
-    }
+  const timestamp = parseTimestampMs(value);
+  if (timestamp !== null) {
+    return new Date(timestamp).toISOString();
   }
   return new Date().toISOString();
+}
+
+function parseTimestampMs(value: unknown): number | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
