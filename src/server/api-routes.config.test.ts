@@ -28,6 +28,8 @@ function createHandler(options: {
   wingmanMcpApiHandler?: (...args: any[]) => Promise<Response | null>;
   capabilityBrokerApiHandler?: (...args: any[]) => Promise<Response | null>;
   wappTowerDbRequestBroker?: any;
+  legacyWappCustodyMigration?: any;
+  workspaceIsAdmin?: boolean;
   requestIp?: string;
 } = {}) {
   const authContext = options.authContext ?? anonymousAuth;
@@ -85,6 +87,7 @@ function createHandler(options: {
     wingmanMcpApiHandler: options.wingmanMcpApiHandler ?? (async () => null),
     capabilityBrokerApiHandler: options.capabilityBrokerApiHandler,
     wappTowerDbRequestBroker: options.wappTowerDbRequestBroker,
+    legacyWappCustodyMigration: options.legacyWappCustodyMigration,
     getRequestIP: options.requestIp ? () => ({ address: options.requestIp! }) : undefined,
     schedulerApiHandler: async () => null,
     schedulerStore: {} as any,
@@ -172,7 +175,7 @@ function createHandler(options: {
     },
     PROJECTS_FLAG_KEY: "projects",
     resolveWorkspace: () => ({
-      isAdmin: false,
+      isAdmin: options.workspaceIsAdmin === true,
       defaultDirectory: "/tmp/project",
       allowedDirectories: ["/tmp/project"],
     } as any),
@@ -192,6 +195,7 @@ function createHandler(options: {
       SystemManage: "system:manage" as any,
       FilesRead: "files:read" as any,
       FilesWrite: "files:write" as any,
+      AppsManage: "apps:manage" as any,
     },
     buildStarterProjectsContext: () => ({} as any),
     buildAppsContext: () => ({} as any),
@@ -786,6 +790,49 @@ describe("createApiRouteHandler config defaults", () => {
     }), loopbackUrl, "POST", anonymousAuth);
     expect(localResponse.status).toBe(200);
     expect(brokerCalls).toBe(1);
+  });
+
+  test("keeps legacy WApp custody migration loopback-only and Admin-authenticated", async () => {
+    const operatorAuth = {
+      ...anonymousAuth,
+      npub: "npub1operator",
+      actorNpub: "npub1operator",
+      signerNpub: "npub1operator",
+      authMethod: "nip98" as const,
+    };
+    let migrationCalls = 0;
+    const migration = {
+      migrate: async () => {
+        migrationCalls += 1;
+        return { dryRun: true, appId: "app-1" };
+      },
+    };
+    const body = JSON.stringify({ appId: "app-1" });
+    const publicUrl = new URL("https://wingman.example/api/admin/wapps/legacy-custody-migration");
+    const publicHandler = createHandler({
+      requestIp: "127.0.0.1",
+      workspaceIsAdmin: true,
+      legacyWappCustodyMigration: migration,
+      resolveNip98AuthContext: async () => operatorAuth,
+    });
+    expect((await publicHandler(new Request(publicUrl, { method: "POST", body }), publicUrl, "POST", anonymousAuth)).status).toBe(403);
+
+    const localUrl = new URL("http://127.0.0.1:3000/api/admin/wapps/legacy-custody-migration");
+    const nonAdminHandler = createHandler({
+      requestIp: "127.0.0.1",
+      legacyWappCustodyMigration: migration,
+      resolveNip98AuthContext: async () => operatorAuth,
+    });
+    expect((await nonAdminHandler(new Request(localUrl, { method: "POST", body }), localUrl, "POST", anonymousAuth)).status).toBe(403);
+
+    const adminHandler = createHandler({
+      requestIp: "127.0.0.1",
+      workspaceIsAdmin: true,
+      legacyWappCustodyMigration: migration,
+      resolveNip98AuthContext: async () => operatorAuth,
+    });
+    expect((await adminHandler(new Request(localUrl, { method: "POST", body }), localUrl, "POST", anonymousAuth)).status).toBe(200);
+    expect(migrationCalls).toBe(1);
   });
 
   test("binds the Flight Deck MCP helper to the caller's session capability", async () => {

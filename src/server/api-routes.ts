@@ -58,6 +58,11 @@ import { MODEL_PROVIDERS_SETTING_KEY } from "../settings/openrouter-models";
 import { resolveAgentModelCatalogue } from "./agent-model-catalogue";
 import { handleWappTowerDbBrokerRoute } from "./wapp-tower-db-broker-route";
 import type { WappTowerDbRequestBroker } from "../wapps/tower-db-request-broker";
+import {
+  WAPP_LEGACY_CUSTODY_MIGRATION_PATH,
+  handleWappLegacyCustodyMigrationRoute,
+} from "./wapp-legacy-custody-migration-route";
+import type { LegacyWappCustodyMigration } from "../wapps/legacy-custody-migration";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -107,6 +112,7 @@ export interface ApiRoutesContext {
   botCryptoApiHandler: SimpleApiHandler;
   capabilityBrokerApiHandler?: SimpleApiHandler;
   wappTowerDbRequestBroker?: WappTowerDbRequestBroker;
+  legacyWappCustodyMigration?: LegacyWappCustodyMigration;
   botKeyApiHandler: SimpleApiHandler;
   giteaApiHandler: SimpleApiHandler;
   gitWorkflowApiHandler: SimpleApiHandler;
@@ -200,6 +206,7 @@ export interface ApiRoutesContext {
     UiRestricted?: AccessAction;
     FilesRead: AccessAction;
     FilesWrite: AccessAction;
+    AppsManage: AccessAction;
   };
 
   // Per-request context builders (take request-scoped values, return typed sub-contexts)
@@ -298,6 +305,27 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
         isLoopback: isLocalhostBrokerRequest(request, url, ctx),
         broker: ctx.wappTowerDbRequestBroker,
       });
+      return response ?? Response.json({ error: "Not found" }, { status: 404 });
+    }
+
+    if (pathname === WAPP_LEGACY_CUSTODY_MIGRATION_PATH) {
+      if (!ctx.legacyWappCustodyMigration) {
+        return Response.json({ error: "legacy-custody-migration-unavailable" }, { status: 503 });
+      }
+      const migrationAuthContext = await ctx.resolveNip98AuthContext(request, url, authContext);
+      const denied = await ctx.ensureApiAccess(ctx.AccessActions.AppsManage, request, url, migrationAuthContext);
+      if (denied) return denied;
+      const response = await runWithRequestContext(
+        migrationAuthContext,
+        () => handleWappLegacyCustodyMigrationRoute({
+          request,
+          url,
+          method,
+          isLoopback: isLocalhostBrokerRequest(request, url, ctx),
+          isAdmin: ctx.resolveWorkspace(migrationAuthContext).isAdmin,
+          migration: ctx.legacyWappCustodyMigration!,
+        }),
+      );
       return response ?? Response.json({ error: "Not found" }, { status: 404 });
     }
 
