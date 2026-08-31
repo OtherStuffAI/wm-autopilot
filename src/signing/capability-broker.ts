@@ -837,6 +837,7 @@ export function buildDefaultAgentCapabilityPolicy(input: {
             ...(ownerPath ? [ownerPath] : []),
           ],
           exactPaths: [
+            { path: "/api/admin/wapps/legacy-custody-migration", methods: ["POST"], requireBodyHash: true },
             { path: "/api/system/restart", methods: ["POST"], requireBodyHash: false },
             { path: "/api/system/restart-and-resume", methods: ["POST"], requireBodyHash: false },
             { path: "/api/system/restart/status", methods: ["GET"] },
