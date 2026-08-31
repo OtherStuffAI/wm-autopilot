@@ -170,11 +170,14 @@ async function run(): Promise<void> {
   // This route is fetched over loopback, while NIP-98 verification
   // canonicalises the signed URL to the configured public Autopilot origin.
   const signingBaseUrl = resolveBaseUrl(Bun.env.WINGMAN_URL);
+  const requestPath = parsed.botCrypto
+    ? `/api/owners/${encodeURIComponent(parsed.input.installation.ownerNpub)}/apps/${encodeURIComponent(parsed.input.appId)}/legacy-custody-migration`
+    : WAPP_LEGACY_CUSTODY_MIGRATION_PATH;
   const payload = parsed.botCrypto
     ? await requestJsonBotCrypto<{ migration: Record<string, unknown> }>(
       baseUrl,
       "POST",
-      WAPP_LEGACY_CUSTODY_MIGRATION_PATH,
+      requestPath,
       parsed.input,
       undefined,
       signingBaseUrl,

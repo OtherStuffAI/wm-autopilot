@@ -18,6 +18,11 @@ import {
   readAppCardCaproverDeployConfig,
 } from '../caprover/app-card-deploy-config';
 import type { WappRecord } from '../wapps/types';
+import {
+  LegacyWappCustodyMigrationError,
+  type LegacyWappCustodyMigrationInput,
+} from '../wapps/legacy-custody-migration-contract';
+import type { LegacyWappCustodyMigration } from '../wapps/legacy-custody-migration';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD';
 
@@ -228,6 +233,7 @@ export interface AppsApiContext {
   createCaproverTargetClientsFromEnv: () => CaproverTargetClient[];
   createAppTarball: (rootPath: string) => Promise<{ buffer: Uint8Array; fileCount: number }>;
   caproverStore: CaproverStore;
+  legacyWappCustodyMigration?: LegacyWappCustodyMigration;
 }
 
 interface CaproverDeployTargetResult {
@@ -793,6 +799,33 @@ export async function handleAppsApi(
     }
     if (!ctx.workspaceScope.isAdmin && id === 'wingman-core') {
       return Response.json({ error: 'Not found' }, { status: 404 });
+    }
+
+    if (method === 'POST' && parts[4] === 'legacy-custody-migration' && parts.length === 5) {
+      if (!ctx.legacyWappCustodyMigration) {
+        return Response.json({ error: 'legacy-custody-migration-unavailable' }, { status: 503 });
+      }
+      const app = await ctx.appRegistry.getApp(id);
+      if (!app || !ctx.canAccessApp(app)) {
+        return Response.json({ error: 'Not found' }, { status: 404 });
+      }
+      let payload: LegacyWappCustodyMigrationInput;
+      try {
+        payload = await request.json() as LegacyWappCustodyMigrationInput;
+      } catch {
+        return Response.json({ error: 'Invalid JSON payload' }, { status: 400 });
+      }
+      if (payload.appId !== id) {
+        return Response.json({ error: 'legacy_custody_conflict', message: 'Route app id does not match migration input' }, { status: 409 });
+      }
+      try {
+        return Response.json({ migration: await ctx.legacyWappCustodyMigration.migrate(payload) });
+      } catch (error) {
+        if (error instanceof LegacyWappCustodyMigrationError) {
+          return Response.json({ error: error.code, message: error.message }, { status: error.status });
+        }
+        return Response.json({ error: 'legacy_custody_failed', message: 'Legacy custody migration failed' }, { status: 500 });
+      }
     }
 
     if (parts[4] === 'domains') {
