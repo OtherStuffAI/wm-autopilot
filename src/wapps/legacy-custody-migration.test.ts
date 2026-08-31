@@ -183,7 +183,7 @@ describe("LegacyWappCustodyMigration", () => {
         "FEATURE_FLAG=true",
         "",
       ].join("\r\n"));
-      expect(statSync(f.sourceEnvFile).mode & 0o777).toBe(0o640);
+      expect(statSync(f.sourceEnvFile).mode & 0o777).toBe(0o600);
       const assignment = f.store.get(f.installationId)!;
       expect(assignment.appId).toBe(f.appId);
       expect(assignment.appNpub).toBe(f.appIdentity.npub);

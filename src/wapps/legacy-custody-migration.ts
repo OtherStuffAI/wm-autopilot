@@ -48,7 +48,6 @@ interface LegacySource {
   original: string;
   cleaned: string;
   nsec: string | null;
-  mode: number;
 }
 
 function sameStrings(left: string[], right: string[]): boolean {
@@ -122,7 +121,7 @@ async function readLegacySource(appRoot: string, sourceEnvFile: string): Promise
   const original = await readFile(sourcePath, "utf8");
   const matches = Array.from(original.matchAll(LEGACY_NSEC_LINE));
   if (matches.length > 1) invalid("sourceEnvFile contains multiple WAPP_NSEC assignments");
-  if (matches.length === 0) return { path: sourcePath, original, cleaned: original, nsec: null, mode: requestedStats.mode };
+  if (matches.length === 0) return { path: sourcePath, original, cleaned: original, nsec: null };
   const match = matches[0]!;
   const parsed = parseDotenvText(match[0]).env.WAPP_NSEC;
   if (!parsed?.trim()) invalid("sourceEnvFile WAPP_NSEC assignment is empty or invalid");
@@ -132,7 +131,6 @@ async function readLegacySource(appRoot: string, sourceEnvFile: string): Promise
     original,
     cleaned: `${original.slice(0, start)}${original.slice(start + match[0].length)}`,
     nsec: parsed,
-    mode: requestedStats.mode,
   };
 }
 
@@ -143,7 +141,7 @@ async function atomicallyCleanLegacySource(source: LegacySource): Promise<void> 
   const temporaryPath = `${dirname(source.path)}/.${basename(source.path)}.wapp-custody-${randomUUID()}.tmp`;
   let handle: Awaited<ReturnType<typeof open>> | null = null;
   try {
-    handle = await open(temporaryPath, "wx", source.mode & 0o777);
+    handle = await open(temporaryPath, "wx", 0o600);
     await handle.writeFile(source.cleaned, "utf8");
     await handle.sync();
     await handle.close();
