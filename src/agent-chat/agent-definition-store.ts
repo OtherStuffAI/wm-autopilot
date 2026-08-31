@@ -13,6 +13,7 @@ import {
   DEFAULT_TASK_REVIEW_PROMPT_TEMPLATE,
   normalisePromptTemplate,
 } from './prompt-templates';
+import { recoverCompletedAgentProfileRotations } from './agent-profile-rotation-recovery';
 import type {
   AgentCapability,
   AgentDefinitionRecord,
@@ -537,6 +538,7 @@ class AgentDefinitionStore {
           LIMIT 1
         );
     `);
+    recoverCompletedAgentProfileRotations(this.db);
   }
 }
 
