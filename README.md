@@ -42,6 +42,12 @@ Install dependencies:
 bun install
 ```
 
+Installation automatically prepares the verified loopback-only AgentAPI
+binary. If a compatible Go compiler is unavailable, the installer downloads a
+checksummed project-local toolchain under `.cache/toolchains`; no system Go
+installation is required. Startup repeats this check and repairs a missing or
+stale binary when necessary.
+
 Launch the orchestration server:
 
 ```bash

@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "postinstall": "bun run scripts/install-agentapi-loopback.ts",
     "start": "bun run src/index.ts",
     "dev": "bun run src/index.ts",
     "test": "bun test",

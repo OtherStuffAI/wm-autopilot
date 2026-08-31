@@ -1,42 +1,37 @@
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { arch, platform } from "node:os";
+
+import {
+  buildAgentApiLoopback,
+  verifyAgentApiLoopbackBuild,
+  type AgentApiBuildOptions,
+} from "./agentapi-build";
 
 export type EnsureAgentApiBinaryOptions = {
   agentApiBinaryPath: string;
   projectRootDirectory: string;
   downloadsJsonPath?: string;
+  buildBinary?: (options: AgentApiBuildOptions) => Promise<void>;
 };
-
-const getProvenanceFilePath = (binaryPath: string): string => `${binaryPath}.provenance.json`;
-
-async function verifyLoopbackBuild(binaryPath: string): Promise<boolean> {
-  try {
-    const [binary, provenanceText] = await Promise.all([
-      readFile(binaryPath),
-      readFile(getProvenanceFilePath(binaryPath), "utf8"),
-    ]);
-    const provenance = JSON.parse(provenanceText) as Record<string, unknown>;
-    const digest = createHash("sha256").update(binary).digest("hex");
-    return provenance.patch === "vendor/agentapi/loopback-listener.patch" && provenance.sha256 === digest;
-  } catch {
-    return false;
-  }
-}
 
 export const ensureAgentApiBinary = async ({
   agentApiBinaryPath,
+  projectRootDirectory,
+  buildBinary = buildAgentApiLoopback,
 }: EnsureAgentApiBinaryOptions) => {
   const currentPlatform = platform();
   const currentArch = arch();
   console.log(`[agentapi] Detected platform: ${currentPlatform}, architecture: ${currentArch}`);
 
-  if (await verifyLoopbackBuild(agentApiBinaryPath)) {
+  const buildOptions = { agentApiBinaryPath, projectRootDirectory };
+  if (await verifyAgentApiLoopbackBuild(buildOptions)) {
     console.log("[agentapi] Verified loopback-only Wingman build provenance");
     return;
   }
 
-  throw new Error(
-    "[agentapi] Refusing unverified all-interface binary. Run bun run build:agentapi-loopback for this host before starting Autopilot.",
-  );
+  console.log("[agentapi] Verified loopback-only binary is missing or stale; preparing it now");
+  await buildBinary(buildOptions);
+  if (!await verifyAgentApiLoopbackBuild(buildOptions)) {
+    throw new Error("[agentapi] Built AgentAPI binary failed loopback provenance verification");
+  }
+  console.log("[agentapi] Verified loopback-only Wingman build provenance");
 };
