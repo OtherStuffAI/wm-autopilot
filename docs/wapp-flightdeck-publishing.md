@@ -10,8 +10,9 @@ signing broker briefly unwraps it only while producing a signature.
 
 Tower owns publishing grants and activity projections. A WApp keeps its
 canonical business record locally and publishes only a concise projection. It
-must not query Flight Deck conversations or access a WApp database through
-Autopilot.
+must not query Flight Deck conversations through Autopilot. A managed
+Tower-backed WApp may access only its own Tower app database namespace through
+the installation-scoped local broker described below.
 
 ## Runtime variables
 
@@ -31,6 +32,82 @@ WAPP_REGISTERED_OPEN_ORIGINS_JSON
 `WAPP_WORKSPACE_ID` is empty when no stable Tower workspace ID is configured.
 The absence of `WAPP_NSEC` is intentional. A WApp calls Autopilot's authorised
 activity route; Autopilot signs with the installation-scoped broker identity.
+
+Tower-backed WApps also receive these process-only values:
+
+```text
+WAPP_APP_NPUB
+WAPP_TOWER_DB_BROKER_URL
+WAPP_TOWER_DB_CAPABILITY
+```
+
+`WAPP_TOWER_DB_CAPABILITY` is an opaque bearer generated for that managed app
+start. It is delivered through the one-time encrypted runtime envelope and is
+not written to the app registry, WApp SQLite, PM2 ecosystem environment, argv,
+logs, or API responses. Stop and restart revoke the previous process
+capability. Autopilot restart also invalidates every capability because verifier
+state is memory-only. Capabilities expire after 30 days of inactivity; each
+accepted broker request renews that inactivity window.
+
+## Own-app Tower database broker
+
+The child sends a loopback request to `WAPP_TOWER_DB_BROKER_URL`:
+
+```text
+POST /api/internal/wapps/tower-db
+Authorization: Bearer <WAPP_TOWER_DB_CAPABILITY>
+Content-Type: application/json
+```
+
+```json
+{
+  "method": "PATCH",
+  "path": "/tables/companies/rows/company_123",
+  "body": {
+    "set": {
+      "status": "complete"
+    }
+  }
+}
+```
+
+The broker accepts only `method`, `path`, and optional `body`. `path` is a
+suffix beneath the bound installation's own Tower `/db` route; it is never a
+URL. The broker constructs the Tower origin, workspace owner, app npub, and
+namespace from current Autopilot state. Supported combinations are:
+
+| Path | Methods |
+| --- | --- |
+| `/provision` | `POST` |
+| `/migrations` | `GET`, `POST` |
+| `/tables/:table/query` | `POST` |
+| `/tables/:table/rows` | `GET`, `POST` |
+| `/tables/:table/rows/:id` | `GET`, `PATCH`, `DELETE` |
+
+Only the list route accepts `limit`, `offset`, `order_by`, and `order_dir`
+query parameters. `POST` and `PATCH` require a JSON `body`; the broker
+serializes it once, enforces a 1 MiB limit, hashes those exact UTF-8 bytes for
+the NIP-98 payload tag, and sends the same bytes to Tower. `GET` and `DELETE`
+reject bodies. Redirects are not followed. The child receives Tower's response
+status, body, and `Content-Type`, but never the signed Authorization event.
+
+The broker rejects non-loopback peers and non-loopback request hostnames,
+unknown request fields, widened paths or methods, expired or revoked bearers,
+inactive installations, missing custody or bindings, and any app identity or
+Tower binding drift since process start. It is not a general NIP-98 signer or
+HTTP proxy.
+
+For an app record migrated from legacy `WAPP_NSEC` configuration, an operator
+can re-discover structured lifecycle scripts and clear only the obsolete
+broker-migration review reason after confirming the WApp has a complete Tower
+assignment:
+
+```bash
+bun clis/appctl.ts review-wapp-tower-broker <app-id>
+```
+
+Other lifecycle review reasons remain in place and must be handled through
+their existing review path. The command does not re-enable `autoStart`.
 
 ## Reusable client
 

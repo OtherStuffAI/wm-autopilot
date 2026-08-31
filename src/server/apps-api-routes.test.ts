@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { AccessActions } from '../auth/access-control';
 import type { RequestAuthContext } from '../auth/request-context';
 import type { AppRecord } from '../apps/app-registry';
+import type { WappRecord } from '../wapps/types';
 import { appCommand } from '../apps/app-command';
 import { validateAppCommand } from '../apps/app-command';
 import { handleAppsApi, type AppsApiContext } from './apps-api-routes';
@@ -88,6 +89,9 @@ function createContext(
       updateApp: async () => {
         throw new Error('not implemented');
       },
+      reviewWappTowerBrokerMigration: async () => {
+        throw new Error('not implemented');
+      },
       removeApp: async () => false,
     },
     appProcessManager: {
@@ -144,6 +148,57 @@ function createContext(
 }
 
 describe('handleAppsApi', () => {
+  test('reviews a complete Tower WApp broker migration without clearing unrelated reasons', async () => {
+    const app: AppRecord = {
+      id: 'kindling-api',
+      label: 'Kindling API',
+      root: '/workspace/kindling-api',
+      scripts: { start: appCommand('bun', 'run', 'start') },
+      tmuxSession: 'kindling-api',
+      ownerNpub: 'npub1viewer',
+      createdAt: '2026-08-31T00:00:00.000Z',
+      updatedAt: '2026-08-31T00:00:00.000Z',
+      webApp: true,
+      webAppPort: 4100,
+      lifecycleReviewRequired: true,
+      lifecycleReviewReasons: ['app-owner-is-not-a-configured-admin'],
+    };
+    const ctx = createContext({
+      appRegistry: {
+        listApps: async () => [app],
+        getApp: async () => app,
+        discoverScripts: async () => app.scripts,
+        registerApp: async () => app,
+        updateApp: async () => app,
+        reviewWappTowerBrokerMigration: async () => app,
+        removeApp: async () => false,
+      },
+      wappStore: {
+        list: () => [],
+        getByAppId: () => ({
+          id: 'installation-1',
+          appId: app.id,
+          towerBindingId: 'tower-primary',
+          appNpub: 'npub1app',
+        } as unknown as WappRecord),
+      },
+      buildAppResponse: (record) => ({ ...record }),
+    });
+    const request = new Request('http://localhost/api/apps/kindling-api/actions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'review-wapp-tower-broker' }),
+    });
+    const response = await handleAppsApi(request, new URL(request.url), 'POST', authContext, ctx);
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({
+      review: {
+        clearedReason: 'raw-signing-secret-removed-use-capability-broker',
+        remainingReasons: ['app-owner-is-not-a-configured-admin'],
+      },
+    });
+  });
+
   test('returns 403 for non-Admin app registration, configuration, and lifecycle', async () => {
     const ctx = createContext({
       ensureApiAccess: async (action) => action === AccessActions.AppsManage

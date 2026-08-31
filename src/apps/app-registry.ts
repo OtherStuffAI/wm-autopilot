@@ -17,6 +17,7 @@ import { AppRegistryStore } from "./app-registry-store";
 const legacyRegistryFilePath = new URL("../../data/apps.json", import.meta.url).pathname;
 const registryDatabasePath = new URL("../../data/app-registry.sqlite", import.meta.url).pathname;
 const registrySecretDatabasePath = new URL("../../data/app-registry-secrets.sqlite", import.meta.url).pathname;
+export const WAPP_TOWER_BROKER_REVIEW_REASON = "raw-signing-secret-removed-use-capability-broker";
 
 export type AppLifecycleAction = "start" | "stop" | "restart" | "setup" | "build";
 
@@ -424,6 +425,36 @@ export class AppRegistry {
     }
   }
 
+  async reviewWappTowerBrokerMigration(id: string): Promise<AppRecord> {
+    await this.ensureLoaded();
+    const existing = this.apps.get(id);
+    if (!existing) throw new Error(`Unknown app: ${id}`);
+    const reasons = new Set(existing.lifecycleReviewReasons ?? []);
+    if (!reasons.has(WAPP_TOWER_BROKER_REVIEW_REASON)) {
+      throw new Error(`App ${id} does not require WApp Tower broker migration review`);
+    }
+    const discoveredScripts = this.normaliseScripts(await this.discoverScripts(existing.root));
+    if (Object.keys(discoveredScripts).length === 0) {
+      throw new Error(`App ${id} has no safe lifecycle scripts to review`);
+    }
+    const sanitizedEnv = removeForbiddenAppSigningEnv(existing.env);
+    if (sanitizedEnv.removedKeys.length > 0) {
+      throw new Error(`App ${id} still contains forbidden signing environment keys`);
+    }
+    reasons.delete(WAPP_TOWER_BROKER_REVIEW_REASON);
+    const next: AppRecord = {
+      ...existing,
+      scripts: discoveredScripts,
+      env: sanitizedEnv.env,
+      lifecycleReviewRequired: reasons.size > 0,
+      lifecycleReviewReasons: Array.from(reasons).sort(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.apps.set(id, next);
+    await this.persist();
+    return next;
+  }
+
   private async ensureLoaded() {
     if (this.loaded) {
       return;
@@ -590,7 +621,7 @@ export class AppRegistry {
     const signingEnvMigration = removeForbiddenAppSigningEnv(input.env);
     if (signingEnvMigration.removedKeys.length > 0) {
       migrated = true;
-      reasons.add("raw-signing-secret-removed-use-capability-broker");
+      reasons.add(WAPP_TOWER_BROKER_REVIEW_REASON);
       this.migrationReport.removedSigningSecretAppIds.push(input.id);
     }
     const env = hydrateAppEnv(signingEnvMigration.env);

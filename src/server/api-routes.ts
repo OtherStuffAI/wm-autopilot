@@ -56,6 +56,8 @@ import { handleSessionDispatchApi } from "../session-dispatch/session-dispatch-r
 import type { SessionDispatchService } from "../session-dispatch/session-dispatch-service";
 import { MODEL_PROVIDERS_SETTING_KEY } from "../settings/openrouter-models";
 import { resolveAgentModelCatalogue } from "./agent-model-catalogue";
+import { handleWappTowerDbBrokerRoute } from "./wapp-tower-db-broker-route";
+import type { WappTowerDbRequestBroker } from "../wapps/tower-db-request-broker";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -104,6 +106,7 @@ export interface ApiRoutesContext {
   nip98ApiHandler: SimpleApiHandler;
   botCryptoApiHandler: SimpleApiHandler;
   capabilityBrokerApiHandler?: SimpleApiHandler;
+  wappTowerDbRequestBroker?: WappTowerDbRequestBroker;
   botKeyApiHandler: SimpleApiHandler;
   giteaApiHandler: SimpleApiHandler;
   gitWorkflowApiHandler: SimpleApiHandler;
@@ -226,6 +229,7 @@ export interface ApiRoutesContext {
 
 // Localhost addresses accepted for internal-only API routes.
 const LOCALHOST_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+const LOCALHOST_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 const DEFAULT_AGENT_SETTING_KEY = "default_agent";
 
 function isLocalhostRequest(request: Request, ctx: ApiRoutesContext): boolean {
@@ -235,6 +239,10 @@ function isLocalhostRequest(request: Request, ctx: ApiRoutesContext): boolean {
   }
   const ip = ctx.getRequestIP(request);
   return ip !== null && LOCALHOST_ADDRESSES.has(ip.address);
+}
+
+function isLocalhostBrokerRequest(request: Request, url: URL, ctx: ApiRoutesContext): boolean {
+  return LOCALHOST_HOSTNAMES.has(url.hostname.toLowerCase()) && isLocalhostRequest(request, ctx);
 }
 
 function resolveViewerDefaultAgent(ctx: ApiRoutesContext, viewerNpub: string | null): string {
@@ -278,6 +286,20 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     const projectsFlag = ctx.resolveFeatureFlagStateForViewer(ctx.PROJECTS_FLAG_KEY, viewerIsAdmin, "on_admin");
     const projectsEnabled = projectsFlag.effectiveState === "on";
     const viewerNpub = getEffectiveOwnerNpub(authContext);
+
+    if (pathname === "/api/internal/wapps/tower-db") {
+      if (!ctx.wappTowerDbRequestBroker) {
+        return Response.json({ error: "wapp-tower-db-broker-unavailable" }, { status: 503 });
+      }
+      const response = await handleWappTowerDbBrokerRoute({
+        request,
+        url,
+        method,
+        isLoopback: isLocalhostBrokerRequest(request, url, ctx),
+        broker: ctx.wappTowerDbRequestBroker,
+      });
+      return response ?? Response.json({ error: "Not found" }, { status: 404 });
+    }
 
     if (pathname.startsWith("/api/session-dispatches")) {
       if (!isLocalhostRequest(request, ctx)) return Response.json({ error: "Forbidden" }, { status: 403 });

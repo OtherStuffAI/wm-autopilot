@@ -164,7 +164,7 @@ describe("createUserAppEcosystemConfig WApp env injection", () => {
     }
   });
 
-  test("fails closed for Tower-backed WApps until an installation-scoped broker capability exists", async () => {
+  test("keeps a Tower-backed WApp capability in the one-time runtime envelope", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ecosystem-wapp-tower-"));
     try {
       const store = new WappStore(join(dir, "wapps.sqlite"));
@@ -208,13 +208,33 @@ describe("createUserAppEcosystemConfig WApp env injection", () => {
       expect(serializedConfig).not.toContain(appNsec);
       expect(wappConfig.filter_env).toContain("WAPP_NSEC");
 
-      await expect(addUserAppToEcosystem({
+      const runtimeCapability = "tower-db-runtime-capability-sentinel";
+      const launch = await addUserAppToEcosystem({
         app: makeApp("wapp-app", join(dir, "wapp-root")),
         userAlias: "tester",
         userRootDir: dir,
         isAdmin: false,
         wappStore: store,
-      })).rejects.toThrow("installation-scoped NIP-98 signing broker capability");
+        wappRuntimeEnv: getWappRuntimeEnvForWapp("wapp-tower", join(dir, "wapp-root"), store, {
+          brokerUrl: "http://127.0.0.1:3600/api/internal/wapps/tower-db",
+          capability: runtimeCapability,
+        }),
+      });
+      const ecosystem = await readEcosystemConfig(getEcosystemPath(dir, false));
+      const managed = ecosystem.apps.find((entry) => entry.name === launch.processName)!;
+      const pathIndex = managed.args.indexOf("--runtime-env-path");
+      const keyIndex = managed.args.indexOf("--runtime-env-key");
+      expect(JSON.stringify(ecosystem)).not.toContain(runtimeCapability);
+      expect(JSON.stringify(ecosystem)).not.toContain(appNsec);
+      const runtimeEnv = await consumeAppRuntimeEnvelope({
+        path: managed.args[pathIndex + 1]!,
+        key: managed.args[keyIndex + 1]!,
+      }, "wapp-app");
+      expect(runtimeEnv).toMatchObject({
+        WAPP_TOWER_DB_CAPABILITY: runtimeCapability,
+        WAPP_TOWER_DB_BROKER_URL: "http://127.0.0.1:3600/api/internal/wapps/tower-db",
+      });
+      expect(runtimeEnv).not.toHaveProperty("WAPP_NSEC");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

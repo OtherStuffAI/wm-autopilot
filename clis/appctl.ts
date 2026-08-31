@@ -35,6 +35,7 @@ type Command =
   | "tower-binding-create"
   | "tower-binding-default"
   | "wapp-publisher-repair"
+  | "review-wapp-tower-broker"
   | "domains"
   | "domain-add"
   | "domain-verify"
@@ -68,6 +69,8 @@ Commands:
   tower-binding-default <id> Select default WApp Tower binding
   wapp-publisher-repair <wapp-installation-id>
                        Generate, approve, and activate a missing WApp publisher key
+  review-wapp-tower-broker <app-id>
+                       Re-discover safe scripts and clear only the obsolete raw-key review reason
   domains <app-id>     List real DNS names registered for an app
   domain-add <app-id> <hostname>
                        Register a real DNS name for an app
@@ -233,7 +236,7 @@ async function run() {
   const validCommands = [
     "list", "status", "start", "stop", "restart", "build", "setup",
     "register", "unregister", "clone", "starters", "starters-create", "starters-delete",
-    "tower-bindings", "tower-binding-create", "tower-binding-default", "wapp-publisher-repair",
+    "tower-bindings", "tower-binding-create", "tower-binding-default", "wapp-publisher-repair", "review-wapp-tower-broker",
     "domains", "domain-add", "domain-verify", "domain-remove",
     "cf-tunnel-upsert", "cf-tunnel-verify", "cf-tunnel-remove", "help",
   ];

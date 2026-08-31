@@ -8,14 +8,16 @@ import { appCommand } from "./app-command";
 import { WappStore } from "../wapps/wapp-store";
 
 const ecosystemCalls: string[] = [];
+const wappRuntimeEnvs: Record<string, string>[] = [];
 const pm2Starts: string[] = [];
 let assignedPortReady = true;
 let assignedPortAvailable = true;
 let pm2RuntimeStatus = "online";
 
 mock.module("../agents/ecosystem-generator", () => ({
-  addUserAppToEcosystem: async () => {
+  addUserAppToEcosystem: async (input: { wappRuntimeEnv?: Record<string, string> }) => {
     ecosystemCalls.push("add");
+    wappRuntimeEnvs.push(input.wappRuntimeEnv ?? {});
     return {
       ecosystemPath: "/tmp/ecosystem.config.cjs",
       processName: "app-test-process",
@@ -47,6 +49,7 @@ mock.module("../utils/port-utils", () => ({
 
 const { AppProcessManager } = await import("./app-process-manager");
 const { TowerWappRegistrationError } = await import("../wapps/tower-registration");
+const { WappTowerDbRequestBroker } = await import("../wapps/tower-db-request-broker");
 
 const app: AppRecord = {
   id: "app-1",
@@ -65,6 +68,7 @@ function makeManager(input: {
   registrar: { register: (registration: any) => Promise<any> };
 }): { manager: InstanceType<typeof AppProcessManager>; cleanup: () => void } {
   ecosystemCalls.length = 0;
+  wappRuntimeEnvs.length = 0;
   pm2Starts.length = 0;
   assignedPortReady = true;
   assignedPortAvailable = true;
@@ -95,13 +99,18 @@ function makeManager(input: {
     updateApp: async (_id: string, updates: Partial<AppRecord>) => ({ ...app, ...updates }),
     listApps: async () => [app],
   };
+  const broker = new WappTowerDbRequestBroker({
+    store,
+    fetchImpl: async () => Response.json({ ok: true }),
+  });
   const manager = new AppProcessManager(registry as any, [], store, {
     botNpub: "npub1bot",
     botPubkeyHex: "f".repeat(64),
     botSecret: new Uint8Array(32),
-  }, input.registrar);
+  }, input.registrar, Bun.spawn, broker);
   return {
     manager,
+    broker,
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 }
@@ -150,6 +159,47 @@ describe("AppProcessManager Tower WApp lifecycle registration", () => {
       });
       expect(registrations[0].appNpub).toStartWith("npub1");
       expect(pm2Starts).toEqual(["app-test-process"]);
+      expect(wappRuntimeEnvs[0]).toMatchObject({
+        WAPP_INSTALLATION_ID: "wapp-1",
+        WAPP_APP_ID: "app-1",
+        WAPP_TOWER_URL: "https://tower.example",
+        WAPP_TOWER_WORKSPACE_OWNER_NPUB: "npub1workspace",
+        WAPP_TOWER_DB_BROKER_URL: expect.stringContaining("/api/internal/wapps/tower-db"),
+        WAPP_TOWER_DB_CAPABILITY: expect.any(String),
+      });
+      expect(wappRuntimeEnvs[0]).not.toHaveProperty("WAPP_NSEC");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("revokes the old process capability on stop and restart", async () => {
+    const { manager, broker, cleanup } = makeManager({
+      registrar: {
+        register: async (registration) => ({
+          workspaceOwnerNpub: registration.workspaceOwnerNpub,
+          appNpub: registration.appNpub,
+          app: { app_npub: registration.appNpub },
+        }),
+      },
+    });
+    try {
+      await manager.start(app.id);
+      const firstToken = wappRuntimeEnvs.at(-1)!.WAPP_TOWER_DB_CAPABILITY!;
+      await manager.stop(app.id);
+      await expect(broker.request(firstToken, { method: "GET", path: "/migrations" })).rejects.toMatchObject({
+        code: "capability_revoked",
+      });
+
+      await manager.start(app.id);
+      const restartToken = wappRuntimeEnvs.at(-1)!.WAPP_TOWER_DB_CAPABILITY!;
+      await manager.restart(app.id);
+      const replacementToken = wappRuntimeEnvs.at(-1)!.WAPP_TOWER_DB_CAPABILITY!;
+      expect(replacementToken).not.toBe(restartToken);
+      await expect(broker.request(restartToken, { method: "GET", path: "/migrations" })).rejects.toMatchObject({
+        code: "capability_revoked",
+      });
+      expect((await broker.request(replacementToken, { method: "GET", path: "/migrations" })).status).toBe(200);
     } finally {
       cleanup();
     }

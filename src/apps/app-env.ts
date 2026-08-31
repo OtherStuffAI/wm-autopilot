@@ -27,6 +27,7 @@ const RESERVED_APP_ENV_KEYS = new Set([
  * registry. */
 export const FORBIDDEN_APP_SIGNING_ENV_KEYS = new Set([
   "AGENT_NSEC",
+  "WAPP_TOWER_DB_CAPABILITY",
   "WAPP_NSEC",
   "WINGMAN_NSEC",
   "WINGMAN_PRIV",

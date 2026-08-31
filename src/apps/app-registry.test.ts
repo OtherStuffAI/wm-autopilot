@@ -3,7 +3,7 @@ if (!Bun.env.IDENTITY_SESSION_SECRET) {
 }
 
 import { Database } from "bun:sqlite";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
@@ -129,6 +129,41 @@ describe("AppRegistry web app port assignment", () => {
 
       const reloaded = new AppRegistry(filePath);
       expect((await reloaded.getMigrationReport()).removedSigningSecretAppIds).toEqual([]);
+    });
+  });
+
+  test("re-discovers safe scripts and clears only the obsolete WApp broker review reason", async () => {
+    await withRegistry(async (registry, filePath) => {
+      const appRoot = join(filePath, "..", "kindling-api");
+      await mkdir(appRoot, { recursive: true });
+      await writeFile(join(appRoot, "package.json"), JSON.stringify({
+        scripts: { start: "bun run src/index.ts", setup: "bun run src/migrate.ts" },
+      }));
+      await writeFile(filePath, JSON.stringify({ apps: [{
+        id: "kindling-api",
+        label: "Kindling API",
+        root: appRoot,
+        ownerNpub: null,
+        scripts: {},
+        env: { WAPP_NSEC: "nsec1removed", APP_MODE: "production" },
+      }] }));
+
+      const migrated = await registry.getApp("kindling-api");
+      expect(migrated?.lifecycleReviewReasons).toContain("raw-signing-secret-removed-use-capability-broker");
+      expect(migrated?.lifecycleReviewReasons).toContain("app-owner-is-not-a-configured-admin");
+
+      const reviewed = await registry.reviewWappTowerBrokerMigration("kindling-api");
+      expect(reviewed.scripts).toMatchObject({
+        start: { executable: "bun", args: ["run", "start"] },
+        setup: { executable: "bun", args: ["run", "setup"] },
+      });
+      expect(reviewed.lifecycleReviewReasons).toEqual(["app-owner-is-not-a-configured-admin"]);
+      expect(reviewed.lifecycleReviewRequired).toBeTrue();
+      expect(reviewed.env).toEqual({ APP_MODE: "production" });
+
+      const reloaded = new AppRegistry(filePath);
+      expect((await reloaded.getApp("kindling-api"))?.lifecycleReviewReasons)
+        .toEqual(["app-owner-is-not-a-configured-admin"]);
     });
   });
 
