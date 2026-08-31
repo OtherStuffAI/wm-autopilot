@@ -346,6 +346,7 @@ class AgentProfilePolicyStore {
     this.db = new Database(filePath);
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA busy_timeout = 5000');
+    this.db.exec('PRAGMA foreign_keys = ON');
     this.initialise();
   }
 
@@ -459,6 +460,13 @@ class AgentProfilePolicyStore {
        WHERE profile_id = ?1 AND managed_by_npub = ?2
        ORDER BY updated_at DESC`,
     ).all(profileId, managedByNpub).map((row) => this.mapWorkspace(row as Record<string, string | number | null>));
+  }
+
+  deleteProfile(profileId: string, managedByNpub: string): boolean {
+    const result = this.db.query(
+      'DELETE FROM agent_profiles WHERE profile_id = ?1 AND managed_by_npub = ?2',
+    ).run(profileId, managedByNpub);
+    return result.changes > 0;
   }
 
   listPolicies(profileWorkspaceId: string): AgentWorkspaceEventPolicyRecord[] {

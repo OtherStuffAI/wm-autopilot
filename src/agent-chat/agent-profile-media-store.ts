@@ -271,6 +271,23 @@ export class AgentProfileMediaStore {
     transaction.immediate();
   }
 
+  releaseOwner(owner: AgentProfileMediaOwner): void {
+    const transaction = this.db.transaction(() => {
+      this.db.query(`
+        DELETE FROM agent_profile_media_owners
+        WHERE agent_id = ?1 AND bot_npub = ?2 AND manager_npub = ?3
+      `).run(owner.agentId, owner.botNpub, owner.managerNpub);
+      this.db.query(`
+        DELETE FROM agent_profile_media
+        WHERE NOT EXISTS (
+          SELECT 1 FROM agent_profile_media_owners
+          WHERE agent_profile_media_owners.digest = agent_profile_media.digest
+        )
+      `).run();
+    });
+    transaction.immediate();
+  }
+
   listOwners(digest: string): AgentProfileMediaOwnerRecord[] {
     if (!/^[0-9a-f]{64}$/.test(digest)) return [];
     const rows = this.db.query(`

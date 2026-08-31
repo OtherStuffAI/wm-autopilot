@@ -387,6 +387,39 @@ function requireAgentChatManagement(scope: AgentChatRequestScope): Response | nu
   );
 }
 
+async function deleteAgentProfile(
+  ctx: AgentChatApiContext,
+  profileId: string,
+  managerNpub: string,
+): Promise<Response> {
+  try {
+    const result = await ctx.manager.deleteAgentProfileForManager(profileId, managerNpub);
+    if (!result) {
+      return Response.json({ error: 'Agent profile not found' }, { status: 404 });
+    }
+    let mediaReleased = true;
+    try {
+      ctx.profileMediaStore?.releaseOwner({
+        agentId: result.agent.agentId,
+        botNpub: result.agent.botNpub,
+        managerNpub,
+      });
+    } catch {
+      mediaReleased = false;
+    }
+    return Response.json({
+      deleted: true,
+      profileId: result.agent.agentId,
+      botNpub: result.agent.botNpub,
+      keyDisposition: result.keyDisposition,
+      mediaReleased,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to delete agent profile.';
+    return Response.json({ error: message }, { status: getAgentChatErrorStatus(error, 500) });
+  }
+}
+
 function getOptionalStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -1095,6 +1128,11 @@ export async function handleAgentChatApi(
       return Response.json({ error: error instanceof Error ? error.message : 'Agent key rotation failed.' }, { status: 400 });
     }
   }
+  if (profileMatch && method === 'DELETE') {
+    const denied = requireAgentChatManagement(scope);
+    if (denied) return denied;
+    return deleteAgentProfile(ctx, decodeURIComponent(profileMatch[1]!), scope.managerNpub);
+  }
   if (profileMatch && method === 'PATCH') {
     const denied = requireAgentChatManagement(scope);
     if (denied) return denied;
@@ -1391,12 +1429,7 @@ export async function handleAgentChatApi(
     if (denied) {
       return denied;
     }
-    const agentId = decodeURIComponent(agentMatch[1]!);
-    const removed = ctx.manager.removeAgentForManager(agentId, scope.managerNpub);
-    if (!removed) {
-      return Response.json({ error: 'Agent not found' }, { status: 404 });
-    }
-    return new Response(null, { status: 204 });
+    return deleteAgentProfile(ctx, decodeURIComponent(agentMatch[1]!), scope.managerNpub);
   }
 
   return Response.json({ error: 'Not found' }, { status: 404 });

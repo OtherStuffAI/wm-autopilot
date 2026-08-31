@@ -7,11 +7,16 @@ let listedAgents = [];
 let listedDefaults = {};
 let rotatePayload = null;
 let defaultPayload = null;
+let deletePayload = null;
 
 mock.module('../../services/agent-chat.js', () => ({
   createAgentChatProfile: async (input) => {
     createPayload = input;
     return { agent: { agentId: 'Builder', label: 'Builder', botNpub: 'npub1Builder' } };
+  },
+  deleteAgentChatProfile: async (profileId) => {
+    deletePayload = profileId;
+    return { deleted: true, profileId, botNpub: 'npub1Builder', keyDisposition: 'deleted_from_vault' };
   },
   updateAgentChatProfile: async (profileId, input) => {
     updatePayload = { profileId, input };
@@ -85,6 +90,7 @@ describe('Agent Profiles Settings entry', () => {
     uploadPayload = null;
     rotatePayload = null;
     defaultPayload = null;
+    deletePayload = null;
     listedAgents = [];
     listedDefaults = {};
   });
@@ -250,6 +256,36 @@ describe('Agent Profiles Settings entry', () => {
       expect(confirmation).toContain('private key is never displayed or exported');
       expect(rotatePayload?.slice(0, 2)).toEqual(['Builder', 'npub1Builder']);
       expect(findByTestId(section, 'agent-profiles-status')?.textContent).toContain('Tower completed (memberships: 2)');
+    } finally {
+      globalThis.document = originalDocument;
+      globalThis.confirm = originalConfirm;
+    }
+  });
+
+  test('deletes a profile only after warning about key and subscription consequences', async () => {
+    listedAgents = [{
+      agentId: 'Builder', label: 'Builder', botNpub: 'npub1Builder', workingDirectory: '/tmp/Builder', harness: 'codex', model: null,
+      enabled: true, capabilities: ['chat_intercept'], directChat: { enabled: true }, publicProfile: { name: 'Builder' },
+    }];
+    const originalDocument = globalThis.document;
+    const originalConfirm = globalThis.confirm;
+    let confirmation = '';
+    globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+    globalThis.confirm = (message) => { confirmation = message; return true; };
+    try {
+      const { createAgentProfilesSection } = await import('./agent-profiles-section.js');
+      const section = createAgentProfilesSection();
+      await Promise.resolve(); await Promise.resolve();
+      const deleteButton = findByTestId(section, 'agent-profile-delete-Builder');
+      expect(deleteButton?.attributes.get('aria-label')).toContain('locally managed signing key');
+      expect(deleteButton?.className).toContain('danger');
+      deleteButton.click();
+      await Promise.resolve(); await Promise.resolve();
+      expect(confirmation).toContain('WINGMAN_PRIV');
+      expect(confirmation).toContain('Workspace subscriptions must be deleted or rebound first');
+      expect(confirmation).toContain('cannot be undone');
+      expect(deletePayload).toBe('Builder');
+      expect(findByTestId(section, 'agent-profiles-status')?.textContent).toContain('permanently removed');
     } finally {
       globalThis.document = originalDocument;
       globalThis.confirm = originalConfirm;

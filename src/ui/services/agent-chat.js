@@ -217,15 +217,16 @@ export async function deleteAgentChatSubscription(subscriptionId) {
   }
 }
 
-export async function deleteAgentChatAgent(agentId) {
-  const response = await fetch(`/api/agent-chat/agents/${encodeURIComponent(agentId)}`, {
+export async function deleteAgentChatProfile(profileId) {
+  const response = await fetch(`/api/agent-chat/profiles/${encodeURIComponent(profileId)}`, {
     method: 'DELETE',
     credentials: 'include',
   });
-  if (!response.ok && response.status !== 204) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error || 'Failed to delete Agent Chat agent');
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || 'Failed to delete agent profile');
   }
+  return payload;
 }
 
 export async function runAgentChatSubscriptionAction(subscriptionId, action) {
