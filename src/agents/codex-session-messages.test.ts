@@ -262,6 +262,46 @@ describe("Codex session message importer", () => {
     }
   });
 
+  test("imports terminal Codex failures as visible error messages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-error-message-test-"));
+    const filePath = join(root, "rollout.jsonl");
+    try {
+      await writeFile(filePath, [
+        JSON.stringify({
+          type: "event_msg",
+          timestamp: "2026-08-31T07:29:43.895Z",
+          payload: { type: "user_message", message: "Continue the work" },
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          timestamp: "2026-08-31T07:29:49.735Z",
+          payload: {
+            type: "task_complete",
+            error: {
+              message: "Selected model is at capacity. Please try a different model.",
+              codex_error_info: "server_overloaded",
+            },
+          },
+        }),
+      ].join("\n"));
+
+      await expect(readCodexSessionMessagesFromFile(filePath)).resolves.toEqual([
+        { role: "user", content: "Continue the work", createdAt: "2026-08-31T07:29:43.895Z" },
+        {
+          role: "agent-error",
+          content: [
+            "**Codex could not complete this turn.**",
+            "Selected model is at capacity. Please try a different model.",
+            "Error code: `server_overloaded`",
+          ].join("\n\n"),
+          createdAt: "2026-08-31T07:29:49.735Z",
+        },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("imports current Codex response-item user and assistant messages", async () => {
     const root = await mkdtemp(join(tmpdir(), "codex-response-messages-test-"));
     const filePath = join(root, "rollout.jsonl");

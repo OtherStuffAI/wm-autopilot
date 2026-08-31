@@ -133,6 +133,11 @@ function isWorkingNotesMessage(message) {
   return role === "agent-working" || role === "agent-thinking" || role === "agent-tools" || role === "agent-context";
 }
 
+function isErrorMessage(message) {
+  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
+  return role === "agent-error";
+}
+
 function getWorkingNotesLabel(message) {
   const role = String(message?.role ?? message?.type ?? "").toLowerCase();
   if (role === "agent-tools") return "Tools";
@@ -156,9 +161,14 @@ function createSpeechSummaryElement(summary) {
 function createMessageBubble(message, options = {}) {
   const role = String(message?.role ?? message?.type ?? "assistant").toLowerCase();
   const bubble = document.createElement("article");
-  const styleRole = isWorkingNotesMessage(message) ? "assistant" : role;
+  const styleRole = isWorkingNotesMessage(message) || role.startsWith("agent-") ? "assistant" : role;
   bubble.className = `wm-message ${styleRole}`;
   bubble.dataset.role = role;
+  if (isErrorMessage(message)) {
+    bubble.setAttribute("role", "alert");
+    bubble.setAttribute("aria-live", "assertive");
+    bubble.dataset.testid = "agent-error-message";
+  }
   const body = document.createElement("div");
   body.className = "wm-message-body";
   const workingNotesKey = isWorkingNotesMessage(message)
