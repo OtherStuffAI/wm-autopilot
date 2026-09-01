@@ -72,6 +72,7 @@ chmod 0750 "${fips_state_dir}" /run/fips
 if [[ ! -f "${fips_config_path}" ]]; then
   install -o root -g fips -m 0640 /app/config/fips-autopilot.yaml "${fips_config_path}"
 fi
+python3 /app/scripts/validate-fips-config.py "${fips_config_path}"
 
 fips -c "${fips_config_path}" >>"${fips_log_path}" 2>&1 &
 fips_pid="$!"
