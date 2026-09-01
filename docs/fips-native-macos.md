@@ -36,7 +36,8 @@ machine boot independently of Autopilot.
 The configuration helper creates one backup at
 `/usr/local/etc/fips/fips.yaml.pre-wingman-poc`, then transactionally changes
 only the required public settings. It preserves the existing machine identity,
-explicit key material, peers, and unrelated settings. Native readiness requires:
+explicit key material, existing peers, and unrelated settings while adding the
+PoC bootstrap peer once. Native readiness requires:
 
 - persistent identity;
 - Nostr rendezvous `policy: open`, app `wingman-fips-poc-v1`, and advertising;
@@ -46,6 +47,8 @@ explicit key material, peers, and unrelated settings. Native readiness requires:
   discovery;
 - an active FIPS TUN interface (`utunN` on macOS) and local `.fips` DNS enabled;
 - UDP Nostr advertising and inbound connections, with outbound-only disabled;
+- an authenticated outbound link to FIPS's public `test-us01` peer at pinned
+  IP `217.77.8.91:2121`, used as a no-DNS bootstrap when direct traversal fails;
 - the native control socket at `/var/run/fips/control.sock`.
 
 The root-owned config remains mode `0600`, so Autopilot cannot accidentally read
@@ -58,7 +61,11 @@ a general remote-access setting. It discloses private interface candidates to
 the peer through encrypted Nostr traversal signaling and can produce misleading
 one-way successes across VPNs, subnet routes, or overlapping address ranges.
 Remote clients still need a working public-reflexive/NAT traversal path or a
-different explicitly designed relay/bootstrap mechanism.
+different explicitly designed relay/bootstrap mechanism. This PoC uses the
+upstream project's public test mesh for that fallback. Noise authenticates the
+pinned peer identity, so address reassignment can deny service but cannot
+impersonate that peer. Production must replace it with Wingman-operated
+bootstrap capacity.
 
 The package adds the current console user to the `fips` group. macOS may require
 logging out and back in once before that user can access the control socket.

@@ -28,8 +28,10 @@ describe("native FIPS config transform", () => {
     expect(transformed).toContain("share_local_candidates: true");
     expect(transformed.match(/share_local_candidates:/g)).toHaveLength(1);
     expect(transformed).toContain("outbound_only: false");
+    expect(transformed).toContain('npub: "npub1qmc3cvfz0yu2hx96nq3gp55zdan2qclealn7xshgr448d3nh6lks7zel98"');
+    expect(transformed).toContain('addr: "217.77.8.91:2121"');
     expect(await readFile(`${configPath}.pre-wingman-poc`, "utf8")).toContain("fips-overlay-v1");
     const attestation = JSON.parse(await readFile(attestationPath, "utf8"));
-    expect(attestation).toMatchObject({ rendezvousApp: "wingman-fips-poc-v1", nostrShareLocalCandidates: true, lanEnabled: true, udpOutboundOnly: false });
+    expect(attestation).toMatchObject({ schema: 2, rendezvousApp: "wingman-fips-poc-v1", nostrShareLocalCandidates: true, lanEnabled: true, udpOutboundOnly: false, bootstrapPeerAddress: "217.77.8.91:2121" });
   });
 });

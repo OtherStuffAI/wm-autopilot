@@ -11,6 +11,8 @@ export const FIPS_NATIVE_CTL_PATH = "/usr/local/bin/fipsctl";
 export const FIPS_NATIVE_CONTROL_SOCKET = "/var/run/fips/control.sock";
 export const FIPS_NATIVE_LAUNCHD_LABEL = "system/com.fips.daemon";
 export const FIPS_RENDEZVOUS_APP = "wingman-fips-poc-v1";
+export const FIPS_BOOTSTRAP_NPUB = "npub1qmc3cvfz0yu2hx96nq3gp55zdan2qclealn7xshgr448d3nh6lks7zel98";
+export const FIPS_BOOTSTRAP_ADDRESS = "217.77.8.91:2121";
 
 type CommandResult = { exitCode: number; stdout: string; stderr: string };
 export type NativeFipsCommandRunner = (argv: string[]) => Promise<CommandResult>;
@@ -62,7 +64,7 @@ function configIsCompatible(text: string): boolean {
   }
   if (!value || typeof value !== "object") return false;
   const root = value as Record<string, any>;
-  return root.schema === 1
+  return root.schema === 2
     && root.fipsVersion === FIPS_NATIVE_VERSION
     && root.rendezvousApp === FIPS_RENDEZVOUS_APP
     && root.nostrShareLocalCandidates === true
@@ -72,7 +74,9 @@ function configIsCompatible(text: string): boolean {
     && root.dnsEnabled === true
     && root.udpAdvertiseOnNostr === true
     && root.udpAcceptConnections === true
-    && root.udpOutboundOnly === false;
+    && root.udpOutboundOnly === false
+    && root.bootstrapPeerNpub === FIPS_BOOTSTRAP_NPUB
+    && root.bootstrapPeerAddress === FIPS_BOOTSTRAP_ADDRESS;
 }
 
 function parseDescriptor(stdout: string): FipsNodeDescriptor | null {
@@ -135,7 +139,7 @@ export async function inspectNativeFipsRuntime(
     base.configured = false;
   }
   if (!base.configured) {
-    return { ...base, error: `FIPS config attestation ${attestationPath} is missing or incompatible with ${configPath}; expected ${FIPS_RENDEZVOUS_APP} with same-LAN candidate sharing, run the explicit install/repair command` };
+    return { ...base, error: `FIPS config attestation ${attestationPath} is missing or incompatible with ${configPath}; expected ${FIPS_RENDEZVOUS_APP} with same-LAN candidates and authenticated bootstrap, run the explicit install/repair command` };
   }
 
   const status = await run([fipsctlPath, "--socket", controlSocketPath, "show", "status"]);
