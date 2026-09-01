@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { runFlightDeckPgCli } from '../src/flightdeck-pg/cli';
+import { runForgejoCli } from '../src/forgejo/cli';
 import { runDispatchCli } from './dispatch';
 
 function usage(): never {
@@ -8,6 +9,7 @@ function usage(): never {
 
 Usage:
   bun clis/wingman.ts flightdeck <command> [options]
+  bun clis/wingman.ts forgejo issues <list|read|create|comment> [options]
   bun clis/wingman.ts dispatch [create|status|list|inbox|acknowledge|close|retry] [options]
 
 The retired board/sync command path has been removed from production CLI handling.
@@ -22,6 +24,13 @@ async function main() {
   const [command, ...rest] = process.argv.slice(2);
   if (command === 'dispatch') {
     process.exit(await runDispatchCli(rest));
+  }
+  if (command === 'forgejo') {
+    const result = await runForgejoCli(rest, {
+      stdout: (text) => console.log(text),
+      stderr: (text) => console.error(text),
+    });
+    process.exit(result.exitCode);
   }
   if (command !== 'flightdeck') usage();
   const result = await runFlightDeckPgCli(rest, {

@@ -72,6 +72,32 @@ Visit:
 - `http://localhost:<PORT>/home` for the session dashboard
 - `http://localhost:<PORT>/live` for the real-time live/session surface
 
+## Tower-backed Forgejo issues
+
+Agent sessions can read and write repository issues through Tower without a
+Forgejo token or private signing key:
+
+```bash
+bun clis/wingman.ts forgejo issues list \
+  --workspace <workspace-id> --repo <repository-id> --state open
+
+bun clis/wingman.ts forgejo issues read 1 \
+  --workspace <workspace-id> --repo <repository-id>
+
+bun clis/wingman.ts forgejo issues create \
+  --workspace <workspace-id> --repo <repository-id> \
+  --title "Outcome-oriented title" --body-file issue.md
+
+bun clis/wingman.ts forgejo issues comment 1 \
+  --workspace <workspace-id> --repo <repository-id> \
+  --body-file update.md
+```
+
+The CLI uses `TOWER_URL` plus the session-provided `WINGMAN_URL`, `SESSION_ID`,
+and `WINGMAN_CAPABILITY`. Autopilot brokers the agent's short-lived NIP-98
+proof, while the CLI sends the exact signed body to Tower's issue API. It never
+calls Forgejo directly and does not accept a human key or provider token.
+
 ## CapRover Targets
 
 The app deploy dialog can deploy to one or more CapRover instances. Existing
