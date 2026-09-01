@@ -4,6 +4,7 @@ import {
   filterAndSortApps,
   filterApps,
   getAppDisplayName,
+  getAppFipsUrl,
   getAppOpenUrl,
   getAppStatusValue,
   getAppTypeLabel,
@@ -31,6 +32,23 @@ describe("apps table helpers", () => {
     expect(getAppStatusValue({})).toBe("idle");
     expect(getAppTypeLabel({ webApp: false })).toBe("Process");
     expect(getAppOpenUrl({ webAppUrl: "http://localhost:3700" })).toBe("http://localhost:3700");
+  });
+
+  test("exposes FIPS links only for live listening web apps", () => {
+    const url = "http://npub1meshnode.fips:41005/";
+    expect(getAppFipsUrl({
+      status: { status: "running" },
+      fips: { status: "listening", url },
+    })).toBe(url);
+    expect(getAppFipsUrl({
+      status: { status: "idle" },
+      fips: { status: "unavailable", url },
+    })).toBeNull();
+    expect(getAppFipsUrl({
+      status: { status: "running" },
+      fips: { status: "error", url },
+    })).toBeNull();
+    expect(getAppFipsUrl({ status: { status: "running" } })).toBeNull();
   });
 
   test("filters apps by title, port, and description terms", () => {
