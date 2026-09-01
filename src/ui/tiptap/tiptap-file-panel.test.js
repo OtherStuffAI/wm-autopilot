@@ -5,6 +5,11 @@ import { describe, expect, test } from "bun:test";
 const source = readFileSync(new URL("./tiptap-file-panel.js", import.meta.url), "utf8");
 
 describe("tiptap-file-panel comments", () => {
+  test("opens documents with the comments panel collapsed", () => {
+    expect(source).toContain("let commentsPanelOpen = false;");
+    expect(source).not.toContain("window.matchMedia");
+  });
+
   test("wires selected comment threads to document highlighting", () => {
     expect(source).toContain("highlightCommentAnchor");
     expect(source).toContain("markActiveCommentThread");
