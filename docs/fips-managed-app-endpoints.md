@@ -12,6 +12,10 @@ forwards TCP to `127.0.0.1:<webAppPort>`. It does not rewrite paths, hosts,
 redirects, cookies, SSE, WebSockets, uploads, or streamed responses. FIPS is a
 private transport; each WApp must still authenticate and authorize its users.
 
+Native macOS/Bun deployments are supported as well; see
+[`fips-native-macos.md`](./fips-native-macos.md). They use the upstream system
+LaunchDaemon and `/var/run/fips/control.sock`, not the Docker control socket.
+
 ## Enable in Docker
 
 Provision the normal Docker instance first, then include the opt-in overlay:

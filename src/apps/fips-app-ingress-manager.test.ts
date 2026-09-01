@@ -28,6 +28,15 @@ function closeServer(server: Server): Promise<void> {
 }
 
 describe("FipsAppIngressManager", () => {
+  test("enables native macOS discovery by default while respecting an explicit opt-out", () => {
+    const native = new FipsAppIngressManager({ env: {}, platform: "darwin" });
+    const disabled = new FipsAppIngressManager({ env: { FIPS_APPS_ENABLED: "false" }, platform: "darwin" });
+    const linux = new FipsAppIngressManager({ env: {}, platform: "linux" });
+    expect(native.enabled).toBe(true);
+    expect(disabled.enabled).toBe(false);
+    expect(linux.enabled).toBe(false);
+  });
+
   test("derives a stable non-secret endpoint and binds only the exact mesh address", async () => {
     let listenOptions: Record<string, unknown> | null = null;
     let closed = false;
