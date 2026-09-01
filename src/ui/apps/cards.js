@@ -34,6 +34,7 @@
  * @param {Function} deps.refreshApps                - refreshes app cards
  */
 import { openConfirmDialog } from "../common/dialog-prompts.js";
+import { getAppFipsUrl } from "./table.js";
 
 export function initAppCards(deps) {
   const {
@@ -368,6 +369,27 @@ export function initAppCards(deps) {
         subdomainValue.append(subdomainLink);
         subdomainRow.append(subdomainLabel, subdomainValue);
         meta.append(subdomainRow);
+      }
+
+      const fipsUrl = getAppFipsUrl(app);
+      if (fipsUrl) {
+        const fipsRow = document.createElement("div");
+        fipsRow.className = "wm-app-meta-row";
+        const fipsLabel = document.createElement("span");
+        fipsLabel.className = "wm-app-meta-label";
+        fipsLabel.textContent = "FIPS";
+        const fipsValue = document.createElement("span");
+        fipsValue.className = "wm-app-meta-value";
+        const fipsLink = document.createElement("a");
+        fipsLink.href = fipsUrl;
+        fipsLink.target = "_blank";
+        fipsLink.rel = "noopener noreferrer";
+        fipsLink.textContent = fipsUrl;
+        fipsLink.setAttribute("aria-label", `Open ${app.label ?? app.id} over FIPS`);
+        fipsLink.dataset.testid = "app-card-fips-link";
+        fipsValue.append(fipsLink);
+        fipsRow.append(fipsLabel, fipsValue);
+        meta.append(fipsRow);
       }
 
       if (typeof app.caproverLiveUrl === "string" && app.caproverLiveUrl.length > 0) {

@@ -1,4 +1,4 @@
-import { getAppDisplayName, getAppOpenUrl, getAppStatusValue } from "./table.js";
+import { getAppDisplayName, getAppFipsUrl, getAppOpenUrl, getAppStatusValue } from "./table.js";
 
 const APP_BUSY_STATUSES = new Set(["stopping", "restarting", "building", "setting-up"]);
 
@@ -158,6 +158,20 @@ export function showRunningAppsModal({
     return link;
   }
 
+  function renderFipsLink(app) {
+    const fipsUrl = getAppFipsUrl(app);
+    if (!fipsUrl) return null;
+    const link = document.createElement("a");
+    link.className = "wm-running-apps-modal__open-link";
+    link.href = fipsUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "FIPS";
+    link.setAttribute("aria-label", `Open ${getAppDisplayName(app)} over FIPS`);
+    link.dataset.testid = "running-app-fips-link";
+    return link;
+  }
+
   async function refreshModalApps() {
     if (loading) return;
     loading = true;
@@ -271,6 +285,11 @@ export function showRunningAppsModal({
     const openLink = renderOpenLink(app);
     if (openLink) {
       actions.append(openLink);
+    }
+
+    const fipsLink = renderFipsLink(app);
+    if (fipsLink) {
+      actions.append(fipsLink);
     }
 
     const appAction = allowStart ? getAppListAction(app) : (app.availableScripts?.restart ? "restart" : null);

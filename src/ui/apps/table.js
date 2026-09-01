@@ -24,6 +24,13 @@ export function getAppOpenUrl(app) {
   return null;
 }
 
+export function getAppFipsUrl(app) {
+  if (getAppStatusValue(app) !== "running") return null;
+  if (app?.fips?.status !== "listening") return null;
+  const url = typeof app.fips.url === "string" ? app.fips.url.trim() : "";
+  return url.length > 0 ? url : null;
+}
+
 export function getAppPortValue(app) {
   if (typeof app?.webAppPort === "number" && Number.isFinite(app.webAppPort)) {
     return app.webAppPort;
@@ -47,6 +54,7 @@ export function getAppSearchText(app) {
     app?.status?.message,
     app?.root,
     getAppPortValue(app),
+    getAppFipsUrl(app),
   ]
     .filter((value) => value !== undefined && value !== null)
     .join(" ")
@@ -107,6 +115,7 @@ export function renderAppsTable({
     { label: "Status", key: "status" },
     { label: "Type" },
     { label: "Port", key: "port" },
+    { label: "FIPS" },
     { label: "Updated", key: "updated" },
     { label: "Root" },
     { label: "" },
@@ -260,6 +269,22 @@ function renderAppsTableRow({
     portCell.textContent = portValue;
   }
   row.append(portCell);
+
+  const fipsCell = document.createElement("td");
+  const fipsUrl = getAppFipsUrl(app);
+  if (fipsUrl) {
+    const link = document.createElement("a");
+    link.href = fipsUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Open";
+    link.setAttribute("aria-label", `Open ${getAppDisplayName(app)} over FIPS`);
+    link.dataset.testid = "apps-table-fips-link";
+    fipsCell.append(link);
+  } else {
+    fipsCell.textContent = "-";
+  }
+  row.append(fipsCell);
 
   const updatedCell = document.createElement("td");
   updatedCell.textContent = formatAppTimestamp(app.status?.updatedAt ?? null);
