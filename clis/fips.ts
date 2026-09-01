@@ -32,7 +32,7 @@ async function packagePath(): Promise<string> {
 
 async function status(): Promise<number> {
   if (process.platform !== "darwin") {
-    console.error("Native FIPS management is supported only on macOS; Linux uses docker-compose.fips.yml.");
+    console.error("Native FIPS management is supported only on macOS; Linux Docker uses the default docker-compose.yml service.");
     return 1;
   }
   const result = await inspectNativeFipsRuntime();

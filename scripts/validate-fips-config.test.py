@@ -89,6 +89,12 @@ node:
     lan:
       enabled: true
       scope: "wingman-fips-poc-v1"
+peers:
+  - npub: "npub1qmc3cvfz0yu2hx96nq3gp55zdan2qclealn7xshgr448d3nh6lks7zel98"
+    addresses:
+      - transport: udp
+        addr: "217.77.8.91:2121"
+    connect_policy: auto_connect
 '''
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "fips.yaml"
@@ -97,6 +103,31 @@ node:
             sys.argv = [str(MODULE_PATH), str(config_path)]
             try:
                 self.assertEqual(MODULE.main(), 0)
+            finally:
+                sys.argv = previous_argv
+
+    def test_rejects_missing_authenticated_bootstrap(self) -> None:
+        text = '''
+node:
+  rendezvous:
+    nostr:
+      app: "wingman-fips-poc-v1"
+      share_local_candidates: true
+    lan:
+      enabled: true
+      scope: "wingman-fips-poc-v1"
+peers: []
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "fips.yaml"
+            config_path.write_text(text, encoding="utf-8")
+            previous_argv = sys.argv
+            sys.argv = [str(MODULE_PATH), str(config_path)]
+            try:
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    self.assertEqual(MODULE.main(), 1)
+                self.assertIn("authenticated peer", stderr.getvalue())
             finally:
                 sys.argv = previous_argv
 

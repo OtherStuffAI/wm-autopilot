@@ -1,16 +1,5 @@
-# Opt-in overlay for the bundled FIPS node. Keep these privileges out of the
-# default compose deployment:
-#   docker compose -f docker-compose.yml -f docker-compose.fips.yml up -d --build
+# Compatibility overlay retained for existing deployment commands. FIPS is now
+# provisioned by docker-compose.yml itself, so this file intentionally adds no
+# settings and can be removed from operator commands after an upgrade.
 services:
-  wingman:
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    sysctls:
-      net.ipv6.conf.all.disable_ipv6: "0"
-      net.ipv6.conf.default.disable_ipv6: "0"
-    environment:
-      FIPS_APPS_ENABLED: "true"
-      FIPS_CONFIG_PATH: /app/data/fips/fips.yaml
-      FIPS_CONTROL_SOCKET: /app/data/fips/control.sock
+  wingman: {}

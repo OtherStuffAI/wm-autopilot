@@ -16,22 +16,28 @@ Native macOS/Bun deployments are supported as well; see
 [`fips-native-macos.md`](./fips-native-macos.md). They use the upstream system
 LaunchDaemon and `/var/run/fips/control.sock`, not the Docker control socket.
 
-## Enable in Docker
+## Linux Docker provisioning
 
-Provision the normal Docker instance first, then include the opt-in overlay:
+FIPS is part of the normal Linux Docker deployment. Provision and start the
+repository Compose file normally:
 
 ```bash
 bun run docker:provision --admin-npub npub1...
-docker compose -f docker-compose.yml -f docker-compose.fips.yml up -d --build
+docker compose up -d --build
 ```
 
-The overlay is deliberately separate because FIPS needs privileges ordinary
-Autopilot installs do not need:
+`docker-compose.fips.yml` remains as an empty compatibility overlay, so older
+deployment commands that mention it continue to work. The default Compose
+service declares the Linux capabilities FIPS requires:
 
 - `/dev/net/tun`
 - `NET_ADMIN`
 - IPv6 enabled in the container network namespace
 - the existing persistent `/app/data` volume
+
+Set `FIPS_APPS_ENABLED=false` only to disable the daemon inside a container
+that still has those capabilities. Hosts that cannot expose `/dev/net/tun`
+cannot provide FIPS app endpoints.
 
 At container boot, the root entrypoint starts FIPS and applies its nftables
 policy, then launches Autopilot as the unprivileged `wingman` user. The FIPS
@@ -49,18 +55,26 @@ The generated config enables:
 - the shared `wingman-fips-poc-v1` rendezvous namespace used by WMapp (FIPS
   rejects advertisements from a different application namespace);
 - UDP NAT traversal;
+- an auto-connected, Noise-authenticated bootstrap peer at pinned IP
+  `217.77.8.91:2121`, so clients behind incompatible NATs still get a routed
+  path without DNS;
 - no server-side `.fips` DNS listener, because WMapp supplies client DNS.
 
 To supply a custom persistent config, mount or create it at
 `FIPS_CONFIG_PATH` before boot. Keep `node.identity.persistent: true`, the
-configured control socket aligned with `FIPS_CONTROL_SOCKET`, and Nostr
-rendezvous enabled. Set `node.rendezvous.nostr.app` to exactly
-`wingman-fips-poc-v1`; startup fails with a remediation message rather than
-silently advertising into a namespace WMapp will reject. Native macOS nodes
-also configure the upstream project's authenticated `test-us01` peer at pinned
-IP `217.77.8.91:2121`. It provides routed reachability when direct UDP punching
-fails without requiring a DNS lookup. Production must replace this public test
-dependency with Wingman-operated bootstrap peers.
+configured control socket aligned with `FIPS_CONTROL_SOCKET`, Nostr rendezvous
+enabled, and the authenticated bootstrap peer present. Set
+`node.rendezvous.nostr.app` to exactly `wingman-fips-poc-v1`; startup fails with
+a remediation message rather than silently advertising into a namespace WMapp
+will reject. Both Docker and native macOS use the upstream project's
+`test-us01` peer at pinned IP `217.77.8.91:2121`. Production must replace this
+public test dependency with Wingman-operated bootstrap peers.
+
+On container upgrade, the entrypoint transactionally adds this one bootstrap
+to a persisted config that does not already contain it. Existing identity
+settings, file ownership/mode, and operator peers are untouched. A custom
+config with no top-level `peers` boundary fails visibly instead of being
+rewritten broadly.
 
 Local candidate sharing is not a remote-access guarantee. It intentionally
 reveals private interface candidates inside encrypted traversal signaling and

@@ -7,6 +7,13 @@ services:
     init: true
     restart: unless-stopped
     tty: true
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "0"
+      net.ipv6.conf.default.disable_ipv6: "0"
     ports:
       - "${WINGMAN_HOST_PORT:-3600}:3600"
     environment:
@@ -48,6 +55,9 @@ services:
       WINGMAN_SHARED_AGENT_DISPATCH: "${WINGMAN_SHARED_AGENT_DISPATCH:-}"
       WINGMAN_SEE_AGENT_SUBS: "${WINGMAN_SEE_AGENT_SUBS:-}"
       WINGMAN_SETUP_NONINTERACTIVE: "true"
+      FIPS_APPS_ENABLED: "${FIPS_APPS_ENABLED:-true}"
+      FIPS_CONFIG_PATH: /app/data/fips/fips.yaml
+      FIPS_CONTROL_SOCKET: /app/data/fips/control.sock
     volumes:
       - wingman-home:/home/wingman
       - wingman-data:/app/data
