@@ -2801,6 +2801,11 @@ dialog.addEventListener("cancel", (event) => {
     onItemsChanged: () => {
       handleSessionsStoreItemsChanged();
     },
+    getViewedSessionId: () => (
+      currentRoute === "live" && document.visibilityState !== "hidden"
+        ? sessionsStore().activeSessionId
+        : null
+    ),
     // The main bootstrap restores auth first, then performs the initial fetch.
     syncOnInit: false,
   });

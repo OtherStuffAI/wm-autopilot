@@ -87,7 +87,7 @@ import { createComposerUploadState } from "../live/composer-upload-state.js";
 import { resolveLiveSessionUiReconciliation } from "../live/session-ui-reconciliation.js";
 import { canResumeNativeAgentSession } from "../home/native-session-resume.js";
 import { filterTaskDispatchSessionsForTabs } from "../sessions/session-classification.js";
-import { sortSessionsForTabs } from "../sessions/session-order.js";
+import { getSessionTabState, sortSessionsForTabState } from "../sessions/session-tab-state.js";
 
 export function initLiveView(deps) {
   const {
@@ -402,7 +402,8 @@ export function initLiveView(deps) {
   }
 
   function getVisibleTabSessions(sessions) {
-    return sortSessionsForTabs(filterTaskDispatchSessionsForTabs(sessions, shouldShowTaskDispatchTabs()));
+    const visibleSessions = filterTaskDispatchSessionsForTabs(sessions, shouldShowTaskDispatchTabs());
+    return sortSessionsForTabState(visibleSessions, sessionsStore().attentionById);
   }
 
   function shouldShowRawTerminalOutput() {
@@ -473,10 +474,13 @@ export function initLiveView(deps) {
     const activeId = resolveCurrentLiveSessionId();
     const isActive = session.id === activeId;
     const displayName = getSessionDisplayName(session);
+    const attention = sessionsStore().attentionById?.[session.id] ?? null;
+    const tabState = getSessionTabState(session, attention, activeId);
     const tab = document.createElement("div");
     tab.className = "wm-tab";
+    tab.dataset.state = tabState;
     tab.setAttribute("role", "presentation");
-    tab.title = `${displayName} - ${session.agent}:${session.port}`;
+    tab.title = `${displayName} - ${session.agent}:${session.port} - ${tabState}`;
     if (isActive) {
       tab.classList.add("active");
     }
@@ -486,7 +490,7 @@ export function initLiveView(deps) {
     tabButton.className = "wm-tab__button";
     tabButton.setAttribute("role", "tab");
     tabButton.setAttribute("aria-selected", isActive ? "true" : "false");
-    tabButton.setAttribute("aria-label", `Open ${displayName}`);
+    tabButton.setAttribute("aria-label", `Open ${displayName} (${tabState})`);
     tabButton.setAttribute("data-testid", `live-session-tab-${session.id}`);
     tabButton.addEventListener("click", () => {
       activateSessionTab(session, onSelect);
@@ -528,7 +532,7 @@ export function initLiveView(deps) {
     const onSelect = typeof options.onSelect === "function" ? options.onSelect : null;
     const tabs = createTabsContainer("menu");
 
-    sortSessionsForTabs(getActiveSessions()).forEach((session) => {
+    sortSessionsForTabState(getActiveSessions(), sessionsStore().attentionById).forEach((session) => {
       tabs.append(createSessionTab(session, onSelect));
     });
 

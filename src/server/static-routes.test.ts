@@ -81,6 +81,8 @@ describe("createStaticRouteHandler", () => {
       "/live/working-notes-display.js",
       "/scheduler/form-support.js",
       "/sessions/actions-core.js",
+      "/sessions/session-attention.js",
+      "/sessions/session-tab-state.js",
       "/views/settings/restart-settings-section.js",
       "/views/settings/agent-profile-media-picker.js",
     ]) {

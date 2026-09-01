@@ -11,6 +11,7 @@ import {
   normalizeConversationMessage,
   normalizeConversationMessages,
 } from "./conversation-sync.js";
+import { buildSessionAttentionChanges } from "../sessions/session-attention.js";
 
 // Create database instance
 export const db = new Dexie("WingmanLive");
@@ -89,6 +90,19 @@ db.version(8).stores({
   permissions: "id, sessionId, status, createdAt, [sessionId+status]",
   promptQueue: "id, sessionId, order, timestamp, [sessionId+order]",
 }).upgrade((transaction) => transaction.table("messages").clear());
+
+// Version 9: persist viewer-specific session attention separately from the
+// server-owned session cache. This lets completed turns remain highlighted
+// across reloads until the viewer opens the session.
+db.version(9).stores({
+  messages: "++id, sessionId, [sessionId+createdAt], [sessionId+messageId], [sessionId+order], messageHash",
+  sessions: "id, status, updatedAt",
+  apiSessions: "id, status, agentType, npub, updatedAt, targetFile",
+  apps: "id, label, updatedAt",
+  permissions: "id, sessionId, status, createdAt, [sessionId+status]",
+  promptQueue: "id, sessionId, order, timestamp, [sessionId+order]",
+  sessionAttention: "sessionId, runtimeStatus, lastRunningAt, completedAt, viewedAt",
+});
 
 /**
  * Message store operations.
@@ -628,6 +642,42 @@ export const ApiSessionStore = {
   /** Clear all cached sessions. */
   async clear() {
     return db.apiSessions.clear();
+  },
+};
+
+export const SessionAttentionStore = {
+  async getAll() {
+    return db.sessionAttention.toArray();
+  },
+
+  async reconcile(sessions, viewedSessionId = null, now = new Date().toISOString()) {
+    if (!Array.isArray(sessions)) return;
+
+    await db.transaction("rw", db.sessionAttention, async () => {
+      const existingRecords = await db.sessionAttention.toArray();
+      const { updates } = buildSessionAttentionChanges(
+        sessions,
+        existingRecords,
+        viewedSessionId,
+        now,
+      );
+
+      if (updates.length > 0) {
+        await db.sessionAttention.bulkPut(updates);
+      }
+    });
+  },
+
+  async markViewed(sessionId, now = new Date().toISOString()) {
+    if (typeof sessionId !== "string" || sessionId.length === 0) return null;
+    const existing = await db.sessionAttention.get(sessionId);
+    const next = { ...(existing ?? { sessionId }), viewedAt: now };
+    await db.sessionAttention.put(next);
+    return next;
+  },
+
+  async clear() {
+    return db.sessionAttention.clear();
   },
 };
 

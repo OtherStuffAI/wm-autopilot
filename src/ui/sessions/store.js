@@ -10,7 +10,7 @@
  */
 
 import Alpine from "/vendor/alpinejs/module.esm.js";
-import { Dexie, ApiSessionStore } from "../live/db.js";
+import { Dexie, ApiSessionStore, SessionAttentionStore } from "../live/db.js";
 import { fetchSessionsApi } from "../services/sessions.js";
 import { resolveSessionOwnerNpub } from "./ownership.js";
 import { sortSessionsForTabs } from "./session-order.js";
@@ -34,6 +34,7 @@ function normaliseNpub(npub) {
  * @param {Function} deps.getIdentity - Returns current identity state object
  * @param {Function} [deps.onUnauthorized] - Called on 401 responses
  * @param {Function} [deps.onIdentityUpdate] - Called with identity updates from session data
+ * @param {Function} [deps.getViewedSessionId] - Returns the session visibly open in the live view
  * @param {boolean} [deps.syncOnInit=true] - Whether init() should immediately sync from the API
  */
 export function initSessionsStore({
@@ -42,6 +43,7 @@ export function initSessionsStore({
   onUnauthorized,
   onIdentityUpdate,
   onItemsChanged,
+  getViewedSessionId,
   syncOnInit = true,
 }) {
   Alpine.store("sessions", {
@@ -57,7 +59,11 @@ export function initSessionsStore({
       initialized: false,
     },
     identitySummaries: [],
+    attentionById: {},
     _liveQuerySub: null,
+    _attentionLiveQuerySub: null,
+    _attentionReconcile: Promise.resolve(),
+    _attentionVisibilityHandler: null,
 
     // ----- Lifecycle -----
 
@@ -76,6 +82,8 @@ export function initSessionsStore({
 
         // 2. Set up liveQuery so Dexie changes auto-update Alpine
         this._setupLiveQuery();
+        this._setupAttentionLiveQuery();
+        this._setupAttentionVisibility();
 
         this.initialized = true;
         this.loading = false;
@@ -100,6 +108,7 @@ export function initSessionsStore({
       this._liveQuerySub = observable.subscribe({
         next: (sessions) => {
           this.items = sortSessionsForTabs(sessions);
+          this._queueAttentionReconcile(this.items);
           if (typeof onItemsChanged === "function") {
             onItemsChanged(this.items);
           }
@@ -108,6 +117,50 @@ export function initSessionsStore({
           console.error("[sessions-store] liveQuery error:", err);
         },
       });
+    },
+
+    _setupAttentionLiveQuery() {
+      if (this._attentionLiveQuerySub) {
+        this._attentionLiveQuerySub.unsubscribe();
+      }
+
+      const observable = Dexie.liveQuery(() => SessionAttentionStore.getAll());
+      this._attentionLiveQuerySub = observable.subscribe({
+        next: (records) => {
+          this.attentionById = Object.fromEntries(
+            records.map((record) => [record.sessionId, record]),
+          );
+          if (typeof onItemsChanged === "function") {
+            onItemsChanged(this.items);
+          }
+        },
+        error: (err) => {
+          console.error("[sessions-store] attention liveQuery error:", err);
+        },
+      });
+    },
+
+    _queueAttentionReconcile(sessions) {
+      this._attentionReconcile = this._attentionReconcile
+        .then(() => SessionAttentionStore.reconcile(
+          sessions,
+          typeof getViewedSessionId === "function" ? getViewedSessionId() : null,
+        ))
+        .catch((err) => console.error("[sessions-store] attention reconcile failed:", err));
+    },
+
+    _setupAttentionVisibility() {
+      if (typeof document === "undefined" || this._attentionVisibilityHandler) return;
+      this._attentionVisibilityHandler = () => {
+        if (document.visibilityState !== "visible") return;
+        const viewedSessionId = typeof getViewedSessionId === "function"
+          ? getViewedSessionId()
+          : null;
+        if (viewedSessionId) {
+          void this.markViewed(viewedSessionId);
+        }
+      };
+      document.addEventListener("visibilitychange", this._attentionVisibilityHandler);
     },
 
     // ----- Server sync -----
@@ -250,6 +303,13 @@ export function initSessionsStore({
       }
     },
 
+    async markViewed(sessionId) {
+      this._attentionReconcile = this._attentionReconcile
+        .then(() => SessionAttentionStore.markViewed(sessionId))
+        .catch((err) => console.error("[sessions-store] mark viewed failed:", err));
+      await this._attentionReconcile;
+    },
+
     /** Get a session by id from cached items. */
     getById(id) {
       return this.items.find((s) => s.id === id) ?? null;
@@ -279,6 +339,14 @@ export function initSessionsStore({
       if (this._liveQuerySub) {
         this._liveQuerySub.unsubscribe();
         this._liveQuerySub = null;
+      }
+      if (this._attentionLiveQuerySub) {
+        this._attentionLiveQuerySub.unsubscribe();
+        this._attentionLiveQuerySub = null;
+      }
+      if (this._attentionVisibilityHandler && typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", this._attentionVisibilityHandler);
+        this._attentionVisibilityHandler = null;
       }
     },
   });

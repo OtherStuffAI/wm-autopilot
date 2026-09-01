@@ -6383,6 +6383,18 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
   border-color: rgba(148, 163, 184, 0.16);
 }
 
+.wm-tab[data-state="running"]:not(.active) {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(96, 165, 250, 0.2);
+  color: var(--text-primary);
+}
+
+.wm-tab[data-state="complete"]:not(.active) {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(74, 222, 128, 0.34);
+  color: var(--text-primary);
+}
+
 .wm-tab.active {
   background: rgb(from var(--accent-primary) r g b / 0.08);
   border-color: rgb(from var(--accent-primary) r g b / 0.22);
