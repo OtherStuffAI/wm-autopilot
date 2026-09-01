@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import sys
+import re
 from pathlib import Path
 
 
 REQUIRED_APP = "wingman-fips-poc-v1"
+BOOTSTRAP_NPUB = "npub1qmc3cvfz0yu2hx96nq3gp55zdan2qclealn7xshgr448d3nh6lks7zel98"
+BOOTSTRAP_ADDRESS = "217.77.8.91:2121"
 
 
 def scalar_at_path(text: str, wanted: tuple[str, ...]) -> str | None:
@@ -26,6 +29,24 @@ def scalar_at_path(text: str, wanted: tuple[str, ...]) -> str | None:
         if tuple(item[1] for item in stack) == wanted:
             return value.split("#", 1)[0].strip().strip("\"'")
     return None
+
+
+def has_authenticated_bootstrap(text: str) -> bool:
+    peer = re.search(
+        rf'(?ms)^  - npub:\s*["\']?{re.escape(BOOTSTRAP_NPUB)}["\']?\s*$'
+        r'(?P<body>.*?)(?=^  - npub:|\Z)',
+        text,
+    )
+    if peer is None:
+        return False
+    body = peer.group("body")
+    return bool(
+        re.search(
+            rf'(?m)^\s+addr:\s*["\']?{re.escape(BOOTSTRAP_ADDRESS)}["\']?\s*$',
+            body,
+        )
+        and re.search(r'(?m)^\s+connect_policy:\s*auto_connect\s*$', body)
+    )
 
 
 def main() -> int:
@@ -70,6 +91,14 @@ def main() -> int:
         print(
             f"Incompatible FIPS LAN rendezvous in {config_path}: expected "
             f"node.rendezvous.lan.enabled=true and scope={REQUIRED_APP!r}.",
+            file=sys.stderr,
+        )
+        return 1
+    if not has_authenticated_bootstrap(text):
+        print(
+            f"Incompatible FIPS bootstrap in {config_path}: expected authenticated "
+            f"peer {BOOTSTRAP_NPUB} at pinned address {BOOTSTRAP_ADDRESS} with "
+            "connect_policy=auto_connect. Update the persisted config explicitly.",
             file=sys.stderr,
         )
         return 1

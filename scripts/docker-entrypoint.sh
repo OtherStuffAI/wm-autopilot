@@ -58,7 +58,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 if [[ ! -c /dev/net/tun ]]; then
-  echo "FIPS_APPS_ENABLED requires /dev/net/tun; use docker-compose.fips.yml" >&2
+  echo "FIPS_APPS_ENABLED requires /dev/net/tun; use the repository docker-compose.yml on a Linux host with TUN enabled" >&2
   exit 1
 fi
 
@@ -72,6 +72,7 @@ chmod 0750 "${fips_state_dir}" /run/fips
 if [[ ! -f "${fips_config_path}" ]]; then
   install -o root -g fips -m 0640 /app/config/fips-autopilot.yaml "${fips_config_path}"
 fi
+python3 /app/scripts/ensure-fips-bootstrap.py "${fips_config_path}"
 python3 /app/scripts/validate-fips-config.py "${fips_config_path}"
 
 fips -c "${fips_config_path}" >>"${fips_log_path}" 2>&1 &

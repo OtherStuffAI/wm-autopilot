@@ -38,4 +38,13 @@ transports:
     public: false
     accept_connections: true
 
-peers: []
+peers:
+  # Pinned-IP bootstrap keeps the Autopilot reachable when direct Nostr/STUN
+  # traversal cannot cross the client and server NATs. Noise authenticates the
+  # peer npub, so the address is discovery only and does not become identity.
+  - npub: "npub1qmc3cvfz0yu2hx96nq3gp55zdan2qclealn7xshgr448d3nh6lks7zel98"
+    alias: "wingman-bootstrap"
+    addresses:
+      - transport: udp
+        addr: "217.77.8.91:2121"
+    connect_policy: auto_connect
