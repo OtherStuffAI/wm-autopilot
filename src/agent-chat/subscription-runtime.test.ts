@@ -173,6 +173,7 @@ function makeInstanceIdentity(overrides: Partial<WingmanInstanceIdentity> = {}):
 }
 
 const ATHENA_BOT_NPUB = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzqunz0d4';
+const RICK_BOT_NPUB = 'npub1llwrq3rtah3rg3r2dyfyht55ek7aa0ey7z47ujju407pzfp38shqa7zcvr';
 
 function createTestManager(
   dbPath: string,
@@ -1597,16 +1598,158 @@ describe('WorkspaceSubscriptionManager', () => {
       runtimes: Map<string, { abortController: AbortController | null }>;
     }).runtimes.get(imported.subscription.subscriptionId);
     if (runtime) runtime.abortController = controller;
+    const loop = (manager as unknown as {
+      runFlightDeckPgEventLoop: (subscriptionId: string, signal: AbortSignal, isStartupReload: boolean) => Promise<void>;
+    }).runFlightDeckPgEventLoop(imported.subscription.subscriptionId, controller.signal, false);
+    for (let attempt = 0; attempt < 100 && !pollAborted; attempt += 1) await Bun.sleep(1);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (store.getBySubscriptionId(imported.subscription.subscriptionId)?.sseStatus === 'backoff') break;
+      await Bun.sleep(1);
+    }
+    const saved = store.getBySubscriptionId(imported.subscription.subscriptionId);
+    controller.abort();
+    await loop;
+    manager.shutdown();
+    expect(pollAborted).toBe(true);
+    expect(saved?.sseStatus).toBe('backoff');
+    expect(saved?.lastEventPollErrorCode).toBe('flightdeck_pg_event_poll_timeout');
+    expect(saved?.lastEventPollErrorAt).toBeString();
+  });
+
+  test('recovers the missed stable Rick mention once after poll timeout and transient access abort', async () => {
+    const dbPath = makeTempDb();
+    const instanceIdentity = makeInstanceIdentity();
+    const workspaceId = '2e5caefd-dd65-45d2-b747-ee874e8e5fc9';
+    const channelId = '4e8e7d4a-58a0-41ba-bcc3-15e85bea3ae3';
+    const threadId = 'f8284d92-772c-437c-9703-5499643cf5a2';
+    const messageId = 'e64944c4-b338-4beb-bb9b-84ae7a0fe36c';
+    const savedCursor = encodeFlightDeckPgEventCursor(500);
+    const missedCursor = encodeFlightDeckPgEventCursor(501);
+    const controller = new AbortController();
+    const directInputs: Array<{ audienceAgentNpubs: string[]; messages: Array<{ id: string }> }> = [];
+    const pollCursors: Array<string | null | undefined> = [];
+    let accessChecks = 0;
+    let pollCalls = 0;
+    let activePolls = 0;
+    let maximumActivePolls = 0;
+    const missedEvent = {
+      event_id: 'event-missed-rick-message',
+      cursor: missedCursor,
+      workspace_id: workspaceId,
+      channel_id: channelId,
+      thread_id: threadId,
+      actor_id: 'actor-pete',
+      event_type: 'flightdeck_pg.message.created',
+      entity_type: 'message',
+      entity_id: messageId,
+      operation: 'created',
+      entity_row_version: 1,
+      row_version: 501,
+      created_at: '2026-09-01T11:35:08.713Z',
+      visible_to_audience_npubs: [RICK_BOT_NPUB],
+      payload: {},
+    };
+    const { manager, store, agentStore } = createTestManager(
+      dbPath,
+      new Map([[RICK_BOT_NPUB, makeBotKeyRecord(RICK_BOT_NPUB)]]),
+      undefined,
+      instanceIdentity,
+      undefined,
+      {
+        flightDeckPgEventPollIntervalMs: 1,
+        flightDeckPgEventPollTimeoutMs: 5,
+        flightDeckPgEventReconnectBaseMs: 1,
+        flightDeckPgEventReconnectMaxMs: 4,
+        fetchFlightDeckPgWorkspaceMe: async () => {
+          accessChecks += 1;
+          if (accessChecks === 2) {
+            throw new Error('The operation was aborted.');
+          }
+          return { actor: { actor_id: 'actor-rick' }, membership: { role: 'member' }, permissions: ['workspace.read'] };
+        },
+        fetchFlightDeckPgEvents: async ({ cursor, signal }) => {
+          pollCalls += 1;
+          pollCursors.push(cursor);
+          activePolls += 1;
+          maximumActivePolls = Math.max(maximumActivePolls, activePolls);
+          if (pollCalls === 1) {
+            activePolls -= 1;
+            return { events: [], next_cursor: savedCursor };
+          }
+          if (pollCalls === 2) {
+            return await new Promise<never>(() => {
+              signal?.addEventListener('abort', () => {
+                activePolls -= 1;
+              }, { once: true });
+            });
+          }
+          activePolls -= 1;
+          return { events: [missedEvent], next_cursor: missedCursor };
+        },
+        reconcileFlightDeckPgEventSubscriptionAgents: async ({ agentNpubs }) => ({
+          agent_npubs: agentNpubs,
+          audience_npubs: agentNpubs,
+          rejected_audience: [],
+        }),
+        fetchFlightDeckPgChannel: async () => ({ id: channelId, workspace_id: workspaceId, metadata: {} }),
+        fetchFlightDeckPgChannelMessages: async () => ({
+          messages: [{
+            id: messageId,
+            workspace_id: workspaceId,
+            channel_id: channelId,
+            thread_id: threadId,
+            body: '@Rick please handle this',
+            mentions: [{ type: 'agent', npub: RICK_BOT_NPUB, label: 'Rick' }],
+            created_by_actor_id: 'actor-pete',
+            created_by_actor_npub: 'npub1pete',
+            created_at: '2026-09-01T11:35:08.713Z',
+          }],
+          next_cursor: null,
+        }),
+        chatRuntime: {
+          clearSubscriptionBlocked: () => undefined,
+          handleDirectChat: async (input: { audienceAgentNpubs: string[]; messages: Array<{ id: string }> }) => {
+            directInputs.push(input);
+            controller.abort();
+            return { handled: true, reason: 'direct_chat_queued' };
+          },
+        } as never,
+      },
+    );
+    const imported = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson: makeConnectPackageForWorkspace(workspaceId, 'npub1workspaceservice'),
+      onboardingSource: 'nostr_33357',
+    });
+    saveDirectChatAgent(agentStore, {
+      agentId: 'Rick Agent Direct',
+      botNpub: RICK_BOT_NPUB,
+      managedByNpub: 'npub1manager',
+    });
+    accessChecks = 0;
+    const runtime = (manager as unknown as {
+      runtimes: Map<string, { abortController: AbortController | null }>;
+    }).runtimes.get(imported.subscription.subscriptionId);
+    if (runtime) runtime.abortController = controller;
+
     await (manager as unknown as {
       runFlightDeckPgEventLoop: (subscriptionId: string, signal: AbortSignal, isStartupReload: boolean) => Promise<void>;
     }).runFlightDeckPgEventLoop(imported.subscription.subscriptionId, controller.signal, false);
 
     const saved = store.getBySubscriptionId(imported.subscription.subscriptionId);
     manager.shutdown();
-    expect(pollAborted).toBe(true);
-    expect(saved?.sseStatus).toBe('connected');
-    expect(saved?.lastEventPollErrorCode).toBe('flightdeck_pg_event_poll_timeout');
-    expect(saved?.lastEventPollErrorAt).toBeString();
+    expect(accessChecks).toBe(3);
+    expect(pollCalls).toBe(3);
+    expect(maximumActivePolls).toBe(1);
+    expect(pollCursors).toEqual([encodeFlightDeckPgEventCursor(0), savedCursor, savedCursor]);
+    expect(directInputs).toHaveLength(1);
+    expect(directInputs[0]).toMatchObject({
+      audienceAgentNpubs: [RICK_BOT_NPUB],
+      messages: [{ id: messageId }],
+    });
+    expect(saved?.lastSyncCursor).toBe(missedCursor);
+    expect(saved?.wsKeyStatus).toBe('active');
+    expect(saved?.lastAuthResult?.ok).toBe(true);
   });
 
   test('keeps a freshly polling Flight Deck PG subscription healthy without restarting it', async () => {
@@ -1871,6 +2014,114 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(next.healthStatus).toBe('degraded');
     expect(next.lastAuthResult?.details?.retryable).toBe(true);
   });
+
+  for (const message of ['The operation was aborted.', 'The operation timed out.']) {
+    test(`keeps Flight Deck PG workspace access retryable after ${message}`, async () => {
+      const dbPath = makeTempDb();
+      const instanceIdentity = makeInstanceIdentity();
+      const { manager, store } = createTestManager(
+        dbPath,
+        new Map(),
+        undefined,
+        instanceIdentity,
+        undefined,
+        {
+          fetchFlightDeckPgWorkspaceMe: async () => {
+            throw new Error(message);
+          },
+        },
+      );
+      const record = store.save({
+        ...store.createDefault({
+          managedByNpub: 'npub1manager',
+          workspaceOwnerNpub: 'npub1workspace',
+          workspaceServiceNpub: 'npub1workspaceservice',
+          workspaceId: 'workspace-1',
+          backendBaseUrl: 'https://tower.example.com',
+          sourceAppNpub: 'npub1sourceapp',
+          botNpub: 'npub1wingmanbot',
+          onboardingSource: 'nostr_33357',
+        }),
+        wsKeyStatus: 'active',
+        groupKeyStatus: 'active',
+        sseStatus: 'connected',
+        healthStatus: 'healthy',
+      });
+
+      const next = await (manager as unknown as {
+        verifyFlightDeckPgWorkspaceAccess: (
+          record: WorkspaceSubscriptionRecord,
+          botIdentity: RuntimeBotIdentity,
+        ) => Promise<WorkspaceSubscriptionRecord>;
+      }).verifyFlightDeckPgWorkspaceAccess(record, {
+        botNpub: 'npub1wingmanbot',
+        botPubkeyHex: 'f'.repeat(64),
+        botSecret: new Uint8Array(32),
+      });
+
+      expect(next.wsKeyStatus).toBe('active');
+      expect(next.sseStatus).toBe('backoff');
+      expect(next.healthStatus).toBe('degraded');
+      expect(next.lastErrorCode).toBe('flightdeck_pg_access_retrying');
+      expect(next.lastAuthResult?.code).toBe('flightdeck_pg_access_retrying');
+      expect(next.lastAuthResult?.details?.retryable).toBe(true);
+      manager.shutdown();
+    });
+  }
+
+  for (const status of [401, 403]) {
+    test(`fails closed after permanent Flight Deck PG workspace access ${status}`, async () => {
+      const dbPath = makeTempDb();
+      const instanceIdentity = makeInstanceIdentity();
+      const { manager, store } = createTestManager(
+        dbPath,
+        new Map(),
+        undefined,
+        instanceIdentity,
+        undefined,
+        {
+          fetchFlightDeckPgWorkspaceMe: async () => {
+            throw Object.assign(new Error(`Tower rejected workspace access with ${status}.`), { status });
+          },
+        },
+      );
+      const record = store.save({
+        ...store.createDefault({
+          managedByNpub: 'npub1manager',
+          workspaceOwnerNpub: 'npub1workspace',
+          workspaceServiceNpub: 'npub1workspaceservice',
+          workspaceId: 'workspace-1',
+          backendBaseUrl: 'https://tower.example.com',
+          sourceAppNpub: 'npub1sourceapp',
+          botNpub: 'npub1wingmanbot',
+          onboardingSource: 'nostr_33357',
+        }),
+        wsKeyStatus: 'active',
+        groupKeyStatus: 'active',
+        sseStatus: 'connected',
+        healthStatus: 'healthy',
+      });
+
+      const next = await (manager as unknown as {
+        verifyFlightDeckPgWorkspaceAccess: (
+          record: WorkspaceSubscriptionRecord,
+          botIdentity: RuntimeBotIdentity,
+        ) => Promise<WorkspaceSubscriptionRecord>;
+      }).verifyFlightDeckPgWorkspaceAccess(record, {
+        botNpub: 'npub1wingmanbot',
+        botPubkeyHex: 'f'.repeat(64),
+        botSecret: new Uint8Array(32),
+      });
+
+      expect(next.wsKeyStatus).toBe('failed');
+      expect(next.sseStatus).toBe('disconnected');
+      expect(next.healthStatus).toBe('unhealthy');
+      expect(next.lastErrorCode).toBe('flightdeck_pg_access_failed');
+      expect(next.lastAuthResult?.code).toBe('flightdeck_pg_access_failed');
+      expect(next.lastAuthResult?.details?.retryable).toBe(false);
+      manager.shutdown();
+    });
+  }
 
   test('keeps Flight Deck PG workspace access retryable after Bun connection failure', async () => {
     const dbPath = makeTempDb();

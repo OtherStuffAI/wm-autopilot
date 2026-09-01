@@ -126,6 +126,12 @@ import {
   FlightDeckPgEventFreshnessWatchdog,
   resolveFlightDeckPgEventWatchdogTiming,
 } from './flightdeck-pg-event-watchdog';
+import {
+  FLIGHT_DECK_PG_ACCESS_FAILED_CODE,
+  FLIGHT_DECK_PG_ACCESS_RETRY_CODE,
+  flightDeckPgReconnectDelayMs,
+  isRetryableTowerAccessError,
+} from './flightdeck-pg-access-recovery';
 
 interface RuntimeContext {
   abortController: AbortController | null;
@@ -151,6 +157,8 @@ const CHAT_ADVISORY_PIPELINE_TIMEOUT_MS = 60_000;
 const WORKSPACE_KEY_MAPPING_CACHE_MS = 30_000;
 const FLIGHT_DECK_PG_EVENT_POLL_INTERVAL_MS = 2_100;
 const FLIGHT_DECK_PG_EVENT_POLL_TIMEOUT_MS = 10_000;
+const FLIGHT_DECK_PG_EVENT_RECONNECT_BASE_MS = 1_000;
+const FLIGHT_DECK_PG_EVENT_RECONNECT_MAX_MS = 60_000;
 const AGENT_INSTRUCTION_SIGNATURE_METADATA_KEY = 'agent_instruction_signature';
 const AGENT_INSTRUCTION_SIGNATURE_PROTOCOL = 'flightdeck_pg_message_instruction';
 const AGENT_INSTRUCTION_SIGNATURE_KIND = 33358;
@@ -898,6 +906,8 @@ export interface WorkspaceSubscriptionManagerDependencies {
   checkBackendHealth?: typeof checkBackendConnectionHealth;
   flightDeckPgEventPollIntervalMs?: number;
   flightDeckPgEventPollTimeoutMs?: number;
+  flightDeckPgEventReconnectBaseMs?: number;
+  flightDeckPgEventReconnectMaxMs?: number;
   flightDeckPgEventPollFreshnessThresholdMs?: number;
   flightDeckPgEventPollStartupGraceMs?: number;
   flightDeckPgEventPollWatchdogIntervalMs?: number;
@@ -1017,23 +1027,6 @@ function mapFailureState(detailCode: string | null): RuntimeFailureState {
   }
 }
 
-function isRetryableTowerAccessError(error: unknown): boolean {
-  const status = typeof (error as { status?: unknown })?.status === 'number'
-    ? (error as { status: number }).status
-    : null;
-  if (status && status >= 500) {
-    return true;
-  }
-  const message = error instanceof Error ? error.message : String(error ?? '');
-  if (/"retryable"\s*:\s*true/.test(message) || /bad gateway|gateway timeout|service unavailable/i.test(message)) {
-    return true;
-  }
-  if (status == null) {
-    return /cannot find module|module not found|failed to resolve|import failed|fetch failed|network error|unable to connect|computer able to access the url|typo in the url or port|connection refused|econnreset|econnrefused|etimedout/i.test(message);
-  }
-  return false;
-}
-
 function canUseBackendConnection(
   record: BackendConnectionRecord,
   managedByNpub: string,
@@ -1086,6 +1079,8 @@ export class WorkspaceSubscriptionManager {
   private readonly checkBackendHealthImpl: typeof checkBackendConnectionHealth;
   private readonly flightDeckPgEventPollIntervalMs: number;
   private readonly flightDeckPgEventPollTimeoutMs: number;
+  private readonly flightDeckPgEventReconnectBaseMs: number;
+  private readonly flightDeckPgEventReconnectMaxMs: number;
   private readonly flightDeckPgEventWatchdog: FlightDeckPgEventFreshnessWatchdog;
   private readonly chatRecordPullTimeoutMs: number;
   private readonly chatRecordPullMaxAttempts: number;
@@ -1135,6 +1130,11 @@ export class WorkspaceSubscriptionManager {
     this.checkBackendHealthImpl = deps.checkBackendHealth ?? checkBackendConnectionHealth;
     this.flightDeckPgEventPollIntervalMs = Math.max(1, deps.flightDeckPgEventPollIntervalMs ?? FLIGHT_DECK_PG_EVENT_POLL_INTERVAL_MS);
     this.flightDeckPgEventPollTimeoutMs = Math.max(1, deps.flightDeckPgEventPollTimeoutMs ?? FLIGHT_DECK_PG_EVENT_POLL_TIMEOUT_MS);
+    this.flightDeckPgEventReconnectBaseMs = Math.max(1, deps.flightDeckPgEventReconnectBaseMs ?? FLIGHT_DECK_PG_EVENT_RECONNECT_BASE_MS);
+    this.flightDeckPgEventReconnectMaxMs = Math.max(
+      this.flightDeckPgEventReconnectBaseMs,
+      deps.flightDeckPgEventReconnectMaxMs ?? FLIGHT_DECK_PG_EVENT_RECONNECT_MAX_MS,
+    );
     this.flightDeckPgEventWatchdog = new FlightDeckPgEventFreshnessWatchdog(
       resolveFlightDeckPgEventWatchdogTiming({
         pollIntervalMs: this.flightDeckPgEventPollIntervalMs,
@@ -3119,7 +3119,7 @@ export class WorkspaceSubscriptionManager {
   private async verifyFlightDeckPgWorkspaceAccess(
     record: WorkspaceSubscriptionRecord,
     botIdentity: RuntimeBotIdentity,
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal; throwOnRetryable?: boolean } = {},
   ): Promise<WorkspaceSubscriptionRecord> {
     if (!record.workspaceId) {
       throw Object.assign(new Error('Flight Deck PG workspace id is required.'), { detailCode: 'workspace_id_missing' });
@@ -3158,25 +3158,46 @@ export class WorkspaceSubscriptionManager {
       this.clearRuntimeFailure(saved.subscriptionId, 'flightdeck_pg_access_verified');
       return saved;
     } catch (error) {
+      if (options.signal?.aborted) {
+        throw error;
+      }
       const retryable = isRetryableTowerAccessError(error);
+      const diagnosticCode = retryable
+        ? FLIGHT_DECK_PG_ACCESS_RETRY_CODE
+        : FLIGHT_DECK_PG_ACCESS_FAILED_CODE;
       record.wsKeyStatus = retryable && record.wsKeyStatus === 'active' ? 'active' : retryable ? 'pending' : 'failed';
       record.healthStatus = retryable ? 'degraded' : 'unhealthy';
       record.sseStatus = retryable ? 'backoff' : 'disconnected';
-      record.lastErrorCode = 'flightdeck_pg_access_failed';
+      record.lastErrorCode = diagnosticCode;
       record.lastErrorAt = new Date().toISOString();
       record.lastAuthResult = buildFailureDiagnostic(
-        'flightdeck_pg_access_failed',
+        diagnosticCode,
         error instanceof Error ? error.message : 'Flight Deck PG workspace access check failed.',
-        getErrorDetailCode(error) ?? 'flightdeck_pg_access_failed',
+        diagnosticCode,
         {
           workspace_id: record.workspaceId,
           workspace_service_npub: record.workspaceServiceNpub,
           bot_npub: botIdentity.botNpub,
           retryable,
+          source_detail_code: getErrorDetailCode(error),
         },
       );
       const saved = this.saveRecord(this.recomputeHealth(record));
-      this.markRuntimeFailure(saved.subscriptionId, getErrorDetailCode(error) ?? 'flightdeck_pg_access_failed', 'flightdeck_pg_access_failed');
+      if (!retryable) {
+        this.markRuntimeFailure(
+          saved.subscriptionId,
+          getErrorDetailCode(error) ?? FLIGHT_DECK_PG_ACCESS_FAILED_CODE,
+          FLIGHT_DECK_PG_ACCESS_FAILED_CODE,
+        );
+      }
+      if (retryable && options.throwOnRetryable) {
+        const message = error instanceof Error
+          ? error.message
+          : 'Flight Deck PG workspace access check failed.';
+        throw Object.assign(new Error(message, { cause: error }), {
+          detailCode: FLIGHT_DECK_PG_ACCESS_RETRY_CODE,
+        });
+      }
       return saved;
     }
   }
@@ -3621,108 +3642,120 @@ export class WorkspaceSubscriptionManager {
     isStartupReload: boolean,
   ): Promise<void> {
     const runtime = this.getRuntime(subscriptionId);
-    let record = this.store.getBySubscriptionId(subscriptionId);
-    if (!record?.workspaceId) {
-      return;
-    }
-    const workspaceId = record.workspaceId;
-    try {
-      record = await this.verifyFlightDeckPgWorkspaceAccess(record, runtime.botIdentity, { signal });
-      if (
-        record.wsKeyStatus === 'failed'
-        || signal.aborted
-        || runtime.removed
-        || runtime.abortController?.signal !== signal
-      ) {
+    while (
+      !signal.aborted
+      && !runtime.removed
+      && runtime.abortController?.signal === signal
+    ) {
+      let record = this.store.getBySubscriptionId(subscriptionId);
+      if (!record?.workspaceId) {
         return;
       }
-      runtime.reconnectAttempts = 0;
-      record.sseStatus = 'connected';
-      if (isStartupReload) {
-        record.lastSuccessfulStartupReloadAt = new Date().toISOString();
-      }
-      record = this.saveRecord(this.recomputeHealth(record));
-      this.flightDeckPgEventWatchdog.start(subscriptionId, signal);
-      this.clearRuntimeFailure(record.subscriptionId, 'flightdeck_pg_events_connected');
-
-      while (!signal.aborted && !runtime.removed) {
-        record = this.store.getBySubscriptionId(subscriptionId) ?? record;
-        const cursor = record.lastSyncCursor ?? encodeFlightDeckPgEventCursor(0);
-        const audienceNpubs = await this.reconcileFlightDeckAudience(record, runtime.botIdentity, signal);
-        const pollStartedAt = Date.now();
-        const pollController = new AbortController();
-        const abortPoll = () => pollController.abort();
-        signal.addEventListener('abort', abortPoll, { once: true });
-        const result = await withTimeout(
-          this.fetchFlightDeckPgEventsImpl({
-            backendBaseUrl: record.backendBaseUrl,
-            workspaceId,
-            appNpub: record.sourceAppNpub,
-            botIdentity: runtime.botIdentity,
-            cursor,
-            limit: 100,
-            signal: pollController.signal,
-            audienceNpubs,
-          }),
-          this.flightDeckPgEventPollTimeoutMs,
-          'flightdeck_pg_event_poll_timeout',
-          () => pollController.abort(),
-        ).finally(() => {
-          signal.removeEventListener('abort', abortPoll);
+      const workspaceId = record.workspaceId;
+      try {
+        record = await this.verifyFlightDeckPgWorkspaceAccess(record, runtime.botIdentity, {
+          signal,
+          throwOnRetryable: true,
         });
+        if (
+          record.wsKeyStatus === 'failed'
+          || signal.aborted
+          || runtime.removed
+          || runtime.abortController?.signal !== signal
+        ) {
+          return;
+        }
+        runtime.reconnectAttempts = 0;
+        record.sseStatus = 'connected';
+        if (isStartupReload) {
+          record.lastSuccessfulStartupReloadAt = new Date().toISOString();
+          isStartupReload = false;
+        }
+        record = this.saveRecord(this.recomputeHealth(record));
+        this.flightDeckPgEventWatchdog.start(subscriptionId, signal);
+        this.clearRuntimeFailure(record.subscriptionId, 'flightdeck_pg_events_connected');
+
+        while (!signal.aborted && !runtime.removed && runtime.abortController?.signal === signal) {
+          record = this.store.getBySubscriptionId(subscriptionId) ?? record;
+          const cursor = record.lastSyncCursor ?? encodeFlightDeckPgEventCursor(0);
+          const audienceNpubs = await this.reconcileFlightDeckAudience(record, runtime.botIdentity, signal);
+          const pollStartedAt = Date.now();
+          const pollController = new AbortController();
+          const abortPoll = () => pollController.abort();
+          signal.addEventListener('abort', abortPoll, { once: true });
+          const result = await withTimeout(
+            this.fetchFlightDeckPgEventsImpl({
+              backendBaseUrl: record.backendBaseUrl,
+              workspaceId,
+              appNpub: record.sourceAppNpub,
+              botIdentity: runtime.botIdentity,
+              cursor,
+              limit: 100,
+              signal: pollController.signal,
+              audienceNpubs,
+            }),
+            this.flightDeckPgEventPollTimeoutMs,
+            'flightdeck_pg_event_poll_timeout',
+            () => pollController.abort(),
+          ).finally(() => {
+            signal.removeEventListener('abort', abortPoll);
+          });
+          if (signal.aborted || runtime.removed || runtime.abortController?.signal !== signal) {
+            return;
+          }
+          this.flightDeckPgEventWatchdog.recordSuccessfulPoll(subscriptionId, signal);
+          const events = result.events;
+          for (const event of events) {
+            if (signal.aborted || runtime.removed) {
+              return;
+            }
+            record = await this.handleFlightDeckPgEvent(record, event);
+          }
+          const highWaterCursor = decodeFlightDeckPgEventCursor(result.next_cursor);
+          const savedCursor = decodeFlightDeckPgEventCursor(record.lastSyncCursor);
+          if (result.next_cursor && (!savedCursor || !highWaterCursor || highWaterCursor.rowVersion > savedCursor.rowVersion)) {
+            record.lastSyncCursor = result.next_cursor;
+          }
+          record.lastEventPollOkAt = new Date().toISOString();
+          record.lastEventPollErrorAt = null;
+          record.lastEventPollErrorCode = null;
+          record.lastEventPollEventCount = events.length;
+          record.lastEventPollLagMs = Date.now() - pollStartedAt;
+          if (record.lastErrorCode === FLIGHT_DECK_PG_EVENT_POLL_STALE_CODE) {
+            record.lastErrorCode = null;
+            record.lastErrorAt = null;
+          }
+          record = this.saveRecord(this.recomputeHealth(record));
+          await sleepWithAbort(this.flightDeckPgEventPollIntervalMs, signal);
+        }
+        return;
+      } catch (error) {
         if (signal.aborted || runtime.removed || runtime.abortController?.signal !== signal) {
           return;
         }
-        this.flightDeckPgEventWatchdog.recordSuccessfulPoll(subscriptionId, signal);
-        const events = result.events;
-        for (const event of events) {
-          if (signal.aborted || runtime.removed) {
-            return;
-          }
-          record = await this.handleFlightDeckPgEvent(record, event);
+        record = this.store.getBySubscriptionId(subscriptionId);
+        if (!record) {
+          return;
         }
-        const highWaterCursor = decodeFlightDeckPgEventCursor(result.next_cursor);
-        const savedCursor = decodeFlightDeckPgEventCursor(record.lastSyncCursor);
-        if (result.next_cursor && (!savedCursor || !highWaterCursor || highWaterCursor.rowVersion > savedCursor.rowVersion)) {
-          record.lastSyncCursor = result.next_cursor;
+        const detailCode = getErrorDetailCode(error) ?? 'flightdeck_pg_events_failed';
+        if (detailCode !== FLIGHT_DECK_PG_ACCESS_RETRY_CODE) {
+          const failedAt = new Date().toISOString();
+          record.sseStatus = 'backoff';
+          record.lastErrorCode = detailCode;
+          record.lastErrorAt = failedAt;
+          record.lastEventPollErrorAt = failedAt;
+          record.lastEventPollErrorCode = detailCode;
+          this.saveRecord(this.recomputeHealth(record));
         }
-        record.lastEventPollOkAt = new Date().toISOString();
-        record.lastEventPollErrorAt = null;
-        record.lastEventPollErrorCode = null;
-        record.lastEventPollEventCount = events.length;
-        record.lastEventPollLagMs = Date.now() - pollStartedAt;
-        if (record.lastErrorCode === FLIGHT_DECK_PG_EVENT_POLL_STALE_CODE) {
-          record.lastErrorCode = null;
-          record.lastErrorAt = null;
-        }
-        record = this.saveRecord(this.recomputeHealth(record));
-        await sleepWithAbort(this.flightDeckPgEventPollIntervalMs, signal);
-      }
-    } catch (error) {
-      if (signal.aborted || runtime.removed) {
-        return;
-      }
-      record = this.store.getBySubscriptionId(subscriptionId);
-      if (!record) {
-        return;
-      }
-      record.lastEventPollErrorAt = new Date().toISOString();
-      record.lastEventPollErrorCode = getErrorDetailCode(error) ?? 'flightdeck_pg_events_failed';
-      this.saveRecord(this.recomputeHealth(record));
 
-      const delay = Math.min(1_000 * Math.pow(2, runtime.reconnectAttempts), 60_000);
-      runtime.reconnectAttempts += 1;
-      void (async () => {
+        const delay = flightDeckPgReconnectDelayMs(
+          runtime.reconnectAttempts,
+          this.flightDeckPgEventReconnectBaseMs,
+          this.flightDeckPgEventReconnectMaxMs,
+        );
+        runtime.reconnectAttempts += 1;
         await sleepWithAbort(delay, signal);
-        if (signal.aborted || runtime.removed) {
-          return;
-        }
-        const latest = this.store.getBySubscriptionId(subscriptionId);
-        if (!latest || runtime.removed) {
-          return;
-        }
-        void this.runFlightDeckPgEventLoop(subscriptionId, signal, false);
-      })();
+      }
     }
   }
 
