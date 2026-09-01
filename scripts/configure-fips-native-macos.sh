@@ -41,7 +41,7 @@ sed -E -i '' \
   -e 's/^    (#[[:space:]]*)?lan:$/    lan:/' \
   -e 's/^    (#[[:space:]]*)?enabled:[[:space:]]*(true|false)$/      enabled: true/' \
   -e 's/^      enabled:[[:space:]]*(true|false)$/      enabled: true/' \
-  -e 's/^    (#[[:space:]]*)?scope:[[:space:]]*[^#]+([[:space:]]*#.*)?$/      scope: "wingman-fips-poc-v1"/' \
+  -e 's/^    (#[[:space:]]*)?(#[[:space:]]*)?scope:[[:space:]]*[^#]+([[:space:]]*#.*)?$/      scope: "wingman-fips-poc-v1"/' \
   -e 's/^      scope:[[:space:]]*[^#]+([[:space:]]*#.*)?$/      scope: "wingman-fips-poc-v1"/' \
   -e '}' \
   -e '/^tun:$/,/^dns:$/ {' \

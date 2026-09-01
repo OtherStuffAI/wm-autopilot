@@ -12,7 +12,7 @@ describe("native FIPS config transform", () => {
     const configPath = join(fixtureRoot, "fips.yaml");
     const plistPath = join(fixtureRoot, "daemon.plist");
     const attestationPath = join(fixtureRoot, "attestation.json");
-    await writeFile(configPath, `node:\n  identity:\n    # persistent: true\n    nsec: "nsec1identity-must-remain"\n  rendezvous:\n    # nostr:\n    #   enabled: true\n    #   policy: configured_only\n    #   app: "fips-overlay-v1"\n    #   advertise: true\n    # lan:\n    #   enabled: false\n    #   scope: "old-scope"\ntun:\n  enabled: false\ndns:\n  enabled: false\ntransports:\n  udp:\n    # advertise_on_nostr: true\n    # accept_connections: true\n    # outbound_only: false\n  tcp:\n    bind_addr: "0.0.0.0:8443"\npeers: []\n`);
+    await writeFile(configPath, `node:\n  identity:\n    # persistent: true\n    nsec: "nsec1identity-must-remain"\n  rendezvous:\n    # nostr:\n    #   enabled: true\n    #   policy: configured_only\n    #   app: "fips-overlay-v1"\n    #   advertise: true\n    # lan:\n    #   enabled: false\n    #   # scope: "old-scope"\ntun:\n  enabled: false\ndns:\n  enabled: false\ntransports:\n  udp:\n    # advertise_on_nostr: true\n    # accept_connections: true\n    # outbound_only: false\n  tcp:\n    bind_addr: "0.0.0.0:8443"\npeers: []\n`);
     await writeFile(plistPath, "plist");
     const proc = Bun.spawn(["/bin/sh", "scripts/configure-fips-native-macos.sh"], {
       cwd: join(import.meta.dir, ".."),
