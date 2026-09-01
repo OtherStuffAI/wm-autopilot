@@ -36,7 +36,7 @@ export function createTiptapFilePanel(sessionId, targetFile, deps = {}) {
   let pollTimer = null;
   let warning = null, error = null;
   let statusMessage = "", statusType = "info", activeCommentThreadId = null;
-  let commentsPanelOpen = typeof window !== "undefined" && window.matchMedia?.("(min-width: 900px)")?.matches;
+  let commentsPanelOpen = false;
   const fileDirectory = getParentDirectory(targetFile);
   const fileIo = createTiptapFileIo(targetFile, {
     getExpectedMtime: () => lastMtimeMs,
