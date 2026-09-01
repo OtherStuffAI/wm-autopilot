@@ -41,6 +41,8 @@ The generated config enables:
 - `fips0` TUN networking;
 - open Nostr rendezvous and endpoint advertising, so a WMapp with the node npub
   can discover it without a preconfigured IP address;
+- the shared `wingman-fips-poc-v1` rendezvous namespace used by WMapp (FIPS
+  rejects advertisements from a different application namespace);
 - UDP NAT traversal;
 - no server-side `.fips` DNS listener, because WMapp supplies client DNS.
 
