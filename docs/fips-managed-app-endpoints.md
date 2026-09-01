@@ -63,10 +63,13 @@ listeners but is not an exact dynamic set of currently assigned ports. WApps
 remain responsible for service authorization. A production version should
 maintain an nftables set containing only live assigned app ports.
 
-The PoC reports listener setup failures, but it does not yet continuously
-probe the FIPS daemon or interface after a listener reaches `listening`. WMapp
-should therefore treat connection failure as authoritative even if the last
-reported descriptor is still `listening`.
+The container supervises FIPS and Autopilot as one unit: if either process
+exits, the other is stopped and Compose's existing `unless-stopped` policy
+restarts both while preserving the FIPS identity. The PoC reports listener
+setup failures, but it does not continuously probe individual listeners or
+interface health between process exits. WMapp should therefore still treat a
+connection failure as authoritative even if the last reported descriptor is
+`listening`.
 
 ## Endpoint API and CLI
 
