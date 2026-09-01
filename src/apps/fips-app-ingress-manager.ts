@@ -59,7 +59,7 @@ function endpointUrl(npub: string, port: number): string {
 export function validateFipsNodeDescriptor(input: FipsNodeDescriptor): FipsNodeDescriptor {
   const nodeNpub = input.nodeNpub.trim();
   const meshAddress = input.meshAddress.trim().replace(/^\[|\]$/g, "");
-  if (!/^npub1[023456789acdefghjklmnpqrstuvwxyz]+$/i.test(nodeNpub)) {
+  if (!/^npub1[023456789acdefghjklmnpqrstuvwxyz]{58}$/.test(nodeNpub)) {
     throw new Error("FIPS reported an invalid node npub");
   }
   if (isIP(meshAddress) !== 6 || !meshAddress.toLowerCase().startsWith("fd")) {

@@ -11,6 +11,7 @@ node:
     nostr:
       enabled: true
       policy: open
+      app: "wingman-fips-poc-v1"
       advertise: true
 
 tun:

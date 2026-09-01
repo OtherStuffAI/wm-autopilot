@@ -86,6 +86,11 @@ describe("FipsAppIngressManager", () => {
     expect(() => validateFipsNodeDescriptor({ nodeNpub: NODE_NPUB, meshAddress: "::" })).toThrow();
     expect(() => validateFipsNodeDescriptor({ nodeNpub: NODE_NPUB, meshAddress: "2001:db8::1" })).toThrow();
   });
+
+  test("rejects malformed public node identities", () => {
+    expect(() => validateFipsNodeDescriptor({ nodeNpub: "npub1short", meshAddress: MESH_ADDRESS })).toThrow();
+    expect(() => validateFipsNodeDescriptor({ nodeNpub: NODE_NPUB.toUpperCase(), meshAddress: MESH_ADDRESS })).toThrow();
+  });
 });
 
 describe("FIPS TCP ingress", () => {
