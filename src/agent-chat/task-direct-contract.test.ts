@@ -9,6 +9,7 @@ import {
 
 const exampleAgent = { type: 'agent', actor_id: 'actor-exampleAgent', npub: 'npub-exampleAgent', label: 'exampleAgent' };
 const jane = { type: 'agent', actor_id: 'actor-jane', npub: 'npub-jane', label: 'wm22' };
+const stableBotNpub = 'npub1llwrq3rtah3rg3r2dyfyht55ek7aa0ey7z47ujju407pzfp38shqa7zcvr';
 
 describe('task direct contract', () => {
   test('anchors routing to Tower, workspace, agent, and task', () => {
@@ -61,11 +62,12 @@ describe('task direct contract', () => {
   });
 
   test('routes canonical Tower task comment mentions', () => {
+    const stableBotMention = { type: 'agent', actor_id: 'actor-stable-bot', npub: stableBotNpub, label: 'Flight Deck Agent' };
     expect(normaliseTaskDirectTrigger({
       event_id: 'comment-1', event_type: 'flightdeck_pg.task_comment.created', entity_type: 'task_comment',
-      entity_id: 'comment-1', operation: 'created', payload: { task_id: 'task-1', mentions: [exampleAgent],
-        comment: { id: 'comment-1', task_id: 'task-1', metadata: { mentions: [exampleAgent] } } },
-    })?.reasonsByAgentNpub.get('npub-exampleAgent')).toEqual(['comment_mention_added']);
+      entity_id: 'comment-1', operation: 'created', payload: { task_id: 'task-1', mentions: [stableBotMention],
+        comment: { id: 'comment-1', task_id: 'task-1', metadata: { mentions: [stableBotMention] } } },
+    })?.reasonsByAgentNpub.get(stableBotNpub)).toEqual(['comment_mention_added']);
   });
 
   test('keeps legacy synthetic transition fields compatible', () => {
