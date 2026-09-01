@@ -56,9 +56,11 @@ To supply a custom persistent config, mount or create it at
 configured control socket aligned with `FIPS_CONTROL_SOCKET`, and Nostr
 rendezvous enabled. Set `node.rendezvous.nostr.app` to exactly
 `wingman-fips-poc-v1`; startup fails with a remediation message rather than
-silently advertising into a namespace WMapp will reject. Static peers can
-replace Nostr as a transport bootstrap only after this PoC's discovery
-contract is changed on both sides.
+silently advertising into a namespace WMapp will reject. Native macOS nodes
+also configure the upstream project's authenticated `test-us01` peer at pinned
+IP `217.77.8.91:2121`. It provides routed reachability when direct UDP punching
+fails without requiring a DNS lookup. Production must replace this public test
+dependency with Wingman-operated bootstrap peers.
 
 Local candidate sharing is not a remote-access guarantee. It intentionally
 reveals private interface candidates inside encrypted traversal signaling and

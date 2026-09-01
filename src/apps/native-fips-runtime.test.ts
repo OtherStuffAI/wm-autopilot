@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { inspectNativeFipsRuntime } from "./native-fips-runtime";
 
-const config = JSON.stringify({ schema: 1, fipsVersion: "0.5.0", rendezvousApp: "wingman-fips-poc-v1", nostrShareLocalCandidates: true, lanEnabled: true, lanScope: "wingman-fips-poc-v1", tunEnabled: true, dnsEnabled: true, udpAdvertiseOnNostr: true, udpAcceptConnections: true, udpOutboundOnly: false });
+const config = JSON.stringify({ schema: 2, fipsVersion: "0.5.0", rendezvousApp: "wingman-fips-poc-v1", nostrShareLocalCandidates: true, lanEnabled: true, lanScope: "wingman-fips-poc-v1", tunEnabled: true, dnsEnabled: true, udpAdvertiseOnNostr: true, udpAcceptConnections: true, udpOutboundOnly: false, bootstrapPeerNpub: "npub1qmc3cvfz0yu2hx96nq3gp55zdan2qclealn7xshgr448d3nh6lks7zel98", bootstrapPeerAddress: "217.77.8.91:2121" });
 
 describe("native FIPS runtime inspection", () => {
   test("returns a public descriptor only after install, launchd, config, and daemon checks", async () => {
@@ -81,7 +81,7 @@ describe("native FIPS runtime inspection", () => {
         : { exitCode: 0, stdout: "loaded", stderr: "" },
     });
     expect(result.ready).toBe(false);
-    expect(result.error).toContain("same-LAN candidate sharing");
+    expect(result.error).toContain("same-LAN candidates");
     expect(result.error).toContain("install/repair");
   });
 
