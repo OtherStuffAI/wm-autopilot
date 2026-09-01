@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { inspectNativeFipsRuntime } from "./native-fips-runtime";
 
-const config = JSON.stringify({ schema: 1, fipsVersion: "0.5.0", rendezvousApp: "wingman-fips-poc-v1", lanEnabled: true, lanScope: "wingman-fips-poc-v1", tunEnabled: true, dnsEnabled: true, udpAdvertiseOnNostr: true, udpAcceptConnections: true, udpOutboundOnly: false });
+const config = JSON.stringify({ schema: 1, fipsVersion: "0.5.0", rendezvousApp: "wingman-fips-poc-v1", nostrShareLocalCandidates: true, lanEnabled: true, lanScope: "wingman-fips-poc-v1", tunEnabled: true, dnsEnabled: true, udpAdvertiseOnNostr: true, udpAcceptConnections: true, udpOutboundOnly: false });
 
 describe("native FIPS runtime inspection", () => {
   test("returns a public descriptor only after install, launchd, config, and daemon checks", async () => {
@@ -69,6 +69,19 @@ describe("native FIPS runtime inspection", () => {
         : { exitCode: 0, stdout: "loaded", stderr: "" },
     });
     expect(result.ready).toBe(false);
+    expect(result.error).toContain("install/repair");
+  });
+
+  test("rejects an attestation that does not enable same-LAN Nostr candidates", async () => {
+    const result = await inspectNativeFipsRuntime({
+      canExecute: async () => true,
+      readText: async () => config.replace('"nostrShareLocalCandidates":true', '"nostrShareLocalCandidates":false'),
+      run: async (argv) => argv.includes("--version")
+        ? { exitCode: 0, stdout: "fipsctl 0.5.0", stderr: "" }
+        : { exitCode: 0, stdout: "loaded", stderr: "" },
+    });
+    expect(result.ready).toBe(false);
+    expect(result.error).toContain("same-LAN candidate sharing");
     expect(result.error).toContain("install/repair");
   });
 

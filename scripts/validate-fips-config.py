@@ -53,6 +53,17 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    share_local_candidates = scalar_at_path(
+        text, ("node", "rendezvous", "nostr", "share_local_candidates")
+    )
+    if share_local_candidates != "true":
+        print(
+            f"Incompatible FIPS same-LAN traversal in {config_path}: expected "
+            "node.rendezvous.nostr.share_local_candidates=true. This PoC setting "
+            "is only appropriate when both peers are on the same physical LAN.",
+            file=sys.stderr,
+        )
+        return 1
     lan_enabled = scalar_at_path(text, ("node", "rendezvous", "lan", "enabled"))
     lan_scope = scalar_at_path(text, ("node", "rendezvous", "lan", "scope"))
     if lan_enabled != "true" or lan_scope != REQUIRED_APP:

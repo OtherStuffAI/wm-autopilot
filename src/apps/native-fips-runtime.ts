@@ -65,6 +65,7 @@ function configIsCompatible(text: string): boolean {
   return root.schema === 1
     && root.fipsVersion === FIPS_NATIVE_VERSION
     && root.rendezvousApp === FIPS_RENDEZVOUS_APP
+    && root.nostrShareLocalCandidates === true
     && root.lanEnabled === true
     && root.lanScope === FIPS_RENDEZVOUS_APP
     && root.tunEnabled === true
@@ -134,7 +135,7 @@ export async function inspectNativeFipsRuntime(
     base.configured = false;
   }
   if (!base.configured) {
-    return { ...base, error: `FIPS config attestation ${attestationPath} is missing or incompatible with ${configPath}; expected ${FIPS_RENDEZVOUS_APP}, run the explicit install/repair command` };
+    return { ...base, error: `FIPS config attestation ${attestationPath} is missing or incompatible with ${configPath}; expected ${FIPS_RENDEZVOUS_APP} with same-LAN candidate sharing, run the explicit install/repair command` };
   }
 
   const status = await run([fipsctlPath, "--socket", controlSocketPath, "show", "status"]);

@@ -40,6 +40,8 @@ explicit key material, peers, and unrelated settings. Native readiness requires:
 
 - persistent identity;
 - Nostr rendezvous `policy: open`, app `wingman-fips-poc-v1`, and advertising;
+- Nostr `share_local_candidates: true`, so the two PoC nodes can exchange
+  RFC1918/ULA host candidates when both Macs are on the same physical LAN;
 - LAN rendezvous enabled with scope `wingman-fips-poc-v1` for reliable same-LAN
   discovery;
 - an active FIPS TUN interface (`utunN` on macOS) and local `.fips` DNS enabled;
@@ -50,6 +52,13 @@ The root-owned config remains mode `0600`, so Autopilot cannot accidentally read
 an operator-supplied `nsec`. The helper instead writes a world-readable,
 non-secret `wingman-poc-runtime.json` attestation containing only the validated
 booleans and public namespace. Run `repair` again after any manual config change.
+
+`share_local_candidates` is a deliberate same-physical-LAN PoC mitigation, not
+a general remote-access setting. It discloses private interface candidates to
+the peer through encrypted Nostr traversal signaling and can produce misleading
+one-way successes across VPNs, subnet routes, or overlapping address ranges.
+Remote clients still need a working public-reflexive/NAT traversal path or a
+different explicitly designed relay/bootstrap mechanism.
 
 The package adds the current console user to the `fips` group. macOS may require
 logging out and back in once before that user can access the control socket.
