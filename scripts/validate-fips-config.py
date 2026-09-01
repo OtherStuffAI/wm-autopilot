@@ -53,6 +53,15 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    lan_enabled = scalar_at_path(text, ("node", "rendezvous", "lan", "enabled"))
+    lan_scope = scalar_at_path(text, ("node", "rendezvous", "lan", "scope"))
+    if lan_enabled != "true" or lan_scope != REQUIRED_APP:
+        print(
+            f"Incompatible FIPS LAN rendezvous in {config_path}: expected "
+            f"node.rendezvous.lan.enabled=true and scope={REQUIRED_APP!r}.",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

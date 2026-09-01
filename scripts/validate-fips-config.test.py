@@ -38,6 +38,19 @@ node:
             "fips-overlay-v1",
         )
 
+    def test_reads_lan_scope(self) -> None:
+        text = '''
+node:
+  rendezvous:
+    lan:
+      enabled: true
+      scope: "wingman-fips-poc-v1"
+'''
+        self.assertEqual(
+            MODULE.scalar_at_path(text, ("node", "rendezvous", "lan", "scope")),
+            "wingman-fips-poc-v1",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

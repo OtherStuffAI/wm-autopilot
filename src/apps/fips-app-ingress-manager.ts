@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 
 import type { AppRecord } from "./app-registry";
+import { inspectNativeFipsRuntime } from "./native-fips-runtime";
 
 export type FipsEndpointState = "disabled" | "unavailable" | "listening" | "error" | "conflict";
 
@@ -28,7 +29,9 @@ interface FipsIngressRecord {
 
 interface FipsIngressEnvironment {
   FIPS_APPS_ENABLED?: string;
+  FIPS_CONFIG_PATH?: string;
   FIPS_CONTROL_SOCKET?: string;
+  FIPSCTL_PATH?: string;
   FIPS_NODE_NPUB?: string;
   FIPS_MESH_ADDRESS?: string;
 }
@@ -37,6 +40,7 @@ export interface FipsAppIngressManagerOptions {
   env?: FipsIngressEnvironment;
   discover?: () => Promise<FipsNodeDescriptor>;
   serverFactory?: typeof createServer;
+  platform?: NodeJS.Platform;
 }
 
 const DEFAULT_CONTROL_SOCKET = "/app/data/fips/control.sock";
@@ -91,7 +95,7 @@ export function createTcpForwardingServer(
   });
 }
 
-async function discoverWithFipsctl(env: FipsIngressEnvironment): Promise<FipsNodeDescriptor> {
+async function discoverWithFipsctl(env: FipsIngressEnvironment, platform: NodeJS.Platform): Promise<FipsNodeDescriptor> {
   const explicitNpub = env.FIPS_NODE_NPUB?.trim();
   const explicitAddress = env.FIPS_MESH_ADDRESS?.trim();
   if ((explicitNpub && !explicitAddress) || (!explicitNpub && explicitAddress)) {
@@ -101,8 +105,21 @@ async function discoverWithFipsctl(env: FipsIngressEnvironment): Promise<FipsNod
     return validateFipsNodeDescriptor({ nodeNpub: explicitNpub, meshAddress: explicitAddress });
   }
 
+  if (platform === "darwin") {
+    const native = await inspectNativeFipsRuntime({
+      ...(env.FIPS_CONFIG_PATH?.trim() ? { configPath: env.FIPS_CONFIG_PATH.trim() } : {}),
+      ...(env.FIPSCTL_PATH?.trim() ? { fipsctlPath: env.FIPSCTL_PATH.trim() } : {}),
+      ...(env.FIPS_CONTROL_SOCKET?.trim() ? { controlSocketPath: env.FIPS_CONTROL_SOCKET.trim() } : {}),
+    });
+    if (!native.ready || !native.descriptor) {
+      throw new Error(native.error ?? "Native FIPS daemon is unavailable");
+    }
+    return validateFipsNodeDescriptor(native.descriptor);
+  }
+
   const socketPath = env.FIPS_CONTROL_SOCKET?.trim() || DEFAULT_CONTROL_SOCKET;
-  const proc = Bun.spawn(["fipsctl", "--socket", socketPath, "show", "status"], {
+  const fipsctlPath = env.FIPSCTL_PATH?.trim() || "fipsctl";
+  const proc = Bun.spawn([fipsctlPath, "--socket", socketPath, "show", "status"], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -133,6 +150,7 @@ export class FipsAppIngressManager {
   private readonly env: FipsIngressEnvironment;
   private readonly discover: () => Promise<FipsNodeDescriptor>;
   private readonly serverFactory: typeof createServer;
+  private readonly platform: NodeJS.Platform;
   private readonly records = new Map<string, FipsIngressRecord>();
   private descriptor: FipsNodeDescriptor | null = null;
   private unavailableError: string | null = null;
@@ -140,12 +158,14 @@ export class FipsAppIngressManager {
 
   constructor(options: FipsAppIngressManagerOptions = {}) {
     this.env = options.env ?? (Bun.env as FipsIngressEnvironment);
-    this.discover = options.discover ?? (() => discoverWithFipsctl(this.env));
+    this.platform = options.platform ?? process.platform;
+    this.discover = options.discover ?? (() => discoverWithFipsctl(this.env, this.platform));
     this.serverFactory = options.serverFactory ?? createServer;
   }
 
   get enabled(): boolean {
-    return isEnabled(this.env.FIPS_APPS_ENABLED);
+    const configured = this.env.FIPS_APPS_ENABLED;
+    return configured === undefined ? this.platform === "darwin" : isEnabled(configured);
   }
 
   async initialize(): Promise<void> {

@@ -13,6 +13,9 @@ node:
       policy: open
       app: "wingman-fips-poc-v1"
       advertise: true
+    lan:
+      enabled: true
+      scope: "wingman-fips-poc-v1"
 
 tun:
   enabled: true

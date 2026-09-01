@@ -31,7 +31,10 @@
     "security:agentapi-listener": "bun run scripts/verify-agentapi-loopback.ts",
     "security:pm2-metadata": "bun run scripts/pm2-secret-metadata-report.ts",
     "runtime:backup": "bun scripts/runtime-backup.ts",
-    "apps:migrate-registry": "bun scripts/migrate-app-registry.ts"
+    "apps:migrate-registry": "bun scripts/migrate-app-registry.ts",
+    "fips:prepare:macos": "bash scripts/prepare-fips-macos.sh --all",
+    "fips:status": "bun clis/fips.ts status",
+    "fips:install:macos": "bun clis/fips.ts install"
   },
   "dependencies": {
     "@agentclientprotocol/codex-acp": "1.1.7",
