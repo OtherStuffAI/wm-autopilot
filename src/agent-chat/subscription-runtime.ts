@@ -3839,6 +3839,7 @@ export class WorkspaceSubscriptionManager {
       const result = await this.taskDirectRuntime.handle({
         subscription: record,
         botIdentity: runtime.botIdentity,
+        instanceNpub: this.getInstanceIdentity()?.npub ?? null,
         event,
       });
       record = this.appendDispatchHistory(record, {
@@ -3850,7 +3851,7 @@ export class WorkspaceSubscriptionManager {
         recordId: event.event_id ?? event.id ?? event.entity_id ?? null,
         bindingId: typeof event.payload?.task_id === 'string' ? event.payload.task_id : event.entity_id ?? null,
         bindingType: 'task',
-        details: { source: 'flightdeck_pg', entity_type: event.entity_type },
+        details: { source: 'flightdeck_pg', entity_type: event.entity_type, targeting: result.targeting },
       });
     } else if (event.entity_type === 'invocation' && event.operation !== 'deleted') {
       record = await this.handleFlightDeckPgInvocationEvent(record, event);
