@@ -28,6 +28,10 @@ const APP_BUSY_STATUSES = new Set(["stopping", "restarting", "building", "settin
 const VARIABLE_URL_LOG_PREFIX = "[WINGMAN-URL]";
 const VARIABLE_PUBKEY_LOG_PREFIX = "[WINGMAN-PUBKEY]";
 
+function isAppsSurfaceRoute(route) {
+  return route === "apps" || route === "home";
+}
+
 export function initAppsRuntime({
   state,
   appsStore,
@@ -81,7 +85,7 @@ export function initAppsRuntime({
     } else {
       await fetchApps({ tail });
     }
-    if (!skipRender && getCurrentRoute() === "apps") {
+    if (!skipRender && isAppsSurfaceRoute(getCurrentRoute())) {
       render();
     }
   }
@@ -167,7 +171,7 @@ export function initAppsRuntime({
       appsStore().system.restart.inProgress = true;
       appsStore().system.restart.error = null;
       await fetchRestartStatus();
-      if (getCurrentRoute() === "apps") {
+      if (isAppsSurfaceRoute(getCurrentRoute())) {
         render();
       }
       return true;
@@ -187,7 +191,7 @@ export function initAppsRuntime({
     }
     appsStore().system.cleanup.running = true;
     appsStore().system.cleanup.error = null;
-    if (getCurrentRoute() === "apps") {
+    if (isAppsSurfaceRoute(getCurrentRoute())) {
       render();
     }
     try {
@@ -203,7 +207,7 @@ export function initAppsRuntime({
       return false;
     } finally {
       appsStore().system.cleanup.running = false;
-      if (getCurrentRoute() === "apps") {
+      if (isAppsSurfaceRoute(getCurrentRoute())) {
         render();
       }
     }

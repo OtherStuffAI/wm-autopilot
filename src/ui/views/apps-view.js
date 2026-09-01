@@ -1,4 +1,5 @@
 import { showAppCardModal } from "../apps/card-modal.js";
+import { renderAppsListGroups } from "../apps/list-groups.js";
 import { filterAndSortApps, renderAppsTable } from "../apps/table.js";
 
 export const APPS_FILTER_FOCUS_KEY = "apps-filter-input";
@@ -169,10 +170,10 @@ export function initAppsView({
     return filterWrap;
   }
 
-  function renderAppsCardGrid(apps) {
+  function renderAppsCardGrid(apps, groupId) {
     const grid = document.createElement("div");
     grid.className = "wm-apps-grid";
-    grid.dataset.testid = "apps-card-view";
+    grid.dataset.testid = `apps-${groupId}-card-view`;
 
     apps.forEach((app) => {
       grid.append(selectAppCardRenderer(app, renderAppCard, renderWingmanCard)(app));
@@ -228,7 +229,7 @@ export function initAppsView({
           appState.filters.npub = value;
           appState.filters.initialized = true;
           void fetchApps({ tail: logPreviewLines }).then(() => {
-            if (getCurrentRoute() === "apps") {
+            if (getCurrentRoute() === "apps" || getCurrentRoute() === "home") {
               render();
             }
           });
@@ -327,20 +328,27 @@ export function initAppsView({
         renderAppCard: selectAppCardRenderer(app, renderAppCard, renderWingmanCard),
       });
     };
-    const table = renderAppsTable({
-      apps: visibleApps,
-      appStatusLabels,
-      formatAppTimestamp,
-      onOpenAppDetails: openAppDetails,
-      sort,
-      onSortChange: (nextSort) => {
-        appsStore().sort = nextSort;
-        render();
-      },
-    });
-    const grid = renderAppsCardGrid(visibleApps);
+    const renderTable = (groupApps, groupId) => {
+      const table = renderAppsTable({
+        apps: groupApps,
+        appStatusLabels,
+        formatAppTimestamp,
+        onOpenAppDetails: openAppDetails,
+        sort,
+        onSortChange: (nextSort) => {
+          appsStore().sort = nextSort;
+          render();
+        },
+      });
+      table.dataset.testid = `apps-${groupId}-table-view`;
+      return table;
+    };
 
-    mainArea.append(table, grid);
+    mainArea.append(renderAppsListGroups({
+      apps: visibleApps,
+      renderTable,
+      renderCards: renderAppsCardGrid,
+    }));
     wrapper.append(mainArea);
 
     focusPendingApp(wrapper);
