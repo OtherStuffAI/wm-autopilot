@@ -29,6 +29,11 @@ import {
 import { readCombinedLogs, readLogTail } from "../agents/log-reader";
 import { sanitizeLogEntry } from "../logging/log-sanitizer";
 import { runtimePortRegistry } from "./runtime-port-registry";
+import {
+  fipsAppIngressManager,
+  type FipsAppEndpoint,
+  type FipsAppIngressManager,
+} from "./fips-app-ingress-manager";
 import { waitForAvailableTcpPort, waitForListeningPort, waitForTcpPort } from "../utils/port-utils";
 import { wappStore, type WappStore } from "../wapps/wapp-store";
 import { getWappRuntimeEnvForWapp } from "../wapps/runtime-env";
@@ -73,6 +78,8 @@ export interface AppProcessStatus {
   pid?: number | null;
   /** Memory usage in bytes (from PM2 runtime). */
   memory?: number | null;
+  /** Mesh-only FIPS endpoint for managed web apps. */
+  fips?: FipsAppEndpoint | null;
 }
 
 interface AppRuntimeState {
@@ -139,6 +146,7 @@ export class AppProcessManager {
   private towerWappRegistrar: TowerWappRegistrar;
   private readonly spawn: typeof Bun.spawn;
   private readonly towerDbRequestBroker: WappTowerDbRequestBroker;
+  private readonly fipsIngressManager: FipsAppIngressManager;
 
   constructor(
     registry: AppRegistry = appRegistry,
@@ -148,6 +156,7 @@ export class AppProcessManager {
     towerWappRegistrar: TowerWappRegistrar = new HttpTowerWappRegistrar(),
     spawn: typeof Bun.spawn = Bun.spawn,
     towerDbRequestBroker: WappTowerDbRequestBroker = wappTowerDbRequestBroker,
+    fipsIngressManager: FipsAppIngressManager = fipsAppIngressManager,
   ) {
     this.registry = registry;
     this.adminNpubs = adminNpubs === undefined ? getConfiguredAdminNpubs() : normaliseNpubList(adminNpubs);
@@ -156,6 +165,7 @@ export class AppProcessManager {
     this.towerWappRegistrar = towerWappRegistrar;
     this.spawn = spawn;
     this.towerDbRequestBroker = towerDbRequestBroker;
+    this.fipsIngressManager = fipsIngressManager;
   }
 
   configureTowerRegistration(input: {
@@ -181,7 +191,9 @@ export class AppProcessManager {
     return this.runAction(appId, "start", async (app) => {
       this.requireScript(app, "start");
       await this.ensureTowerWappRegistered(app);
+      await this.stopFipsIngress(app.id);
       const processName = await this.startManagedAppProcess(app);
+      await this.startFipsIngress(app);
 
       return {
         finalStatus: "running" as AppRuntimeStatus,
@@ -193,6 +205,7 @@ export class AppProcessManager {
 
   async stop(appId: string): Promise<AppProcessStatus> {
     return this.runAction(appId, "stop", async (app) => {
+      await this.stopFipsIngress(app.id);
       this.towerDbRequestBroker.revokeApp(app.id);
       // Clear runtime port first
       runtimePortRegistry.clear(app.id);
@@ -237,6 +250,7 @@ export class AppProcessManager {
       }
       await this.ensureTowerWappRegistered(app);
       this.towerDbRequestBroker.revokeApp(app.id);
+      await this.stopFipsIngress(app.id);
 
       // Clear runtime port before restart
       runtimePortRegistry.clear(app.id);
@@ -247,6 +261,7 @@ export class AppProcessManager {
         if (proc) {
           await deleteProcess(processName);
           const refreshedProcessName = await this.startManagedAppProcess(app);
+          await this.startFipsIngress(app);
           return {
             finalStatus: "running" as AppRuntimeStatus,
             exitCode: 0,
@@ -256,6 +271,7 @@ export class AppProcessManager {
       }
 
       const newProcessName = await this.startManagedAppProcess(app);
+      await this.startFipsIngress(app);
 
       return {
         finalStatus: "running" as AppRuntimeStatus,
@@ -342,12 +358,30 @@ export class AppProcessManager {
     return statuses;
   }
 
+  async reconcileFipsIngresses(): Promise<void> {
+    await this.fipsIngressManager.initialize();
+    const apps = await this.registry.listApps();
+    for (const app of apps) {
+      const state = await this.resolveState(app);
+      if (app.webApp && state.status === "running") {
+        await this.startFipsIngress(app);
+      } else {
+        await this.stopFipsIngress(app.id);
+      }
+    }
+  }
+
+  async shutdownFipsIngresses(): Promise<void> {
+    await this.fipsIngressManager.shutdown();
+  }
+
   async kill(appId: string): Promise<void> {
     const app = await this.registry.getApp(appId);
     if (!app) {
       throw new Error(`Unknown app: ${appId}`);
     }
 
+    await this.stopFipsIngress(app.id);
     this.towerDbRequestBroker.revokeApp(app.id);
     if (app.pm2Name) {
       try {
@@ -454,6 +488,7 @@ export class AppProcessManager {
       lastFailureAt: state.lastFailureAt,
       running: state.status === "running",
       inProgressAction: state.inProgress,
+      fips: this.fipsIngressManager.getEndpoint(app),
     };
 
     // Fetch PM2 runtime info if app has a PM2 process
@@ -592,6 +627,22 @@ export class AppProcessManager {
       throw error;
     } finally {
       await removeAppRuntimeEnvelope(launch?.runtimeEnvPath);
+    }
+  }
+
+  private async startFipsIngress(app: AppRecord): Promise<void> {
+    try {
+      await this.fipsIngressManager.start(app);
+    } catch (error) {
+      console.warn(`[fips-apps] failed to expose ${app.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async stopFipsIngress(appId: string): Promise<void> {
+    try {
+      await this.fipsIngressManager.stop(appId);
+    } catch (error) {
+      console.warn(`[fips-apps] failed to stop ${appId} ingress: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

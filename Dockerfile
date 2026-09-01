@@ -9,6 +9,31 @@ RUN cd /src/agentapi \
   && git apply /tmp/loopback-listener.patch \
   && go build -trimpath -o /agentapi .
 
+FROM node:22-trixie@sha256:97337fb5b20347953eb4b9aa0183c73259a0e21934b07845f04278e4954ae61a AS fips-downloader
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ARG FIPS_VERSION=0.5.0
+ARG TARGETARCH
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && BUILD_ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" \
+  && case "${BUILD_ARCH}" in \
+      amd64|x86_64) FIPS_ARCH=x86_64; FIPS_SHA256=a57240b70d8e0940ba5d962b0b9881cadd2befb43b75991e435d74243cbd7b27 ;; \
+      arm64|aarch64) FIPS_ARCH=aarch64; FIPS_SHA256=c0e00bd8e9dc0ca01cbd6992da5d3944530a6a18df4e2d36c073b3913488d40f ;; \
+      *) echo "Unsupported FIPS Docker target architecture: ${BUILD_ARCH}" >&2; exit 1 ;; \
+    esac \
+  && FIPS_ARCHIVE="fips-${FIPS_VERSION}-linux-${FIPS_ARCH}.tar.gz" \
+  && curl -fsSL "https://github.com/jmcorgan/fips/releases/download/v${FIPS_VERSION}/${FIPS_ARCHIVE}" -o "/tmp/${FIPS_ARCHIVE}" \
+  && echo "${FIPS_SHA256}  /tmp/${FIPS_ARCHIVE}" | sha256sum -c - \
+  && mkdir -p /fips-release \
+  && tar -xzf "/tmp/${FIPS_ARCHIVE}" -C /fips-release --strip-components=1 \
+  && test -x /fips-release/fips \
+  && test -x /fips-release/fipsctl \
+  && test -f /fips-release/fips.nft
+
 FROM node:22-trixie@sha256:97337fb5b20347953eb4b9aa0183c73259a0e21934b07845f04278e4954ae61a
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -37,10 +62,13 @@ RUN apt-get update \
     g++ \
     gcc \
     git \
+    gosu \
     jq \
     less \
+    libdbus-1-3 \
     libvulkan1 \
     make \
+    nftables \
     openssh-client \
     pkg-config \
     procps \
@@ -92,7 +120,9 @@ RUN npm install -g "${FLIGHTDECK_CLI_PACKAGE}" \
   && ln -sfn "${FLIGHTDECK_CLI_ROOT}" /opt/flightdeck-cli
 
 RUN useradd --create-home --home-dir /home/wingman --shell /bin/bash --uid 10001 wingman \
-  && mkdir -p /app/data /app/tmp /app/out \
+  && groupadd --system fips \
+  && usermod -aG fips wingman \
+  && mkdir -p /app/data /app/tmp /app/out /etc/fips/fips.d \
   && chown -R wingman:wingman \
     /app \
     /home/wingman \
@@ -109,9 +139,12 @@ RUN WINGMAN_SKIP_AGENTAPI_INSTALL=1 bun install --frozen-lockfile \
 
 COPY --chown=wingman:wingman . .
 COPY --from=agentapi-builder --chown=wingman:wingman /agentapi /app/out/agentapi
+COPY --from=fips-downloader /fips-release/fips /usr/local/bin/fips
+COPY --from=fips-downloader /fips-release/fipsctl /usr/local/bin/fipsctl
+COPY --from=fips-downloader /fips-release/fips.nft /etc/fips/fips.nft
 RUN chmod +x scripts/docker-entrypoint.sh
 
-USER wingman
+USER root
 
 ENV HOME=/home/wingman
 ENV PORT=3600

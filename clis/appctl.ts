@@ -148,7 +148,15 @@ function printList(payload: { apps?: Array<Record<string, unknown>> }) {
     const id = String(app.id ?? "");
     const label = String(app.label ?? id);
     const { status, running } = resolveAppStatus(app);
-    console.log(`${id}\t${label}\t${status}\trunning=${running ? "yes" : "no"}`);
+    const fips = app.fips && typeof app.fips === "object" ? app.fips as Record<string, unknown> : null;
+    const fipsUrl = typeof fips?.url === "string" ? fips.url : null;
+    const fipsStatus = typeof fips?.status === "string" ? fips.status : null;
+    const fipsDetail = fipsUrl
+      ? `\tfips=${fipsUrl}\tfips-status=${fipsStatus ?? "unknown"}`
+      : fipsStatus && fipsStatus !== "disabled"
+        ? `\tfips-status=${fipsStatus}`
+        : "";
+    console.log(`${id}\t${label}\t${status}\trunning=${running ? "yes" : "no"}${fipsDetail}`);
   }
 }
 

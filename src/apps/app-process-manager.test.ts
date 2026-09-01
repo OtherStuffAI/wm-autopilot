@@ -67,6 +67,7 @@ const app: AppRecord = {
 function makeManager(input: {
   registrar: { register: (registration: any) => Promise<any> };
   namespaceStatus?: number;
+  fipsIngressManager?: any;
 }): { manager: InstanceType<typeof AppProcessManager>; cleanup: () => void } {
   ecosystemCalls.length = 0;
   wappRuntimeEnvs.length = 0;
@@ -113,7 +114,7 @@ function makeManager(input: {
     botNpub: "npub1bot",
     botPubkeyHex: "f".repeat(64),
     botSecret: new Uint8Array(32),
-  }, input.registrar, Bun.spawn, broker);
+  }, input.registrar, Bun.spawn, broker, input.fipsIngressManager);
   return {
     manager,
     broker,
@@ -122,6 +123,38 @@ function makeManager(input: {
 }
 
 describe("AppProcessManager Tower WApp lifecycle registration", () => {
+  test("reconciles FIPS ingress around app lifecycle without making it app-critical", async () => {
+    const calls: string[] = [];
+    const fipsIngressManager = {
+      initialize: async () => calls.push("initialize"),
+      getEndpoint: () => ({ enabled: true, status: "listening", url: "http://node.fips:4100/" }),
+      start: async () => calls.push("start"),
+      stop: async () => calls.push("stop"),
+      shutdown: async () => calls.push("shutdown"),
+    };
+    const { manager, cleanup } = makeManager({
+      namespaceStatus: 200,
+      registrar: { register: async () => ({}) },
+      fipsIngressManager,
+    });
+    try {
+      const started = await manager.start(app.id);
+      expect(started.status).toBe("running");
+      expect(started.fips).toMatchObject({ status: "listening" });
+      expect(calls).toEqual(["stop", "start"]);
+
+      calls.length = 0;
+      await manager.restart(app.id);
+      expect(calls).toEqual(["stop", "start"]);
+
+      calls.length = 0;
+      await manager.stop(app.id);
+      expect(calls).toEqual(["stop"]);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("blocks lifecycle execution while migration review is required", async () => {
     pm2Starts.length = 0;
     const reviewApp = {

@@ -907,6 +907,7 @@ try {
     console.log(`[pm2] reconciled apps: ${appReconcileResult.appsReconciled} running, ${appReconcileResult.appsCleared} cleared`);
   }
   await autostartApps(appRegistry, appProcessManager);
+  await appProcessManager.reconcileFipsIngresses();
 } catch (error) {
   console.warn(`[apps-bootstrap] app reconciliation or autostart failed: ${(error as Error).message}`);
 }
@@ -2057,6 +2058,7 @@ const buildAppResponse = (app: AppRecord, status: AppProcessStatus, options: Bui
     subdomainUrl,
     customDomains,
     primaryUrl,
+    fips: status.fips ?? null,
     status,
     availableScripts,
     logs: undefined as string[] | undefined,
@@ -3166,6 +3168,12 @@ const initiateShutdown = async (reason: string) => {
     fileWatcherRunner.stop();
   } catch (error) {
     console.warn(`[shutdown] failed to stop file watcher runner: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  try {
+    await appProcessManager.shutdownFipsIngresses();
+  } catch (error) {
+    console.warn(`[shutdown] failed to stop FIPS app ingresses: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   try {
