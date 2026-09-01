@@ -49,7 +49,11 @@ The generated config enables:
 To supply a custom persistent config, mount or create it at
 `FIPS_CONFIG_PATH` before boot. Keep `node.identity.persistent: true`, the
 configured control socket aligned with `FIPS_CONTROL_SOCKET`, and Nostr
-rendezvous enabled unless static peers provide discovery.
+rendezvous enabled. Set `node.rendezvous.nostr.app` to exactly
+`wingman-fips-poc-v1`; startup fails with a remediation message rather than
+silently advertising into a namespace WMapp will reject. Static peers can
+replace Nostr as a transport bootstrap only after this PoC's discovery
+contract is changed on both sides.
 
 ## Firewall posture
 
