@@ -103,8 +103,20 @@ trap shutdown_children SIGINT SIGTERM SIGQUIT EXIT
 gosu wingman "$@" &
 autopilot_pid="$!"
 set +e
-wait "${autopilot_pid}"
+wait -n "${autopilot_pid}" "${fips_pid}"
 exit_code="$?"
 set -e
-autopilot_pid=""
+
+if ! kill -0 "${fips_pid}" 2>/dev/null; then
+  fips_pid=""
+  echo "Bundled FIPS daemon exited while Autopilot was running; stopping Autopilot so the container can restart cleanly" >&2
+  kill -TERM "${autopilot_pid}" 2>/dev/null || true
+  wait "${autopilot_pid}" 2>/dev/null || true
+  autopilot_pid=""
+  if [[ "${exit_code}" -eq 0 ]]; then
+    exit_code=1
+  fi
+else
+  autopilot_pid=""
+fi
 exit "${exit_code}"
