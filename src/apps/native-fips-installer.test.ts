@@ -18,6 +18,7 @@ describe("native FIPS installer", () => {
   test("refuses the upstream hard-coded group id when another group owns it", () => {
     expect(() => assertFipsGroupIdAvailable("othergroup 999\n")).toThrow("othergroup");
     expect(() => assertFipsGroupIdAvailable("fips 999\n")).not.toThrow();
+    expect(() => assertFipsGroupIdAvailable("fips\t\tPrimaryGroupID = (\n    999\n)\n")).not.toThrow();
     expect(() => assertFipsGroupIdAvailable("")).not.toThrow();
   });
 });

@@ -34,8 +34,11 @@ export function buildFipsInstallerOsascriptArgs(pkgPath: string, helperPath: str
 
 export function assertFipsGroupIdAvailable(dsclOutput: string): void {
   const owners = dsclOutput.split(/\r?\n/)
-    .map((line) => line.trim().split(/\s+/)[0])
-    .filter(Boolean);
+    // `dscl -search` prints continuation lines for multi-valued fields. Only
+    // a record line contains the owning group followed by the queried field
+    // (newer macOS) or the scalar value (older macOS).
+    .map((line) => line.match(/^(\S+)\s+(?:PrimaryGroupID\b|999\b)/)?.[1])
+    .filter((owner): owner is string => Boolean(owner));
   const collision = owners.find((owner) => owner !== "fips");
   if (collision) {
     throw new Error(
