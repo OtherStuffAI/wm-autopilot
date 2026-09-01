@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import contextlib
+import io
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -50,6 +54,51 @@ node:
             MODULE.scalar_at_path(text, ("node", "rendezvous", "lan", "scope")),
             "wingman-fips-poc-v1",
         )
+
+    def test_requires_same_lan_candidate_sharing(self) -> None:
+        text = '''
+node:
+  rendezvous:
+    nostr:
+      app: "wingman-fips-poc-v1"
+      share_local_candidates: false
+    lan:
+      enabled: true
+      scope: "wingman-fips-poc-v1"
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "fips.yaml"
+            config_path.write_text(text, encoding="utf-8")
+            previous_argv = sys.argv
+            sys.argv = [str(MODULE_PATH), str(config_path)]
+            try:
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    self.assertEqual(MODULE.main(), 1)
+                self.assertIn("share_local_candidates=true", stderr.getvalue())
+            finally:
+                sys.argv = previous_argv
+
+    def test_accepts_complete_same_lan_discovery_contract(self) -> None:
+        text = '''
+node:
+  rendezvous:
+    nostr:
+      app: "wingman-fips-poc-v1"
+      share_local_candidates: true
+    lan:
+      enabled: true
+      scope: "wingman-fips-poc-v1"
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "fips.yaml"
+            config_path.write_text(text, encoding="utf-8")
+            previous_argv = sys.argv
+            sys.argv = [str(MODULE_PATH), str(config_path)]
+            try:
+                self.assertEqual(MODULE.main(), 0)
+            finally:
+                sys.argv = previous_argv
 
 
 if __name__ == "__main__":

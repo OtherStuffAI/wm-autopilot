@@ -13,6 +13,10 @@ node:
       policy: open
       app: "wingman-fips-poc-v1"
       advertise: true
+      # PoC-only same-physical-LAN mitigation. This publishes RFC1918/ULA host
+      # candidates through the encrypted Nostr traversal exchange; do not use
+      # it as a remote/VPN traversal substitute.
+      share_local_candidates: true
     lan:
       enabled: true
       scope: "wingman-fips-poc-v1"

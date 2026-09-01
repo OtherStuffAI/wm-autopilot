@@ -36,6 +36,10 @@ sed -E -i '' \
   -e 's/^      app:[[:space:]]*[^#]+([[:space:]]*#.*)?$/      app: "wingman-fips-poc-v1"/' \
   -e 's/^    (#[[:space:]]*)?advertise:[[:space:]]*(true|false)$/      advertise: true/' \
   -e 's/^      advertise:[[:space:]]*(true|false)$/      advertise: true/' \
+  -e '/^[[:space:]]+(#[[:space:]]*)?share_local_candidates:[[:space:]]*(true|false).*$/d' \
+  -e '/^      advertise: true$/a\
+      share_local_candidates: true
+' \
   -e '}' \
   -e '/^    (#[[:space:]]*)?lan:$/,/^tun:$/ {' \
   -e 's/^    (#[[:space:]]*)?lan:$/    lan:/' \
@@ -78,6 +82,7 @@ require_in_range '^    nostr:$' '^    lan:$' '^      enabled: true$' 'node.rende
 require_in_range '^    nostr:$' '^    lan:$' '^      policy: open$' 'node.rendezvous.nostr.policy'
 require_in_range '^    nostr:$' '^    lan:$' '^      app: "wingman-fips-poc-v1"$' 'node.rendezvous.nostr.app'
 require_in_range '^    nostr:$' '^    lan:$' '^      advertise: true$' 'node.rendezvous.nostr.advertise'
+require_in_range '^    nostr:$' '^    lan:$' '^      share_local_candidates: true$' 'node.rendezvous.nostr.share_local_candidates'
 require_in_range '^    lan:$' '^tun:$' '^      enabled: true$' 'node.rendezvous.lan.enabled'
 require_in_range '^    lan:$' '^tun:$' '^      scope: "wingman-fips-poc-v1"$' 'node.rendezvous.lan.scope'
 require_in_range '^tun:$' '^dns:$' '^  enabled: true$' 'tun.enabled'
@@ -95,7 +100,7 @@ trap - EXIT
 ATTESTATION_TEMP="${ATTESTATION}.tmp.$$"
 trap 'rm -f "$ATTESTATION_TEMP"' EXIT
 cat > "$ATTESTATION_TEMP" <<'EOF'
-{"schema":1,"fipsVersion":"0.5.0","rendezvousApp":"wingman-fips-poc-v1","lanEnabled":true,"lanScope":"wingman-fips-poc-v1","tunEnabled":true,"dnsEnabled":true,"udpAdvertiseOnNostr":true,"udpAcceptConnections":true,"udpOutboundOnly":false}
+{"schema":1,"fipsVersion":"0.5.0","rendezvousApp":"wingman-fips-poc-v1","nostrShareLocalCandidates":true,"lanEnabled":true,"lanScope":"wingman-fips-poc-v1","tunEnabled":true,"dnsEnabled":true,"udpAdvertiseOnNostr":true,"udpAcceptConnections":true,"udpOutboundOnly":false}
 EOF
 chmod 0644 "$ATTESTATION_TEMP"
 if [ "${FIPS_CONFIG_TEST:-0}" != "1" ]; then

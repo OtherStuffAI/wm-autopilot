@@ -45,6 +45,7 @@ The generated config enables:
 - `fips0` TUN networking;
 - open Nostr rendezvous and endpoint advertising, so a WMapp with the node npub
   can discover it without a preconfigured IP address;
+- local RFC1918/ULA candidate sharing for this known-same-physical-LAN PoC;
 - the shared `wingman-fips-poc-v1` rendezvous namespace used by WMapp (FIPS
   rejects advertisements from a different application namespace);
 - UDP NAT traversal;
@@ -58,6 +59,13 @@ rendezvous enabled. Set `node.rendezvous.nostr.app` to exactly
 silently advertising into a namespace WMapp will reject. Static peers can
 replace Nostr as a transport bootstrap only after this PoC's discovery
 contract is changed on both sides.
+
+Local candidate sharing is not a remote-access guarantee. It intentionally
+reveals private interface candidates inside encrypted traversal signaling and
+can fail or select an unusable one-way path across VPNs, routed private
+networks, or overlapping address space. Keep this setting to the known physical
+LAN PoC; remote use needs public-reflexive NAT traversal or another designed
+transport.
 
 ## Firewall posture
 
