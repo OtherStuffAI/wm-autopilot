@@ -1726,6 +1726,55 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
   font-style: italic;
 }
 
+.wm-apps-groups {
+  display: grid;
+  gap: 1rem;
+}
+
+.wm-apps-group {
+  min-width: 0;
+}
+
+.wm-apps-group__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 2.75rem;
+  padding: 0 0.25rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 700;
+  list-style-position: inside;
+}
+
+.wm-apps-group__summary:focus-visible {
+  border-radius: 0.5rem;
+  outline: 2px solid rgb(from var(--accent-primary) r g b / 0.45);
+  outline-offset: 2px;
+}
+
+.wm-apps-group__title {
+  font-size: 1.05rem;
+}
+
+.wm-apps-group__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.wm-apps-group__content {
+  display: grid;
+  gap: 1rem;
+  padding-top: 0.65rem;
+}
+
 .wm-apps-grid {
   display: grid;
   gap: 1.5rem;
@@ -3793,55 +3842,6 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
   gap: 0.75rem;
   align-items: center;
   color: var(--text-secondary);
-}
-
-.wm-home-apps-content {
-  overflow-x: auto;
-}
-
-.wm-home-apps-link {
-  color: inherit;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 0.14rem;
-}
-
-.wm-home-apps-status {
-  margin: 0;
-  color: var(--text-tertiary);
-}
-
-.wm-home-apps-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.95rem;
-  color: var(--text-secondary);
-}
-
-.wm-home-apps-table th,
-.wm-home-apps-table td {
-  padding: 0.65rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border-primary);
-  vertical-align: middle;
-}
-
-.wm-home-apps-table th {
-  color: var(--text-primary);
-  font-weight: 600;
-  font-size: 0.9rem;
-  letter-spacing: 0.01em;
-}
-
-.wm-home-apps-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.wm-home-apps-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  align-items: center;
 }
 
 .wm-home-running-pipelines {
