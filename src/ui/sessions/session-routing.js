@@ -69,6 +69,7 @@ export function createSessionRouting(deps) {
       ss.activeSessionId = sessionId;
       ss.lastActiveSessionId = sessionId;
       const visitedSession = allSessions.find((session) => session.id === sessionId) ?? null;
+      void ss.markViewed?.(sessionId);
       if (visitedSession && typeof onSessionVisited === "function") {
         onSessionVisited(visitedSession);
       }

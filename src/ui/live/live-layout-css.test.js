@@ -5,6 +5,14 @@ import { describe, expect, test } from "bun:test";
 const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 describe("live layout CSS", () => {
+  test("distinguishes running and unread complete tabs without overriding selection", () => {
+    expect(styles).toContain('.wm-tab[data-state="running"]:not(.active)');
+    expect(styles).toContain('background: rgba(59, 130, 246, 0.12);');
+    expect(styles).toContain('.wm-tab[data-state="complete"]:not(.active)');
+    expect(styles).toContain('background: rgba(34, 197, 94, 0.2);');
+    expect(styles).toContain('.wm-tab.active');
+  });
+
   test("uses most of the viewport for wide content routes", () => {
     const rule = styles.match(/#app\[data-route="files"\],[\s\S]+?#app\[data-route="live"\]\s*\{(?<body>[^}]+)\}/);
 

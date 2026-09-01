@@ -25,6 +25,7 @@ describe("createSessionRouting", () => {
         { id: "session-a", port: 4700 },
         { id: "session-b", port: 4701 },
       ],
+      markViewed: mock(async () => {}),
     };
     const scheduleLiveScroll = mock(() => {});
 
@@ -55,6 +56,8 @@ describe("createSessionRouting", () => {
     });
 
     setActiveSession("session-b", { logPort: false });
+
+    expect(sessionsState.markViewed).toHaveBeenCalledWith("session-b");
 
     expect(scheduleLiveScroll).not.toHaveBeenCalled();
 
