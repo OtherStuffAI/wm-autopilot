@@ -57,7 +57,10 @@ describe("createSessionRouting", () => {
 
     setActiveSession("session-b", { logPort: false });
 
-    expect(sessionsState.markViewed).toHaveBeenCalledWith("session-b");
+    expect(sessionsState.markViewed).toHaveBeenCalledWith("session-a");
+
+    setActiveSession("session-b", { logPort: false });
+    expect(sessionsState.markViewed).toHaveBeenCalledTimes(1);
 
     expect(scheduleLiveScroll).not.toHaveBeenCalled();
 

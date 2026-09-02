@@ -12,8 +12,8 @@ export function isSessionComplete(session, attention) {
 }
 
 export function getSessionTabState(session, attention, activeSessionId) {
-  if (session?.id === activeSessionId) return "selected";
   if (isSessionComplete(session, attention)) return "complete";
+  if (session?.id === activeSessionId) return "selected";
   if (session?.agentRuntimeStatus === "running") return "running";
   return "ready";
 }
