@@ -105,7 +105,11 @@ function makeManager(input: {
     store,
     fetchImpl: async (url) => String(url).endsWith("/db/descriptor")
       ? Response.json(
-        input.namespaceStatus === 200 ? { namespace: "ready" } : { error: "workspace app not found" },
+        input.namespaceStatus === 200
+          ? { namespace: "ready" }
+          : input.namespaceStatus === 404
+            ? { error: "app database namespace not provisioned", code: "namespace_not_provisioned" }
+            : { error: "workspace app not found", code: "app_not_found" },
         { status: input.namespaceStatus ?? 404 },
       )
       : Response.json({ ok: true }),
@@ -224,6 +228,27 @@ describe("AppProcessManager Tower WApp lifecycle registration", () => {
             appNpub: registration.appNpub,
             app: { app_npub: registration.appNpub },
           };
+        },
+      },
+    });
+    try {
+      const status = await manager.start(app.id);
+      expect(status.status).toBe("running");
+      expect(registrations).toEqual([]);
+      expect(pm2Starts).toEqual(["app-test-process"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("starts a registered Tower WApp before its DB namespace is provisioned", async () => {
+    const registrations: any[] = [];
+    const { manager, cleanup } = makeManager({
+      namespaceStatus: 404,
+      registrar: {
+        register: async (registration) => {
+          registrations.push(registration);
+          return {};
         },
       },
     });
