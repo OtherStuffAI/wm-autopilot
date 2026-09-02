@@ -111,6 +111,22 @@ describe("managed app HTTP proxy", () => {
     expect(response.headers.get("location")).toBe("https://time.example.test/login");
   });
 
+  test("uses the trusted forwarded origin behind the public TLS proxy", async () => {
+    const response = await proxyRequestToApp(
+      new Request("http://127.0.0.1/redirect", {
+        headers: {
+          host: "127.0.0.1",
+          "x-forwarded-host": "time.example.test",
+          "x-forwarded-proto": "https",
+        },
+      }),
+      upstream.port,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("https://time.example.test/login");
+  });
+
   test("makes Vite-hashed assets immutable", async () => {
     const response = await proxyRequestToApp(
       new Request("https://time.example.test/assets/index-BA7EPZA7.js?build=current"),
