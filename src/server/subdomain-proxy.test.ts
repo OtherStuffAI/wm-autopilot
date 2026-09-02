@@ -127,6 +127,21 @@ describe("managed app HTTP proxy", () => {
     expect(response.headers.get("location")).toBe("https://time.example.test/login");
   });
 
+  test("keeps managed runwingman hosts on HTTPS when an outer proxy reports HTTP", async () => {
+    const response = await proxyRequestToApp(
+      new Request("http://time.rick.runwingman.com/redirect", {
+        headers: {
+          host: "time.rick.runwingman.com",
+          "x-forwarded-proto": "http",
+        },
+      }),
+      upstream.port,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("https://time.rick.runwingman.com/login");
+  });
+
   test("makes Vite-hashed assets immutable", async () => {
     const response = await proxyRequestToApp(
       new Request("https://time.example.test/assets/index-BA7EPZA7.js?build=current"),

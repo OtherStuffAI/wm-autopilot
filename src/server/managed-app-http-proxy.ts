@@ -30,6 +30,7 @@ const publicRequestUrl = (request: Request): URL => {
   if (forwardedProtocol === "http" || forwardedProtocol === "https") {
     url.protocol = `${forwardedProtocol}:`;
   }
+  if (url.hostname.endsWith(".runwingman.com")) url.protocol = "https:";
   return url;
 };
 
