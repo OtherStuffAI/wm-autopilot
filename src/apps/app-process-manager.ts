@@ -46,6 +46,7 @@ import {
 import type { RuntimeBotIdentity } from "../agent-chat/types";
 import {
   HttpTowerWappRegistrar,
+  isRegisteredTowerWappDescriptor,
   registerTowerBackedWappAssignment,
   requireTowerWappRegistrationIdentity,
   TowerWappRegistrationError,
@@ -550,7 +551,7 @@ export class AppProcessManager {
         method: "GET",
         path: "/descriptor",
       });
-      if (descriptor.ok) return;
+      if (await isRegisteredTowerWappDescriptor(descriptor)) return;
       if (descriptor.status !== 404) {
         const detail = await descriptor.text().catch(() => "");
         throw new TowerWappRegistrationError(

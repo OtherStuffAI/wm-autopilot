@@ -38,6 +38,14 @@ export class TowerWappRegistrationError extends Error {
   }
 }
 
+export async function isRegisteredTowerWappDescriptor(response: Response): Promise<boolean> {
+  if (response.ok) return true;
+  if (response.status !== 404) return false;
+
+  const payload = await response.clone().json().catch(() => null) as { code?: unknown } | null;
+  return payload?.code === "namespace_not_provisioned";
+}
+
 export class HttpTowerWappRegistrar implements TowerWappRegistrar {
   private readonly fetchImpl: FetchLike;
 
