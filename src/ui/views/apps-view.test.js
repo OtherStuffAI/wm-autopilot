@@ -4,6 +4,7 @@ import {
   APPS_FILTER_FOCUS_KEY,
   buildAppFilterOptions,
   selectAppCardRenderer,
+  shouldHoldAppListForFreshSnapshot,
 } from "./apps-view.js";
 
 describe("buildAppFilterOptions", () => {
@@ -49,5 +50,21 @@ describe("Apps card placement", () => {
     const system = () => "system";
     expect(selectAppCardRenderer({ id: "wingman-core" }, ordinary, system)).toBe(system);
     expect(selectAppCardRenderer({ id: "other-app" }, ordinary, system)).toBe(ordinary);
+  });
+});
+
+describe("Apps initial snapshot safety", () => {
+  test("keeps cached app controls unavailable until server status is fresh", () => {
+    expect(shouldHoldAppListForFreshSnapshot({
+      initialized: true,
+      items: [{ id: "cached-app", status: { status: "running" } }],
+      hasFreshSnapshot: false,
+    })).toBeTrue();
+
+    expect(shouldHoldAppListForFreshSnapshot({
+      initialized: true,
+      items: [{ id: "cached-app", status: { status: "idle" } }],
+      hasFreshSnapshot: true,
+    })).toBeFalse();
   });
 });

@@ -52,6 +52,7 @@ export function initAppsStore({
     items: [],
     loading: false,
     initialized: false,
+    hasFreshSnapshot: false,
     error: null,
     pendingOpenDialog: null,
     pendingFocusId: null,
@@ -156,6 +157,7 @@ export function initAppsStore({
         // Handle 401
         if (payload.unauthorized) {
           this.items = [];
+          this.hasFreshSnapshot = false;
           this.filters.options = [];
           this.filters.npub = "all";
           this.filters.initialized = false;
@@ -174,6 +176,7 @@ export function initAppsStore({
         // Sync items immediately so callers see fresh data without
         // waiting for the asynchronous liveQuery callback.
         this.items = items;
+        this.hasFreshSnapshot = true;
 
         // Process filter options (admin only)
         this._processFilters(payload);

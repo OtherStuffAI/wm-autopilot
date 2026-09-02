@@ -4,6 +4,10 @@ import { filterAndSortApps, renderAppsTable } from "../apps/table.js";
 
 export const APPS_FILTER_FOCUS_KEY = "apps-filter-input";
 
+export function shouldHoldAppListForFreshSnapshot(appState) {
+  return !appState?.hasFreshSnapshot;
+}
+
 export function selectAppCardRenderer(app, renderAppCard, renderWingmanCard = renderAppCard) {
   return app?.id === "wingman-core" ? renderWingmanCard : renderAppCard;
 }
@@ -286,6 +290,17 @@ export function initAppsView({
       });
       errorBox.append(errorText, retry);
       mainArea.append(errorBox);
+    }
+
+    if (shouldHoldAppListForFreshSnapshot(appsStore())) {
+      const refreshing = document.createElement("p");
+      refreshing.className = "wm-apps-empty";
+      refreshing.setAttribute("role", "status");
+      refreshing.setAttribute("aria-live", "polite");
+      refreshing.dataset.testid = "apps-fresh-snapshot-status";
+      refreshing.textContent = "Refreshing app status before enabling controls…";
+      mainArea.append(refreshing);
+      return finishMainArea();
     }
 
     const apps = Array.isArray(appsStore().items) ? appsStore().items : [];

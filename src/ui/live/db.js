@@ -692,12 +692,14 @@ export const AppsTable = {
 
   /** Bulk upsert apps from API response. Replaces cache with server truth. */
   async upsertMany(apps) {
-    if (!Array.isArray(apps) || apps.length === 0) return;
+    if (!Array.isArray(apps)) return;
     await db.transaction("rw", db.apps, async () => {
       await db.apps.clear();
-      await db.apps.bulkPut(
-        apps.map((a) => ({ ...a, updatedAt: new Date().toISOString() })),
-      );
+      if (apps.length > 0) {
+        await db.apps.bulkPut(
+          apps.map((a) => ({ ...a, updatedAt: new Date().toISOString() })),
+        );
+      }
     });
   },
 
