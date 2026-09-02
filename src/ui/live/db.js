@@ -650,7 +650,7 @@ export const SessionAttentionStore = {
     return db.sessionAttention.toArray();
   },
 
-  async reconcile(sessions, viewedSessionId = null, now = new Date().toISOString()) {
+  async reconcile(sessions, now = new Date().toISOString()) {
     if (!Array.isArray(sessions)) return;
 
     await db.transaction("rw", db.sessionAttention, async () => {
@@ -658,7 +658,6 @@ export const SessionAttentionStore = {
       const { updates } = buildSessionAttentionChanges(
         sessions,
         existingRecords,
-        viewedSessionId,
         now,
       );
 

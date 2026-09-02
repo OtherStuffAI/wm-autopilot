@@ -69,7 +69,9 @@ export function createSessionRouting(deps) {
       ss.activeSessionId = sessionId;
       ss.lastActiveSessionId = sessionId;
       const visitedSession = allSessions.find((session) => session.id === sessionId) ?? null;
-      void ss.markViewed?.(sessionId);
+      if (previousSessionId && previousSessionId !== sessionId) {
+        void ss.markViewed?.(previousSessionId);
+      }
       if (visitedSession && typeof onSessionVisited === "function") {
         onSessionVisited(visitedSession);
       }
@@ -130,6 +132,9 @@ export function createSessionRouting(deps) {
     }
 
     // No session selected - stop live refresh
+    if (previousSessionId) {
+      void ss.markViewed?.(previousSessionId);
+    }
     ss.activeSessionId = null;
     setLastLoggedSessionId(null);
     deactivateLiveSessionRefresh(previousSessionId);

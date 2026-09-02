@@ -9,7 +9,6 @@ describe("session attention transitions", () => {
     const result = buildSessionAttentionChanges(
       [{ id: "session-1", agentRuntimeStatus: "running" }],
       [{ sessionId: "session-1", runtimeStatus: "stable", viewedAt: "2026-09-01T08:00:00.000Z" }],
-      null,
       now,
     );
 
@@ -25,7 +24,6 @@ describe("session attention transitions", () => {
     const result = buildSessionAttentionChanges(
       [{ id: "session-1", agentRuntimeStatus: "stable" }],
       [{ sessionId: "session-1", runtimeStatus: "running", lastRunningAt: "2026-09-01T08:00:00.000Z" }],
-      null,
       now,
     );
 
@@ -33,15 +31,14 @@ describe("session attention transitions", () => {
     expect(result.updates[0].viewedAt).toBeUndefined();
   });
 
-  test("considers a transition read when the session is currently viewed", () => {
+  test("keeps a completion unread until the viewer leaves the session", () => {
     const result = buildSessionAttentionChanges(
       [{ id: "session-1", agentRuntimeStatus: "stable" }],
       [{ sessionId: "session-1", runtimeStatus: "running" }],
-      "session-1",
       now,
     );
 
     expect(result.updates[0].completedAt).toBe(now);
-    expect(result.updates[0].viewedAt).toBe(now);
+    expect(result.updates[0].viewedAt).toBeUndefined();
   });
 });

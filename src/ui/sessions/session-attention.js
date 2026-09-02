@@ -1,7 +1,6 @@
 export function buildSessionAttentionChanges(
   sessions,
   existingRecords,
-  viewedSessionId = null,
   now = new Date().toISOString(),
 ) {
   const existingById = new Map(existingRecords.map((record) => [record.sessionId, record]));
@@ -18,9 +17,6 @@ export function buildSessionAttentionChanges(
       next.lastRunningAt = now;
     } else if (runtimeStatus === "stable" && existing.runtimeStatus === "running") {
       next.completedAt = now;
-      if (sessionId === viewedSessionId) {
-        next.viewedAt = now;
-      }
     }
     updates.push(next);
   }

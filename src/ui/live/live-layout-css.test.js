@@ -5,12 +5,13 @@ import { describe, expect, test } from "bun:test";
 const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 describe("live layout CSS", () => {
-  test("distinguishes running and unread complete tabs without overriding selection", () => {
+  test("keeps unread completion visible while its tab is selected", () => {
     expect(styles).toContain('.wm-tab[data-state="running"]:not(.active)');
     expect(styles).toContain('background: rgba(59, 130, 246, 0.12);');
     expect(styles).toContain('.wm-tab[data-state="complete"]:not(.active)');
     expect(styles).toContain('background: rgba(34, 197, 94, 0.2);');
     expect(styles).toContain('.wm-tab.active');
+    expect(styles).toContain('.wm-tab.active[data-state="complete"]');
   });
 
   test("uses most of the viewport for wide content routes", () => {

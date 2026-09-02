@@ -21,9 +21,9 @@ describe("session tab state", () => {
     })).toBe(false);
   });
 
-  test("gives selected styling precedence over runtime and attention states", () => {
+  test("keeps completion styling on the selected tab until it is left", () => {
     const session = { id: "selected", agentRuntimeStatus: "stable" };
-    expect(getSessionTabState(session, completeAttention, "selected")).toBe("selected");
+    expect(getSessionTabState(session, completeAttention, "selected")).toBe("complete");
     expect(getSessionTabState({ id: "busy", agentRuntimeStatus: "running" }, null, null)).toBe("running");
     expect(getSessionTabState({ id: "ready", agentRuntimeStatus: "stable" }, null, null)).toBe("ready");
   });

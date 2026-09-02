@@ -34,7 +34,6 @@ function normaliseNpub(npub) {
  * @param {Function} deps.getIdentity - Returns current identity state object
  * @param {Function} [deps.onUnauthorized] - Called on 401 responses
  * @param {Function} [deps.onIdentityUpdate] - Called with identity updates from session data
- * @param {Function} [deps.getViewedSessionId] - Returns the session visibly open in the live view
  * @param {boolean} [deps.syncOnInit=true] - Whether init() should immediately sync from the API
  */
 export function initSessionsStore({
@@ -43,7 +42,6 @@ export function initSessionsStore({
   onUnauthorized,
   onIdentityUpdate,
   onItemsChanged,
-  getViewedSessionId,
   syncOnInit = true,
 }) {
   Alpine.store("sessions", {
@@ -63,7 +61,6 @@ export function initSessionsStore({
     _liveQuerySub: null,
     _attentionLiveQuerySub: null,
     _attentionReconcile: Promise.resolve(),
-    _attentionVisibilityHandler: null,
 
     // ----- Lifecycle -----
 
@@ -83,7 +80,6 @@ export function initSessionsStore({
         // 2. Set up liveQuery so Dexie changes auto-update Alpine
         this._setupLiveQuery();
         this._setupAttentionLiveQuery();
-        this._setupAttentionVisibility();
 
         this.initialized = true;
         this.loading = false;
@@ -142,25 +138,8 @@ export function initSessionsStore({
 
     _queueAttentionReconcile(sessions) {
       this._attentionReconcile = this._attentionReconcile
-        .then(() => SessionAttentionStore.reconcile(
-          sessions,
-          typeof getViewedSessionId === "function" ? getViewedSessionId() : null,
-        ))
+        .then(() => SessionAttentionStore.reconcile(sessions))
         .catch((err) => console.error("[sessions-store] attention reconcile failed:", err));
-    },
-
-    _setupAttentionVisibility() {
-      if (typeof document === "undefined" || this._attentionVisibilityHandler) return;
-      this._attentionVisibilityHandler = () => {
-        if (document.visibilityState !== "visible") return;
-        const viewedSessionId = typeof getViewedSessionId === "function"
-          ? getViewedSessionId()
-          : null;
-        if (viewedSessionId) {
-          void this.markViewed(viewedSessionId);
-        }
-      };
-      document.addEventListener("visibilitychange", this._attentionVisibilityHandler);
     },
 
     // ----- Server sync -----
@@ -343,10 +322,6 @@ export function initSessionsStore({
       if (this._attentionLiveQuerySub) {
         this._attentionLiveQuerySub.unsubscribe();
         this._attentionLiveQuerySub = null;
-      }
-      if (this._attentionVisibilityHandler && typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", this._attentionVisibilityHandler);
-        this._attentionVisibilityHandler = null;
       }
     },
   });
