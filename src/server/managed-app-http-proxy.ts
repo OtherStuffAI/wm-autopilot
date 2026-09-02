@@ -22,6 +22,17 @@ const logProxy = (message: string, data?: unknown): void => {
 export const isViteHashedAssetPath = (pathname: string): boolean =>
   VITE_HASHED_ASSET_PATH.test(pathname);
 
+const publicRequestUrl = (request: Request): URL => {
+  const url = new URL(request.url);
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim();
+  const forwardedProtocol = request.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim();
+  if (forwardedHost) url.host = forwardedHost;
+  if (forwardedProtocol === "http" || forwardedProtocol === "https") {
+    url.protocol = `${forwardedProtocol}:`;
+  }
+  return url;
+};
+
 const shouldUseImmutableAssetCaching = (
   request: Request,
   response: Response,
@@ -78,7 +89,7 @@ export const buildManagedAppResponseHeaders = (
 
   const location = response.headers.get("location");
   if (location) {
-    const publicUrl = new URL(request.url);
+    const publicUrl = publicRequestUrl(request);
     const resolvedLocation = new URL(location, targetUrl);
     if (
       resolvedLocation.hostname === "127.0.0.1"
@@ -100,7 +111,7 @@ export const proxyRequestToApp = async (
   request: Request,
   targetPort: number,
 ): Promise<Response> => {
-  const publicUrl = new URL(request.url);
+  const publicUrl = publicRequestUrl(request);
   const targetUrl = new URL(
     publicUrl.pathname + publicUrl.search,
     `http://127.0.0.1:${targetPort}`,
