@@ -778,6 +778,7 @@ let manager: ProcessManager;
 const capabilityBroker = new CapabilityBroker({
   botKeyStore,
   keyVault: brokerKeyVault,
+  getInstanceIdentity: () => wingmanInstanceIdentity,
   getSession: (sessionId) => manager?.getSession(sessionId) ?? null,
   audit: (entry) => writeServerLog("INFO", "[capability-broker]", entry),
   stateStore: capabilityStateStore,
@@ -831,13 +832,25 @@ manager = new ProcessManager(config, {
       requestedBotNpub: botNpub,
       allowDefaultFallbackForMissingRequestedProfile: profileScope.allowDefaultFallbackForMissingRequestedProfile,
       ...profileContext,
-      getActiveByBotNpub: (candidateBotNpub) => botKeyStore.getActiveKeyForBotNpub(candidateBotNpub),
+      getActiveByBotNpub: (candidateBotNpub) => (
+        botKeyStore.getActiveKeyForBotNpub(candidateBotNpub)
+        ?? (wingmanInstanceIdentity?.npub === candidateBotNpub
+          ? {
+            userNpub: profileManagerNpub,
+            botNpub: wingmanInstanceIdentity.npub,
+            botPubkeyHex: wingmanInstanceIdentity.pubkeyHex,
+          }
+          : null)
+      ),
     });
-    ensureLegacyBrokerRecordProvisioned({
-      vault: brokerKeyVault,
-      record,
-      instanceIdentity: wingmanInstanceIdentity,
-    });
+    const storedRecord = botKeyStore.getActiveKeyForBotNpub(record.botNpub);
+    if (storedRecord) {
+      ensureLegacyBrokerRecordProvisioned({
+        vault: brokerKeyVault,
+        record: storedRecord,
+        instanceIdentity: wingmanInstanceIdentity,
+      });
+    }
     return capabilityBroker.issueSessionCapability({
       sessionId,
       ownerNpub,
