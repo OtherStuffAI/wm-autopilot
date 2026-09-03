@@ -1050,6 +1050,7 @@ function canUseBackendConnection(
 }
 
 export class WorkspaceSubscriptionManager {
+  private readonly flightDeckSingleActorFallbackProfiles = new Map<string, string>();
   private readonly store: WorkspaceSubscriptionStore;
   private readonly agentStore: AgentDefinitionStore;
   private readonly backendStore: BackendConnectionStore;
@@ -3516,19 +3517,48 @@ export class WorkspaceSubscriptionManager {
     if (record.agentProfileId) return [];
     const profiles = this.enabledFlightDeckAudience(record);
     const requested = [...new Set(profiles.map((profile) => profile.botNpub))];
+    this.flightDeckSingleActorFallbackProfiles.delete(record.subscriptionId);
     if (requested.length > 32) {
       throw Object.assign(new Error('A Flight Deck event subscription supports at most 32 enabled Agent Direct profiles.'), {
         detailCode: 'flightdeck_pg_event_subscription_agents_too_many',
       });
     }
-    const result = await this.reconcileFlightDeckPgEventSubscriptionAgentsImpl({
-      backendBaseUrl: record.backendBaseUrl,
-      workspaceId: record.workspaceId,
-      appNpub: record.sourceAppNpub,
-      botIdentity,
-      agentNpubs: requested,
-      signal,
-    });
+    let result: Awaited<ReturnType<typeof reconcileFlightDeckPgEventSubscriptionAgents>>;
+    try {
+      result = await this.reconcileFlightDeckPgEventSubscriptionAgentsImpl({
+        backendBaseUrl: record.backendBaseUrl,
+        workspaceId: record.workspaceId,
+        appNpub: record.sourceAppNpub,
+        botIdentity,
+        agentNpubs: requested,
+        signal,
+      });
+    } catch (error) {
+      const directActorProfile = profiles.find((profile) => profile.botNpub === botIdentity.botNpub);
+      if (getErrorDetailCode(error) !== 'permission_denied' || !directActorProfile) throw error;
+      this.flightDeckSingleActorFallbackProfiles.set(record.subscriptionId, directActorProfile.agentId);
+      record.lastRoutingResult = buildSuccessDiagnostic(
+        'Tower does not grant multi-identity event subscription management; using the connected agent identity directly.',
+        {
+          subscription_id: record.subscriptionId,
+          agent_id: directActorProfile.agentId,
+          agent_npub: directActorProfile.botNpub,
+          mode: 'single_actor',
+        },
+      );
+      this.saveRecord(this.recomputeHealth(record));
+      const backendConnection = record.backendConnectionId ? this.backendStore.getById(record.backendConnectionId) : null;
+      this.profilePolicyStore.ensureProfileWorkspaceForSubscription({
+        managedByNpub: record.managedByNpub!,
+        agentProfileId: directActorProfile.agentId,
+        agentLabel: directActorProfile.label,
+        agentNpub: directActorProfile.botNpub,
+        subscription: record,
+        backendConnection,
+        relayOnboardingStatus: record.healthStatus === 'healthy' ? 'ready' : 'verified',
+      });
+      return [];
+    }
     const accepted = [...new Set(result.audience_npubs ?? result.agent_npubs)].sort();
     if (accepted.some((npub) => !requested.includes(npub))) {
       throw Object.assign(new Error('Tower reconciled an unrequested Agent Direct event audience member.'), {
@@ -4210,16 +4240,21 @@ export class WorkspaceSubscriptionManager {
     try {
       const subscriptionAudience = this.enabledFlightDeckAudience(record);
       const visibilityEvidence = event.visible_to_audience_npubs ?? event.visible_to_agent_npubs;
-      if (subscriptionAudience.length > 0 && !Array.isArray(visibilityEvidence)) {
+      const directActorFallbackAgentId = this.flightDeckSingleActorFallbackProfiles.get(record.subscriptionId);
+      const directActorFallback = directActorFallbackAgentId
+        ? subscriptionAudience.filter((profile) => profile.agentId === directActorFallbackAgentId)
+        : [];
+      if (subscriptionAudience.length > 0 && !Array.isArray(visibilityEvidence) && directActorFallback.length !== 1) {
         throw Object.assign(new Error('Tower multi-identity event omitted audience visibility evidence.'), {
           detailCode: 'flightdeck_pg_event_audience_missing',
         });
       }
       const evidencedAudience = Array.isArray(visibilityEvidence)
         ? [...new Set(visibilityEvidence.filter((npub): npub is string => typeof npub === 'string'))].sort()
-        : [];
-      const localAudience = subscriptionAudience
-        .filter((profile) => evidencedAudience.includes(profile.botNpub));
+        : directActorFallback.map((profile) => profile.botNpub);
+      const localAudience = !Array.isArray(visibilityEvidence) && directActorFallback.length === 1
+        ? directActorFallback
+        : subscriptionAudience.filter((profile) => evidencedAudience.includes(profile.botNpub));
       if (subscriptionAudience.length > 0 && localAudience.length === 0) {
         const suppressionReason = evidencedAudience.length === 0
           ? 'audience_visibility_empty'
@@ -6229,6 +6264,7 @@ export class WorkspaceSubscriptionManager {
   }
 
   private stopRuntime(subscriptionId: string, removed: boolean): void {
+    this.flightDeckSingleActorFallbackProfiles.delete(subscriptionId);
     this.flightDeckPgEventWatchdog.stop(subscriptionId);
     const runtime = this.runtimes.get(subscriptionId);
     if (!runtime) {

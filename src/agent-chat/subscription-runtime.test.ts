@@ -465,6 +465,84 @@ describe('WorkspaceSubscriptionManager', () => {
     });
   });
 
+  test('falls back to the connected Agent Direct identity when Tower denies audience management', async () => {
+    const dbPath = makeTempDb();
+    const instanceIdentity = makeInstanceIdentity();
+    const directInputs: Array<{ audienceAgentNpubs?: string[] }> = [];
+    const { manager, store, agentStore, managerInternals } = createTestManager(
+      dbPath,
+      new Map(),
+      undefined,
+      instanceIdentity,
+      undefined,
+      {
+        reconcileFlightDeckPgEventSubscriptionAgents: async () => {
+          throw Object.assign(new Error('Actor does not have the required Flight Deck PG permission'), {
+            detailCode: 'permission_denied',
+          });
+        },
+        chatRuntime: {
+          handleDirectChat: async (input: { audienceAgentNpubs?: string[] }) => {
+            directInputs.push(input);
+            return { handled: true, reason: 'direct_chat_queued' };
+          },
+        } as never,
+        fetchFlightDeckPgChannel: async () => ({ id: 'channel-1', workspace_id: 'workspace-1', metadata: {} }),
+        fetchFlightDeckPgChannelMessages: async () => ({
+          messages: [{
+            id: 'message-1', channel_id: 'channel-1', thread_id: 'thread-1', body: 'Hello',
+            mentions: [{ type: 'person', npub: instanceIdentity.npub, label: 'Wingman' }],
+          }],
+          next_cursor: null,
+        }),
+      },
+    );
+    const imported = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+      onboardingSource: 'nostr_33357',
+    });
+    const connectedProfile = agentStore.getByBotNpub(instanceIdentity.npub)!;
+    agentStore.save({
+      ...connectedProfile,
+      capabilities: [...new Set([...connectedProfile.capabilities, 'chat_intercept' as const])],
+      directChat: {
+        enabled: true,
+        sessionAgent: 'codex',
+        directory: connectedProfile.workingDirectory,
+        model: null,
+        idleRetentionMinutes: 60,
+      },
+      updatedAt: new Date().toISOString(),
+    });
+    saveDirectChatAgent(agentStore, { agentId: 'Other', botNpub: 'npub1Other', managedByNpub: 'npub1manager' });
+
+    const accepted = await managerInternals.reconcileFlightDeckAudience(imported.subscription, {
+      botNpub: instanceIdentity.npub,
+      botPubkeyHex: instanceIdentity.pubkeyHex,
+      botSecret: instanceIdentity.secretKey,
+    });
+    expect(accepted).toEqual([]);
+    expect(store.getBySubscriptionId(imported.subscription.subscriptionId)?.lastRoutingResult).toMatchObject({
+      ok: true,
+      details: { agent_npub: instanceIdentity.npub, mode: 'single_actor' },
+    });
+
+    await (manager as unknown as {
+      handleFlightDeckPgEvent: (
+        record: WorkspaceSubscriptionRecord,
+        event: Record<string, unknown>,
+      ) => Promise<WorkspaceSubscriptionRecord>;
+    }).handleFlightDeckPgEvent(imported.subscription, {
+      event_id: 'event-1', cursor: encodeFlightDeckPgEventCursor(1), workspace_id: 'workspace-1',
+      channel_id: 'channel-1', actor_id: 'actor-user', event_type: 'flightdeck_pg.message.created',
+      entity_type: 'message', entity_id: 'message-1', operation: 'created', row_version: 1, payload: {},
+    });
+
+    expect(directInputs).toHaveLength(1);
+    expect(directInputs[0]?.audienceAgentNpubs).toEqual([instanceIdentity.npub]);
+  });
+
   test('fails profile runtime identity resolution closed when the broker vault is not provisioned', async () => {
     const dbPath = makeTempDb();
     const botKeys = new Map([
