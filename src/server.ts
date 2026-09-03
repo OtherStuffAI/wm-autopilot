@@ -662,6 +662,8 @@ registerAccessRule(AccessActions.FilesRead, requireAuthentication({ allowNip98: 
 registerAccessRule(AccessActions.FilesRead, requireApprovedWorkAccess());
 registerAccessRule(AccessActions.FilesWrite, requireAuthentication({ allowNip98: true }));
 registerAccessRule(AccessActions.FilesWrite, requireApprovedWorkAccess());
+registerAccessRule(AccessActions.AppsLifecycle, requireAuthentication({ allowNip98: true }));
+registerAccessRule(AccessActions.AppsLifecycle, requireApprovedWorkAccess());
 registerAccessRule(AccessActions.AppsManage, requireAuthentication({ allowNip98: true }));
 registerAccessRule(AccessActions.AppsManage, createTrustedExecutionRule({
   kind: "apps",

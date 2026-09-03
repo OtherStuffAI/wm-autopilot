@@ -53,7 +53,11 @@ function createContext(
     sharedInstanceAccess: false,
     workspaceScope: { defaultDirectory: '/workspace' } as AppsApiContext['workspaceScope'],
     viewerNpub: 'npub1viewer',
-    AccessActions: { AppsManage: AccessActions.AppsManage, AppsRead: AccessActions.AppsRead },
+    AccessActions: {
+      AppsLifecycle: AccessActions.AppsLifecycle,
+      AppsManage: AccessActions.AppsManage,
+      AppsRead: AccessActions.AppsRead,
+    },
     ensureApiAccess: async () => null,
     normaliseOptionalString: (value) => {
       if (typeof value !== 'string') return null;
@@ -230,21 +234,75 @@ describe('handleAppsApi', () => {
     });
   });
 
-  test('returns 403 for non-Admin app registration, configuration, and lifecycle', async () => {
+  test('lets approved non-Admins run lifecycle actions while restricting app management', async () => {
+    const app: AppRecord = {
+      id: 'app-1',
+      label: 'Shared App',
+      root: '/workspace/app',
+      scripts: { start: appCommand('bun', 'run', 'start') },
+      tmuxSession: 'app-1',
+      ownerNpub: 'npub1otherowner',
+      createdAt: '2026-09-03T00:00:00.000Z',
+      updatedAt: '2026-09-03T00:00:00.000Z',
+      webApp: false,
+      webAppPort: null,
+    };
     const ctx = createContext({
       ensureApiAccess: async (action) => action === AccessActions.AppsManage
         ? Response.json({ error: 'admin-or-execution-delegation-required' }, { status: 403 })
         : null,
+      appActions: ['start', 'stop', 'restart', 'setup', 'build'],
+      appRegistry: {
+        ...createContext().appRegistry,
+        getApp: async () => app,
+      },
+      appProcessManager: {
+        ...createContext().appProcessManager,
+        start: async () => idleStatus(app.id),
+      },
     });
-    const requests = [
+    const restrictedRequests = [
       new Request('http://localhost/api/apps', { method: 'POST', body: JSON.stringify({ root: '/workspace/app' }) }),
       new Request('http://localhost/api/apps/app-1', { method: 'PUT', body: JSON.stringify({ label: 'Changed' }) }),
-      new Request('http://localhost/api/apps/app-1/actions', { method: 'POST', body: JSON.stringify({ action: 'start' }) }),
     ];
-    for (const request of requests) {
+    for (const request of restrictedRequests) {
       const response = await handleAppsApi(request, new URL(request.url), request.method as 'POST' | 'PUT', authContext, ctx);
       expect(response?.status).toBe(403);
     }
+
+    const lifecycleRequest = new Request('http://localhost/api/apps/app-1/actions', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'start' }),
+    });
+    const lifecycleResponse = await handleAppsApi(
+      lifecycleRequest,
+      new URL(lifecycleRequest.url),
+      'POST',
+      authContext,
+      ctx,
+    );
+    expect(lifecycleResponse?.status).toBe(200);
+  });
+
+  test('rejects lifecycle actions when the caller is not approved', async () => {
+    const app = {
+      id: 'app-1', label: 'Shared App', root: '/workspace/app', scripts: {}, tmuxSession: 'app-1',
+      ownerNpub: 'npub1otherowner', createdAt: '', updatedAt: '', webApp: false, webAppPort: null,
+    } satisfies AppRecord;
+    const ctx = createContext({
+      ensureApiAccess: async (action) => action === AccessActions.AppsLifecycle
+        ? Response.json({ error: 'approval-required' }, { status: 403 })
+        : null,
+      appActions: ['restart'],
+      appRegistry: { ...createContext().appRegistry, getApp: async () => app },
+    });
+    const request = new Request('http://localhost/api/apps/app-1/actions', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'restart' }),
+    });
+    const response = await handleAppsApi(request, new URL(request.url), 'POST', authContext, ctx);
+    expect(response?.status).toBe(403);
+    expect(await response?.json()).toEqual({ error: 'approval-required' });
   });
 
   test('rejects caller-controlled lifecycle shell strings', async () => {

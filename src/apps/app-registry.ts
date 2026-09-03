@@ -4,7 +4,7 @@ import { readFile, stat, unlink } from "node:fs/promises";
 import { basename, join, resolve as resolvePath } from "node:path";
 
 import { generateIdentityAlias } from "../identity/identity-alias";
-import { getConfiguredAdminNpubs, isNpubInList, normaliseNpub } from "../identity/npub-utils";
+import { normaliseNpub } from "../identity/npub-utils";
 import { writeServerLog } from "../logging/server-logger";
 import { identityUserStore } from "../storage/identity-user-store";
 import { isPortAvailable } from "../utils/port-utils";
@@ -18,6 +18,7 @@ const legacyRegistryFilePath = new URL("../../data/apps.json", import.meta.url).
 const registryDatabasePath = new URL("../../data/app-registry.sqlite", import.meta.url).pathname;
 const registrySecretDatabasePath = new URL("../../data/app-registry-secrets.sqlite", import.meta.url).pathname;
 export const WAPP_TOWER_BROKER_REVIEW_REASON = "raw-signing-secret-removed-use-capability-broker";
+const OBSOLETE_OWNER_REVIEW_REASON = "app-owner-is-not-a-configured-admin";
 
 export type AppLifecycleAction = "start" | "stop" | "restart" | "setup" | "build";
 
@@ -249,10 +250,8 @@ export class AppRegistry {
       updatedAt: now,
       webApp: webAppEnabled,
       webAppPort,
-      lifecycleReviewRequired: !isNpubInList(ownerNpub, getConfiguredAdminNpubs()),
-      lifecycleReviewReasons: isNpubInList(ownerNpub, getConfiguredAdminNpubs())
-        ? []
-        : ["app-owner-is-not-a-configured-admin"],
+      lifecycleReviewRequired: false,
+      lifecycleReviewReasons: [],
     };
     this.apps.set(record.id, record);
     await this.persist();
@@ -306,6 +305,10 @@ export class AppRegistry {
         nextWebAppPort = this.assignWebAppPort(nextOwnerNpub, id, preferred);
       }
     }
+    const retainedReviewReasons = (existing.lifecycleReviewReasons ?? []).filter((reason) =>
+      reason !== OBSOLETE_OWNER_REVIEW_REASON
+      && (!input.scripts || !/^(legacy|invalid)-(start|stop|restart|setup|build)-command-requires-admin-review$/.test(reason))
+    );
     const next: AppRecord = {
       ...existing,
       label: nextLabel,
@@ -321,12 +324,8 @@ export class AppRegistry {
       updatedAt: new Date().toISOString(),
       webApp: nextWebApp,
       webAppPort: nextWebAppPort,
-      lifecycleReviewRequired: input.scripts
-        ? !isNpubInList(nextOwnerNpub, getConfiguredAdminNpubs())
-        : existing.lifecycleReviewRequired,
-      lifecycleReviewReasons: input.scripts
-        ? (isNpubInList(nextOwnerNpub, getConfiguredAdminNpubs()) ? [] : ["app-owner-is-not-a-configured-admin"])
-        : existing.lifecycleReviewReasons,
+      lifecycleReviewRequired: retainedReviewReasons.length > 0,
+      lifecycleReviewReasons: retainedReviewReasons,
       legacyScripts: input.scripts ? undefined : existing.legacyScripts,
     };
     if (next.root !== existing.root) {
@@ -464,7 +463,23 @@ export class AppRegistry {
       throw new Error(`SECURITY: retired legacy app registry reappeared at ${this.legacyFilePath}`);
     }
     if (migration) {
-      this.apps = new Map(this.store.load().map((app) => [app.id, app]));
+      let removedObsoleteOwnerReviews = false;
+      this.apps = new Map(this.store.load().map((app) => {
+        const reasons = (app.lifecycleReviewReasons ?? []).filter((reason) => reason !== OBSOLETE_OWNER_REVIEW_REASON);
+        if (reasons.length === (app.lifecycleReviewReasons ?? []).length) {
+          return [app.id, app] as const;
+        }
+        removedObsoleteOwnerReviews = true;
+        const updated = {
+          ...app,
+          lifecycleReviewRequired: reasons.length > 0,
+          lifecycleReviewReasons: reasons,
+        };
+        return [updated.id, updated] as const;
+      }));
+      if (removedObsoleteOwnerReviews) {
+        this.store.replaceAll(Array.from(this.apps.values()));
+      }
       this.loaded = true;
       return;
     }
@@ -612,9 +627,11 @@ export class AppRegistry {
       }
     }
     const notes = input.notes?.trim() || undefined;
-    const ownerIsAdmin = isNpubInList(ownerNpub, getConfiguredAdminNpubs());
-    if (!ownerIsAdmin) reasons.add("app-owner-is-not-a-configured-admin");
-    const lifecycleReviewRequired = Boolean(input.lifecycleReviewRequired) || reasons.size > 0;
+    const removedObsoleteOwnerReview = reasons.delete(OBSOLETE_OWNER_REVIEW_REASON);
+    if (removedObsoleteOwnerReview) migrated = true;
+    const lifecycleReviewRequired = removedObsoleteOwnerReview
+      ? reasons.size > 0
+      : Boolean(input.lifecycleReviewRequired) || reasons.size > 0;
     const disabledAutoStart = Boolean(input.autoStart) && lifecycleReviewRequired;
     const autoStart = disabledAutoStart ? false : Boolean(input.autoStart);
     if (disabledAutoStart) migrated = true;
