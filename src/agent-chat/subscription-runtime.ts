@@ -2607,6 +2607,7 @@ export class WorkspaceSubscriptionManager {
   async startupReload(): Promise<void> {
     const records = this.store.listStartupCandidates();
     for (const record of records) {
+      if (!this.store.getBySubscriptionId(record.subscriptionId)) continue;
       try {
         const botIdentity = await this.resolveStoredBotIdentity(record.botNpub);
         if (!botIdentity) {
@@ -2640,6 +2641,14 @@ export class WorkspaceSubscriptionManager {
         refreshed.lastSuccessfulStartupReloadAt = new Date().toISOString();
         this.saveRecord(refreshed);
         this.clearRuntimeFailure(refreshed.subscriptionId, 'startup_reload_recovered');
+        if (isFlightDeckPgSubscription(refreshed)) {
+          await this.ensureOnboardedAgentForSubscription({
+            subscription: refreshed,
+            agentProfile: null,
+            botIdentity,
+          });
+          this.removeDuplicateInstanceSubscriptions(refreshed);
+        }
         await this.ensureConnected(refreshed, botIdentity, true);
         const subscriptionAgents = this.agentStore
           .listByWorkspaceAndBot(this.getEffectiveWorkspaceNpub(refreshed), refreshed.botNpub)

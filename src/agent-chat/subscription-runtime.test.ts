@@ -985,6 +985,44 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(binding?.managedByNpub).toBe('npub1instancemanager');
   });
 
+  test('adopts the newest exact duplicate and removes stale ownership during startup', async () => {
+    const dbPath = makeTempDb();
+    const instanceIdentity = makeInstanceIdentity();
+    const { manager, store, agentStore } = createTestManager(
+      dbPath,
+      new Map(),
+      undefined,
+      instanceIdentity,
+    );
+    const original = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1originalmanager',
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+      onboardingSource: 'nostr_33357',
+    });
+    const duplicate = store.save({
+      ...store.createDefault({
+        managedByNpub: 'npub1instancemanager',
+        workspaceOwnerNpub: original.subscription.workspaceOwnerNpub,
+        backendBaseUrl: original.subscription.backendBaseUrl,
+        towerServiceNpub: original.subscription.towerServiceNpub,
+        workspaceId: original.subscription.workspaceId,
+        workspaceServiceNpub: original.subscription.workspaceServiceNpub,
+        botNpub: original.subscription.botNpub,
+        sourceAppNpub: original.subscription.sourceAppNpub,
+        backendConnectionId: original.subscription.backendConnectionId,
+        onboardingSource: 'agent_connect_import',
+      }),
+      updatedAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+
+    await manager.shutdown();
+    await manager.startupReload();
+
+    expect(store.listAll().map((record) => record.subscriptionId)).toEqual([duplicate.subscriptionId]);
+    const [binding] = agentStore.listByWorkspaceAndBot('npub1workspaceservice', instanceIdentity.npub);
+    expect(binding?.managedByNpub).toBe('npub1instancemanager');
+  });
+
   test('promotes an existing manual subscription when 33357 onboarding imports it', async () => {
     const dbPath = makeTempDb();
     const instanceIdentity = makeInstanceIdentity();
