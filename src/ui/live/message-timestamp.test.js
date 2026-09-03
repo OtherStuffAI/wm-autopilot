@@ -24,9 +24,11 @@ describe("formatMessageTimestamp", () => {
     expect(formatMessageTimestamp({ role: "assistant", createdAt: "invalid" }, options)).toBe("");
   });
 
-  test("keeps Copy to the right of the timestamp in both message renderers", () => {
+  test("keeps every message action to the right of the timestamp", () => {
     const template = chatComponentSource.slice(chatComponentSource.indexOf("export function getChatTemplate"));
-    expect(template.indexOf('class="wm-message-timestamp"')).toBeLessThan(template.indexOf('class="wm-message-copy"'));
-    expect(timestampSource).toContain('actions.insertBefore(time, copyButton)');
+    const timestampIndex = template.indexOf('class="wm-message-timestamp"');
+    expect(timestampIndex).toBeLessThan(template.indexOf('class="wm-message-speech-play"'));
+    expect(timestampIndex).toBeLessThan(template.indexOf('class="wm-message-copy"'));
+    expect(timestampSource).toContain("actions.prepend(time)");
   });
 });

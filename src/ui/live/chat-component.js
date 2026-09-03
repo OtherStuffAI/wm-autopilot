@@ -723,6 +723,13 @@ export function getChatTemplate(sessionId) {
           </p>
         </template>
         <div class="wm-message-actions">
+          <template x-if="$store.chat.getMessageTimestamp(message)">
+            <time class="wm-message-timestamp"
+                  data-testid="message-timestamp"
+                  :datetime="message.createdAt || message.created_at"
+                  :aria-label="'Sent ' + $store.chat.getMessageTimestamp(message)"
+                  x-text="$store.chat.getMessageTimestamp(message)"></time>
+          </template>
           <template x-if="$store.chat.canReadMessage(message)">
             <button type="button"
                     class="wm-message-speech-play"
@@ -738,13 +745,6 @@ export function getChatTemplate(sessionId) {
                 <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h12v12H6z"/></svg>
               </template>
             </button>
-          </template>
-          <template x-if="$store.chat.getMessageTimestamp(message)">
-            <time class="wm-message-timestamp"
-                  data-testid="message-timestamp"
-                  :datetime="message.createdAt || message.created_at"
-                  :aria-label="'Sent ' + $store.chat.getMessageTimestamp(message)"
-                  x-text="$store.chat.getMessageTimestamp(message)"></time>
           </template>
           <button type="button" class="wm-message-copy" data-testid="message-copy" aria-label="Copy message"
                   @click.stop="
