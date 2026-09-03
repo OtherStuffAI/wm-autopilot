@@ -45,7 +45,7 @@ export function formatMessageTimestamp(message, options = {}) {
 export function formatMessageTimestampLabel(message, options = {}) {
   const timestamp = formatMessageTimestamp(message, options);
   if (!timestamp) return "";
-  return isWorkingMessageTimestamp(message) ? `last up : ${timestamp}` : timestamp;
+  return isWorkingMessageTimestamp(message) ? `last update : ${timestamp}` : timestamp;
 }
 
 export function getMessageTimestampAriaLabel(message, options = {}) {
