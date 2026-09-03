@@ -3842,11 +3842,20 @@ export class WorkspaceSubscriptionManager {
     record.lastErrorAt = null;
     record = this.saveRecord(this.recomputeHealth(record));
 
-    if (
-      (event.entity_type === 'message' || event.entity_type === 'thread')
-      && event.operation !== 'deleted'
-    ) {
+    if (event.entity_type === 'message' && event.operation !== 'deleted') {
       record = await this.handleFlightDeckPgChatEvent(record, event);
+    } else if (event.entity_type === 'thread') {
+      record.lastRoutingResult = buildSuccessDiagnostic(
+        'Flight Deck PG thread lifecycle event acknowledged without Agent Direct dispatch.',
+        {
+          subscription_id: record.subscriptionId,
+          event_id: eventId,
+          event_type: eventType,
+          thread_id: event.entity_id ?? null,
+          operation: event.operation ?? null,
+        },
+      );
+      record = this.saveRecord(this.recomputeHealth(record));
     } else if (isDocumentDirectEvent(event) && this.documentDirectRuntime) {
       const runtime = this.getRuntime(record.subscriptionId);
       const result = await this.documentDirectRuntime.handle({

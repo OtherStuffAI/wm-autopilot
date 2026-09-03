@@ -1616,6 +1616,74 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(saved?.lastEventPollErrorAt).toBeString();
   });
 
+  test('acknowledges branch-created thread events without poisoning the Agent Direct cursor', async () => {
+    const dbPath = makeTempDb();
+    const instanceIdentity = makeInstanceIdentity();
+    const branchCursor = encodeFlightDeckPgEventCursor(501);
+    let messageHydrationCalls = 0;
+    const { manager, store } = createTestManager(
+      dbPath,
+      new Map(),
+      undefined,
+      instanceIdentity,
+      undefined,
+      {
+        fetchFlightDeckPgChannelMessages: async () => {
+          messageHydrationCalls += 1;
+          return { messages: [], next_cursor: null };
+        },
+      },
+    );
+    const imported = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+      onboardingSource: 'nostr_33357',
+    });
+
+    await (manager as unknown as {
+      handleFlightDeckPgEvent: (
+        record: WorkspaceSubscriptionRecord,
+        event: Record<string, unknown>,
+      ) => Promise<WorkspaceSubscriptionRecord>;
+    }).handleFlightDeckPgEvent(imported.subscription, {
+      id: 'event-branch-created-1',
+      event_id: 'event-branch-created-1',
+      cursor: branchCursor,
+      workspace_id: 'workspace-1',
+      scope_id: 'scope-1',
+      channel_id: 'channel-1',
+      actor_id: 'actor-pete',
+      event_type: 'flightdeck_pg.thread.created',
+      entity_type: 'thread',
+      entity_id: 'child-thread-1',
+      operation: 'branched',
+      entity_row_version: 1,
+      row_version: 501,
+      created_at: '2026-09-03T03:46:09.582Z',
+      payload: {
+        thread_id: 'child-thread-1',
+        parent_thread_id: 'parent-thread-1',
+        branch_point_message_id: 'parent-message-1',
+      },
+    });
+
+    const saved = store.getBySubscriptionId(imported.subscription.subscriptionId);
+    manager.shutdown();
+    expect(messageHydrationCalls).toBe(0);
+    expect(saved?.lastSyncCursor).toBe(branchCursor);
+    expect(saved?.lastRoutingResult).toMatchObject({
+      ok: true,
+      details: {
+        event_id: 'event-branch-created-1',
+        event_type: 'flightdeck_pg.thread.created',
+        thread_id: 'child-thread-1',
+        operation: 'branched',
+      },
+    });
+    expect(saved?.lastRoutingResult?.message).toContain('acknowledged without Agent Direct dispatch');
+    expect(saved?.lastErrorCode).toBeNull();
+  });
+
   test('recovers the missed stable Rick mention once after poll timeout and transient access abort', async () => {
     const dbPath = makeTempDb();
     const instanceIdentity = makeInstanceIdentity();
