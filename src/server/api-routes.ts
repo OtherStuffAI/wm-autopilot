@@ -804,6 +804,8 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
             createDirectoryEntry: ctx.createDirectoryEntry,
             schedulerStore: ctx.schedulerStore,
             schedulerApiHandler: ctx.schedulerApiHandler,
+            sessionApiHandler: (sessionRequest, sessionUrl, sessionMethod, sessionAuthContext) =>
+              handleSessionApi(sessionRequest, sessionUrl, sessionMethod, sessionAuthContext, ctx.sessionApiContext),
             ensureSessionsAccess: (schedulerRequest, schedulerUrl, schedulerAuthContext) =>
               ctx.ensureApiAccess(ctx.AccessActions.SessionsManage, schedulerRequest, schedulerUrl, schedulerAuthContext),
             buildWappsContext: ctx.buildWappsContext,
