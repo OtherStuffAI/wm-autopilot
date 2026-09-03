@@ -169,6 +169,12 @@ const DEFAULT_33357_AGENT_CAPABILITIES: AgentCapability[] = [
   'comment_dispatch',
 ];
 
+function isExpiredFlightDeckPgEvent(event: FlightDeckPgEvent): boolean {
+  const eventCreatedAtMs = Date.parse(String(event.created_at ?? ''));
+  return Number.isFinite(eventCreatedAtMs)
+    && Date.now() - eventCreatedAtMs >= FLIGHT_DECK_PG_MISSING_MESSAGE_RETRY_WINDOW_MS;
+}
+
 const DEFAULT_DISPATCH_PIPELINE_ROUTES: Array<{
   triggerKind: CreateDispatchRouteInput['triggerKind'];
   capability: CreateDispatchRouteInput['capability'];
@@ -4304,6 +4310,11 @@ export class WorkspaceSubscriptionManager {
           event,
           includeChannel: Boolean(this.chatRuntime),
         }, { fetchChannel: this.fetchFlightDeckPgChannelImpl, fetchMessages: this.fetchFlightDeckPgChannelMessagesImpl });
+      } catch (error) {
+        if (getErrorDetailCode(error) === 'resource-not-found' && isExpiredFlightDeckPgEvent(event)) {
+          return this.skipExpiredFlightDeckPgChatEvent(record, event, channelId, eventEntityId, localAudience[0]?.agentId);
+        }
+        throw error;
       } finally {
         if (localAudience.length > 0
           && hydrationIdentity.botSecret !== runtime.botIdentity.botSecret
@@ -4313,39 +4324,8 @@ export class WorkspaceSubscriptionManager {
       }
       const { message, messages } = hydrated;
       if (!message) {
-        const eventCreatedAtMs = Date.parse(String(event.created_at ?? ''));
-        if (
-          Number.isFinite(eventCreatedAtMs)
-          && Date.now() - eventCreatedAtMs >= FLIGHT_DECK_PG_MISSING_MESSAGE_RETRY_WINDOW_MS
-        ) {
-          record.lastRoutingResult = buildSuccessDiagnostic(
-            'Skipped an expired Flight Deck PG message event whose source message no longer exists.',
-            {
-              channel_id: channelId,
-              entity_id: eventEntityId,
-              entity_type: event.entity_type ?? null,
-              event_created_at: event.created_at,
-            },
-          );
-          record.lastErrorCode = null;
-          record.lastErrorAt = null;
-          return this.appendDispatchHistory(record, {
-            at: new Date().toISOString(),
-            kind: 'chat',
-            action: 'chat_direct_suppressed',
-            agentId: localAudience[0]?.agentId ?? 'unresolved-agent-target',
-            sessionId: null,
-            recordId: eventEntityId,
-            bindingId: event.thread_id ?? eventEntityId,
-            bindingType: 'thread',
-            status: 'suppressed',
-            suppressionReason: 'expired_source_message_missing',
-            details: {
-              channel_id: channelId,
-              event_created_at: event.created_at,
-              source: 'flightdeck_pg',
-            },
-          });
+        if (isExpiredFlightDeckPgEvent(event)) {
+          return this.skipExpiredFlightDeckPgChatEvent(record, event, channelId, eventEntityId, localAudience[0]?.agentId);
         }
         record.lastRoutingResult = buildFailureDiagnostic(
           'flightdeck_pg_chat_message_missing',
@@ -4661,6 +4641,43 @@ export class WorkspaceSubscriptionManager {
       this.saveRecord(this.recomputeHealth(record));
       throw Object.assign(error instanceof Error ? error : new Error(String(error)), { detailCode });
     }
+  }
+
+  private skipExpiredFlightDeckPgChatEvent(
+    record: WorkspaceSubscriptionRecord,
+    event: FlightDeckPgEvent,
+    channelId: string,
+    eventEntityId: string,
+    agentId?: string,
+  ): WorkspaceSubscriptionRecord {
+    record.lastRoutingResult = buildSuccessDiagnostic(
+      'Skipped an expired Flight Deck PG message event whose source message or channel no longer exists.',
+      {
+        channel_id: channelId,
+        entity_id: eventEntityId,
+        entity_type: event.entity_type ?? null,
+        event_created_at: event.created_at,
+      },
+    );
+    record.lastErrorCode = null;
+    record.lastErrorAt = null;
+    return this.appendDispatchHistory(record, {
+      at: new Date().toISOString(),
+      kind: 'chat',
+      action: 'chat_direct_suppressed',
+      agentId: agentId ?? 'unresolved-agent-target',
+      sessionId: null,
+      recordId: eventEntityId,
+      bindingId: event.thread_id ?? eventEntityId,
+      bindingType: 'thread',
+      status: 'suppressed',
+      suppressionReason: 'expired_source_message_missing',
+      details: {
+        channel_id: channelId,
+        event_created_at: event.created_at,
+        source: 'flightdeck_pg',
+      },
+    });
   }
 
   private async reconnectForReplay(subscriptionId: string, reason: string): Promise<void> {
