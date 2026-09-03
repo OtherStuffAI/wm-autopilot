@@ -8,6 +8,7 @@ import { attachMessageSpeechButton } from "./message-speech.js";
 import { getWorkingNotesPanelKey, isWorkingNotesPanelOpen } from "./working-notes-toggle.js";
 import { shouldDefaultWorkingNotesOpen } from "./working-notes-display.js";
 import { buildEmptySessionInformation, createSessionInformationBubble } from "./session-information.js";
+import { attachMessageTimestamp } from "./message-timestamp.js";
 
 export const LIVE_MESSAGE_WINDOW_DEFAULT = 80;
 export const LIVE_MESSAGE_PAGE_SIZE = 80;
@@ -204,6 +205,7 @@ function createMessageBubble(message, options = {}) {
     message,
     showToast: options.showToast,
   });
+  attachMessageTimestamp(bubble, message);
   return bubble;
 }
 
