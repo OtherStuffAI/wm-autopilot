@@ -4,6 +4,7 @@ export interface AppProxyWebSocketData {
   kind: "app-proxy";
   targetUrl: string;
   protocols: string[];
+  cookieHeader: string | null;
   upstream?: WebSocket;
   upstreamOpen: boolean;
   queue: Array<string | Buffer>;
@@ -25,6 +26,15 @@ export function buildAppWebSocketTargetUrl(request: Request, targetPort: number)
   return `ws://127.0.0.1:${targetPort}${url.pathname}${url.search}`;
 }
 
+export function buildAppWebSocketOptions(
+  data: Pick<AppProxyWebSocketData, "protocols" | "cookieHeader">,
+): Bun.WebSocketOptions {
+  return {
+    ...(data.protocols.length > 0 ? { protocols: data.protocols } : {}),
+    ...(data.cookieHeader ? { headers: { cookie: data.cookieHeader } } : {}),
+  };
+}
+
 export function handleAppWebSocketUpgrade(
   request: Request,
   targetPort: number,
@@ -36,6 +46,7 @@ export function handleAppWebSocketUpgrade(
       kind: "app-proxy",
       targetUrl,
       protocols: parseWebSocketProtocols(request),
+      cookieHeader: request.headers.get("cookie"),
       upstreamOpen: false,
       queue: [],
     },
@@ -90,9 +101,10 @@ export function createAppWebSocketProxyHandler() {
     open(ws: ServerWebSocket<AppProxyWebSocketData>) {
       if (ws.data?.kind !== "app-proxy") return;
 
-      const upstream = ws.data.protocols.length > 0
-        ? new WebSocket(ws.data.targetUrl, ws.data.protocols)
-        : new WebSocket(ws.data.targetUrl);
+      const upstream = new WebSocket(
+        ws.data.targetUrl,
+        buildAppWebSocketOptions(ws.data),
+      );
       upstream.binaryType = "arraybuffer";
       ws.data.upstream = upstream;
 
