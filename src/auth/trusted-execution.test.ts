@@ -75,6 +75,28 @@ describe("trusted execution authorization", () => {
     }
   });
 
+  test("allows approved users to administer sessions on the shared instance", async () => {
+    const rule = createTrustedExecutionRule({
+      kind: "sessions",
+      isAdminNpub: () => false,
+      isApprovedNpub: (value) => value === "npub1approved",
+    });
+    for (const [method, pathname] of [
+      ["POST", "/api/sessions"],
+      ["POST", "/api/sessions/archived-session/resume-native"],
+      ["DELETE", "/api/sessions/another-users-session"],
+    ]) {
+      const request = new Request(`http://localhost${pathname}`, { method });
+      const decision = await rule({
+        action: AccessActions.SessionsManage,
+        request,
+        url: new URL(request.url),
+        auth: auth({ npub: "npub1approved" }),
+      });
+      expect(decision?.allowed).toBeTrue();
+    }
+  });
+
   test("allows every configured Admin but denies approved or owner-associated actors without a grant", async () => {
     const rule = createTrustedExecutionRule({ kind: "apps", isAdminNpub: (value) => value === admin || value === secondAdmin });
     const request = new Request("http://localhost/api/apps", { method: "POST" });
