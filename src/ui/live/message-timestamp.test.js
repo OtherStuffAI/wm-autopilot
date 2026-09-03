@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
-import { formatMessageTimestamp } from "./message-timestamp.js";
+import { formatMessageTimestamp, formatMessageTimestampLabel } from "./message-timestamp.js";
 
 const chatComponentSource = readFileSync(new URL("./chat-component.js", import.meta.url), "utf8");
 const timestampSource = readFileSync(new URL("./message-timestamp.js", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 describe("formatMessageTimestamp", () => {
   const options = { locale: "en-AU", timeZone: "UTC" };
@@ -18,10 +19,27 @@ describe("formatMessageTimestamp", () => {
       .toBe("3 Sep 2026 - 02:04:05 am");
   });
 
-  test("does not add timestamps to thinking, tools, or invalid messages", () => {
-    expect(formatMessageTimestamp({ role: "agent-thinking", createdAt: "2026-09-03T12:34:56.000Z" }, options)).toBe("");
-    expect(formatMessageTimestamp({ role: "agent-tools", createdAt: "2026-09-03T12:34:56.000Z" }, options)).toBe("");
+  test("labels the last update time for thinking and tool messages", () => {
+    const thinking = {
+      role: "agent-thinking",
+      createdAt: "2026-09-03T12:34:56.000Z",
+      updatedAt: "2026-09-03T14:02:22.000Z",
+    };
+    expect(formatMessageTimestampLabel(thinking, options)).toBe("last up : 3 Sep 2026 - 02:02:22 pm");
+    expect(formatMessageTimestampLabel({ role: "agent-tools", createdAt: "2026-09-03T10:02:22.000Z" }, options))
+      .toBe("last up : 3 Sep 2026 - 10:02:22 am");
+  });
+
+  test("does not add timestamps to context or invalid messages", () => {
+    expect(formatMessageTimestamp({ role: "agent-context", createdAt: "2026-09-03T12:34:56.000Z" }, options)).toBe("");
     expect(formatMessageTimestamp({ role: "assistant", createdAt: "invalid" }, options)).toBe("");
+  });
+
+  test("reveals working timestamps only while their details are expanded", () => {
+    expect(styles).toContain(".wm-message-timestamp--working {\n  display: none;");
+    expect(styles).toContain(
+      ".wm-message:has(.wm-message-working-notes[open]) .wm-message-timestamp--working {\n  display: inline;",
+    );
   });
 
   test("keeps every message action to the right of the timestamp", () => {

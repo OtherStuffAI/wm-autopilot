@@ -1,13 +1,26 @@
-const MESSAGE_TIMESTAMP_ROLES = new Set(["user", "assistant", "agent"]);
+const CONVERSATION_TIMESTAMP_ROLES = new Set(["user", "assistant", "agent"]);
+const WORKING_TIMESTAMP_ROLES = new Set(["agent-working", "agent-thinking", "agent-tools"]);
 
 function getMessageRole(message) {
   return String(message?.role ?? message?.type ?? "").toLowerCase();
 }
 
-export function formatMessageTimestamp(message, options = {}) {
-  if (!MESSAGE_TIMESTAMP_ROLES.has(getMessageRole(message))) return "";
+export function isWorkingMessageTimestamp(message) {
+  return WORKING_TIMESTAMP_ROLES.has(getMessageRole(message));
+}
 
-  const value = message?.createdAt ?? message?.created_at;
+export function getMessageTimestampDateTime(message) {
+  if (isWorkingMessageTimestamp(message)) {
+    return message?.updatedAt ?? message?.updated_at ?? message?.createdAt ?? message?.created_at;
+  }
+  return message?.createdAt ?? message?.created_at;
+}
+
+export function formatMessageTimestamp(message, options = {}) {
+  const role = getMessageRole(message);
+  if (!CONVERSATION_TIMESTAMP_ROLES.has(role) && !WORKING_TIMESTAMP_ROLES.has(role)) return "";
+
+  const value = getMessageTimestampDateTime(message);
   const date = new Date(value);
   if (!value || Number.isNaN(date.getTime())) return "";
 
@@ -29,19 +42,34 @@ export function formatMessageTimestamp(message, options = {}) {
   return `${dateText} - ${timeText}`;
 }
 
+export function formatMessageTimestampLabel(message, options = {}) {
+  const timestamp = formatMessageTimestamp(message, options);
+  if (!timestamp) return "";
+  return isWorkingMessageTimestamp(message) ? `last up : ${timestamp}` : timestamp;
+}
+
+export function getMessageTimestampAriaLabel(message, options = {}) {
+  const timestamp = formatMessageTimestamp(message, options);
+  if (!timestamp) return "";
+  return isWorkingMessageTimestamp(message) ? `Last updated ${timestamp}` : `Sent ${timestamp}`;
+}
+
 export function attachMessageTimestamp(bubble, message) {
-  const timestamp = formatMessageTimestamp(message);
-  if (!timestamp || !bubble) return;
+  const label = formatMessageTimestampLabel(message);
+  if (!label || !bubble) return;
 
   const actions = bubble.querySelector(".wm-message-actions") ?? document.createElement("div");
   actions.className = "wm-message-actions";
 
   const time = document.createElement("time");
   time.className = "wm-message-timestamp";
+  if (isWorkingMessageTimestamp(message)) {
+    time.classList.add("wm-message-timestamp--working");
+  }
   time.dataset.testid = "message-timestamp";
-  time.dateTime = String(message.createdAt ?? message.created_at);
-  time.setAttribute("aria-label", `Sent ${timestamp}`);
-  time.textContent = timestamp;
+  time.dateTime = String(getMessageTimestampDateTime(message));
+  time.setAttribute("aria-label", getMessageTimestampAriaLabel(message));
+  time.textContent = label;
   actions.prepend(time);
 
   if (!actions.parentElement) {

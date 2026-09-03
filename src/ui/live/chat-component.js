@@ -21,7 +21,12 @@ import { shouldDefaultWorkingNotesOpen } from "./working-notes-display.js";
 import { AGENT_OUTPUT_FORMATTING_FLAG_KEY } from "../rendering/agent-output-format.js";
 import { normalizeRuntimeStatus } from "./session-status-cache.js";
 import { buildEmptySessionInformation } from "./session-information.js";
-import { formatMessageTimestamp } from "./message-timestamp.js";
+import {
+  formatMessageTimestampLabel,
+  getMessageTimestampAriaLabel,
+  getMessageTimestampDateTime,
+  isWorkingMessageTimestamp,
+} from "./message-timestamp.js";
 import {
   fetchSessionMessagesApi,
   fetchSessionPermissionsApi,
@@ -447,7 +452,19 @@ export function registerChatComponent() {
     },
 
     getMessageTimestamp(message) {
-      return formatMessageTimestamp(message);
+      return formatMessageTimestampLabel(message);
+    },
+
+    isWorkingMessageTimestamp(message) {
+      return isWorkingMessageTimestamp(message);
+    },
+
+    getMessageTimestampDateTime(message) {
+      return getMessageTimestampDateTime(message);
+    },
+
+    getMessageTimestampAriaLabel(message) {
+      return getMessageTimestampAriaLabel(message);
     },
 
     canReadMessage(message) {
@@ -725,9 +742,10 @@ export function getChatTemplate(sessionId) {
         <div class="wm-message-actions">
           <template x-if="$store.chat.getMessageTimestamp(message)">
             <time class="wm-message-timestamp"
+                  :class="{ 'wm-message-timestamp--working': $store.chat.isWorkingMessageTimestamp(message) }"
                   data-testid="message-timestamp"
-                  :datetime="message.createdAt || message.created_at"
-                  :aria-label="'Sent ' + $store.chat.getMessageTimestamp(message)"
+                  :datetime="$store.chat.getMessageTimestampDateTime(message)"
+                  :aria-label="$store.chat.getMessageTimestampAriaLabel(message)"
                   x-text="$store.chat.getMessageTimestamp(message)"></time>
           </template>
           <template x-if="$store.chat.canReadMessage(message)">
