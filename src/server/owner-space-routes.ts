@@ -8,6 +8,11 @@ import type { AppRecord } from "../apps/app-registry";
 import type { WorkspaceDelegationStore } from "../storage/workspace-delegation-store";
 import type { SchedulerStore } from "../scheduler/scheduler-store";
 import { handleWappsApi, type WappsApiContext } from "./wapps-api-routes";
+import {
+  handleAgentChatApi,
+  isAgentChatApiPath,
+  type AgentChatApiContext,
+} from "./agent-chat-routes";
 import type { ExecutionAuditEntry } from "../auth/trusted-execution";
 import {
   buildDelegatedWorkspaceScope,
@@ -56,6 +61,7 @@ export interface OwnerSpaceRoutesContext {
     authContext: RequestAuthContext,
     canAccessAppOverride?: (app: AppRecord) => boolean,
   ) => WappsApiContext;
+  agentChatApiContext?: AgentChatApiContext;
   auditExecution?: (entry: ExecutionAuditEntry) => void;
 }
 
@@ -233,6 +239,12 @@ export function resolveOwnerWappsScope(method: HttpMethod, subpath: string): str
   return DelegationScopes.WappsAssign;
 }
 
+export function resolveOwnerAgentChatScope(method: HttpMethod): string {
+  return method === "GET" || method === "HEAD"
+    ? DelegationScopes.SessionsRead
+    : DelegationScopes.SessionsManage;
+}
+
 function delegatedWappResourceDenial(
   delegation: ReturnType<WorkspaceDelegationStore["findActiveDelegation"]>,
   input: { wappId?: string | null; workspaceId?: string | null; scopeId?: string | null },
@@ -311,6 +323,38 @@ export async function handleOwnerSpaceApi(
       ownerAuthContext,
       () => ctx.schedulerApiHandler(rewrittenRequest, rewrittenUrl, method),
     );
+  }
+
+  const agentChatPath = `/api${matched.subpath}`;
+  if (isAgentChatApiPath(agentChatPath)) {
+    if (!ctx.agentChatApiContext) {
+      return Response.json({ error: "agent-chat-unavailable" }, { status: 503 });
+    }
+    const requiredScope = resolveOwnerAgentChatScope(method);
+    const access = resolveOwnerAccess(
+      authContext,
+      matched.ownerNpub,
+      ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
+      requiredScope,
+    );
+    if (!access) {
+      return delegationDenial(ctx, authContext, matched.ownerNpub, requiredScope);
+    }
+    const ownerAuthContext = createOwnerScopedAuthContext(
+      authContext,
+      matched.ownerNpub,
+      access,
+      requiredScope,
+    );
+    const rewrittenUrl = cloneUrlWithPath(url, agentChatPath);
+    const rewrittenRequest = createRewrittenRequest(request, rewrittenUrl);
+    return await runWithRequestContext(ownerAuthContext, () => handleAgentChatApi(
+      rewrittenRequest,
+      rewrittenUrl,
+      method === "GET" || method === "POST" || method === "PATCH" || method === "DELETE" ? method : "GET",
+      ownerAuthContext,
+      ctx.agentChatApiContext!,
+    ));
   }
 
   if (matched.subpath === "/wapps" || matched.subpath.startsWith("/wapps/")) {

@@ -807,6 +807,15 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
             ensureSessionsAccess: (schedulerRequest, schedulerUrl, schedulerAuthContext) =>
               ctx.ensureApiAccess(ctx.AccessActions.SessionsManage, schedulerRequest, schedulerUrl, schedulerAuthContext),
             buildWappsContext: ctx.buildWappsContext,
+            agentChatApiContext: ctx.agentChatApiContext
+              ? {
+                  ...ctx.agentChatApiContext,
+                  agentTypes: resolveAgentModelCatalogue(
+                    ctx.config.agents,
+                    ctx.instanceSettingsRoutesContext.service.get(MODEL_PROVIDERS_SETTING_KEY),
+                  ),
+                }
+              : undefined,
             auditExecution: ctx.auditExecution,
           }),
       );

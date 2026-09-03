@@ -3,7 +3,13 @@ import { describe, expect, test } from "bun:test";
 import { createOwnerScopedAuthContext, DelegationScopes, type OwnerAccessResolution } from "../auth/delegation-access";
 import type { RequestAuthContext } from "../auth/request-context";
 import type { WorkspaceDelegationRecord } from "../storage/workspace-delegation-store";
-import { handleOwnerSpaceApi, resolveOwnerAppsScope, resolveOwnerWappsScope, type OwnerSpaceRoutesContext } from "./owner-space-routes";
+import {
+  handleOwnerSpaceApi,
+  resolveOwnerAgentChatScope,
+  resolveOwnerAppsScope,
+  resolveOwnerWappsScope,
+  type OwnerSpaceRoutesContext,
+} from "./owner-space-routes";
 
 describe("owner-space executable authority", () => {
   test("maps app operations to granular delegation scopes", async () => {
@@ -24,6 +30,13 @@ describe("owner-space executable authority", () => {
     expect(resolveOwnerWappsScope("POST", "/wapps/templates/create")).toBe(DelegationScopes.WappsInstall);
     expect(resolveOwnerWappsScope("POST", "/wapps")).toBe(DelegationScopes.WappsAssign);
     expect(resolveOwnerWappsScope("PATCH", "/wapps/wapp-1")).toBe(DelegationScopes.WappsAssign);
+  });
+
+  test("maps Agent Dispatch reads and mutations to session delegation scopes", () => {
+    expect(resolveOwnerAgentChatScope("GET")).toBe(DelegationScopes.SessionsRead);
+    expect(resolveOwnerAgentChatScope("POST")).toBe(DelegationScopes.SessionsManage);
+    expect(resolveOwnerAgentChatScope("PATCH")).toBe(DelegationScopes.SessionsManage);
+    expect(resolveOwnerAgentChatScope("DELETE")).toBe(DelegationScopes.SessionsManage);
   });
 
   test("preserves the real signer while attaching verified delegation evidence", () => {
@@ -107,6 +120,7 @@ describe("owner-space scheduler delegation", () => {
     onAccess?: (authContext: RequestAuthContext) => void;
     onAudit?: OwnerSpaceRoutesContext["auditExecution"];
     onScheduler?: (request: Request, url: URL, method: string) => Promise<Response>;
+    includeAgentChat?: boolean;
   } = {}): OwnerSpaceRoutesContext {
     const activeGrant = input.activeGrant === undefined
       ? grant([DelegationScopes.SessionsRead, DelegationScopes.SessionsCreate, DelegationScopes.SessionsManage])
@@ -148,8 +162,38 @@ describe("owner-space scheduler delegation", () => {
       docsApiContext: {} as OwnerSpaceRoutesContext["docsApiContext"],
       listDirectories: async () => ({}),
       createDirectoryEntry: async () => ({}),
+      agentChatApiContext: input.includeAgentChat
+        ? {
+            manager: {
+              listBackendConnectionsForManager: () => [],
+              listForManager: () => [],
+            },
+            adminNpub: owner,
+            sharedAgentDispatch: true,
+            isApprovedContext: () => true,
+          } as unknown as OwnerSpaceRoutesContext["agentChatApiContext"]
+        : undefined,
     };
   }
+
+  test("forwards delegated owner-space Agent Dispatch reads", async () => {
+    const request = new Request("http://localhost/api/owners/npub1admin/agent-chat/subscriptions");
+    const response = await handleOwnerSpaceApi(
+      request,
+      new URL(request.url),
+      "GET",
+      auth,
+      context({
+        activeGrant: grant([DelegationScopes.SessionsRead]),
+        includeAgentChat: true,
+      }),
+    );
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({
+      permissions: { shared: true, canManage: true },
+      subscriptions: [],
+    });
+  });
 
   test("authorizes delegated create, update, and delete with owner and delegate audit context", async () => {
     const observed: RequestAuthContext[] = [];
