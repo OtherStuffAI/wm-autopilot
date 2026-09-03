@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildDirectChatBootstrapPrompt, buildDirectChatClientRequestId, buildDirectChatFollowUpPrompt,
-  buildDirectChatTurnId, channelDirectChatConfig, hasCanonicalNpubMention, isImplicitTwoPartyDirectMessage, orderDirectChatMessages,
+  buildDirectChatTurnId, channelDirectChatConfig, hasCanonicalNpubMention, hasInternalAgentDirectRecipient,
+  isAgentDirectMessageEligible, isImplicitTwoPartyDirectMessage, orderDirectChatMessages,
   buildDirectChatRoutingKey,
   selectUndeliveredActionableMessages,
 } from './direct-chat-contract';
@@ -26,6 +27,24 @@ describe('Agent Direct Chat contract', () => {
     }
     expect(hasCanonicalNpubMention({ ...base, mentions: [{ type: 'agent', npub: 'npub1other', actorId: null, label: 'Other' }] }, 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg')).toBe(false);
     expect(hasCanonicalNpubMention({ ...base, message: '@Example Agent', mentions: [] }, 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg')).toBe(false);
+  });
+
+  test('routes an unmentioned child message through its internal Agent Direct recipient', () => {
+    const botNpub = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg';
+    const [childMessage] = orderDirectChatMessages([{
+      id: 'child-message',
+      thread_id: 'child-thread',
+      body: 'Try a different approach',
+      created_at: '2026-01-01T00:00:01Z',
+      created_by_actor_npub: 'npub1human',
+      metadata: { agent_direct_recipient_npub: botNpub },
+    }]);
+
+    expect(childMessage!.mentions).toEqual([]);
+    expect(hasInternalAgentDirectRecipient(childMessage!, botNpub)).toBe(true);
+    expect(isAgentDirectMessageEligible({ id: 'channel-1', kind: 'channel' }, childMessage!, botNpub)).toBe(true);
+    expect(isAgentDirectMessageEligible({ id: 'channel-1', kind: 'channel' }, childMessage!, 'npub1other')).toBe(false);
+    expect(isAgentDirectMessageEligible({ id: 'channel-1', kind: 'channel' }, { ...childMessage!, inherited: true }, botNpub)).toBe(false);
   });
 
   test('recognises only an authored strict two-party DM as implicit activation', () => {

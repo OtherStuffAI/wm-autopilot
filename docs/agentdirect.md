@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Agent Direct Chat connects a Flight Deck channel thread directly to a normal Autopilot agent session. In shared channels a human canonically mentions an agent such as the workspace agent on each message intended for it; in a strict two-party DM the sole human participant may speak without a mention. Autopilot consumes the Tower PG message event, creates or reuses one session for that workspace/channel/thread/agent tuple, supplies the authoritative conversation context, and publishes the agent's answer to Tower as an ordinary chat message without a pipeline.
+Agent Direct Chat connects a Flight Deck channel thread directly to a normal Autopilot agent session. In shared channels a human canonically mentions an agent such as the workspace agent on each message intended for it, except when Flight Deck internally routes an unmentioned child-branch message to the recipient inherited by that thread. In a strict two-party DM the sole human participant may also speak without a mention. Autopilot consumes the Tower PG message event, creates or reuses one session for that workspace/channel/thread/agent tuple, supplies the authoritative conversation context, and publishes the agent's answer to Tower as an ordinary chat message without a pipeline.
 
 This feature should harden and simplify the existing `src/agent-chat/` runtime. It is not a new pipeline and does not require ACP. ACP may later implement an internal conversational session adapter, but event routing, delivery cursors, lifecycle recovery, and Tower publication remain Autopilot responsibilities.
 
@@ -51,13 +51,13 @@ tower_service_npub + workspace_id + channel_id + thread_id + agent_npub
 
 Do not use only channel/thread IDs. IDs can collide across Towers or workspaces, and one thread may eventually contain more than one agent.
 
-The target agent is resolved from the canonical npub in structured mentions stored by Tower and the registered Autopilot agent definition. Flight Deck may present that identity with either `type: "agent"` or `type: "person"`; presentation type does not change routing. Visible `@Name` text is not authoritative.
+The target agent is resolved from either the canonical npub in structured mentions stored by Tower or the internal `agent_direct_recipient_npub` attached by Flight Deck to an unmentioned child-branch message, together with the registered Autopilot agent definition. Flight Deck may present mention identities with either `type: "agent"` or `type: "person"`; presentation type does not change routing. Visible `@Name` text is not authoritative, and internal branch routing is not a visible mention.
 
 ## Activation Rules
 
 The legacy `activation: mention_then_continue` configuration value remains accepted for compatibility, but runtime eligibility is:
 
-- ordinary `channel` and `system` channels: every human message must canonically mention this agent, regardless of an existing binding;
+- ordinary `channel` and `system` channels: every human message must canonically mention this agent or carry Flight Deck's internal child-branch recipient for this agent, regardless of an existing binding;
 - strict two-party `dm`: an unmentioned message is eligible only when `participant_npubs` contains exactly two distinct non-empty npubs, includes this agent, and the event author is the other participant;
 - all channels are Direct-enabled by product default; `metadata.agent_chat.enabled: false` is the explicit opt-out;
 - malformed or multi-party DMs, DMs missing this agent, and messages authored outside the declared pair require a canonical mention;

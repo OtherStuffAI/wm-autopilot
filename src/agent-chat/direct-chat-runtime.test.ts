@@ -581,6 +581,26 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.interceptStore.listAll()[0]?.lastHumanMessageIdDelivered).toBe('m3');
   });
 
+  test('starts a fresh child session for an unmentioned internally routed branch message', async () => {
+    const f = fixture();
+    const childMessage = {
+      ...f.message('m1', 'Try a different approach'),
+      thread_id: 'child-thread',
+      metadata: { agent_direct_recipient_npub: f.subscription.botNpub },
+    };
+
+    expect(await f.handle([childMessage], 'm1')).toEqual({ handled: true, reason: 'direct_chat_queued' });
+    await f.runtime.waitForIdle();
+
+    expect(f.creates).toHaveLength(1);
+    expect(f.prompts).toHaveLength(1);
+    const prompt = JSON.parse(f.prompts[0]!);
+    expect(prompt.source).toMatchObject({ thread_id: 'child-thread', trigger_message_id: 'm1' });
+    expect(prompt.actionable_messages).toEqual([
+      expect.objectContaining({ message_id: 'm1', message: 'Try a different approach', mentions: [] }),
+    ]);
+  });
+
   test('routes unmentioned messages only in a strict two-party DM and reuses its session', async () => {
     const f = fixture({ channel: { kind: 'dm', participant_npubs: ['npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg', 'npub1human'] } });
     const m1 = f.message('m1', 'hello'); expect(await f.handle([m1], 'm1')).toEqual({ handled: true, reason: 'direct_chat_queued' });
