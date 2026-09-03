@@ -8,6 +8,7 @@
 import { escapeHtml, getSessionDisplayName, setIconButton } from "../core/icons.js";
 import { openTextPromptDialog } from "../common/dialog-prompts.js";
 import { attachCopyButton, copyConversationToClipboard, copyTextToClipboard } from "../utils/clipboard.js";
+import { attachMessageTimestamp } from "../live/message-timestamp.js";
 import { showToast } from "../utils/toast.js";
 import { AGENT_OUTPUT_FORMATTING_FLAG_KEY } from "../rendering/agent-output-format.js";
 import {
@@ -684,6 +685,7 @@ export function initLiveView(deps) {
             });
         bubble.append(body);
         attachCopyButton(bubble);
+        attachMessageTimestamp(bubble, message);
         wrapper.append(bubble);
       });
     }

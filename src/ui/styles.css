@@ -4759,6 +4759,15 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   position: relative;
 }
 
+.wm-message:has(.wm-message-timestamp) {
+  min-width: min(100%, 18rem);
+  padding-bottom: 3.1rem;
+}
+
+.wm-message:has(.wm-message-timestamp) .wm-message-actions {
+  max-width: calc(100% - 1.7rem);
+}
+
 .wm-message pre,
 .wm-chat-message-content pre,
 .wm-archive-dialog-message-content pre {
@@ -5160,6 +5169,18 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+}
+
+.wm-message-timestamp {
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  min-width: 0;
+  opacity: 0.78;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wm-message-copy,

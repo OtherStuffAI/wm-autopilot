@@ -21,6 +21,7 @@ import { shouldDefaultWorkingNotesOpen } from "./working-notes-display.js";
 import { AGENT_OUTPUT_FORMATTING_FLAG_KEY } from "../rendering/agent-output-format.js";
 import { normalizeRuntimeStatus } from "./session-status-cache.js";
 import { buildEmptySessionInformation } from "./session-information.js";
+import { formatMessageTimestamp } from "./message-timestamp.js";
 import {
   fetchSessionMessagesApi,
   fetchSessionPermissionsApi,
@@ -445,6 +446,10 @@ export function registerChatComponent() {
       return typeof message?.speech?.summary === "string" ? message.speech.summary.trim() : "";
     },
 
+    getMessageTimestamp(message) {
+      return formatMessageTimestamp(message);
+    },
+
     canReadMessage(message) {
       return isReadableAgentMessage(message);
     },
@@ -746,6 +751,13 @@ export function getChatTemplate(sessionId) {
                   ">
             <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M15 3H7a2 2 0 0 0-2 2v10h2V5h8V3zm4 4h-8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zm0 12h-8V9h8v10z"/></svg>
           </button>
+          <template x-if="$store.chat.getMessageTimestamp(message)">
+            <time class="wm-message-timestamp"
+                  data-testid="message-timestamp"
+                  :datetime="message.createdAt || message.created_at"
+                  :aria-label="'Sent ' + $store.chat.getMessageTimestamp(message)"
+                  x-text="$store.chat.getMessageTimestamp(message)"></time>
+          </template>
         </div>
       </article>
     </template>
