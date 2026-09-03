@@ -2143,7 +2143,10 @@ export class WorkspaceSubscriptionManager {
     const record = typeof recordOrBotNpub === 'string'
       ? this.botKeyStore.getActiveKeyForBotNpub(recordOrBotNpub)
       : recordOrBotNpub;
-    this.agentStore.delete(agentId);
+    const profile = this.agentStore.getByAgentId(agentId);
+    if (record && profile?.botNpub === record.botNpub) {
+      this.agentStore.delete(agentId);
+    }
     if (!record) return;
     let envelopeError: unknown = null;
     try {
