@@ -121,6 +121,7 @@ export interface AppsApiContext {
   viewerNpub: string | null;
 
   AccessActions: {
+    AppsLifecycle: AccessAction;
     AppsManage: AccessAction;
     AppsRead: AccessAction;
   };
@@ -783,16 +784,19 @@ export async function handleAppsApi(
   }
 
   if (pathname.startsWith('/api/apps/')) {
-    const denied = await ctx.ensureApiAccess(
-      method === 'GET' || method === 'HEAD' ? ctx.AccessActions.AppsRead : ctx.AccessActions.AppsManage,
-      request,
-      url,
-      authContext,
-    );
-    if (denied) {
-      return denied;
-    }
     const parts = pathname.split('/');
+    const isActionRequest = method === 'POST' && parts[4] === 'actions';
+    if (!isActionRequest) {
+      const denied = await ctx.ensureApiAccess(
+        method === 'GET' || method === 'HEAD' ? ctx.AccessActions.AppsRead : ctx.AccessActions.AppsManage,
+        request,
+        url,
+        authContext,
+      );
+      if (denied) {
+        return denied;
+      }
+    }
     const id = parts[3];
     if (!id) {
       return Response.json({ error: 'App id is required' }, { status: 400 });
@@ -1244,6 +1248,13 @@ export async function handleAppsApi(
         return Response.json({ error: 'Action is required' }, { status: 400 });
       }
       const normalizedAction = actionValue.toLowerCase();
+      const accessAction = normalizedAction === 'start' || normalizedAction === 'stop' || normalizedAction === 'restart'
+        ? ctx.AccessActions.AppsLifecycle
+        : ctx.AccessActions.AppsManage;
+      const denied = await ctx.ensureApiAccess(accessAction, request, url, authContext);
+      if (denied) {
+        return denied;
+      }
       if (normalizedAction === 'review-wapp-tower-broker') {
         const wapp = ctx.wappStore?.getByAppId(id);
         if (!wapp?.towerBindingId || !wapp.appNpub) {

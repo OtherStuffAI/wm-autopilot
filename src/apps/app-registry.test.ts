@@ -107,6 +107,49 @@ describe("AppRegistry web app port assignment", () => {
     });
   });
 
+  test("does not require lifecycle review when an app owner is not an Admin", async () => {
+    await withRegistry(async (registry) => {
+      const app = await registry.registerApp({
+        id: "collaborator-app",
+        label: "Collaborator App",
+        root: "/tmp/collaborator-app",
+        ownerNpub: "npub1collaborator",
+        scripts: { start: { executable: "bun", args: ["run", "start"] } },
+      });
+
+      expect(app.lifecycleReviewRequired).toBeFalse();
+      expect(app.lifecycleReviewReasons).toEqual([]);
+    });
+  });
+
+  test("removes the obsolete owner review from an existing SQLite registry", async () => {
+    await withRegistry(async (registry, filePath) => {
+      await registry.registerApp({
+        id: "existing-app",
+        label: "Existing App",
+        root: "/tmp/existing-app",
+        ownerNpub: "npub1collaborator",
+      });
+      const database = new Database(`${filePath}.sqlite`);
+      database.query(`
+        UPDATE app_registry
+        SET lifecycle_review_required = 1, lifecycle_review_reasons_json = ?
+        WHERE id = ?
+      `).run(JSON.stringify(["app-owner-is-not-a-configured-admin"]), "existing-app");
+      database.close();
+
+      const reloaded = new AppRegistry(filePath);
+      const app = await reloaded.getApp("existing-app");
+      expect(app?.lifecycleReviewRequired).toBeFalse();
+      expect(app?.lifecycleReviewReasons).toEqual([]);
+
+      const persisted = new Database(`${filePath}.sqlite`)
+        .query("SELECT lifecycle_review_required, lifecycle_review_reasons_json FROM app_registry WHERE id = ?")
+        .get("existing-app");
+      expect(persisted).toEqual({ lifecycle_review_required: 0, lifecycle_review_reasons_json: "[]" });
+    });
+  });
+
   test("idempotently removes legacy signing keys while preserving app metadata", async () => {
     await withRegistry(async (registry, filePath) => {
       await writeFile(filePath, JSON.stringify({ apps: [{
@@ -150,20 +193,20 @@ describe("AppRegistry web app port assignment", () => {
 
       const migrated = await registry.getApp("kindling-api");
       expect(migrated?.lifecycleReviewReasons).toContain("raw-signing-secret-removed-use-capability-broker");
-      expect(migrated?.lifecycleReviewReasons).toContain("app-owner-is-not-a-configured-admin");
+      expect(migrated?.lifecycleReviewReasons).not.toContain("app-owner-is-not-a-configured-admin");
 
       const reviewed = await registry.reviewWappTowerBrokerMigration("kindling-api");
       expect(reviewed.scripts).toMatchObject({
         start: { executable: "bun", args: ["run", "start"] },
         setup: { executable: "bun", args: ["run", "setup"] },
       });
-      expect(reviewed.lifecycleReviewReasons).toEqual(["app-owner-is-not-a-configured-admin"]);
-      expect(reviewed.lifecycleReviewRequired).toBeTrue();
+      expect(reviewed.lifecycleReviewReasons).toEqual([]);
+      expect(reviewed.lifecycleReviewRequired).toBeFalse();
       expect(reviewed.env).toEqual({ APP_MODE: "production" });
 
       const reloaded = new AppRegistry(filePath);
       expect((await reloaded.getApp("kindling-api"))?.lifecycleReviewReasons)
-        .toEqual(["app-owner-is-not-a-configured-admin"]);
+        .toEqual([]);
     });
   });
 
