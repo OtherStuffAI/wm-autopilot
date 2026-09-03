@@ -170,7 +170,7 @@ describe("handleSessionApi", () => {
       callbackOutcome: "incomplete", openSessionRef: "/live?session=session-1" });
   });
 
-  test("approved non-Admin executable session launch returns 403", async () => {
+  test("honors a top-level session management denial", async () => {
     const ctx = buildCtx({
       ensureApiAccess: async (action) => action === "sessions:manage"
         ? Response.json({ error: "admin-or-execution-delegation-required" }, { status: 403 })

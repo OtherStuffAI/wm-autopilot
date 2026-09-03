@@ -48,6 +48,7 @@ export interface ExecutionAuditEntry {
 export function createTrustedExecutionRule(input: {
   kind: "apps" | "sessions";
   isAdminNpub: (npub: string | null | undefined) => boolean;
+  isApprovedNpub?: (npub: string | null | undefined) => boolean;
   audit?: (entry: ExecutionAuditEntry) => void;
   now?: () => Date;
 }): AccessRule {
@@ -57,6 +58,12 @@ export function createTrustedExecutionRule(input: {
     );
     const ownerNpub = normaliseNpub(context.auth.targetOwnerNpub ?? context.auth.npub ?? null);
     const directAdmin = Boolean(actorNpub && input.isAdminNpub(actorNpub) && actorNpub === ownerNpub);
+    const directApprovedSessionUser = Boolean(
+      input.kind === "sessions" &&
+      actorNpub &&
+      actorNpub === ownerNpub &&
+      input.isApprovedNpub?.(actorNpub),
+    );
     const scope = context.auth.delegateExecutionScope ?? null;
     const delegated = Boolean(
       actorNpub &&
@@ -68,12 +75,18 @@ export function createTrustedExecutionRule(input: {
         (input.kind === "apps" && context.auth.delegateScopes?.includes("apps:manage"))),
     );
     const selfSession = allowsCapabilityBoundSelfSessionOperation(context, input.kind);
-    const allowed = directAdmin || delegated || selfSession;
+    const allowed = directAdmin || directApprovedSessionUser || delegated || selfSession;
     input.audit?.({
       actorNpub,
       ownerNpub,
       delegationId: context.auth.delegateRelationshipId ?? null,
-      scope: directAdmin ? `${input.kind}:admin` : selfSession ? "sessions:self" : scope,
+      scope: directAdmin
+        ? `${input.kind}:admin`
+        : directApprovedSessionUser
+          ? "sessions:approved"
+          : selfSession
+            ? "sessions:self"
+            : scope,
       target: context.url.pathname,
       action: `${context.request.method} ${context.url.pathname}`,
       outcome: allowed ? "allowed" : "denied",

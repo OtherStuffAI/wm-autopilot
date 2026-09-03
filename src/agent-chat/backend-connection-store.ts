@@ -108,6 +108,25 @@ class BackendConnectionStore {
     );
   }
 
+  findReusableForInstance(input: {
+    backendBaseUrl: string;
+    serviceNpub?: string | null;
+  }): BackendConnectionRecord | null {
+    if (input.serviceNpub) {
+      const match = this.getWhere(
+        'backend_base_url = ?1 AND service_npub = ?2',
+        [input.backendBaseUrl, input.serviceNpub],
+      );
+      if (match) {
+        return match;
+      }
+    }
+    return this.getWhere(
+      'backend_base_url = ?1 AND service_npub IS NULL',
+      [input.backendBaseUrl],
+    );
+  }
+
   createDefault(input: {
     managedByNpub: string;
     backendBaseUrl: string;

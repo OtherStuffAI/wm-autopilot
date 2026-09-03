@@ -1836,6 +1836,58 @@ export class WorkspaceSubscriptionManager {
     return record.workspaceServiceNpub?.trim() || record.workspaceOwnerNpub;
   }
 
+  private isSameInstanceSubscription(
+    record: WorkspaceSubscriptionRecord,
+    input: {
+      backendBaseUrl: string;
+      towerServiceNpub: string | null;
+      workspaceOwnerNpub: string;
+      workspaceId: string | null;
+      workspaceServiceNpub: string | null;
+      sourceAppNpub: string;
+      botNpub: string;
+      agentProfileId: string | null;
+    },
+  ): boolean {
+    return normaliseBackendBaseUrl(record.backendBaseUrl) === input.backendBaseUrl
+      && (!input.towerServiceNpub || !record.towerServiceNpub || record.towerServiceNpub === input.towerServiceNpub)
+      && (!input.workspaceId || record.workspaceId === input.workspaceId)
+      && (!input.workspaceServiceNpub || record.workspaceServiceNpub === input.workspaceServiceNpub)
+      && record.workspaceOwnerNpub === input.workspaceOwnerNpub
+      && record.sourceAppNpub === input.sourceAppNpub
+      && record.botNpub === input.botNpub
+      && (record.agentProfileId ?? null) === input.agentProfileId;
+  }
+
+  private removeDuplicateInstanceSubscriptions(canonical: WorkspaceSubscriptionRecord): void {
+    const identity = {
+      backendBaseUrl: normaliseBackendBaseUrl(canonical.backendBaseUrl),
+      towerServiceNpub: canonical.towerServiceNpub ?? null,
+      workspaceOwnerNpub: canonical.workspaceOwnerNpub,
+      workspaceId: canonical.workspaceId ?? null,
+      workspaceServiceNpub: canonical.workspaceServiceNpub ?? null,
+      sourceAppNpub: canonical.sourceAppNpub,
+      botNpub: canonical.botNpub,
+      agentProfileId: canonical.agentProfileId ?? null,
+    };
+    for (const duplicate of this.store.listAll()) {
+      if (
+        duplicate.subscriptionId === canonical.subscriptionId
+        || !this.isSameInstanceSubscription(duplicate, identity)
+      ) {
+        continue;
+      }
+      this.stopRuntime(duplicate.subscriptionId, true);
+      if (duplicate.managedByNpub) {
+        this.dispatchPipelineRuntime?.deleteRoutesForSubscriptionForManager(
+          duplicate.subscriptionId,
+          duplicate.managedByNpub,
+        );
+      }
+      this.store.delete(duplicate.subscriptionId);
+    }
+  }
+
   private normaliseAgentIdPart(value: string | null | undefined): string {
     const normalized = String(value ?? '')
       .toLowerCase()
@@ -1942,7 +1994,12 @@ export class WorkspaceSubscriptionManager {
     const agentId = this.buildOnboardedAgentId(subscription);
     const existingById = this.agentStore.getByAgentId(agentId);
     if (existingById && existingById.managedByNpub && existingById.managedByNpub !== subscription.managedByNpub) {
-      throw new Error(`Auto Agent Dispatch binding ${agentId} is owned by another manager.`);
+      if (
+        existingById.botNpub !== subscription.botNpub
+        || existingById.workspaceOwnerNpub !== this.getEffectiveWorkspaceNpub(subscription)
+      ) {
+        throw new Error(`Auto Agent Dispatch binding ${agentId} conflicts with this instance connection.`);
+      }
     }
     if (existingById && existingById.botNpub !== subscription.botNpub) {
       throw Object.assign(new Error(
@@ -2384,6 +2441,16 @@ export class WorkspaceSubscriptionManager {
       workspaceId,
       workspaceServiceNpub,
     });
+    const instanceRecord = this.store.listAll().find((candidate) => this.isSameInstanceSubscription(candidate, {
+      backendBaseUrl: subscriptionBackendBaseUrl,
+      towerServiceNpub,
+      workspaceOwnerNpub,
+      workspaceId,
+      workspaceServiceNpub,
+      sourceAppNpub,
+      botNpub: botIdentity.botNpub,
+      agentProfileId: agentProfile?.agentId ?? input.agentProfileId ?? null,
+    }));
     const legacyRecord = this.store.getByWorkspaceAndBot(workspaceOwnerNpub, botIdentity.botNpub);
     const legacyIdentityCompatible = Boolean(
       legacyRecord
@@ -2405,6 +2472,7 @@ export class WorkspaceSubscriptionManager {
       ),
     );
     let record = scopedRecord
+      ?? instanceRecord
       ?? (canReuseLegacyRecord ? legacyRecord : null)
       ?? this.store.createDefault({
         managedByNpub: input.managedByNpub,
@@ -2487,6 +2555,7 @@ export class WorkspaceSubscriptionManager {
         agentProfile,
         botIdentity,
       });
+      this.removeDuplicateInstanceSubscriptions(saved);
       return saved;
     }
     record = await this.prepareWorkspaceSession(record, botIdentity);
@@ -2530,6 +2599,7 @@ export class WorkspaceSubscriptionManager {
       agentProfile,
       botIdentity,
     });
+    this.removeDuplicateInstanceSubscriptions(saved);
     return saved;
   }
 
@@ -2993,10 +3063,14 @@ export class WorkspaceSubscriptionManager {
       managedByNpub: input.managedByNpub,
       backendBaseUrl,
       serviceNpub: input.serviceNpub ?? null,
+    }) ?? this.backendStore.findReusableForInstance({
+      backendBaseUrl,
+      serviceNpub: input.serviceNpub ?? null,
     });
     if (existing) {
       const saved = this.backendStore.save({
         ...existing,
+        managedByNpub: input.managedByNpub,
         serviceNpub: input.serviceNpub ?? existing.serviceNpub,
         setupWorkspaceOwnerNpub: input.setupWorkspaceOwnerNpub ?? existing.setupWorkspaceOwnerNpub,
         setupSourceAppNpub: input.setupSourceAppNpub ?? existing.setupSourceAppNpub,

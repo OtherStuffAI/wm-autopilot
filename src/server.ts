@@ -647,6 +647,7 @@ const requireApprovedWorkAccess = (): AccessRule => {
 
 const trustedExecutionRuleOptions = {
   isAdminNpub: isConfiguredAdminNpub,
+  isApprovedNpub: isUserApprovedForWork,
   audit: (entry: ExecutionAuditEntry) =>
     writeServerLog("INFO", "[execution-audit]", entry),
 };
@@ -2802,6 +2803,7 @@ const handleApi = createApiRouteHandler({
     adminNpub,
     sharedAgentDispatch: sharedAgentDispatchEnabled,
     isAdminContext,
+    isApprovedContext: (authContext) => isUserApprovedForWork(getEffectiveOwnerNpub(authContext)),
     publishAgentProfile: async ({ event, agent }) => {
       const record = botKeyStore.getActiveKeyForBotNpub(agent.botNpub);
       if (!record || record.userNpub !== agent.managedByNpub) throw new Error('Agent identity binding is unavailable.');

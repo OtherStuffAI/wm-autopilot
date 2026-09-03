@@ -711,7 +711,7 @@ describe('agent-chat routes', () => {
     expect(captured?.appendedContexts).toEqual([]);
   });
 
-  test('denies non-admin profile workspace saves in shared dispatch mode', async () => {
+  test('denies unapproved profile workspace saves in shared dispatch mode', async () => {
     const manager = {
       saveProfileWorkspaceForManager: () => {
         throw new Error('save should not be called');
@@ -741,7 +741,7 @@ describe('agent-chat routes', () => {
     expect(body.error).toContain('Ask an administrator');
   });
 
-  test('shared agent dispatch lists admin-managed subscriptions for non-admin viewers', async () => {
+  test('shared agent dispatch lets approved viewers administer instance subscriptions', async () => {
     const manager = {
       listBackendConnectionsForManager: (npub: string) => {
         expect(npub).toBe('npub1admin');
@@ -759,9 +759,7 @@ describe('agent-chat routes', () => {
         expect(npub).toBe('npub1admin');
         return [];
       },
-      listBackendConnectionGrantsForManager: () => {
-        throw new Error('non-admin viewers should not receive backend availability grants');
-      },
+      listBackendConnectionGrantsForManager: () => [],
     } as unknown as WorkspaceSubscriptionManager;
     const request = new Request('http://localhost/api/agent-chat/subscriptions');
 
@@ -775,15 +773,16 @@ describe('agent-chat routes', () => {
         adminNpub: 'npub1admin',
         sharedAgentDispatch: true,
         isAdminContext: () => false,
+        isApprovedContext: () => true,
       },
     );
     const body = await response!.json();
 
     expect(response?.status).toBe(200);
-    expect(body.permissions).toEqual({ shared: true, canManage: false });
+    expect(body.permissions).toEqual({ shared: true, canManage: true });
     expect(body.subscriptions).toHaveLength(1);
     expect(body.subscriptions[0].managedByNpub).toBe('npub1admin');
-    expect(body.subscriptions[0].operator.canManage).toBe(false);
+    expect(body.subscriptions[0].operator.canManage).toBe(true);
     expect(body.subscriptions[0].operator.shared).toBe(true);
   });
 
@@ -948,7 +947,7 @@ describe('agent-chat routes', () => {
     expect(body.dispatchRoute.subscriptionId).toBe('sub-two');
   });
 
-  test('shared agent dispatch blocks non-admin subscription writes', async () => {
+  test('shared agent dispatch blocks unapproved subscription writes', async () => {
     const manager = {
       createOrUpdate: () => {
         throw new Error('non-admin writes should be blocked before manager calls');
@@ -1030,7 +1029,7 @@ describe('agent-chat routes', () => {
     expect(JSON.stringify(await response!.json())).not.toMatch(/nsec|private|secret/i);
   });
 
-  test('denies non-admin rotation on shared agent dispatch', async () => {
+  test('denies unapproved rotation on shared agent dispatch', async () => {
     let called = false;
     const request = new Request('http://localhost/api/agent-chat/profiles/Builder21/rotate-key', { method: 'POST', body: '{}' });
     const response = await handleAgentChatApi(request, new URL(request.url), 'POST', authContext, {

@@ -50,6 +50,7 @@ export interface AgentChatApiContext extends AgentProfileMediaApiContext {
   adminNpub?: string | null;
   sharedAgentDispatch?: boolean;
   isAdminContext?: (authContext: RequestAuthContext) => boolean;
+  isApprovedContext?: (authContext: RequestAuthContext) => boolean;
   publishAgentProfile?: (input: { event: SignedNostrEvent; agent: AgentDefinitionRecord }) => Promise<unknown>;
   republishAgentProfile?: (agent: AgentDefinitionRecord) => Promise<{
     eventId: string;
@@ -369,11 +370,12 @@ function resolveAgentChatScope(authContext: RequestAuthContext, ctx: AgentChatAp
   const adminNpub = normaliseNpub(ctx.adminNpub ?? null);
   const shared = Boolean(ctx.sharedAgentDispatch && adminNpub);
   const isAdmin = Boolean(ctx.isAdminContext?.(authContext) || (adminNpub && viewerNpub === adminNpub));
+  const isApproved = Boolean(ctx.isApprovedContext?.(authContext));
   return {
     viewerNpub,
     managerNpub: shared ? adminNpub! : viewerNpub,
     shared,
-    canManage: !shared || isAdmin,
+    canManage: !shared || isAdmin || isApproved,
   };
 }
 
