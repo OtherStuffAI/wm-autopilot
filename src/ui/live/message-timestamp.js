@@ -42,7 +42,12 @@ export function attachMessageTimestamp(bubble, message) {
   time.dateTime = String(message.createdAt ?? message.created_at);
   time.setAttribute("aria-label", `Sent ${timestamp}`);
   time.textContent = timestamp;
-  actions.append(time);
+  const copyButton = actions.querySelector(".wm-message-copy");
+  if (copyButton) {
+    actions.insertBefore(time, copyButton);
+  } else {
+    actions.append(time);
+  }
 
   if (!actions.parentElement) {
     bubble.append(actions);

@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { formatMessageTimestamp } from "./message-timestamp.js";
+
+const chatComponentSource = readFileSync(new URL("./chat-component.js", import.meta.url), "utf8");
+const timestampSource = readFileSync(new URL("./message-timestamp.js", import.meta.url), "utf8");
 
 describe("formatMessageTimestamp", () => {
   const options = { locale: "en-AU", timeZone: "UTC" };
@@ -18,5 +22,11 @@ describe("formatMessageTimestamp", () => {
     expect(formatMessageTimestamp({ role: "agent-thinking", createdAt: "2026-09-03T12:34:56.000Z" }, options)).toBe("");
     expect(formatMessageTimestamp({ role: "agent-tools", createdAt: "2026-09-03T12:34:56.000Z" }, options)).toBe("");
     expect(formatMessageTimestamp({ role: "assistant", createdAt: "invalid" }, options)).toBe("");
+  });
+
+  test("keeps Copy to the right of the timestamp in both message renderers", () => {
+    const template = chatComponentSource.slice(chatComponentSource.indexOf("export function getChatTemplate"));
+    expect(template.indexOf('class="wm-message-timestamp"')).toBeLessThan(template.indexOf('class="wm-message-copy"'));
+    expect(timestampSource).toContain('actions.insertBefore(time, copyButton)');
   });
 });
