@@ -47,8 +47,33 @@ ARG GOOSE_VERSION=v1.33.1
 ARG BUN_VERSION=1.4.0
 ARG TARGETARCH
 
-ENV BUN_INSTALL=/usr/local/bun
-ENV PATH=/usr/local/bun/bin:/usr/local/bin:/home/wingman/.local/bin:$PATH
+ENV BUN_INSTALL=/usr/local/bun \
+  PATH=/usr/local/bun/bin:/usr/local/bin:/home/wingman/.local/bin:$PATH \
+  HOME=/home/wingman \
+  PORT=3600 \
+  DIRECTORY_DEF=/workspace \
+  FOLDERACCESS=/workspace \
+  APP_ROUTING=path \
+  AGENT_SPAWN_MODE=bun \
+  AGENTAPI_ALLOWED_HOSTS=localhost,127.0.0.1,[::1] \
+  CODEX_CLI=/usr/local/bin/codex \
+  CODEX_TRUSTED_WORKSPACE=/workspace \
+  CLAUDE_CLI=/usr/local/bin/claude \
+  GLOVES=OFF \
+  CLAUDE_CODE_ENABLE_FEEDBACK_SURVEY_FOR_OTEL=0 \
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+  GOOSE_CLI=/usr/local/bin/goose \
+  OPENCODE_CLI=/usr/local/bin/opencode \
+  GEMINI_CLI=/usr/local/bin/gemini \
+  PI_CLI=/usr/local/bin/pi \
+  WINGMAN_SHARED_INSTANCE=true \
+  WINGMAN_SETUP_NONINTERACTIVE=true \
+  AGENT_CHAT_YOKE_HELPERS_PATH=/opt/flightdeck-cli/src/bot-helpers.js \
+  AGENT_CHAT_YOKE_TRANSLATORS_PATH=/opt/flightdeck-cli/src/translators.js \
+  AGENT_CHAT_YOKE_CLI_PATH=/opt/flightdeck-cli/src/cli.js \
+  AGENT_CHAT_YOKE_CLIENT_PATH=/opt/flightdeck-cli/src/client.js \
+  AGENT_CHAT_YOKE_WORKSPACE_KEYS_PATH=/opt/flightdeck-cli/src/workspace-keys.js \
+  AGENT_CHAT_YOKE_NOSTR_PATH=/opt/flightdeck-cli/src/nostr.js
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -142,37 +167,8 @@ COPY --from=agentapi-builder --chown=wingman:wingman /agentapi /app/out/agentapi
 COPY --from=fips-downloader /fips-release/fips /usr/local/bin/fips
 COPY --from=fips-downloader /fips-release/fipsctl /usr/local/bin/fipsctl
 COPY --from=fips-downloader /fips-release/fips.nft /etc/fips/fips.nft
-RUN chmod +x scripts/docker-entrypoint.sh
-
-USER root
-
-ENV HOME=/home/wingman
-ENV PORT=3600
-ENV DIRECTORY_DEF=/workspace
-ENV FOLDERACCESS=/workspace
-ENV APP_ROUTING=path
-ENV AGENT_SPAWN_MODE=bun
-ENV AGENTAPI_ALLOWED_HOSTS=localhost,127.0.0.1,[::1]
-ENV CODEX_CLI=/usr/local/bin/codex
-ENV CODEX_TRUSTED_WORKSPACE=/workspace
-ENV CLAUDE_CLI=/usr/local/bin/claude
-ENV GLOVES=OFF
-ENV CLAUDE_CODE_ENABLE_FEEDBACK_SURVEY_FOR_OTEL=0
-ENV CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-ENV GOOSE_CLI=/usr/local/bin/goose
-ENV OPENCODE_CLI=/usr/local/bin/opencode
-ENV GEMINI_CLI=/usr/local/bin/gemini
-ENV PI_CLI=/usr/local/bin/pi
-ENV WINGMAN_SHARED_INSTANCE=true
-ENV WINGMAN_SETUP_NONINTERACTIVE=true
-ENV AGENT_CHAT_YOKE_HELPERS_PATH=/opt/flightdeck-cli/src/bot-helpers.js
-ENV AGENT_CHAT_YOKE_TRANSLATORS_PATH=/opt/flightdeck-cli/src/translators.js
-ENV AGENT_CHAT_YOKE_CLI_PATH=/opt/flightdeck-cli/src/cli.js
-ENV AGENT_CHAT_YOKE_CLIENT_PATH=/opt/flightdeck-cli/src/client.js
-ENV AGENT_CHAT_YOKE_WORKSPACE_KEYS_PATH=/opt/flightdeck-cli/src/workspace-keys.js
-ENV AGENT_CHAT_YOKE_NOSTR_PATH=/opt/flightdeck-cli/src/nostr.js
-
-RUN bun -e "import { writeFile } from 'node:fs/promises'; import { createAgentApiProvenance, getAgentApiProvenancePath } from './src/server/bootstrap/agentapi-build.ts'; const binaryPath = '/app/out/agentapi'; const provenance = await createAgentApiProvenance(binaryPath, '/app'); await writeFile(getAgentApiProvenancePath(binaryPath), JSON.stringify(provenance, null, 2) + '\\n');"
+RUN chmod +x scripts/docker-entrypoint.sh \
+  && bun -e "import { writeFile } from 'node:fs/promises'; import { createAgentApiProvenance, getAgentApiProvenancePath } from './src/server/bootstrap/agentapi-build.ts'; const binaryPath = '/app/out/agentapi'; const provenance = await createAgentApiProvenance(binaryPath, '/app'); await writeFile(getAgentApiProvenancePath(binaryPath), JSON.stringify(provenance, null, 2) + '\\n');"
 
 EXPOSE 3600
 
