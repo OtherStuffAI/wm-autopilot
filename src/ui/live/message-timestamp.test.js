@@ -25,9 +25,9 @@ describe("formatMessageTimestamp", () => {
       createdAt: "2026-09-03T12:34:56.000Z",
       updatedAt: "2026-09-03T14:02:22.000Z",
     };
-    expect(formatMessageTimestampLabel(thinking, options)).toBe("last up : 3 Sep 2026 - 02:02:22 pm");
+    expect(formatMessageTimestampLabel(thinking, options)).toBe("last update : 3 Sep 2026 - 02:02:22 pm");
     expect(formatMessageTimestampLabel({ role: "agent-tools", createdAt: "2026-09-03T10:02:22.000Z" }, options))
-      .toBe("last up : 3 Sep 2026 - 10:02:22 am");
+      .toBe("last update : 3 Sep 2026 - 10:02:22 am");
   });
 
   test("does not add timestamps to context or invalid messages", () => {
