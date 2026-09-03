@@ -159,6 +159,7 @@ const FLIGHT_DECK_PG_EVENT_POLL_INTERVAL_MS = 2_100;
 const FLIGHT_DECK_PG_EVENT_POLL_TIMEOUT_MS = 10_000;
 const FLIGHT_DECK_PG_EVENT_RECONNECT_BASE_MS = 1_000;
 const FLIGHT_DECK_PG_EVENT_RECONNECT_MAX_MS = 60_000;
+const FLIGHT_DECK_PG_MISSING_MESSAGE_RETRY_WINDOW_MS = 5 * 60_000;
 const AGENT_INSTRUCTION_SIGNATURE_METADATA_KEY = 'agent_instruction_signature';
 const AGENT_INSTRUCTION_SIGNATURE_PROTOCOL = 'flightdeck_pg_message_instruction';
 const AGENT_INSTRUCTION_SIGNATURE_KIND = 33358;
@@ -4312,6 +4313,40 @@ export class WorkspaceSubscriptionManager {
       }
       const { message, messages } = hydrated;
       if (!message) {
+        const eventCreatedAtMs = Date.parse(String(event.created_at ?? ''));
+        if (
+          Number.isFinite(eventCreatedAtMs)
+          && Date.now() - eventCreatedAtMs >= FLIGHT_DECK_PG_MISSING_MESSAGE_RETRY_WINDOW_MS
+        ) {
+          record.lastRoutingResult = buildSuccessDiagnostic(
+            'Skipped an expired Flight Deck PG message event whose source message no longer exists.',
+            {
+              channel_id: channelId,
+              entity_id: eventEntityId,
+              entity_type: event.entity_type ?? null,
+              event_created_at: event.created_at,
+            },
+          );
+          record.lastErrorCode = null;
+          record.lastErrorAt = null;
+          return this.appendDispatchHistory(record, {
+            at: new Date().toISOString(),
+            kind: 'chat',
+            action: 'chat_direct_suppressed',
+            agentId: localAudience[0]?.agentId ?? 'unresolved-agent-target',
+            sessionId: null,
+            recordId: eventEntityId,
+            bindingId: event.thread_id ?? eventEntityId,
+            bindingType: 'thread',
+            status: 'suppressed',
+            suppressionReason: 'expired_source_message_missing',
+            details: {
+              channel_id: channelId,
+              event_created_at: event.created_at,
+              source: 'flightdeck_pg',
+            },
+          });
+        }
         record.lastRoutingResult = buildFailureDiagnostic(
           'flightdeck_pg_chat_message_missing',
           'Flight Deck PG chat event was visible, but its exact triggering message was not readable.',
