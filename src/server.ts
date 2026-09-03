@@ -124,6 +124,7 @@ import { InstallationIntentConsumer } from "./wapps/installation-intent-consumer
 import { isAgentDispatchAdminOnlyEnabled, isSharedAgentDispatchEnabled, isSharedInstanceAccessEnabled } from "./shared-instance";
 import { WorkspaceSubscriptionManager } from './agent-chat/subscription-runtime';
 import { agentDefinitionStore } from './agent-chat/agent-definition-store';
+import { ensureDefaultAgentProfileForManager } from './agent-chat/default-agent-profile-bootstrap';
 import { AgentProfileMediaStore } from './agent-chat/agent-profile-media-store';
 import { handleAgentProfileMediaPublicRoute } from './server/agent-profile-media-public-route';
 import {
@@ -849,6 +850,35 @@ manager = new ProcessManager(config, {
     capabilityBroker.revokeSession(sessionId);
   },
 });
+
+if (adminNpub) {
+  try {
+    const bootstrap = await ensureDefaultAgentProfileForManager({
+      manager: workspaceSubscriptionManager,
+      managerNpub: adminNpub,
+      instanceName: Bun.env.WINGMAN_INSTANCE_NAME?.trim() || 'Wingman',
+      workingDirectory: config.defaultWorkingDirectory,
+      harness: config.defaultAgent,
+      profileIdExists: (profileId) => agentDefinitionStore.getByAgentId(profileId) !== null,
+      publishProfile: async ({ agent, signedProfileEvent }) => {
+        const record = botKeyStore.getActiveKeyForBotNpub(agent.botNpub);
+        if (!record || record.userNpub !== agent.managedByNpub) {
+          throw new Error('Agent identity binding is unavailable.');
+        }
+        return publishBotProfileEvent({
+          botPubkeyHex: record.botPubkeyHex,
+          signedEvent: signedProfileEvent,
+          defaultRelays: config.connectRelays,
+        });
+      },
+    });
+    writeServerLog('INFO', '[agent-profile-bootstrap]', bootstrap);
+  } catch (error) {
+    writeServerLog('ERROR', '[agent-profile-bootstrap]', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 const sharedInstanceAccessEnabled = isSharedInstanceAccessEnabled();
 const sharedAgentDispatchEnabled = isSharedAgentDispatchEnabled();

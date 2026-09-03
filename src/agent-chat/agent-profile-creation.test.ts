@@ -110,6 +110,37 @@ describe('sovereign Agent Profile creation', () => {
     expect(f.vault.has(record)).toBe(false);
   });
 
+  test('does not delete another manager profile when creation reuses its profile id', async () => {
+    const f = fixture();
+    const otherSecret = generateSecretKey();
+    const otherManagerNpub = nip19.npubEncode(getPublicKey(otherSecret));
+    otherSecret.fill(0);
+    const now = new Date().toISOString();
+    f.agentStore.save({
+      agentId: 'fresh-agent',
+      label: 'Existing Agent',
+      botNpub: 'npub1existingagent',
+      workspaceOwnerNpub: otherManagerNpub,
+      groupNpubs: [],
+      workingDirectory: '/tmp/existing-agent',
+      capabilities: ['chat_intercept'],
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      managedByNpub: otherManagerNpub,
+    });
+
+    await expect(f.manager.createAgentProfileForManager(createInput(f.managedByNpub)))
+      .rejects.toThrow('owned by another manager');
+
+    expect(f.agentStore.getByAgentId('fresh-agent')).toMatchObject({
+      label: 'Existing Agent',
+      botNpub: 'npub1existingagent',
+      managedByNpub: otherManagerNpub,
+    });
+    expect(f.botKeyStore.listActiveKeys()).toHaveLength(0);
+  });
+
   test('deletes a standalone profile and purges its brokered signing key', async () => {
     const f = fixture();
     const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub));
