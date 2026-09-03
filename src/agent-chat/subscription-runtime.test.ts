@@ -2788,6 +2788,42 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(saved?.lastErrorCode).toBe('flightdeck_pg_chat_message_missing');
   });
 
+  test('skips an expired PG event when its source message has been removed', async () => {
+    const dbPath = makeTempDb();
+    const instanceIdentity = makeInstanceIdentity();
+    const { manager } = createTestManager(dbPath, new Map(), undefined, instanceIdentity, undefined, {
+      chatRuntime: { handleDirectChat: async () => ({ handled: true, reason: 'unexpected' }) } as never,
+      fetchFlightDeckPgChannelMessages: async () => ({
+        messages: [{ id: 'unrelated-message', channel_id: 'channel-1', thread_id: 'thread-1' }],
+        next_cursor: null,
+      }),
+    });
+    const imported = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+      onboardingSource: 'nostr_33357',
+    });
+
+    const result = await (manager as unknown as {
+      handleFlightDeckPgEvent: (record: WorkspaceSubscriptionRecord, event: Record<string, unknown>) => Promise<WorkspaceSubscriptionRecord>;
+    }).handleFlightDeckPgEvent(imported.subscription, {
+      event_id: 'event-expired-missing', cursor: encodeFlightDeckPgEventCursor(203), workspace_id: 'workspace-1',
+      channel_id: 'channel-1', actor_id: 'actor-user', event_type: 'flightdeck_pg.message.created',
+      entity_type: 'message', entity_id: 'missing-message', operation: 'created', row_version: 203,
+      created_at: '2020-01-01T00:00:00.000Z', payload: { thread_id: 'thread-1' },
+    });
+
+    expect(result.lastRoutingResult).toMatchObject({
+      ok: true,
+      message: 'Skipped an expired Flight Deck PG message event whose source message no longer exists.',
+    });
+    expect(result.lastErrorCode).toBeNull();
+    expect(result.recentDispatches.at(-1)).toMatchObject({
+      action: 'chat_direct_suppressed',
+      suppressionReason: 'expired_source_message_missing',
+    });
+  });
+
   test('skips duplicate Flight Deck PG events already covered by the saved cursor', async () => {
     const dbPath = makeTempDb();
     const routeStore = new DispatchRouteStore(dbPath);
