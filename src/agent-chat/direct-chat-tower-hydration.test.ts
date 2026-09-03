@@ -3,6 +3,7 @@ import { hydrateDirectChatThread, hydrateFlightDeckPgChatEvent } from './direct-
 
 test('Agent Direct Chat hydration reads every authoritative thread page', async () => {
   const cursors: Array<string | null | undefined> = [];
+  const effectiveTranscriptFlags: Array<boolean | undefined> = [];
   const result = await hydrateDirectChatThread({
     subscription: { workspaceId: 'workspace', backendBaseUrl: 'https://tower', sourceAppNpub: 'app' } as never,
     botIdentity: {} as never,
@@ -12,12 +13,14 @@ test('Agent Direct Chat hydration reads every authoritative thread page', async 
     fetchChannel: async () => ({ id: 'channel', metadata: { agent_chat: { enabled: true } } }),
     fetchMessages: async (input) => {
       cursors.push(input.cursor);
+      effectiveTranscriptFlags.push(input.effectiveTranscript);
       return input.cursor
         ? { messages: [{ id: 'm2', thread_id: 'thread' }], next_cursor: null }
         : { messages: [{ id: 'm1', thread_id: 'thread' }], next_cursor: 'page-2' };
     },
   });
   expect(cursors).toEqual([null, 'page-2']);
+  expect(effectiveTranscriptFlags).toEqual([true, true]);
   expect(result.messages.map((message) => message.id)).toEqual(['m1', 'm2']);
 });
 
@@ -122,4 +125,28 @@ test('PG thread event hydration selects its referenced trigger deterministically
 
   expect(result.message?.id).toBe('trigger');
   expect(result.messages.map((message) => message.id)).toEqual(['trigger', 'newer']);
+});
+
+test('PG branch-created thread event hydrates context without selecting an actionable message', async () => {
+  const result = await hydrateFlightDeckPgChatEvent({
+    subscription: { workspaceId: 'workspace', backendBaseUrl: 'https://tower', sourceAppNpub: 'app' } as never,
+    botIdentity: {} as never,
+    channelId: 'channel',
+    event: {
+      entity_type: 'thread',
+      entity_id: 'child-thread',
+      event_type: 'flightdeck_pg.thread.created',
+      payload: { parent_thread_id: 'parent-thread', branch_point_message_id: 'historical' },
+    },
+    includeChannel: false,
+  }, {
+    fetchChannel: async () => ({ id: 'channel' }),
+    fetchMessages: async () => ({
+      messages: [{ id: 'historical', thread_id: 'parent-thread', owning_thread_id: 'parent-thread', inherited: true }],
+      next_cursor: null,
+    }),
+  });
+
+  expect(result.message).toBeNull();
+  expect(result.messages.map((message) => message.id)).toEqual(['historical']);
 });

@@ -130,7 +130,9 @@ export class AgentDirectChatRuntime {
   async handle(input: DirectChatRuntimeInput): Promise<{ handled: boolean; reason: string }> {
     const config = channelDirectChatConfig(input.channel);
     const ordered = orderDirectChatMessages(input.messages);
-    const eventMessage = ordered.find((message) => message.messageId === input.event.entity_id) ?? ordered.at(-1);
+    const eventMessage = input.event.entity_type === 'thread'
+      ? null
+      : ordered.find((message) => message.messageId === input.event.entity_id) ?? null;
     const implicitDm = Boolean(eventMessage && isImplicitTwoPartyDirectMessage(
       input.channel,
       input.subscription.botNpub,

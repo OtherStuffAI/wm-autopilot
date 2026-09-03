@@ -83,6 +83,10 @@ export interface FlightDeckPgMessage {
   channel_id?: string | null;
   thread_id?: string | null;
   thread_source_message_id?: string | null;
+  owning_thread_id?: string | null;
+  effective_thread_id?: string | null;
+  inherited?: boolean;
+  read_only?: boolean;
   body?: string | null;
   metadata?: Record<string, unknown> | null;
   mentions?: unknown[];
@@ -849,6 +853,7 @@ export async function fetchFlightDeckPgChannelMessages(params: {
   appNpub: string;
   botIdentity: RuntimeBotIdentity;
   threadId?: string | null;
+  effectiveTranscript?: boolean;
   cursor?: string | null;
   limit?: number;
   signal?: AbortSignal;
@@ -856,6 +861,7 @@ export async function fetchFlightDeckPgChannelMessages(params: {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/channels/${encodeURIComponent(params.channelId)}/messages`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path, {
     thread_id: params.threadId ?? null,
+    effective_transcript: params.effectiveTranscript ? 'true' : null,
     cursor: params.cursor ?? null,
     limit: params.limit ?? 200,
   });
