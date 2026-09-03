@@ -13,6 +13,7 @@ export interface DirectChatMessage {
   message: string;
   attachments: unknown[];
   mentions: Array<{ type: string; npub: string | null; actorId: string | null; label: string | null }>;
+  agentDirectRecipientNpub: string | null;
   inherited: boolean;
   owningThreadId: string | null;
 }
@@ -31,6 +32,9 @@ export function normaliseDirectChatMessage(message: FlightDeckPgMessage): Direct
     createdAt: message.created_at ?? '',
     message: message.body ?? '',
     attachments: Array.isArray(message.attachments) ? message.attachments : Array.isArray(metadata.attachments) ? metadata.attachments : [],
+    agentDirectRecipientNpub: typeof metadata.agent_direct_recipient_npub === 'string' && metadata.agent_direct_recipient_npub.trim()
+      ? metadata.agent_direct_recipient_npub.trim()
+      : null,
     inherited: message.inherited === true,
     owningThreadId: message.owning_thread_id ?? message.thread_id ?? null,
     mentions: rawMentions.map((entry) => {
@@ -82,6 +86,10 @@ export function hasCanonicalNpubMention(message: DirectChatMessage, botNpub: str
   return message.mentions.some((mention) => mention.npub === botNpub);
 }
 
+export function hasInternalAgentDirectRecipient(message: DirectChatMessage, botNpub: string): boolean {
+  return message.agentDirectRecipientNpub === botNpub;
+}
+
 export function isImplicitTwoPartyDirectMessage(
   channel: FlightDeckPgChannel,
   botNpub: string,
@@ -101,6 +109,7 @@ export function isAgentDirectMessageEligible(
 ): boolean {
   if (message.inherited) return false;
   return hasCanonicalNpubMention(message, botNpub)
+    || hasInternalAgentDirectRecipient(message, botNpub)
     || isImplicitTwoPartyDirectMessage(channel, botNpub, message.userNpub);
 }
 
