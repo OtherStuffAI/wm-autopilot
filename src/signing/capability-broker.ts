@@ -145,6 +145,7 @@ interface CapabilityRecord {
   sessionId: string;
   ownerNpub: string;
   identityManagerNpub?: string;
+  keySource?: "agent_vault" | "instance";
   botNpub: string;
   botPubkeyHex: string;
   profileId?: string | null;
@@ -163,6 +164,11 @@ export interface CapabilityBrokerDependencies {
   audit?: (entry: CapabilityAuditEntry) => void;
   now?: () => number;
   stateStore?: CapabilityBrokerStateStore;
+  getInstanceIdentity?: () => {
+    npub: string;
+    pubkeyHex: string;
+    secretKey: Uint8Array;
+  } | null;
 }
 
 export interface PersistedCapabilityRecord extends Omit<CapabilityRecord, "usedNonces"> {
@@ -176,7 +182,7 @@ export interface CapabilityBrokerStateStore {
 
 interface AuthorizedOperation {
   capability: CapabilityRecord;
-  botRecord: BotKeyRecord;
+  botRecord: BotKeyRecord | null;
 }
 
 function tokenHash(token: string): string {
@@ -282,14 +288,18 @@ export class CapabilityBroker {
       throw new Error("Session agent identity binding does not match requested capability identity");
     }
     const selectedBotNpub = input.botNpub ?? boundBotNpub;
+    const identityManagerNpub = input.identityManagerNpub ?? input.ownerNpub;
+    const instanceIdentity = this.deps.getInstanceIdentity?.() ?? null;
+    const selectedInstanceIdentity = selectedBotNpub && instanceIdentity?.npub === selectedBotNpub
+      ? instanceIdentity
+      : null;
     const botRecord = selectedBotNpub
       ? this.deps.botKeyStore.getActiveKeyForBotNpub?.(selectedBotNpub) ?? null
       : this.deps.botKeyStore.getActiveKeyForUser(input.ownerNpub);
-    if (!botRecord) {
+    if (!botRecord && !selectedInstanceIdentity) {
       throw new Error("Session owner has no active bot identity");
     }
-    const identityManagerNpub = input.identityManagerNpub ?? input.ownerNpub;
-    if (botRecord.userNpub !== identityManagerNpub) {
+    if (botRecord && botRecord.userNpub !== identityManagerNpub) {
       throw new Error("Selected agent identity is not managed by the active profile manager");
     }
     const ttlMs = Math.min(Math.max(input.ttlMs ?? SESSION_CAPABILITY_TTL_MS, 1_000), SESSION_CAPABILITY_TTL_MS);
@@ -305,8 +315,9 @@ export class CapabilityBroker {
       sessionId: input.sessionId,
       ownerNpub: input.ownerNpub,
       identityManagerNpub,
-      botNpub: botRecord.botNpub,
-      botPubkeyHex: botRecord.botPubkeyHex,
+      keySource: selectedInstanceIdentity && !botRecord ? "instance" : "agent_vault",
+      botNpub: botRecord?.botNpub ?? selectedInstanceIdentity!.npub,
+      botPubkeyHex: botRecord?.botPubkeyHex ?? selectedInstanceIdentity!.pubkeyHex,
       profileId: input.profileId ?? boundProfileId,
       policy: clonePolicy(input.policy),
       revokedAtMs: null,
@@ -365,6 +376,10 @@ export class CapabilityBroker {
     const boundBotNpub = typeof metadata?.agentChatBotNpub === "string"
       ? metadata.agentChatBotNpub
       : typeof metadata?.flightdeckAgentNpub === "string" ? metadata.flightdeckAgentNpub : null;
+    const instanceIdentity = this.deps.getInstanceIdentity?.() ?? null;
+    if (boundBotNpub && instanceIdentity?.npub === boundBotNpub) {
+      return { botNpub: instanceIdentity.npub, botPubkeyHex: instanceIdentity.pubkeyHex };
+    }
     const botRecord = boundBotNpub
       ? this.deps.botKeyStore.getActiveKeyForBotNpub?.(boundBotNpub) ?? null
       : this.deps.botKeyStore.getActiveKeyForUser(session.npub);
@@ -446,12 +461,21 @@ export class CapabilityBroker {
     }
     if (session.npub !== capability.ownerNpub) return deny("Session identity changed");
     const botRecord = this.deps.botKeyStore.getActiveKeyForBotNpub?.(capability.botNpub) ?? null;
-    if (
+    const instanceIdentity = capability.keySource === "instance"
+      ? this.deps.getInstanceIdentity?.() ?? null
+      : null;
+    const agentIdentityChanged = capability.keySource !== "instance" && (
       !botRecord
       || botRecord.userNpub !== (capability.identityManagerNpub ?? capability.ownerNpub)
       || botRecord.botNpub !== capability.botNpub
       || botRecord.botPubkeyHex !== capability.botPubkeyHex
-    ) {
+    );
+    const instanceIdentityChanged = capability.keySource === "instance" && (
+      !instanceIdentity
+      || instanceIdentity.npub !== capability.botNpub
+      || instanceIdentity.pubkeyHex !== capability.botPubkeyHex
+    );
+    if (agentIdentityChanged || instanceIdentityChanged) {
       return deny("Agent identity changed");
     }
     const nonce = request.headers.get("x-wingman-capability-nonce")?.trim() ?? "";
@@ -477,7 +501,7 @@ export class CapabilityBroker {
     }
     capability.callTimestamps.push(now);
     this.persist();
-    return { capability, botRecord };
+    return { capability, botRecord: capability.keySource === "instance" ? null : botRecord };
   }
 
   private async handleIdentity(request: Request): Promise<Response> {
@@ -553,7 +577,7 @@ export class CapabilityBroker {
     if (exactPath?.requireBodyHash !== false && requireBodyHashMethods?.map(normalizeMethod).includes(method) && !bodyHash) {
       return this.denied(authorized.capability, "nip98.sign", "NIP-98 body hash is required for this method", 400);
     }
-    const result = await this.withBotKey(authorized.botRecord, (secretKey) => {
+    const result = await this.withAuthorizedKey(authorized, (secretKey) => {
       const createdAt = Math.floor(this.now() / 1000);
       const tags = [["u", parsed.toString()], ["method", method]];
       if (bodyHash) tags.push(["payload", bodyHash]);
@@ -655,7 +679,7 @@ export class CapabilityBroker {
     if (constraint.requiredTags?.some(([name, value]) => !stringTags.some((tag) => tag[0] === name && tag[1] === value))) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event is missing a required tag");
     }
-    const signed = await this.withBotKey(authorized.botRecord, (secretKey) => finalizeEvent({
+    const signed = await this.withAuthorizedKey(authorized, (secretKey) => finalizeEvent({
       kind: kind as number,
       content,
       tags: stringTags,
@@ -679,7 +703,7 @@ export class CapabilityBroker {
       return this.denied(authorized.capability, "nip44.encrypt", "NIP-44 plaintext exceeds policy", 400);
     }
     try {
-      const ciphertext = await this.withBotKey(authorized.botRecord, (secretKey) => nip44Encrypt(plaintext, secretKey, peer));
+      const ciphertext = await this.withAuthorizedKey(authorized, (secretKey) => nip44Encrypt(plaintext, secretKey, peer));
       this.audit(authorized.capability, "nip44.encrypt", "allowed");
       return Response.json({ ciphertext, senderPubkey: authorized.capability.botPubkeyHex, senderNpub: authorized.capability.botNpub });
     } catch (error) {
@@ -702,7 +726,7 @@ export class CapabilityBroker {
       return this.denied(authorized.capability, "nip44.decrypt", "NIP-44 ciphertext exceeds policy", 400);
     }
     try {
-      const plaintext = await this.withBotKey(authorized.botRecord, (secretKey) => nip44Decrypt(ciphertext, secretKey, peer));
+      const plaintext = await this.withAuthorizedKey(authorized, (secretKey) => nip44Decrypt(ciphertext, secretKey, peer));
       this.audit(authorized.capability, "nip44.decrypt", "allowed");
       return Response.json({ plaintext, decryptedBy: authorized.capability.botPubkeyHex, decryptedByNpub: authorized.capability.botNpub });
     } catch (error) {
@@ -728,7 +752,7 @@ export class CapabilityBroker {
     if (!isHex64(objectHash)) return this.denied(authorized.capability, "blossom.authorize", "Blossom object hash is required", 400);
     if (!Number.isSafeInteger(objectSize) || objectSize < 0 || objectSize > constraint.maxObjectBytes) return this.denied(authorized.capability, "blossom.authorize", "Blossom object size exceeds policy");
     if (constraint.objectHashes?.length && !constraint.objectHashes.map(normalizeHex).includes(objectHash)) return this.denied(authorized.capability, "blossom.authorize", "Blossom object hash is not allowed");
-    const event = await this.withBotKey(authorized.botRecord, (secretKey) => finalizeEvent({
+    const event = await this.withAuthorizedKey(authorized, (secretKey) => finalizeEvent({
       kind: BLOSSOM_AUTH_KIND,
       content: `Authorize Blossom ${blossomMethod}`,
       created_at: Math.floor(this.now() / 1000),
@@ -778,6 +802,30 @@ export class CapabilityBroker {
 
   private async withBotKey<T>(record: BotKeyRecord, operation: (secretKey: Uint8Array) => T | Promise<T>): Promise<T> {
     return this.deps.keyVault.withKey(record, operation);
+  }
+
+  private async withAuthorizedKey<T>(
+    authorized: AuthorizedOperation,
+    operation: (secretKey: Uint8Array) => T | Promise<T>,
+  ): Promise<T> {
+    if (authorized.botRecord) return this.withBotKey(authorized.botRecord, operation);
+    const instanceIdentity = this.deps.getInstanceIdentity?.() ?? null;
+    if (
+      !instanceIdentity
+      || instanceIdentity.npub !== authorized.capability.botNpub
+      || instanceIdentity.pubkeyHex !== authorized.capability.botPubkeyHex
+    ) {
+      throw new BrokerKeyNotProvisionedError(
+        authorized.capability.identityManagerNpub ?? authorized.capability.ownerNpub,
+        authorized.capability.botNpub,
+      );
+    }
+    const secretKey = new Uint8Array(instanceIdentity.secretKey);
+    try {
+      return await operation(secretKey);
+    } finally {
+      secretKey.fill(0);
+    }
   }
 
   private denied(capability: CapabilityRecord, operation: BrokerOperation, reason: string, status = 403): Response {

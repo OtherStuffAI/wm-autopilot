@@ -199,6 +199,50 @@ describe("CapabilityBroker", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ botNpub: sharedProfile.botNpub });
   });
+
+  test("brokers the instance identity without copying it into the agent key vault", async () => {
+    const instanceSecret = generateSecretKey();
+    const instancePubkeyHex = getPublicKey(instanceSecret);
+    const instanceNpub = nip19.npubEncode(instancePubkeyHex);
+    const instanceSession = {
+      ...sessions.get("session-a")!,
+      metadata: { agentChatAgentId: "flightdeck-agent", agentChatBotNpub: instanceNpub },
+    } as unknown as SessionSnapshot;
+    let vaultCalled = false;
+    const instanceBroker = new CapabilityBroker({
+      botKeyStore,
+      keyVault: {
+        withKey: async () => {
+          vaultCalled = true;
+          throw new Error("instance identity must remain outside the agent vault");
+        },
+      },
+      getInstanceIdentity: () => ({ npub: instanceNpub, pubkeyHex: instancePubkeyHex, secretKey: instanceSecret }),
+      getSession: (sessionId) => sessionId === "session-a" ? instanceSession : null,
+      now: () => now,
+    });
+    const issued = instanceBroker.issueSessionCapability({
+      sessionId: "session-a",
+      ownerNpub: ownerA,
+      identityManagerNpub: ownerB,
+      profileId: "flightdeck-agent",
+      botNpub: instanceNpub,
+      policy,
+    });
+    const input = request("/api/mcp/capabilities/nostr-event", issued.token, {
+      sessionId: "session-a",
+      event: { kind: 1, content: "shared dispatch", tags: [] },
+    });
+    const response = (await instanceBroker.handle(input.request, input.url, "POST"))!;
+    const payload = await response.json() as { event: Parameters<typeof verifyEvent>[0] };
+
+    expect(response.status).toBe(200);
+    expect(verifyEvent(payload.event)).toBe(true);
+    expect(payload.event.pubkey).toBe(instancePubkeyHex);
+    expect(vaultCalled).toBe(false);
+    expect(instanceBroker.getPublicIdentity("session-a")).toEqual({ botNpub: instanceNpub, botPubkeyHex: instancePubkeyHex });
+    instanceSecret.fill(0);
+  });
   test("preserves a renewed capability through PM2 broker restart and session rehydration", async () => {
     let persisted: PersistedCapabilityRecord[] = [];
     let sessionRehydrated = true;
