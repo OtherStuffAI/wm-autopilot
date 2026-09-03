@@ -17,6 +17,22 @@ interface AgentProfileIdentitySource {
   archived?: boolean;
 }
 
+export function resolveSessionCapabilityProfileScope(input: {
+  ownerNpub: string;
+  sharedAgentDispatch: boolean;
+  adminNpub?: string | null;
+  metadata?: { resumedFromWingmanSessionId?: unknown } | null;
+}): { profileManagerNpub: string; allowDefaultFallbackForMissingRequestedProfile: boolean } {
+  const adminNpub = input.adminNpub?.trim() ?? "";
+  const useSharedProfileManager = input.sharedAgentDispatch && Boolean(adminNpub);
+  return {
+    profileManagerNpub: useSharedProfileManager ? adminNpub : input.ownerNpub,
+    allowDefaultFallbackForMissingRequestedProfile: Boolean(
+      useSharedProfileManager && input.metadata?.resumedFromWingmanSessionId,
+    ),
+  };
+}
+
 export function buildSessionCapabilityProfileContext(
   profiles: AgentProfileIdentitySource[],
   defaultProfile: AgentProfileIdentitySource | null,
@@ -42,10 +58,12 @@ export function resolveAndBindSessionCapabilityBotRecord<
   manager: SessionCapabilityBindingManager;
   sessionId: string;
   ownerNpub: string;
+  profileManagerNpub?: string;
   requestedProfileId?: string | null;
   requestedBotNpub?: string | null;
   profiles: SessionCapabilityAgentProfile[];
   defaultProfile?: SessionCapabilityAgentProfile | null;
+  allowDefaultFallbackForMissingRequestedProfile?: boolean;
   getActiveByBotNpub: (botNpub: string) => T | null;
 }): { record: T; profileId: string; session: SessionSnapshot } {
   const session = input.manager.getSession(input.sessionId);
@@ -59,12 +77,13 @@ export function resolveAndBindSessionCapabilityBotRecord<
     requestedBotNpub: input.requestedBotNpub,
     profiles: input.profiles,
     defaultProfile: input.defaultProfile,
+    allowDefaultFallbackForMissingRequestedProfile: input.allowDefaultFallbackForMissingRequestedProfile,
     getActiveByBotNpub: input.getActiveByBotNpub,
   });
   if (!resolved) throw new Error("Session has no active bound or default agent profile");
   const { record, profileId } = resolved;
-  if (record.userNpub !== input.ownerNpub) {
-    throw new Error("Selected agent identity is not managed by the session owner");
+  if (record.userNpub !== (input.profileManagerNpub ?? input.ownerNpub)) {
+    throw new Error("Selected agent identity is not managed by the active profile manager");
   }
 
   const boundSession = input.manager.bindSessionCapabilityIdentity(input.sessionId, record.botNpub, profileId);

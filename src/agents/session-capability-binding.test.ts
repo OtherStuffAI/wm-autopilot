@@ -8,8 +8,11 @@ import {
   buildDefaultAgentCapabilityPolicy,
   type SessionCapabilityPolicy,
 } from "../signing/capability-broker";
-import { ProcessManager } from "./process-manager";
-import { resolveAndBindSessionCapabilityBotRecord } from "./session-capability-binding";
+import { ProcessManager, type SessionSnapshot } from "./process-manager";
+import {
+  resolveAndBindSessionCapabilityBotRecord,
+  resolveSessionCapabilityProfileScope,
+} from "./session-capability-binding";
 
 const ownerNpub = "npub1owner";
 const activeBotNpub = "npub1active";
@@ -130,6 +133,60 @@ async function launch(input: {
 }
 
 describe("session capability binding", () => {
+  test("uses the shared instance profile manager only for shared deployments", () => {
+    expect(resolveSessionCapabilityProfileScope({
+      ownerNpub: "npub1andy",
+      sharedAgentDispatch: true,
+      adminNpub: "npub1pete",
+      metadata: { resumedFromWingmanSessionId: "old-session" },
+    })).toEqual({
+      profileManagerNpub: "npub1pete",
+      allowDefaultFallbackForMissingRequestedProfile: true,
+    });
+    expect(resolveSessionCapabilityProfileScope({
+      ownerNpub: "npub1andy",
+      sharedAgentDispatch: false,
+      adminNpub: "npub1pete",
+      metadata: { resumedFromWingmanSessionId: "old-session" },
+    })).toEqual({
+      profileManagerNpub: "npub1andy",
+      allowDefaultFallbackForMissingRequestedProfile: false,
+    });
+  });
+
+  test("binds a shared profile identity without changing session ownership", () => {
+    const session = {
+      id: "shared-session",
+      npub: "npub1andy",
+      metadata: { resumedFromWingmanSessionId: "old-session" },
+    } as unknown as SessionSnapshot;
+    const sharedRecord = { ...activeRecord, userNpub: "npub1pete" };
+    const bindingManager = {
+      getSession: () => session,
+      bindSessionCapabilityIdentity: (_sessionId: string, botNpub: string, profileId: string) => ({
+        ...session,
+        metadata: { ...session.metadata, agentChatBotNpub: botNpub, agentProfileId: profileId },
+      }),
+    };
+
+    const resolved = resolveAndBindSessionCapabilityBotRecord({
+      manager: bindingManager,
+      sessionId: session.id,
+      ownerNpub: "npub1andy",
+      profileManagerNpub: "npub1pete",
+      requestedProfileId: "removed-profile",
+      requestedBotNpub: retiredBotNpub,
+      profiles: [{ profileId: "agent-alpha", botNpub: activeBotNpub, enabled: true }],
+      defaultProfile: { profileId: "agent-alpha", botNpub: activeBotNpub, enabled: true },
+      allowDefaultFallbackForMissingRequestedProfile: true,
+      getActiveByBotNpub: (botNpub) => botNpub === activeBotNpub ? sharedRecord : null,
+    });
+
+    expect(resolved.session.npub).toBe("npub1andy");
+    expect(resolved.profileId).toBe("agent-alpha");
+    expect(resolved.record.userNpub).toBe("npub1pete");
+  });
+
   test("rebinds a stale resumed identity before issuing capability and MCP environment", async () => {
     const { snapshot } = await launch({
       metadata: {

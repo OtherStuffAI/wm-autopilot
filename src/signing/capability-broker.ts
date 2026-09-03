@@ -144,6 +144,7 @@ interface CapabilityRecord {
   expiresAtMs: number;
   sessionId: string;
   ownerNpub: string;
+  identityManagerNpub?: string;
   botNpub: string;
   botPubkeyHex: string;
   profileId?: string | null;
@@ -254,6 +255,7 @@ export class CapabilityBroker {
   issueSessionCapability(input: {
     sessionId: string;
     ownerNpub: string;
+    identityManagerNpub?: string;
     profileId?: string | null;
     botNpub?: string | null;
     policy: SessionCapabilityPolicy;
@@ -286,8 +288,9 @@ export class CapabilityBroker {
     if (!botRecord) {
       throw new Error("Session owner has no active bot identity");
     }
-    if (botRecord.userNpub !== input.ownerNpub) {
-      throw new Error("Selected agent identity is not managed by the session owner");
+    const identityManagerNpub = input.identityManagerNpub ?? input.ownerNpub;
+    if (botRecord.userNpub !== identityManagerNpub) {
+      throw new Error("Selected agent identity is not managed by the active profile manager");
     }
     const ttlMs = Math.min(Math.max(input.ttlMs ?? SESSION_CAPABILITY_TTL_MS, 1_000), SESSION_CAPABILITY_TTL_MS);
     const now = this.now();
@@ -301,6 +304,7 @@ export class CapabilityBroker {
       expiresAtMs: now + ttlMs,
       sessionId: input.sessionId,
       ownerNpub: input.ownerNpub,
+      identityManagerNpub,
       botNpub: botRecord.botNpub,
       botPubkeyHex: botRecord.botPubkeyHex,
       profileId: input.profileId ?? boundProfileId,
@@ -357,7 +361,13 @@ export class CapabilityBroker {
   getPublicIdentity(sessionId: string): { botNpub: string; botPubkeyHex: string } | null {
     const session = this.deps.getSession(sessionId);
     if (!session?.npub || session.status === "stopped" || session.status === "error") return null;
-    const botRecord = this.deps.botKeyStore.getActiveKeyForUser(session.npub);
+    const metadata = session.metadata as Record<string, unknown> | undefined;
+    const boundBotNpub = typeof metadata?.agentChatBotNpub === "string"
+      ? metadata.agentChatBotNpub
+      : typeof metadata?.flightdeckAgentNpub === "string" ? metadata.flightdeckAgentNpub : null;
+    const botRecord = boundBotNpub
+      ? this.deps.botKeyStore.getActiveKeyForBotNpub?.(boundBotNpub) ?? null
+      : this.deps.botKeyStore.getActiveKeyForUser(session.npub);
     return botRecord ? { botNpub: botRecord.botNpub, botPubkeyHex: botRecord.botPubkeyHex } : null;
   }
 
@@ -438,7 +448,7 @@ export class CapabilityBroker {
     const botRecord = this.deps.botKeyStore.getActiveKeyForBotNpub?.(capability.botNpub) ?? null;
     if (
       !botRecord
-      || botRecord.userNpub !== capability.ownerNpub
+      || botRecord.userNpub !== (capability.identityManagerNpub ?? capability.ownerNpub)
       || botRecord.botNpub !== capability.botNpub
       || botRecord.botPubkeyHex !== capability.botPubkeyHex
     ) {
