@@ -162,6 +162,43 @@ describe("CapabilityBroker", () => {
     expect(mismatch).toContain("profile binding");
     BuilderSecret.fill(0);
   });
+
+  test("keeps session ownership separate from a shared profile manager identity", async () => {
+    const sharedProfile = records.get(ownerB)!;
+    const sharedSession = {
+      ...sessions.get("session-a")!,
+      metadata: { agentChatAgentId: "shared-profile", agentChatBotNpub: sharedProfile.botNpub },
+    } as unknown as SessionSnapshot;
+    const sharedBroker = new CapabilityBroker({
+      botKeyStore,
+      keyVault: testKeyVault,
+      getSession: (sessionId) => sessionId === "session-a" ? sharedSession : null,
+      now: () => now,
+    });
+    const issued = sharedBroker.issueSessionCapability({
+      sessionId: "session-a",
+      ownerNpub: ownerA,
+      identityManagerNpub: ownerB,
+      profileId: "shared-profile",
+      botNpub: sharedProfile.botNpub,
+      policy,
+    });
+    const identityUrl = new URL("http://localhost/api/mcp/capabilities/identity?sessionId=session-a");
+    const identityRequest = new Request(identityUrl, {
+      headers: {
+        authorization: `Bearer ${issued.token}`,
+        "x-wingman-capability-nonce": crypto.randomUUID(),
+      },
+    });
+    const response = (await sharedBroker.handle(identityRequest, identityUrl, "GET"))!;
+
+    expect(sharedBroker.getPublicIdentity("session-a")).toEqual({
+      botNpub: sharedProfile.botNpub,
+      botPubkeyHex: sharedProfile.botPubkeyHex,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ botNpub: sharedProfile.botNpub });
+  });
   test("preserves a renewed capability through PM2 broker restart and session rehydration", async () => {
     let persisted: PersistedCapabilityRecord[] = [];
     let sessionRehydrated = true;

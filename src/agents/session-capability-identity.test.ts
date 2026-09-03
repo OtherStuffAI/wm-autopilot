@@ -54,6 +54,18 @@ describe("session capability identity resolution", () => {
     })).toBeNull();
   });
 
+  test("uses the default profile for a native resume with a missing legacy binding", () => {
+    expect(resolveSessionCapabilityBotRecord({
+      ownerNpub,
+      requestedProfileId: "removed-profile",
+      requestedBotNpub: "npub1retired",
+      profiles,
+      defaultProfile: profiles[0],
+      allowDefaultFallbackForMissingRequestedProfile: true,
+      getActiveByBotNpub: (botNpub) => records.get(botNpub) ?? null,
+    })).toMatchObject({ record: { botNpub: "npub1alpha" }, profileId: "alpha" });
+  });
+
   test("does not infer identity from a session working directory", () => {
     expect(resolveSessionCapabilityBotRecord({
       ownerNpub,

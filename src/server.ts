@@ -130,6 +130,7 @@ import { handleAgentProfileMediaPublicRoute } from './server/agent-profile-media
 import {
   buildSessionCapabilityProfileContext,
   resolveAndBindSessionCapabilityBotRecord,
+  resolveSessionCapabilityProfileScope,
 } from './agents/session-capability-binding';
 import { DispatchPipelineRuntime } from './agent-chat/dispatch-pipelines/runtime';
 import { AgentCommentSessionRuntime } from './agent-chat/comment-session-runtime';
@@ -809,16 +810,26 @@ manager = new ProcessManager(config, {
     });
   },
   issueSessionCapability: ({ sessionId, ownerNpub, profileId, botNpub }) => {
+    const session = manager.getSession(sessionId);
+    const profileScope = resolveSessionCapabilityProfileScope({
+      ownerNpub,
+      sharedAgentDispatch: sharedAgentDispatchEnabled,
+      adminNpub,
+      metadata: session?.metadata,
+    });
+    const { profileManagerNpub } = profileScope;
     const profileContext = buildSessionCapabilityProfileContext(
-      agentDefinitionStore.listForManagerNpub(ownerNpub),
-      agentDefinitionStore.getDefaultForManagerNpub(ownerNpub),
+      agentDefinitionStore.listForManagerNpub(profileManagerNpub),
+      agentDefinitionStore.getDefaultForManagerNpub(profileManagerNpub),
     );
     const { record, profileId: resolvedProfileId } = resolveAndBindSessionCapabilityBotRecord({
       manager,
       sessionId,
       ownerNpub,
+      profileManagerNpub,
       requestedProfileId: profileId,
       requestedBotNpub: botNpub,
+      allowDefaultFallbackForMissingRequestedProfile: profileScope.allowDefaultFallbackForMissingRequestedProfile,
       ...profileContext,
       getActiveByBotNpub: (candidateBotNpub) => botKeyStore.getActiveKeyForBotNpub(candidateBotNpub),
     });
@@ -830,6 +841,7 @@ manager = new ProcessManager(config, {
     return capabilityBroker.issueSessionCapability({
       sessionId,
       ownerNpub,
+      identityManagerNpub: profileManagerNpub,
       profileId: resolvedProfileId,
       botNpub: record.botNpub,
       policy: buildDefaultAgentCapabilityPolicy({
@@ -838,7 +850,7 @@ manager = new ProcessManager(config, {
         // origin while this Autopilot talks to its local/internal origin.
         // Bind the capability to the manager's known subscription origins so
         // hydrated dispatch context and issuance policy cannot disagree.
-        towerUrls: workspaceSubscriptionManager.listForManager(ownerNpub)
+        towerUrls: workspaceSubscriptionManager.listForManager(profileManagerNpub)
           .map((subscription) => subscription.backendBaseUrl),
         // NIP-98 verification canonicalises requests against WINGMAN_BASE_URL.
         // Capability targets must use the same public origin; otherwise a
