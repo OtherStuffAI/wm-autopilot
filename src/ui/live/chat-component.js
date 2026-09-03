@@ -739,6 +739,13 @@ export function getChatTemplate(sessionId) {
               </template>
             </button>
           </template>
+          <template x-if="$store.chat.getMessageTimestamp(message)">
+            <time class="wm-message-timestamp"
+                  data-testid="message-timestamp"
+                  :datetime="message.createdAt || message.created_at"
+                  :aria-label="'Sent ' + $store.chat.getMessageTimestamp(message)"
+                  x-text="$store.chat.getMessageTimestamp(message)"></time>
+          </template>
           <button type="button" class="wm-message-copy" data-testid="message-copy" aria-label="Copy message"
                   @click.stop="
                     const text = message.content || '';
@@ -751,13 +758,6 @@ export function getChatTemplate(sessionId) {
                   ">
             <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M15 3H7a2 2 0 0 0-2 2v10h2V5h8V3zm4 4h-8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zm0 12h-8V9h8v10z"/></svg>
           </button>
-          <template x-if="$store.chat.getMessageTimestamp(message)">
-            <time class="wm-message-timestamp"
-                  data-testid="message-timestamp"
-                  :datetime="message.createdAt || message.created_at"
-                  :aria-label="'Sent ' + $store.chat.getMessageTimestamp(message)"
-                  x-text="$store.chat.getMessageTimestamp(message)"></time>
-          </template>
         </div>
       </article>
     </template>
