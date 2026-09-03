@@ -67,15 +67,18 @@ describe('Agent Direct Chat contract', () => {
     const intercept = { routingKey: 'route', channelId: 'c1', threadId: 't1', botNpub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg', towerServiceNpub: 'npub1tower', workspaceId: 'w1' } as never;
     const subscription = { towerServiceNpub: 'npub1tower', workspaceId: 'w1' } as never;
     const bootstrap = buildDirectChatBootstrapPrompt({ contextPrompt: 'Project context', subscription, intercept, scopeId: 's1', history: messages, nextMessages: [messages[0]!] });
-    expect(bootstrap).toContain('AGENT DIRECT CHAT');
-    expect(bootstrap).toContain('tower_service_npub: npub1tower');
-    expect(bootstrap).toContain('THREAD HISTORY JSON');
-    expect(bootstrap).toContain('NEXT MESSAGE');
+    expect(bootstrap).toContain('flightdeck_agent_direct_bootstrap_v1');
     expect(bootstrap).toContain('polished response using GitHub-Flavored Markdown');
     expect(bootstrap).toContain('normal final response is published verbatim to Flight Deck');
     expect(bootstrap).toContain('do not add a wrapper or envelope');
     expect(bootstrap).toContain('or enclose the whole response in a code fence');
     expect(bootstrap).not.toContain('FLIGHTDECK_REPLY_BEGIN');
+    const parsedBootstrap = JSON.parse(bootstrap);
+    expect(parsedBootstrap.source).toMatchObject({ tower_service_npub: 'npub1tower', workspace_id: 'w1', scope_id: 's1', channel_id: 'c1', thread_id: 't1', trigger_message_id: 'm1' });
+    expect(parsedBootstrap.thread_history.map((message: any) => message.message_id)).toEqual(['m1', 'm2', 'a1']);
+    expect(parsedBootstrap.actionable_messages.map((message: any) => message.message_id)).toEqual(['m1']);
+    expect(parsedBootstrap.history_semantics).toContain('inert');
+    expect(parsedBootstrap.actionable_semantics).toContain('Only these newly eligible child-owned messages');
     const followUp = buildDirectChatFollowUpPrompt({ routingKey: 'route', threadId: 't1', history: messages, actionableMessages: [messages[1]!] });
     expect(followUp).toContain('flightdeck_agent_direct_follow_up_v1');
     expect(followUp).toContain('polished response using GitHub-Flavored Markdown');
@@ -87,6 +90,37 @@ describe('Agent Direct Chat contract', () => {
     expect(parsedFollowUp.thread_history[0].mentions[0]).toMatchObject({ type: 'agent', npub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg', label: 'Example Agent' });
     expect(parsedFollowUp.history_semantics).toContain('context only');
     expect(parsedFollowUp.actionable_semantics).toContain('Only these newly eligible messages');
+  });
+
+  test('keeps inherited branch history inert even when it mentions the routed agent', () => {
+    const botNpub = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg';
+    const branched = orderDirectChatMessages([
+      {
+        id: 'parent-instruction',
+        thread_id: 'parent-thread',
+        owning_thread_id: 'parent-thread',
+        inherited: true,
+        body: '@Example Agent do the old thing',
+        created_at: '2026-01-01T00:00:01Z',
+        created_by_actor_npub: 'npub1human',
+        mentions: [{ type: 'agent', npub: botNpub, label: 'Example Agent' }],
+      },
+      {
+        id: 'child-instruction',
+        thread_id: 'child-thread',
+        owning_thread_id: 'child-thread',
+        inherited: false,
+        body: '@Example Agent do the new thing',
+        created_at: '2026-01-01T00:00:02Z',
+        created_by_actor_npub: 'npub1human',
+        mentions: [{ type: 'agent', npub: botNpub, label: 'Example Agent' }],
+      },
+    ]);
+
+    expect(selectUndeliveredActionableMessages(branched, null, botNpub).map((message) => message.messageId))
+      .toEqual(['child-instruction']);
+    expect(buildDirectChatTurnId('child-route', ['child-instruction']))
+      .not.toBe(buildDirectChatTurnId('child-route', ['parent-instruction', 'child-instruction']));
   });
 
   test('derives stable turn and publication ids', () => {

@@ -55,6 +55,7 @@ async function fetchAllMessages(input: {
       appNpub: input.subscription.sourceAppNpub,
       botIdentity: input.botIdentity,
       threadId: input.threadId,
+      effectiveTranscript: Boolean(input.threadId),
       cursor,
       limit: 200,
     });
@@ -106,9 +107,7 @@ export async function hydrateFlightDeckPgChatEvent(input: {
   const triggerMessageId = threadTriggerMessageId(input.event);
   const message = triggerMessageId
     ? messages.find((candidate) => candidate.id === triggerMessageId) ?? null
-    : input.event.entity_type === 'thread'
-      ? messages.at(-1) ?? null
-      : null;
+    : null;
   let channel: FlightDeckPgChannel = {
     id: input.channelId,
     workspace_id: input.subscription.workspaceId!,

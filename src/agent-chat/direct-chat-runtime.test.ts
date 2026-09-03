@@ -258,7 +258,7 @@ describe('Agent Direct Chat runtime', () => {
     expect(await f.handle([m1], 'm1')).toEqual({ handled: true, reason: 'direct_chat_queued' });
     await f.runtime.waitForIdle();
     expect(f.creates).toHaveLength(1); expect(f.creates[0][1]).toBe('/Users/example/wingmen/agent-workspace');
-    expect(f.prompts[0]).toContain('AGENT DIRECT CHAT'); expect(f.published).toHaveLength(1);
+    expect(JSON.parse(f.prompts[0]!).type).toBe('flightdeck_agent_direct_bootstrap_v1'); expect(f.published).toHaveLength(1);
     expect(f.published[0].clientRequestId).toMatch(/^agentdirect:/);
     expect(f.published[0].metadata.prompt_type).toBe('direct_chat');
     expect(f.published[0].metadata.source_message_ids).toEqual(['m1']);
@@ -273,6 +273,47 @@ describe('Agent Direct Chat runtime', () => {
     });
     const state = f.interceptStore.listAll()[0]!;
     expect(state.lastHumanMessageIdDelivered).toBe('m1'); expect(state.lastAgentMessageIdPublished).toBe('agent-message-1'); expect(state.lastCompletedTurnId).toBeTruthy();
+  });
+
+  test('does not dispatch branch creation and gives child and nested-child threads fresh sessions', async () => {
+    const f = fixture();
+    const inherited = f.message('m1', '@Example Agent old instruction', true);
+    inherited.thread_id = 'parent-thread';
+    inherited.owning_thread_id = 'parent-thread';
+    inherited.inherited = true;
+
+    expect(await f.handle([inherited], 'child-thread', {
+      entity_type: 'thread',
+      event_type: 'flightdeck_pg.thread.created',
+    })).toEqual({ handled: false, reason: 'not_activated' });
+    expect(f.creates).toHaveLength(0);
+
+    const childMessage = f.message('m2', '@Example Agent new child instruction', true);
+    childMessage.thread_id = 'child-thread';
+    childMessage.owning_thread_id = 'child-thread';
+    expect(await f.handle([inherited, childMessage], 'm2', { entity_type: 'message' }))
+      .toEqual({ handled: true, reason: 'direct_chat_queued' });
+    await f.runtime.waitForIdle();
+
+    const childPrompt = JSON.parse(f.prompts[0]!);
+    expect(childPrompt.source.thread_id).toBe('child-thread');
+    expect(childPrompt.thread_history.map((message: any) => message.message_id)).toEqual(['m1', 'm2']);
+    expect(childPrompt.actionable_messages.map((message: any) => message.message_id)).toEqual(['m2']);
+    expect(f.published[0].metadata.source_message_ids).toEqual(['m2']);
+    expect(f.published[0].threadId).toBe('child-thread');
+
+    const inheritedChild = { ...childMessage, inherited: true };
+    const nestedMessage = f.message('m3', '@Example Agent nested instruction', true);
+    nestedMessage.thread_id = 'nested-thread';
+    nestedMessage.owning_thread_id = 'nested-thread';
+    expect(await f.handle([inherited, inheritedChild, nestedMessage], 'm3', { entity_type: 'message' }))
+      .toEqual({ handled: true, reason: 'direct_chat_queued' });
+    await f.runtime.waitForIdle();
+
+    expect(f.creates).toHaveLength(2);
+    expect(new Set(f.interceptStore.listAll().map((entry) => entry.threadId))).toEqual(new Set(['child-thread', 'nested-thread']));
+    expect(JSON.parse(f.prompts[1]!).actionable_messages.map((message: any) => message.message_id)).toEqual(['m3']);
+    expect(f.published[1].threadId).toBe('nested-thread');
   });
 
   test('dispatches an explicit canonical self-mention but ignores ordinary agent-authored output', async () => {
@@ -565,7 +606,7 @@ describe('Agent Direct Chat runtime', () => {
     expect(await f.handle([m1], 'm1')).toEqual({ handled: true, reason: 'direct_chat_queued' });
     await f.runtime.waitForIdle();
     expect(f.creates).toHaveLength(1); expect(f.prompts).toHaveLength(1);
-    expect(f.prompts[0]).toContain('CHANNEL CONTEXT\nYou are Example Agent in Example Operator’s direct Flight Deck chat.');
+    expect(JSON.parse(f.prompts[0]!).channel_context).toBe('You are Example Agent in Example Operator’s direct Flight Deck chat.');
   });
 
   test('routes a canonical mention when a shared channel has legacy persisted false', async () => {
@@ -574,7 +615,7 @@ describe('Agent Direct Chat runtime', () => {
     expect(await f.handle([m1], 'm1')).toEqual({ handled: true, reason: 'direct_chat_queued' });
     await f.runtime.waitForIdle();
     expect(f.creates).toHaveLength(1);
-    expect(f.prompts[0]).toContain('CHANNEL CONTEXT\nLegacy context');
+    expect(JSON.parse(f.prompts[0]!).channel_context).toBe('Legacy context');
   });
 
   test('requires a mention for malformed, multi-party, or outsider-authored DMs', async () => {
@@ -604,7 +645,7 @@ describe('Agent Direct Chat runtime', () => {
     const f = fixture(); const m1 = f.message('m1', 'hello', true); await f.handle([m1], 'm1'); await f.runtime.waitForIdle();
     f.sessions.delete('session-1'); const m2 = f.message('m2', 'recover', true); await f.handle([m1, m2], 'm2'); await f.runtime.waitForIdle();
     const state = f.interceptStore.listAll()[0]!; expect(state.sessionGeneration).toBe(2); expect(state.previousSessionIds).toEqual(['session-1']);
-    expect(f.prompts[1]).toContain('CONTINUITY RECOVERY');
+    expect(JSON.parse(f.prompts[1]!).recovery).toBeTruthy();
   });
 
   test('falls back to a generation-two continuity replacement when native resume fails', async () => {
@@ -615,7 +656,7 @@ describe('Agent Direct Chat runtime', () => {
     const state = f.interceptStore.listAll()[0]!;
     expect(f.creates).toHaveLength(3); expect(f.creates[1][3].type).toBe('native-resume'); expect(f.creates[2][3].type).toBe('agent-chat');
     expect(state.sessionId).toBe('session-3'); expect(state.sessionGeneration).toBe(2); expect(state.previousSessionIds).toEqual(['session-1']);
-    expect(f.prompts[1]).toContain('CONTINUITY RECOVERY');
+    expect(JSON.parse(f.prompts[1]!).recovery).toBeTruthy();
   });
 
   test('replaces a running wrapper when its underlying agent does not accept the follow-up prompt', async () => {
@@ -636,7 +677,7 @@ describe('Agent Direct Chat runtime', () => {
     expect(state.previousSessionIds).toEqual(['session-1']);
     expect(f.stops).toEqual(['session-1']);
     expect(f.prompts).toHaveLength(2);
-    expect(f.prompts[1]).toContain('CONTINUITY RECOVERY');
+    expect(JSON.parse(f.prompts[1]!).recovery).toBeTruthy();
     expect(f.prompts[1]).toContain('update please?');
     expect(f.published).toHaveLength(2);
     expect(f.published[1].metadata.session_id).toBe('session-2');
@@ -673,7 +714,7 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.creates).toHaveLength(1); expect(state.sessionGeneration).toBe(2);
     expect(state.previousSessionIds).toEqual(['27d5c647-9312-4a16-a0e4-74cffb6837b6']);
     expect(f.prompts).toHaveLength(1); expect(f.published).toHaveLength(1);
-    expect(f.prompts[0]).toContain('CONTINUITY RECOVERY');
+    expect(JSON.parse(f.prompts[0]!).recovery).toBeTruthy();
     expect(f.published[0].metadata.source_message_ids).toEqual([firstPending.id, secondPending.id]);
     expect(state.lastHumanMessageIdDelivered).toBe(secondPending.id); expect(state.pendingMessageCount).toBe(0);
   });
@@ -730,7 +771,8 @@ describe('Agent Direct Chat runtime', () => {
     const f = fixture(); const m1 = f.message('m1', 'one', true); const m2 = f.message('m2', 'two', true);
     await Promise.all([f.handle([m1], 'm1'), f.handle([m1, m2], 'm2')]); await f.runtime.waitForIdle();
     expect(f.creates).toHaveLength(1); expect(f.prompts).toHaveLength(2);
-    expect(f.prompts[0]).toContain('message_id: m1'); expect(f.prompts[1]).toContain('"message_id": "m2"');
+    expect(JSON.parse(f.prompts[0]!).actionable_messages.map((message: any) => message.message_id)).toEqual(['m1']);
+    expect(JSON.parse(f.prompts[1]!).actionable_messages.map((message: any) => message.message_id)).toEqual(['m2']);
   });
 
   test('retries publication with the same client request id after restart-style replay', async () => {
@@ -917,10 +959,11 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.creates).toHaveLength(2); expect(f.creates[0][3].type).toBe('native-resume'); expect(f.creates[1][3].type).toBe('agent-chat');
     expect(f.prompts).toHaveLength(1); expect(f.published).toHaveLength(1);
     const prompt = f.prompts[0]!;
-    expect(prompt).toContain('THREAD HISTORY JSON');
-    expect(['m1', 'a1', 'm2', 'm3'].every((id) => prompt.includes(`"messageId": "${id}"`))).toBe(true);
-    const undeliveredSection = prompt.split('UNDELIVERED MESSAGES JSON\n')[1]!.split('\n\nNEXT MESSAGE')[0]!;
-    expect(JSON.parse(undeliveredSection).map((message: any) => message.messageId)).toEqual(['m3']);
+    const parsedPrompt = JSON.parse(prompt);
+    expect(parsedPrompt.thread_history.map((message: any) => message.message_id)).toEqual(['a1', 'm1', 'm2', 'm3']);
+    expect(parsedPrompt.actionable_messages).toEqual([
+      expect.objectContaining({ message_id: 'm3', message: '@Example Agent queued while stopped' }),
+    ]);
     const state = f.interceptStore.getByRoutingKey(routingKey)!;
     expect(state.sessionGeneration).toBe(2); expect(state.previousSessionIds).toEqual(['archived-session']);
     expect(f.published[0].metadata.source_message_ids).toEqual(['m3']);
