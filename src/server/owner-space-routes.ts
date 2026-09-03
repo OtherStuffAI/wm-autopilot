@@ -52,6 +52,12 @@ export interface OwnerSpaceRoutesContext {
   ) => Promise<unknown>;
   schedulerStore: SchedulerStore;
   schedulerApiHandler: (request: Request, url: URL, method: HttpMethod) => Promise<Response | null>;
+  sessionApiHandler?: (
+    request: Request,
+    url: URL,
+    method: HttpMethod,
+    authContext: RequestAuthContext,
+  ) => Promise<Response | null>;
   ensureSessionsAccess: (
     request: Request,
     url: URL,
@@ -284,6 +290,26 @@ export async function handleOwnerSpaceApi(
   const matched = matchOwnerRoute(url.pathname);
   if (!matched) {
     return null;
+  }
+
+  if (matched.subpath === "/sessions" || matched.subpath.startsWith("/sessions/")) {
+    if (!ctx.sessionApiHandler) return null;
+    const remainder = matched.subpath.slice("/sessions".length);
+    const requiredScope = method === "GET" || method === "HEAD"
+      ? DelegationScopes.SessionsRead
+      : DelegationScopes.SessionsManage;
+    const access = resolveOwnerAccess(
+      authContext,
+      matched.ownerNpub,
+      ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
+      requiredScope,
+    );
+    if (!access) return delegationDenial(ctx, authContext, matched.ownerNpub, requiredScope);
+    const ownerAuthContext = createOwnerScopedAuthContext(authContext, matched.ownerNpub, access, requiredScope);
+    const rewrittenUrl = cloneUrlWithPath(url, `/api/sessions${remainder}`);
+    const rewrittenRequest = createRewrittenRequest(request, rewrittenUrl);
+    return await runWithRequestContext(ownerAuthContext, () =>
+      ctx.sessionApiHandler!(rewrittenRequest, rewrittenUrl, method, ownerAuthContext));
   }
 
   if (matched.subpath === "/scheduler/jobs" || matched.subpath.startsWith("/scheduler/jobs/")) {

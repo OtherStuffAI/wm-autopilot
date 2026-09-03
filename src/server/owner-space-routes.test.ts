@@ -120,6 +120,7 @@ describe("owner-space scheduler delegation", () => {
     onAccess?: (authContext: RequestAuthContext) => void;
     onAudit?: OwnerSpaceRoutesContext["auditExecution"];
     onScheduler?: (request: Request, url: URL, method: string) => Promise<Response>;
+    onSession?: (request: Request, url: URL, method: string, authContext: RequestAuthContext) => Promise<Response>;
     includeAgentChat?: boolean;
   } = {}): OwnerSpaceRoutesContext {
     const activeGrant = input.activeGrant === undefined
@@ -158,6 +159,7 @@ describe("owner-space scheduler delegation", () => {
         method === "DELETE"
           ? new Response(null, { status: 204 })
           : Response.json({ ok: true })),
+      sessionApiHandler: input.onSession,
       buildAppsContext: (() => ({})) as unknown as OwnerSpaceRoutesContext["buildAppsContext"],
       docsApiContext: {} as OwnerSpaceRoutesContext["docsApiContext"],
       listDirectories: async () => ({}),
@@ -193,6 +195,29 @@ describe("owner-space scheduler delegation", () => {
       permissions: { shared: true, canManage: true },
       subscriptions: [],
     });
+  });
+
+  test("forwards delegated owner-space session renames with sessions:manage evidence", async () => {
+    let observedUrl = "";
+    let observedAuth: RequestAuthContext | null = null;
+    const request = new Request("http://localhost/api/owners/npub1admin/sessions/session-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Descriptive session" }),
+    });
+    const response = await handleOwnerSpaceApi(request, new URL(request.url), "PATCH", auth, context({
+      activeGrant: grant([DelegationScopes.SessionsManage]),
+      onSession: async (_request, url, _method, authContext) => {
+        observedUrl = url.pathname;
+        observedAuth = authContext;
+        return Response.json({ id: "session-1", name: "Descriptive session" });
+      },
+    }));
+    expect(response?.status).toBe(200);
+    expect(observedUrl).toBe("/api/sessions/session-1");
+    expect(observedAuth?.targetOwnerNpub).toBe(owner);
+    expect(observedAuth?.delegateRelationshipId).toBe("delegation-1");
+    expect(observedAuth?.delegateExecutionScope).toBe(DelegationScopes.SessionsManage);
   });
 
   test("authorizes delegated create, update, and delete with owner and delegate audit context", async () => {
