@@ -372,12 +372,12 @@ export async function inspectAcceptedFinalResponse(
     if (prompt && matchesCodexPrompt(message.content, prompt)) return true;
     return sourceMessageIds.some((id) => message.content.includes(id));
   });
-  const nextPromptOffset = boundaryIndex >= 0
-    ? authoritativeMessages.slice(boundaryIndex + 1).findIndex((message) => message.role === 'user')
-    : -1;
-  const turnMessages = boundaryIndex < 0 ? [] : nextPromptOffset >= 0
-    ? authoritativeMessages.slice(boundaryIndex + 1, boundaryIndex + 1 + nextPromptOffset)
-    : authoritativeMessages.slice(boundaryIndex + 1);
+  // Codex records steering input as another user message inside the active turn.
+  // The live waiter deliberately accepts the terminal final that follows such a
+  // steer, so durable recovery must use the same boundary semantics. Cutting at
+  // the next user card leaves a completed turn awaiting_reply forever after the
+  // live observation window expires.
+  const turnMessages = boundaryIndex < 0 ? [] : authoritativeMessages.slice(boundaryIndex + 1);
   const finalMessage = turnMessages
     .filter((message) => (message.role === 'assistant' || message.role === 'agent') && message.content.trim().length > 0)
     .at(-1);

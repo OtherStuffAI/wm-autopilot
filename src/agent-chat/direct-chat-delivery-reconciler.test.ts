@@ -109,6 +109,21 @@ describe('Agent Direct durable delivery reconciler', () => {
     expect(f.calls).toHaveLength(1);
   });
 
+  test('publishes a late final after steering input inside the accepted turn', async () => {
+    const f = fixture();
+    f.seed();
+    f.session.messages.push(
+      { role: 'user', content: 'Use the CapRover CLI directly.', createdAt: '2026-07-29T00:00:01.000Z' },
+      { role: 'assistant', content: 'Deployment completed after the steer.', createdAt: '2026-07-29T00:00:02.000Z' },
+    );
+    f.advance(2_000);
+
+    await f.make('boot-steered').processTurnNow('turn-1');
+
+    expect(f.store.get('turn-1')).toMatchObject({ state: 'published', publishedMessageId: 'tower-message-1' });
+    expect(f.calls[0]?.body).toBe('Deployment completed after the steer.');
+  });
+
   test('enforces the default inclusive window during late reconciliation', async () => {
     const candidateAt = '2026-07-29T00:03:00.000Z';
     for (const seconds of [179, 180, 181]) {
