@@ -116,6 +116,8 @@ import { publishBotProfileEvent } from "./identity/bot-profile-publisher";
 import { loadWingmanInstanceIdentity } from "./identity/wingman-instance-identity";
 import { CapabilityBroker, buildDefaultAgentCapabilityPolicy } from "./signing/capability-broker";
 import { FileCapabilityBrokerStateStore } from "./signing/capability-state-store";
+import { FileSigningPolicyStore, SigningPolicyRegistry } from "./signing/signing-policy-registry";
+import { SessionCapabilityIssuer } from "./signing/session-capability-issuer";
 import { writeServerLog } from "./logging/server-logger";
 import { HttpTowerWappRegistrar } from "./wapps/tower-registration";
 import { wappTowerDbRequestBroker } from "./wapps/tower-db-request-broker";
@@ -127,11 +129,6 @@ import { agentDefinitionStore } from './agent-chat/agent-definition-store';
 import { ensureDefaultAgentProfileForManager } from './agent-chat/default-agent-profile-bootstrap';
 import { AgentProfileMediaStore } from './agent-chat/agent-profile-media-store';
 import { handleAgentProfileMediaPublicRoute } from './server/agent-profile-media-public-route';
-import {
-  buildSessionCapabilityProfileContext,
-  resolveAndBindSessionCapabilityBotRecord,
-  resolveSessionCapabilityProfileScope,
-} from './agents/session-capability-binding';
 import { DispatchPipelineRuntime } from './agent-chat/dispatch-pipelines/runtime';
 import { AgentCommentSessionRuntime } from './agent-chat/comment-session-runtime';
 import { AgentChatSessionRuntime } from './agent-chat/session-runtime';
@@ -317,6 +314,8 @@ const defaultTowerUrl = (
   instanceSettingsService.get("internal.wapp_tower_url") ||
   "http://127.0.0.1:3100"
 ).replace(/\/$/, "");
+const defaultForgejoCompletionUrl = Bun.env.TOWER_GIT_OIDC_COMPLETION_URL?.trim()
+  || `${defaultTowerUrl.startsWith("https://") ? new URL(defaultTowerUrl).origin : "https://tower.example.invalid"}/api/v4/git/oidc/authorize/complete`;
 const towerWappRegistrar = new HttpTowerWappRegistrar();
 const towerRegistrationIdentity = wingmanInstanceIdentity
   ? {
@@ -471,6 +470,12 @@ const agentProfileMediaStore = new AgentProfileMediaStore();
 const brokerKeyVault = createBrokerKeyVaultBackend();
 const capabilityStateStore = new FileCapabilityBrokerStateStore(
   Bun.env.WINGMAN_CAPABILITY_STATE_FILE?.trim() || new URL("../data/capability-broker-state.json", import.meta.url).pathname,
+);
+const signingPolicyRegistry = new SigningPolicyRegistry(
+  new FileSigningPolicyStore(
+    Bun.env.WINGMAN_SIGNING_POLICY_FILE?.trim() || new URL("../data/signing-policies.json", import.meta.url).pathname,
+  ),
+  { forgejoCompletionUrl: defaultForgejoCompletionUrl },
 );
 for (const record of botKeyStore.listActiveKeys()) {
   if (brokerKeyVault.has(record)) continue;
@@ -774,6 +779,7 @@ if (teamBillingService.isCreditsEnabled()) {
   });
 }
 
+const sharedAgentDispatchEnabled = isSharedAgentDispatchEnabled();
 let manager: ProcessManager;
 const capabilityBroker = new CapabilityBroker({
   botKeyStore,
@@ -782,6 +788,29 @@ const capabilityBroker = new CapabilityBroker({
   getSession: (sessionId) => manager?.getSession(sessionId) ?? null,
   audit: (entry) => writeServerLog("INFO", "[capability-broker]", entry),
   stateStore: capabilityStateStore,
+});
+const sessionCapabilityIssuer = new SessionCapabilityIssuer({
+  broker: capabilityBroker,
+  registry: signingPolicyRegistry,
+  getManager: () => manager,
+  sharedAgentDispatch: sharedAgentDispatchEnabled,
+  adminNpub,
+  towerUrl: defaultTowerUrl,
+  autopilotUrl: config.baseUrl,
+  listProfiles: (managerNpub) => agentDefinitionStore.listForManagerNpub(managerNpub),
+  getDefaultProfile: (managerNpub) => agentDefinitionStore.getDefaultForManagerNpub(managerNpub),
+  getActiveByBotNpub: (botNpub, profileManagerNpub) => (
+    botKeyStore.getActiveKeyForBotNpub(botNpub)
+    ?? (wingmanInstanceIdentity?.npub === botNpub
+      ? { userNpub: profileManagerNpub, botNpub, botPubkeyHex: wingmanInstanceIdentity.pubkeyHex }
+      : null)
+  ),
+  ensureProvisioned: (record) => {
+    const storedRecord = botKeyStore.getActiveKeyForBotNpub(record.botNpub);
+    if (storedRecord) ensureLegacyBrokerRecordProvisioned({ vault: brokerKeyVault, record: storedRecord, instanceIdentity: wingmanInstanceIdentity });
+  },
+  listTowerUrls: (managerNpub) => workspaceSubscriptionManager.listForManager(managerNpub)
+    .map((subscription) => subscription.backendBaseUrl),
 });
 const agentProfileKeyRotation = new AgentProfileKeyRotation({
   botKeyStore,
@@ -810,70 +839,7 @@ manager = new ProcessManager(config, {
       costUsd: data.costUsd ?? null,
     });
   },
-  issueSessionCapability: ({ sessionId, ownerNpub, profileId, botNpub }) => {
-    const session = manager.getSession(sessionId);
-    const profileScope = resolveSessionCapabilityProfileScope({
-      ownerNpub,
-      sharedAgentDispatch: sharedAgentDispatchEnabled,
-      adminNpub,
-      metadata: session?.metadata,
-    });
-    const { profileManagerNpub } = profileScope;
-    const profileContext = buildSessionCapabilityProfileContext(
-      agentDefinitionStore.listForManagerNpub(profileManagerNpub),
-      agentDefinitionStore.getDefaultForManagerNpub(profileManagerNpub),
-    );
-    const { record, profileId: resolvedProfileId } = resolveAndBindSessionCapabilityBotRecord({
-      manager,
-      sessionId,
-      ownerNpub,
-      profileManagerNpub,
-      requestedProfileId: profileId,
-      requestedBotNpub: botNpub,
-      allowDefaultFallbackForMissingRequestedProfile: profileScope.allowDefaultFallbackForMissingRequestedProfile,
-      ...profileContext,
-      getActiveByBotNpub: (candidateBotNpub) => (
-        botKeyStore.getActiveKeyForBotNpub(candidateBotNpub)
-        ?? (wingmanInstanceIdentity?.npub === candidateBotNpub
-          ? {
-            userNpub: profileManagerNpub,
-            botNpub: wingmanInstanceIdentity.npub,
-            botPubkeyHex: wingmanInstanceIdentity.pubkeyHex,
-          }
-          : null)
-      ),
-    });
-    const storedRecord = botKeyStore.getActiveKeyForBotNpub(record.botNpub);
-    if (storedRecord) {
-      ensureLegacyBrokerRecordProvisioned({
-        vault: brokerKeyVault,
-        record: storedRecord,
-        instanceIdentity: wingmanInstanceIdentity,
-      });
-    }
-    return capabilityBroker.issueSessionCapability({
-      sessionId,
-      ownerNpub,
-      identityManagerNpub: profileManagerNpub,
-      profileId: resolvedProfileId,
-      botNpub: record.botNpub,
-      policy: buildDefaultAgentCapabilityPolicy({
-        towerUrl: defaultTowerUrl,
-        // A manager may have Flight Deck subscriptions on a public Tower
-        // origin while this Autopilot talks to its local/internal origin.
-        // Bind the capability to the manager's known subscription origins so
-        // hydrated dispatch context and issuance policy cannot disagree.
-        towerUrls: workspaceSubscriptionManager.listForManager(profileManagerNpub)
-          .map((subscription) => subscription.backendBaseUrl),
-        // NIP-98 verification canonicalises requests against WINGMAN_BASE_URL.
-        // Capability targets must use the same public origin; otherwise a
-        // locally signed URL is rejected by the verifier and the public URL is
-        // rejected by the broker.
-        autopilotUrl: config.baseUrl,
-        ownerNpub,
-      }),
-    });
-  },
+  issueSessionCapability: (input) => sessionCapabilityIssuer.issue(input),
   revokeSessionCapabilities: (sessionId) => {
     capabilityBroker.revokeSession(sessionId);
   },
@@ -909,7 +875,6 @@ if (adminNpub) {
 }
 
 const sharedInstanceAccessEnabled = isSharedInstanceAccessEnabled();
-const sharedAgentDispatchEnabled = isSharedAgentDispatchEnabled();
 const documentDirectStore = new DocumentDirectStore();
 
 const wingmanMcpApiHandler = createWingmanMcpApiHandler({
@@ -2909,6 +2874,20 @@ const handleApi = createApiRouteHandler({
   },
   instanceSettingsRoutesContext: {
     service: instanceSettingsService,
+    ensureApiAccess,
+    AccessActions,
+  },
+  signingPolicyRoutesContext: {
+    registry: signingPolicyRegistry,
+    listCapabilities: () => capabilityBroker.listActiveCapabilities(),
+    buildBaselinePolicy: (ownerNpub) => buildDefaultAgentCapabilityPolicy({
+      towerUrl: defaultTowerUrl,
+      towerUrls: workspaceSubscriptionManager.listForManager(ownerNpub ?? adminNpub ?? "")
+        .map((subscription) => subscription.backendBaseUrl),
+      autopilotUrl: config.baseUrl,
+      ownerNpub,
+    }),
+    reissueSessionCapability: (sessionId) => sessionCapabilityIssuer.reissue(sessionId),
     ensureApiAccess,
     AccessActions,
   },

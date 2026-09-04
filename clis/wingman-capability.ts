@@ -14,7 +14,7 @@ Never put a capability token on a command line or in chat.
 
 Commands:
   identity
-  nip98 --url <url> --method <method> [--body-file <path>]
+  nip98 --url <url> --method <method> [--body-file <path>] [--tags-json <json>]
   event --kind <kind> [--content <text>] [--tags-json <json>]
   encrypt --peer <hex-pubkey> --text <plaintext>
   decrypt --peer <hex-pubkey> --ciphertext <value>
@@ -58,7 +58,12 @@ async function run(): Promise<void> {
       : undefined;
     const result = await callCapabilityBroker<{ token: string; signedBy: string }>(
       "/api/mcp/capabilities/nip98",
-      { url: required(args, "--url"), method: required(args, "--method"), bodyHash },
+      {
+        url: required(args, "--url"),
+        method: required(args, "--method"),
+        bodyHash,
+        tags: jsonFlag(args, "--tags-json", []),
+      },
     );
     console.log(JSON.stringify({ authorization: result.token, signedBy: result.signedBy }, null, 2));
     return;

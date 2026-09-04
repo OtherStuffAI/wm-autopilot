@@ -17,7 +17,9 @@ describe('settings route helpers', () => {
     expect(memberItems.map((item) => item.id)).not.toContain('system');
     expect(getSettingsNavigationItems(true).map((item) => item.id)).toContain('access');
     expect(getSettingsNavigationItems(true).map((item) => item.id)).toContain('agentProfiles');
+    expect(getSettingsNavigationItems(true).map((item) => item.id)).toContain('signingPolicies');
     expect(getSettingsNavigationItems(false).map((item) => item.id)).not.toContain('agentProfiles');
+    expect(getSettingsNavigationItems(false).map((item) => item.id)).not.toContain('signingPolicies');
   });
 
   test('resolves canonical grouped settings pages', () => {
@@ -28,6 +30,7 @@ describe('settings route helpers', () => {
     expect(resolveSettingsRoute('/settings/models').pageId).toBe('models');
     expect(resolveSettingsRoute('/settings/app-hosting').pageId).toBe('hosting');
     expect(resolveSettingsRoute('/settings/restart', { isAdmin: true }).pageId).toBe('restart');
+    expect(resolveSettingsRoute('/settings/signing-policies', { isAdmin: true }).pageId).toBe('signingPolicies');
   });
 
   test('redirects legacy routes and useful anchors', () => {
@@ -58,6 +61,7 @@ describe('settings route helpers', () => {
     expect(resolveSettingsRoute('/settings/restart', { isAdmin: false }).accessDenied).toBe(true);
     expect(resolveSettingsRoute('/settings/system', { isAdmin: true }).accessDenied).toBe(false);
     expect(resolveSettingsRoute('/settings/automation/agent-profiles', { isAdmin: false }).accessDenied).toBe(true);
+    expect(resolveSettingsRoute('/settings/signing-policies', { isAdmin: false }).accessDenied).toBe(true);
   });
 
   test('builds canonical page paths', () => {
@@ -65,5 +69,6 @@ describe('settings route helpers', () => {
     expect(getSettingsPathForTab('workspaces')).toBe('/settings/automation/workspaces');
     expect(getSettingsPathForTab('agentProfiles')).toBe('/settings/automation/agent-profiles');
     expect(getSettingsPathForTab('access')).toBe('/settings/access');
+    expect(getSettingsPathForTab('signingPolicies')).toBe('/settings/signing-policies');
   });
 });

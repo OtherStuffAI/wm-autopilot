@@ -94,4 +94,33 @@ describe("capability client expiry recovery", () => {
 
     expect(authorizations).toEqual(["Bearer capability-a", "Bearer capability-b"]);
   });
+
+  test("explicitly adopts an administrator-issued replacement and retries once", async () => {
+    const calls: Array<{ path: string; authorization: string }> = [];
+    const previous = process.env.WINGMAN_CAPABILITY;
+    const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const path = new URL(typeof input === "string" ? input : input instanceof URL ? input : input.url).pathname;
+      calls.push({ path, authorization: new Headers(init?.headers).get("authorization") ?? "" });
+      if (calls.length === 1) return Response.json({ error: "Capability was reissued", code: "capability_reissued" }, { status: 409 });
+      if (path.endsWith("reissue-adopt")) return Response.json({ token: "replacement-capability" });
+      return Response.json({ signed: true });
+    };
+    try {
+      const result = await callCapabilityBroker<{ signed: boolean }>("/api/mcp/capabilities/nip98", {}, {
+        wingmanUrl: "http://localhost:3600",
+        sessionId: "reissued-session",
+        capabilityToken: "revoked-capability",
+        fetch: fetch as unknown as typeof globalThis.fetch,
+      });
+      expect(result).toEqual({ signed: true });
+      expect(calls).toEqual([
+        { path: "/api/mcp/capabilities/nip98", authorization: "Bearer revoked-capability" },
+        { path: "/api/mcp/capabilities/reissue-adopt", authorization: "Bearer revoked-capability" },
+        { path: "/api/mcp/capabilities/nip98", authorization: "Bearer replacement-capability" },
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.WINGMAN_CAPABILITY;
+      else process.env.WINGMAN_CAPABILITY = previous;
+    }
+  });
 });

@@ -18,6 +18,10 @@ export const signNip98Schema = {
     .string()
     .optional()
     .describe("SHA-256 hex hash of the request body (required for POST/PUT)"),
+  tags: z
+    .array(z.tuple([z.enum(["nonce", "aud", "expiration"]), z.string()]))
+    .optional()
+    .describe("Policy-constrained challenge tags; accepted only for an assigned exact NIP-98 target"),
   tier: z
     .enum(["1", "2"])
     .optional()
@@ -40,6 +44,7 @@ interface SignNip98Params {
   url: string;
   method: string;
   body_hash?: string;
+  tags?: Array<["nonce" | "aud" | "expiration", string]>;
   tier?: string;
 }
 
@@ -48,13 +53,13 @@ export async function handleSignNip98(
   wingmanUrl: string,
   sessionId: string,
 ) {
-  const { url, method, body_hash, tier = "1" } = params;
+  const { url, method, body_hash, tags, tier = "1" } = params;
 
   try {
     if (tier === "1") {
       const result = await callCapabilityBroker<{ token: string; signedBy: string }>(
         "/api/mcp/capabilities/nip98",
-        { url, method, bodyHash: body_hash },
+        { url, method, bodyHash: body_hash, tags },
         { wingmanUrl, sessionId, capabilityToken: process.env.WINGMAN_CAPABILITY ?? "" },
       );
       return {

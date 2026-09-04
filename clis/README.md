@@ -19,6 +19,11 @@ Set the server URL via `--url` or `WINGMAN_URL`. Agent sessions should use the
 injected canonical `WINGMAN_URL`; a different origin is intentionally rejected
 unless the session capability explicitly includes it.
 
+Administrator-assigned NIP-98 challenge policies can additionally accept the
+strict `--tags-json` tuples supported by `wingman-capability.ts nip98`. The
+broker, not the CLI, validates tag names, cardinality, value bounds, expiry,
+target, method, and exact request-body hash. The CLI has no raw-key fallback.
+
 Agent sessions also receive host-local `WINGMAN_BROKER_URL`. The bearer
 capability is sent only there; `--url` selects the NIP-98 target and can never
 redirect the bearer to a remote Autopilot.

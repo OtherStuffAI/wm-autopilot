@@ -61,6 +61,10 @@ export async function callCapabilityBroker<T>(
     context = await refreshCapability(context);
   }
   let response = await requestCapability(path, body, context);
+  if (response.status === 409 && await isReissuedCapabilityResponse(response)) {
+    context = await adoptReissuedCapability(context);
+    response = await requestCapability(path, body, context);
+  }
   if (response.status === 403 && await isExpiredCapabilityResponse(response)) {
     context = await refreshCapability(context);
     response = await requestCapability(path, body, context);
@@ -77,6 +81,11 @@ export async function callCapabilityBroker<T>(
     throw new Error(error.error ?? `Capability broker request failed (${response.status})`);
   }
   return await response.json() as T;
+}
+
+async function isReissuedCapabilityResponse(response: Response): Promise<boolean> {
+  const payload = await response.clone().json().catch(() => ({})) as { code?: unknown };
+  return payload.code === "capability_reissued";
 }
 
 function requestCapability(
@@ -115,6 +124,30 @@ async function refreshCapability(context: CapabilityClientContext): Promise<Capa
   if (!response.ok) {
     const error = await response.json().catch(() => ({})) as { error?: string };
     throw new Error(error.error ?? `Capability refresh failed (${response.status})`);
+  }
+  const result = await response.json() as { token: string };
+  cachedCapabilityToken = result.token;
+  cachedCapabilityStartedAt = Date.now();
+  cachedCapabilitySessionId = context.sessionId;
+  cachedCapabilityWingmanUrl = context.wingmanUrl.replace(/\/$/, "");
+  process.env.WINGMAN_CAPABILITY = result.token;
+  return { ...context, capabilityToken: result.token };
+}
+
+async function adoptReissuedCapability(context: CapabilityClientContext): Promise<CapabilityClientContext> {
+  const fetchImpl = context.fetch ?? globalThis.fetch;
+  const response = await fetchImpl(`${context.wingmanUrl}/api/mcp/capabilities/reissue-adopt`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${context.capabilityToken}`,
+      "content-type": "application/json",
+      "x-wingman-capability-nonce": randomUUID(),
+    },
+    body: JSON.stringify({ sessionId: context.sessionId }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(error.error ?? `Capability reissue adoption failed (${response.status})`);
   }
   const result = await response.json() as { token: string };
   cachedCapabilityToken = result.token;

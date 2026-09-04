@@ -10,6 +10,7 @@ export const SETTINGS_NAVIGATION = Object.freeze([
   { id: 'restart', group: 'Runtime', label: 'Restart', adminOnly: true },
   { id: 'system', group: 'Runtime', label: 'System', adminOnly: true },
   { id: 'access', group: 'Administration', label: 'Users & Access', adminOnly: true },
+  { id: 'signingPolicies', group: 'Administration', label: 'Signing Policies', adminOnly: true },
   { id: 'billing', group: 'Administration', label: 'Billing', adminOnly: true },
   { id: 'appearance', group: 'Administration', label: 'Appearance', adminOnly: true },
   { id: 'flags', group: 'Administration', label: 'Feature Flags', adminOnly: true },
