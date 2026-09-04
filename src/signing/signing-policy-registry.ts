@@ -4,6 +4,7 @@ import {
   type PolicyRevisionRef,
   type SessionCapabilityPolicy,
 } from "./capability-broker";
+import type { NostrKindConstraint } from "./nostr-kind-policy";
 import type { SigningPolicyStore } from "./signing-policy-store";
 import { CHALLENGE_TAGS, validateSigningPolicyDraft } from "./signing-policy-validation";
 export { FileSigningPolicyStore } from "./signing-policy-store";
@@ -40,6 +41,7 @@ export interface SigningPolicyDocument {
   builtIn: "template" | false;
   operations: BrokerOperation[];
   eventKinds: number[];
+  nostrKindRules: NostrKindConstraint[];
   nip98Targets: SigningPolicyNip98Target[];
   assignments: SigningPolicyAssignment;
   createdAt: string;
@@ -50,7 +52,7 @@ export interface SigningPolicyDocument {
 
 export type SigningPolicyDraft = Pick<
   SigningPolicyDocument,
-  "id" | "name" | "description" | "enabled" | "operations" | "eventKinds" | "nip98Targets" | "assignments"
+  "id" | "name" | "description" | "enabled" | "operations" | "eventKinds" | "nostrKindRules" | "nip98Targets" | "assignments"
 >;
 
 export interface SigningPolicyHistoryEntry {
@@ -101,6 +103,7 @@ function assertTowerForgejoContract(draft: SigningPolicyDraft): void {
   if (draft.id !== TOWER_FORGEJO_POLICY_ID) return;
   if (draft.operations.length !== 1 || draft.operations[0] !== "nip98.sign"
     || draft.eventKinds.length !== 1 || draft.eventKinds[0] !== 27_235
+    || draft.nostrKindRules.length !== 0
     || draft.nip98Targets.length !== 1 || !draft.nip98Targets[0]?.challenge) {
     throw new Error("The Tower Forgejo Login template must retain its dedicated kind-27235 NIP-98 challenge contract");
   }
@@ -131,6 +134,7 @@ export class SigningPolicyRegistry {
         enabled: false,
         operations: ["nip98.sign"],
         eventKinds: [27_235],
+        nostrKindRules: [],
         nip98Targets: [{
           origin: completionUrl.origin,
           methods: ["POST"],
@@ -202,7 +206,14 @@ export class SigningPolicyRegistry {
       policy.operations = sortedUnique([...policy.operations, ...fragment.operations]) as BrokerOperation[];
       if (fragment.operations.includes("nostr.sign")) {
         if (!policy.nostr) throw new Error(`Policy ${fragment.id} requires a baseline Nostr constraint`);
+        const duplicateRule = fragment.nostrKindRules.find((rule) =>
+          policy.nostr!.kindRules?.some((existing) => existing.kind === rule.kind));
+        if (duplicateRule) throw new Error(`Policy ${fragment.id} duplicates the constraint for custom Nostr kind ${duplicateRule.kind}`);
         policy.nostr.kinds = [...new Set([...policy.nostr.kinds, ...fragment.eventKinds])].sort((left, right) => left - right);
+        policy.nostr.kindRules = [
+          ...(policy.nostr.kindRules ?? []),
+          ...clone(fragment.nostrKindRules),
+        ];
       }
       if (fragment.operations.includes("nip98.sign")) {
         if (!policy.nip98) throw new Error(`Policy ${fragment.id} requires a baseline NIP-98 constraint`);
@@ -287,6 +298,7 @@ export function buildDefaultPolicyInventory(policy: SessionCapabilityPolicy): Re
     editable: false,
     operations: [...policy.operations],
     eventKinds: [...(policy.nostr?.kinds ?? [])],
+    nostrKindRules: [],
     nip98Targets: clone(policy.nip98?.targets ?? []),
     assignments: { allSessions: true },
   };

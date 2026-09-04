@@ -13,7 +13,7 @@ function element(tag, text, className) {
   return node;
 }
 
-function draftFromPolicy(policy) {
+export function draftFromPolicy(policy) {
   return {
     id: policy.id,
     name: policy.name,
@@ -21,9 +21,17 @@ function draftFromPolicy(policy) {
     enabled: policy.enabled,
     operations: policy.operations,
     eventKinds: policy.eventKinds,
+    nostrKindRules: policy.nostrKindRules,
     nip98Targets: policy.nip98Targets,
     assignments: policy.assignments,
   };
+}
+
+export function describeNostrKindRule(rule) {
+  const required = rule.requiredTags?.length
+    ? rule.requiredTags.map(([name, value]) => `${name}=${JSON.stringify(value)}`).join(', ')
+    : 'none';
+  return `Kind ${rule.kind}: content ≤ ${rule.maxContentBytes} bytes; tags ≤ ${rule.maxTags} / ${rule.maxTagBytes} bytes; names ${rule.allowedTagNames.join(', ') || 'none'}; required ${required}`;
 }
 
 function summaryList(policy) {
@@ -36,6 +44,9 @@ function summaryList(policy) {
     ['Revision', String(policy.revision)],
   ];
   for (const [label, value] of rows) list.append(element('dt', label), element('dd', value));
+  for (const rule of policy.nostrKindRules || []) {
+    list.append(element('dt', 'Custom kind constraint'), element('dd', describeNostrKindRule(rule)));
+  }
   for (const target of policy.nip98Targets || []) {
     const challenge = target.challenge;
     list.append(

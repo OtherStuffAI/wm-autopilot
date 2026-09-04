@@ -93,6 +93,7 @@ describe("signing policy admin routes", () => {
       enabled: true,
       operations: template.operations,
       eventKinds: template.eventKinds,
+      nostrKindRules: template.nostrKindRules,
       nip98Targets: template.nip98Targets,
       assignments: { profileIds: ["profile-a"], workspaceIds: [] },
     };

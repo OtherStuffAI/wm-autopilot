@@ -7,6 +7,9 @@ import type { BotKeyRecord, BotKeyStore } from "../identity/bot-key-store";
 import { BrokerKeyNotProvisionedError, type BrokerKeyVaultBackend } from "./broker-key-vault";
 import { nip44Decrypt, nip44Encrypt } from "../nostr/nip44-crypto";
 import { jsonError, parseBody } from "../utils/request-utils";
+import { normalizeNostrKindRules, type NostrKindConstraint } from "./nostr-kind-policy";
+
+export type { NostrKindConstraint } from "./nostr-kind-policy";
 
 const TOKEN_PREFIX = "wmcap_v1";
 export const SESSION_CAPABILITY_TTL_MS = 2 * 60 * 60_000;
@@ -86,6 +89,7 @@ export interface NostrConstraint {
   maxTagBytes?: number;
   allowedTagNames?: string[];
   requiredTags?: Array<[string, string]>;
+  kindRules?: NostrKindConstraint[];
 }
 
 export interface Nip44Constraint {
@@ -873,24 +877,34 @@ export class CapabilityBroker {
     const tags = template.tags;
     const constraint = authorized.capability.policy.nostr;
     if (!constraint) return this.denied(authorized.capability, "nostr.sign", "Nostr policy is missing");
-    if (!Number.isInteger(kind) || !constraint.kinds.includes(kind as number)) {
+    if (!Number.isInteger(kind) || kind === NIP98_KIND || !constraint.kinds.includes(kind as number)) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event kind is not allowed");
     }
-    if (typeof content !== "string" || Buffer.byteLength(content) > constraint.maxContentBytes) {
+    let kindRules: NostrKindConstraint[];
+    try {
+      kindRules = normalizeNostrKindRules(
+        constraint.kindRules,
+        constraint.kinds.filter((candidate) => candidate !== NIP98_KIND && !DEFAULT_AGENT_NOSTR_EVENT_KINDS.includes(candidate)),
+      );
+    } catch {
+      return this.denied(authorized.capability, "nostr.sign", "Nostr event kind constraints are invalid");
+    }
+    const effectiveConstraint = kindRules.find((rule) => rule.kind === kind) ?? constraint;
+    if (typeof content !== "string" || Buffer.byteLength(content) > effectiveConstraint.maxContentBytes) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event content exceeds policy", 400);
     }
-    if (!Array.isArray(tags) || tags.length > constraint.maxTags || !tags.every((tag) => Array.isArray(tag) && tag.every((value) => typeof value === "string"))) {
+    if (!Array.isArray(tags) || tags.length > effectiveConstraint.maxTags || !tags.every((tag) => Array.isArray(tag) && tag.every((value) => typeof value === "string"))) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event tags exceed policy", 400);
     }
     const stringTags = tags as string[][];
     const tagBytes = stringTags.reduce((total, tag) => total + tag.reduce((size, value) => size + Buffer.byteLength(value), 0), 0);
-    if (tagBytes > (constraint.maxTagBytes ?? 65_536)) {
+    if (tagBytes > (effectiveConstraint.maxTagBytes ?? 65_536)) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event tags exceed byte policy", 400);
     }
-    if (constraint.allowedTagNames && stringTags.some((tag) => !constraint.allowedTagNames!.includes(tag[0] ?? ""))) {
+    if (effectiveConstraint.allowedTagNames && stringTags.some((tag) => !effectiveConstraint.allowedTagNames!.includes(tag[0] ?? ""))) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event tag is not allowed");
     }
-    if (constraint.requiredTags?.some(([name, value]) => !stringTags.some((tag) => tag[0] === name && tag[1] === value))) {
+    if (effectiveConstraint.requiredTags?.some(([name, value]) => !stringTags.some((tag) => tag[0] === name && tag[1] === value))) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event is missing a required tag");
     }
     const signed = await this.withAuthorizedKey(authorized, (secretKey) => finalizeEvent({
