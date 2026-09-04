@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { mergeGitCredentialEnvs } from "./credential-env";
+import { buildSessionGitCredentialEnv, mergeGitCredentialEnvs } from "./credential-env";
 
 describe("mergeGitCredentialEnvs", () => {
   test("preserves multiple host-scoped git credential helpers", () => {
@@ -26,5 +26,20 @@ describe("mergeGitCredentialEnvs", () => {
     expect(merged.GIT_CONFIG_KEY_1).toBe("credential.https://gitea.example.com.helper");
     expect(merged.WINGMAN_GITHUB_TOKEN).toBe("ghp_secret");
     expect(merged.WINGMAN_GITEA_TOKEN).toBe("gitea_secret");
+  });
+});
+
+describe("buildSessionGitCredentialEnv", () => {
+  test("adds advertised Tower gateways without replacing existing provider helpers", () => {
+    const result = buildSessionGitCredentialEnv({
+      npub: null,
+      dataDir: "/tmp",
+      towerGitGatewayOrigins: ["https://git.example.test"],
+    });
+    expect(result.GIT_CONFIG_COUNT).toBe("2");
+    expect(result.GIT_CONFIG_KEY_0).toBe("credential.https://git.example.test.helper");
+    expect(result.GIT_CONFIG_VALUE_0).toBe("wingman");
+    expect(result.GIT_CONFIG_KEY_1).toBe("credential.https://git.example.test.useHttpPath");
+    expect(result.GIT_CONFIG_VALUE_1).toBe("true");
   });
 });

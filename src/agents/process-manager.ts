@@ -256,6 +256,11 @@ export interface ProcessManagerOptions {
     expiresAt: string;
   };
   revokeSessionCapabilities?: (sessionId: string) => void;
+  resolveTowerGitGatewayOrigins?: (input: {
+    sessionId: string;
+    capabilityToken: string;
+    brokerUrl: string;
+  }) => Promise<string[]>;
 }
 
 interface AgentSession {
@@ -465,6 +470,7 @@ export class ProcessManager {
   private readonly recordAdapterUsage?: RecordAdapterUsage;
   private readonly issueSessionCapability?: ProcessManagerOptions["issueSessionCapability"];
   private readonly revokeSessionCapabilities?: ProcessManagerOptions["revokeSessionCapabilities"];
+  private readonly resolveTowerGitGatewayOrigins?: ProcessManagerOptions["resolveTowerGitGatewayOrigins"];
   private readonly sessions = new Map<string, AgentSession>();
   private readonly allocatedPorts = new Set<number>();
   private readonly listeners = new Set<(event: SessionEvent) => void>();
@@ -479,6 +485,7 @@ export class ProcessManager {
     this.recordAdapterUsage = options.recordAdapterUsage;
     this.issueSessionCapability = options.issueSessionCapability;
     this.revokeSessionCapabilities = options.revokeSessionCapabilities;
+    this.resolveTowerGitGatewayOrigins = options.resolveTowerGitGatewayOrigins;
   }
 
   on(listener: (event: SessionEvent) => void): () => void {
@@ -687,6 +694,9 @@ export class ProcessManager {
     let billingInjectMs = 0;
     let spawnMs = 0;
 
+    let capabilityToken: string | undefined;
+    let capabilityBrokerUrl: string | undefined;
+
     // Inject MCP config so the agent discovers the Wingman MCP server
     try {
       const botKeyLookupStartedAt = Date.now();
@@ -695,7 +705,6 @@ export class ProcessManager {
       let wingmanNpub: string | undefined;
       let botPubkeyHex: string | undefined;
       let botNpub: string | undefined;
-      let capabilityToken: string | undefined;
       const instanceIdentity = loadWingmanInstanceIdentity();
       if (instanceIdentity) {
         const identityEnv = buildWingmanIdentityEnv(instanceIdentity);
@@ -735,6 +744,7 @@ export class ProcessManager {
         userNpub: npub,
         capabilityToken,
       });
+      capabilityBrokerUrl = mcpResult.env.WINGMAN_BROKER_URL;
       session.mcpCleanupFiles = mcpResult.cleanupFiles;
       if (mcpResult.codexConfig) {
         session.codexConfig = { ...session.codexConfig, ...mcpResult.codexConfig };
@@ -781,10 +791,24 @@ export class ProcessManager {
       const gitCredentialInjectStartedAt = Date.now();
       const dataDir = new URL("../../data", import.meta.url).pathname;
       const giteaCreds = resolveGiteaCredentials(npub, this.config);
+      const hasTowerWorkspaceBinding = Boolean(sessionMetadata.flightdeckWorkspaceId);
+      let towerGitGatewayOrigins: string[] | undefined = hasTowerWorkspaceBinding ? [] : undefined;
+      if (capabilityToken && capabilityBrokerUrl && this.resolveTowerGitGatewayOrigins) {
+        try {
+          towerGitGatewayOrigins = await this.resolveTowerGitGatewayOrigins({
+            sessionId: id,
+            capabilityToken,
+            brokerUrl: capabilityBrokerUrl,
+          });
+        } catch (error) {
+          this.appendLog(session, `[manager] Tower Git discovery failed; no gateway helper was configured: ${(error as Error).message}`);
+        }
+      }
       const gitCredentialEnv = buildSessionGitCredentialEnv({
         npub,
         dataDir,
         giteaConfig: giteaCreds,
+        towerGitGatewayOrigins,
       });
 
       const nextEnv: Record<string, string> = {};
@@ -819,6 +843,9 @@ export class ProcessManager {
       }
       if (giteaCreds) {
         this.appendLog(session, `[manager] Gitea credentials configured for ${giteaCreds.owner}@${this.config.giteaUrl}`);
+      }
+      if (towerGitGatewayOrigins?.length) {
+        this.appendLog(session, `[manager] Tower Git credentials configured for ${towerGitGatewayOrigins.length} advertised gateway(s)`);
       }
 
       giteaInjectMs = Date.now() - gitCredentialInjectStartedAt;

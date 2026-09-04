@@ -40,6 +40,7 @@ const commandSpecs: CommandSpec[] = [
   { name: "make", command: "make", args: ["--version"] },
   { name: "gcc", command: "gcc", args: ["--version"] },
   { name: "agentapi", command: "/app/out/agentapi", args: ["--version"] },
+  { name: "Wingman Git credential helper", command: "/usr/local/bin/git-credential-wingman", args: ["--version"] },
   { name: "Codex CLI", command: process.env.CODEX_CLI || "/usr/local/bin/codex", args: ["--version"] },
   { name: "Claude CLI", command: process.env.CLAUDE_CLI || "/usr/local/bin/claude", args: ["--version"] },
   { name: "Goose CLI", command: process.env.GOOSE_CLI || "/usr/local/bin/goose", args: ["--version"] },

@@ -102,6 +102,7 @@ import { createBrowserLogHandler } from "./logging/browser-log-handler";
 import { Nip98GrantStore } from "./mcp/grants-store";
 import { createNip98ApiHandler } from "./mcp/nip98-api";
 import { createWingmanMcpApiHandler } from "./mcp/wingman-api";
+import { callCapabilityBroker } from "./mcp/capability-client";
 import { createNgitApiHandler } from "./ngit/ngit-api";
 import { createGiteaApiHandler } from "./gitea/gitea-api";
 import { createGitWorkflowApiHandler } from "./gitea/git-workflow-api";
@@ -247,6 +248,8 @@ import { requireSuccessfulPipelineExecution } from "./scheduler/pipeline-executi
 import { createSchedulerApiHandler } from "./scheduler/scheduler-api";
 import { wappStore } from "./wapps/wapp-store";
 import { backendConnectionStore } from "./agent-chat/backend-connection-store";
+import { workspaceSubscriptionStore } from "./agent-chat/workspace-subscription-store";
+import { TowerGitCredentialBroker } from "./git/tower-git-credential-broker";
 import { TowerPgWappPublisher } from "./wapps/wapp-publisher";
 import { createWappSourceAppNpubResolver } from "./wapps/wapp-publish-target";
 import { FlightDeckScopeAccessResolver } from "./wapps/scope-access";
@@ -781,6 +784,10 @@ if (teamBillingService.isCreditsEnabled()) {
 
 const sharedAgentDispatchEnabled = isSharedAgentDispatchEnabled();
 let manager: ProcessManager;
+const towerGitCredentialBroker = new TowerGitCredentialBroker({
+  listSubscriptions: () => workspaceSubscriptionStore.listAll(),
+  getAutopilotInstanceNpub: () => wingmanInstanceIdentity?.npub ?? null,
+});
 const capabilityBroker = new CapabilityBroker({
   botKeyStore,
   keyVault: brokerKeyVault,
@@ -788,6 +795,7 @@ const capabilityBroker = new CapabilityBroker({
   getSession: (sessionId) => manager?.getSession(sessionId) ?? null,
   audit: (entry) => writeServerLog("INFO", "[capability-broker]", entry),
   stateStore: capabilityStateStore,
+  gitCredential: towerGitCredentialBroker,
 });
 const sessionCapabilityIssuer = new SessionCapabilityIssuer({
   broker: capabilityBroker,
@@ -842,6 +850,14 @@ manager = new ProcessManager(config, {
   issueSessionCapability: (input) => sessionCapabilityIssuer.issue(input),
   revokeSessionCapabilities: (sessionId) => {
     capabilityBroker.revokeSession(sessionId);
+  },
+  resolveTowerGitGatewayOrigins: async ({ sessionId, capabilityToken, brokerUrl }) => {
+    const result = await callCapabilityBroker<{ gatewayOrigins: string[] }>(
+      "/api/mcp/capabilities/git-discovery",
+      {},
+      { wingmanUrl: brokerUrl, sessionId, capabilityToken },
+    );
+    return result.gatewayOrigins;
   },
 });
 
