@@ -34,6 +34,40 @@ export function describeNostrKindRule(rule) {
   return `Kind ${rule.kind}: content ≤ ${rule.maxContentBytes} bytes; tags ≤ ${rule.maxTags} / ${rule.maxTagBytes} bytes; names ${rule.allowedTagNames.join(', ') || 'none'}; required ${required}`;
 }
 
+export function describeNip98Target(target = {}) {
+  const exactPaths = (target.exactPaths || [])
+    .map((entry) => typeof entry === 'string' ? entry : entry?.path)
+    .filter(Boolean);
+  const pathPrefixes = (target.pathPrefixes || []).filter(Boolean);
+  const methods = [...new Set([
+    ...(target.methods || []),
+    ...(target.exactPaths || []).flatMap((entry) => typeof entry === 'object' ? entry?.methods || [] : []),
+  ])];
+  const requireBodyHash = target.requireBodyHash === true || (target.requireBodyHashMethods || []).length > 0;
+  return `${target.origin || 'origin not configured'} · ${methods.join('/') || 'no methods'} · exact ${exactPaths.join(', ') || 'none'} · prefixes ${pathPrefixes.join(', ') || 'none'} · payload hash ${requireBodyHash ? 'required' : 'optional'}`;
+}
+
+function towerForgejoSetup(policy) {
+  if (policy.id !== 'tower-forgejo-login') return null;
+  const target = policy.nip98Targets?.[0];
+  const assigned = (policy.assignments?.profileIds?.length || 0) + (policy.assignments?.workspaceIds?.length || 0) > 0;
+  const configured = Boolean(target?.origin && !target.origin.endsWith('.invalid'));
+  const section = element('section', undefined, 'wm-signing-policy-setup');
+  section.dataset.testid = 'tower-forgejo-policy-setup';
+  section.append(element('h3', configured && assigned && policy.enabled ? 'Setup complete' : 'Setup required'));
+  const steps = element('ol');
+  steps.append(
+    element('li', 'Set the NIP-98 target origin to the public Tower API origin and keep the exact /api/v4/git/oidc/authorize/complete path.'),
+    element('li', 'Assign the policy to the intended agent profile and/or workspace. Active session profile and workspace IDs are listed below.'),
+    element('li', 'Save the new revision, enable the policy, then explicitly revoke and reissue each session that should adopt it.'),
+  );
+  section.append(
+    element('p', 'The shipped template is intentionally disabled and unassigned so installing Autopilot never grants signing authority by itself.'),
+    steps,
+  );
+  return section;
+}
+
 function summaryList(policy) {
   const list = element('dl', undefined, 'wm-signing-policy-summary');
   const rows = [
@@ -51,10 +85,10 @@ function summaryList(policy) {
     const challenge = target.challenge;
     list.append(
       element('dt', 'NIP-98 target'),
-      element('dd', `${target.origin} · ${target.methods.join('/')} · exact ${target.exactPaths.join(', ') || 'none'} · prefixes ${target.pathPrefixes.join(', ') || 'none'} · payload hash ${target.requireBodyHash ? 'required' : 'optional'}`),
+      element('dd', describeNip98Target(target)),
       element('dt', 'Challenge tags'),
       element('dd', challenge
-        ? `required ${challenge.requiredTags.join(', ')}; expiry ≤ ${challenge.allowedTags.find((rule) => rule.name === 'expiration')?.maxFutureSeconds || '?'} seconds`
+        ? `required ${(challenge.requiredTags || []).join(', ') || 'none'}; expiry ≤ ${(challenge.allowedTags || []).find((rule) => rule.name === 'expiration')?.maxFutureSeconds || '?'} seconds`
         : 'No caller-supplied tags'),
     );
   }
@@ -219,12 +253,14 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
     const policy = detail?.policy || inventory.policies.find((item) => item.id === selectedId);
     const body = element('div', undefined, 'wm-signing-policies__detail');
     if (policy) {
+      const setup = towerForgejoSetup(policy);
       body.append(
         element('h2', policy.name),
         element('p', policy.description),
+        ...(setup ? [setup] : []),
         renderEditor(policy),
         renderHistory(detail?.history),
-        renderSessions(detail?.sessions || inventory.sessions),
+        renderSessions(detail?.sessions?.length ? detail.sessions : inventory.sessions),
       );
     }
     content.replaceChildren(nav, body);

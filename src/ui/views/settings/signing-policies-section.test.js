@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-import { describeNostrKindRule, draftFromPolicy } from './signing-policies-section.js';
+import { describeNip98Target, describeNostrKindRule, draftFromPolicy } from './signing-policies-section.js';
 
 const source = readFileSync(new URL('./signing-policies-section.js', import.meta.url), 'utf8');
 
@@ -42,5 +42,23 @@ describe('Signing Policies settings section', () => {
       operations: ['nostr.sign'], eventKinds: [31337], nostrKindRules,
       nip98Targets: [], assignments: { profileIds: ['profile-a'], workspaceIds: [] },
     }).nostrKindRules).toBe(nostrKindRules);
+  });
+
+  test('summarizes both editable and built-in NIP-98 target shapes without crashing', () => {
+    expect(describeNip98Target({
+      origin: 'https://tower.example', methods: ['POST'],
+      exactPaths: ['/api/v4/git/oidc/authorize/complete'], pathPrefixes: [], requireBodyHash: true,
+    })).toBe('https://tower.example · POST · exact /api/v4/git/oidc/authorize/complete · prefixes none · payload hash required');
+    expect(describeNip98Target({
+      origin: 'https://tower.example',
+      exactPaths: [{ path: '/api/v4/messages', methods: ['GET'] }],
+      requireBodyHashMethods: [],
+    })).toBe('https://tower.example · GET · exact /api/v4/messages · prefixes none · payload hash optional');
+  });
+
+  test('shows guided Tower Forgejo setup and falls back to the full active session inventory', () => {
+    expect(source).toContain("section.dataset.testid = 'tower-forgejo-policy-setup'");
+    expect(source).toContain('The shipped template is intentionally disabled and unassigned');
+    expect(source).toContain('detail?.sessions?.length ? detail.sessions : inventory.sessions');
   });
 });
