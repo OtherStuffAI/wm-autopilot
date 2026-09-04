@@ -1,6 +1,7 @@
 import type { GiteaConfig } from "../gitea/gitea-client";
 import { ensureCredentialHelper, getGiteaGitEnv } from "../gitea/credential-helper";
 import { getGitHubGitEnvForUser } from "./github-credential-helper";
+import { replaceWingmanGitCredentialConfig } from "./wingman-credential-env";
 
 type GitEnv = Record<string, string> | null | undefined;
 
@@ -62,6 +63,7 @@ export function buildSessionGitCredentialEnv(options: {
   npub: string | null | undefined;
   dataDir: string;
   giteaConfig?: GiteaConfig | null;
+  towerGitGatewayOrigins?: string[];
 }): Record<string, string> {
   const githubEnv = getGitHubGitEnvForUser(options.npub, options.dataDir);
   const helperPath = options.giteaConfig ? ensureCredentialHelper(options.dataDir) : null;
@@ -69,5 +71,8 @@ export function buildSessionGitCredentialEnv(options: {
     options.giteaConfig && helperPath
       ? getGiteaGitEnv(options.giteaConfig, helperPath)
       : null;
-  return mergeGitCredentialEnvs(githubEnv, giteaEnv);
+  const merged = mergeGitCredentialEnvs(githubEnv, giteaEnv);
+  return options.towerGitGatewayOrigins
+    ? replaceWingmanGitCredentialConfig(merged, options.towerGitGatewayOrigins)
+    : merged;
 }

@@ -241,6 +241,14 @@ the operator can inspect files directly outside Docker. Codex sessions trust
 `/workspace` by default to avoid an interactive first-run trust prompt in the
 web UI.
 
+The image also installs `/usr/local/bin/git-credential-wingman`. Sessions bound
+to a Tower workspace discover Tower-advertised HTTPS Git gateways and receive
+host-specific Git configuration with `credential.useHttpPath=true`. The helper
+uses only the session's loopback capability broker; operators do not configure
+or store a Forgejo password or token. A Tower connection that does not advertise
+Git remains unconfigured and fails visibly instead of falling back to a known
+hostname.
+
 For hosted app subdomains, configure the base-machine Cloudflare Tunnel with
 both `apps.example.invalid` and `*.apps.example.invalid` pointing to the Wingman host
 port. Then set `WINGMAN_APP_ROUTING=subdomain` and

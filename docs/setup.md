@@ -60,6 +60,13 @@ Run the readiness check inside the container:
 docker compose --env-file .env.wingman-mw exec wingman bun run docker:check
 ```
 
+Readiness includes `/usr/local/bin/git-credential-wingman`. No provider token is
+required: a workspace-bound agent session configures only the HTTPS gateway
+origins advertised by its active Tower connection. Git passes the repository
+path because `credential.useHttpPath=true`; the helper exchanges the current
+session's loopback capability for a short-lived repository credential and never
+stores it.
+
 Tail logs if startup fails or the UI does not respond:
 
 ```bash

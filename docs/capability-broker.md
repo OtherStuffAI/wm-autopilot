@@ -109,6 +109,25 @@ Direct `nak --sec`, `NOSTR_SECRET_KEY`, and raw-key `nak bunker` workflows are
 forbidden for agents. A direct NIP-46 adapter for unmodified NAK commands is
 deferred; use the broker client for event, NIP-98, NIP-44, and Blossom work.
 
+### Tower-backed Git credentials
+
+`git-credential-wingman` calls the loopback-only capability routes
+`POST /api/mcp/capabilities/git-discovery` and
+`POST /api/mcp/capabilities/git-credential`. Both requests remain bound to the
+live session capability and its stable agent identity. Discovery selects the
+active workspace subscription for the exact agent profile, then reads signed
+Tower service metadata. Only advertised HTTPS gateway origins are installed as
+Git credential scopes, with `credential.useHttpPath=true`.
+
+For `get`, the broker canonicalizes exactly
+`/<organization>/<repository>.git`, rejects unadvertised hosts, resolves the
+path to a stable Tower repository ID, and sends a payload-hashed NIP-98
+credential exchange signed by the session agent. Only the fixed username,
+ephemeral password, and expiry cross back to the helper. `store` and `erase`
+are no-ops because the helper keeps no credential cache. No capability is
+written to Git configuration, disk, logs, command arguments, or environment
+variables.
+
 For Flight Deck work, use the broker-aware MCP `flightdeck_*` tools. PG chat
 creates and edits require two signatures from the same stable bot identity: a
 body-bound kind-`33358` instruction event in `message_signature`, followed by

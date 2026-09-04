@@ -8,6 +8,7 @@ import { BrokerKeyNotProvisionedError, type BrokerKeyVaultBackend } from "./brok
 import { nip44Decrypt, nip44Encrypt } from "../nostr/nip44-crypto";
 import { jsonError, parseBody } from "../utils/request-utils";
 import { normalizeNostrKindRules, type NostrKindConstraint } from "./nostr-kind-policy";
+import { canonicalizeGitCredentialRequest } from "../git/wingman-credential-protocol";
 
 export type { NostrKindConstraint } from "./nostr-kind-policy";
 
@@ -172,6 +173,29 @@ export interface WalletBrokerAdapter {
   spend(input: { method: string; params: unknown; amountMsats: number; botNpub: string }): Promise<unknown>;
 }
 
+export interface GitCredentialBrokerAdapter {
+  discover(input: {
+    session: SessionSnapshot;
+    botNpub: string;
+    workspaceId: string;
+    signNip98: (input: { url: string; method: "GET" | "POST"; bodyHash?: string }) => Promise<string>;
+  }): Promise<{ gatewayOrigins: string[] }>;
+  exchange(input: {
+    session: SessionSnapshot;
+    botNpub: string;
+    workspaceId: string;
+    request: {
+      protocol: "https";
+      host: string;
+      path: string;
+      gatewayOrigin: string;
+      organization: string;
+      repository: string;
+    };
+    signNip98: (input: { url: string; method: "GET" | "POST"; bodyHash?: string }) => Promise<string>;
+  }): Promise<{ username: string; password: string; expiresAt: string }>;
+}
+
 export interface Nip98SessionBindingEvent {
   pubkey: string;
   created_at: number;
@@ -205,6 +229,7 @@ export interface CapabilityBrokerDependencies {
   keyVault: Pick<BrokerKeyVaultBackend, "withKey">;
   getSession: (sessionId: string) => SessionSnapshot | null | undefined;
   wallet?: WalletBrokerAdapter;
+  gitCredential?: GitCredentialBrokerAdapter;
   audit?: (entry: CapabilityAuditEntry) => void;
   now?: () => number;
   stateStore?: CapabilityBrokerStateStore;
@@ -545,6 +570,8 @@ export class CapabilityBroker {
     if (url.pathname === "/api/mcp/capabilities/reissue-adopt") return await this.handleReissueAdopt(request);
     if (url.pathname === "/api/mcp/capabilities/refresh") return await this.handleRefresh(request);
     if (url.pathname === "/api/mcp/capabilities/nip98") return await this.handleNip98(request);
+    if (url.pathname === "/api/mcp/capabilities/git-discovery") return await this.handleGitDiscovery(request);
+    if (url.pathname === "/api/mcp/capabilities/git-credential") return await this.handleGitCredential(request);
     if (url.pathname === "/api/mcp/capabilities/nostr-event") return await this.handleNostrEvent(request);
     if (url.pathname === "/api/mcp/capabilities/nip44/encrypt") return await this.handleNip44Encrypt(request);
     if (url.pathname === "/api/mcp/capabilities/nip44/decrypt") return await this.handleNip44Decrypt(request);
@@ -812,6 +839,83 @@ export class CapabilityBroker {
     }
     this.audit(authorized.capability, "nip98.sign", "allowed");
     return Response.json(result);
+  }
+
+  private async handleGitDiscovery(request: Request): Promise<Response> {
+    const body = await parseBody(request);
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const authorized = await this.authorize(request, "nip98.sign", sessionId);
+    if (authorized instanceof Response) return authorized;
+    const adapter = this.deps.gitCredential;
+    if (!adapter) return this.denied(authorized.capability, "nip98.sign", "Tower Git credential brokerage is unavailable", 503);
+    const session = this.deps.getSession(sessionId);
+    const workspaceId = authorized.capability.workspaceId?.trim() ?? "";
+    if (!session || !workspaceId) {
+      return this.denied(authorized.capability, "nip98.sign", "The session has no active Tower workspace binding");
+    }
+    try {
+      const result = await adapter.discover({
+        session,
+        botNpub: authorized.capability.botNpub,
+        workspaceId,
+        signNip98: (input) => this.signExactNip98(authorized, input),
+      });
+      this.audit(authorized.capability, "nip98.sign", "allowed");
+      return Response.json(result);
+    } catch {
+      return this.denied(authorized.capability, "nip98.sign", "Tower Git service discovery failed", 502);
+    }
+  }
+
+  private async handleGitCredential(request: Request): Promise<Response> {
+    const body = await parseBody(request);
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const authorized = await this.authorize(request, "nip98.sign", sessionId);
+    if (authorized instanceof Response) return authorized;
+    const adapter = this.deps.gitCredential;
+    if (!adapter) return this.denied(authorized.capability, "nip98.sign", "Tower Git credential brokerage is unavailable", 503);
+    const session = this.deps.getSession(sessionId);
+    const workspaceId = authorized.capability.workspaceId?.trim() ?? "";
+    if (!session || !workspaceId) {
+      return this.denied(authorized.capability, "nip98.sign", "The session has no active Tower workspace binding");
+    }
+    let credentialRequest;
+    try {
+      credentialRequest = canonicalizeGitCredentialRequest({
+        protocol: typeof body.protocol === "string" ? body.protocol : "",
+        host: typeof body.host === "string" ? body.host : "",
+        path: typeof body.path === "string" ? body.path : "",
+      });
+    } catch {
+      return this.denied(authorized.capability, "nip98.sign", "Git credential request is malformed", 400);
+    }
+    try {
+      const result = await adapter.exchange({
+        session,
+        botNpub: authorized.capability.botNpub,
+        workspaceId,
+        request: credentialRequest,
+        signNip98: (input) => this.signExactNip98(authorized, input),
+      });
+      this.audit(authorized.capability, "nip98.sign", "allowed");
+      return Response.json(result);
+    } catch {
+      return this.denied(authorized.capability, "nip98.sign", "Tower Git credential exchange failed", 502);
+    }
+  }
+
+  private async signExactNip98(
+    authorized: AuthorizedOperation,
+    input: { url: string; method: "GET" | "POST"; bodyHash?: string },
+  ): Promise<string> {
+    const parsed = new URL(input.url);
+    const createdAt = Math.floor(this.now() / 1_000);
+    return await this.withAuthorizedKey(authorized, (secretKey) => {
+      const tags = [["u", parsed.toString()], ["method", input.method]];
+      if (input.bodyHash) tags.push(["payload", input.bodyHash]);
+      const event = finalizeEvent({ kind: NIP98_KIND, content: "", tags, created_at: createdAt }, secretKey);
+      return `Nostr ${Buffer.from(JSON.stringify(event)).toString("base64")}`;
+    });
   }
 
   verifyNip98SessionBinding(event: Nip98SessionBindingEvent): string | null {

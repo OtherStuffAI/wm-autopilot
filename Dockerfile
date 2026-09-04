@@ -167,7 +167,9 @@ COPY --from=agentapi-builder --chown=wingman:wingman /agentapi /app/out/agentapi
 COPY --from=fips-downloader /fips-release/fips /usr/local/bin/fips
 COPY --from=fips-downloader /fips-release/fipsctl /usr/local/bin/fipsctl
 COPY --from=fips-downloader /fips-release/fips.nft /etc/fips/fips.nft
-RUN chmod +x scripts/docker-entrypoint.sh \
+RUN bun build --compile --minify src/git/git-credential-wingman.ts --outfile /usr/local/bin/git-credential-wingman \
+  && test -x /usr/local/bin/git-credential-wingman \
+  && chmod +x scripts/docker-entrypoint.sh \
   && bun -e "import { writeFile } from 'node:fs/promises'; import { createAgentApiProvenance, getAgentApiProvenancePath } from './src/server/bootstrap/agentapi-build.ts'; const binaryPath = '/app/out/agentapi'; const provenance = await createAgentApiProvenance(binaryPath, '/app'); await writeFile(getAgentApiProvenancePath(binaryPath), JSON.stringify(provenance, null, 2) + '\\n');"
 
 EXPOSE 3600
