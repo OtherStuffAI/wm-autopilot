@@ -65,8 +65,8 @@ function subscription(overrides: Partial<WorkspaceSubscriptionRecord> = {}): Wor
 
 function serviceMetadata() {
   return {
-    identity: { tower_service_npub: "npub1tower" },
-    service: { base_url: "https://tower.example.test" },
+    identity: { tower_service_npub: null },
+    service: { base_url: "https://tower.example.test", service_npub: "npub1tower" },
     git: { gateway_origins: ["https://git.example.test"], audience: "wingman-git" },
   };
 }

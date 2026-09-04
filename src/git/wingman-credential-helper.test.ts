@@ -46,6 +46,30 @@ describe("git-credential-wingman", () => {
     });
   });
 
+  test("accepts repeated Git capability fields from the credential protocol", async () => {
+    const f = fixture([
+      "capability[]=authtype",
+      "capability[]=state",
+      "protocol=https",
+      "host=git.example.test",
+      "path=studio/project.git",
+      'wwwauth[]=Basic realm="Wingman Git", charset="UTF-8"',
+      "",
+    ].join("\n"));
+    const exitCode = await runWingmanCredentialHelper("get", f.io, {
+      wingmanUrl: "http://127.0.0.1:3600",
+      sessionId: "session-a",
+      capabilityToken: "session-capability",
+      fetch: mock(async () => Response.json({
+        username: "nostr",
+        password: "ephemeral",
+        expiresAt: "2030-01-01T00:00:00.000Z",
+      })),
+    });
+    expect(exitCode).toBe(0);
+    expect(f.output().stderr).toBe("");
+  });
+
   test.each(["store", "erase"])("%s is a successful no-op when no cache is used", async (action) => {
     const f = fixture("protocol=https\nhost=git.example.test\npath=studio/project.git\n\n");
     expect(await runWingmanCredentialHelper(action, f.io)).toBe(0);
