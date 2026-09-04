@@ -5,8 +5,7 @@ import type { WorkspaceSubscriptionRecord } from "../agent-chat/types";
 import type { GitCredentialBrokerAdapter } from "../signing/capability-broker";
 
 interface TowerGitServiceMetadata {
-  identity?: { tower_service_npub?: unknown };
-  service?: { base_url?: unknown };
+  service?: { base_url?: unknown; service_npub?: unknown };
   git?: {
     gateway_origins?: unknown;
     audience?: unknown;
@@ -168,7 +167,7 @@ export class TowerGitCredentialBroker implements GitCredentialBrokerAdapter {
         signNip98: input.signNip98,
       });
       if (
-        metadata.identity?.tower_service_npub !== binding.towerServiceNpub
+        metadata.service?.service_npub !== binding.towerServiceNpub
         || metadata.service?.base_url !== towerOrigin
       ) {
         throw new Error("Tower service metadata does not match the active connection.");

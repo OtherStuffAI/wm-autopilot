@@ -25,7 +25,7 @@ export function parseGitCredentialInput(input: string): GitCredentialInput {
     if (separator <= 0) throw new Error("Malformed Git credential input.");
     const key = rawLine.slice(0, separator);
     const value = rawLine.slice(separator + 1);
-    if (!CREDENTIAL_KEY_PATTERN.test(key) || fields.has(key)) {
+    if (!CREDENTIAL_KEY_PATTERN.test(key) || (fields.has(key) && !key.endsWith("[]"))) {
       throw new Error("Malformed Git credential input.");
     }
     fields.set(key, value);
