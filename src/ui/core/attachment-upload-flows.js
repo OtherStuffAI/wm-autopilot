@@ -1,3 +1,5 @@
+import { uploadImageWithRecovery } from "./image-upload-request.js";
+
 function findUploadMarkerInText(text, markerId) {
   return String(text ?? "").indexOf(`<!--IMG:${markerId}-->`);
 }
@@ -111,26 +113,7 @@ export function createAttachmentUploadFlows({
         resizeTextarea();
 
         try {
-          const form = new FormData();
-          form.append("agent", session.agent);
-          form.append("image", file, file.name);
-
-          const response = await fetch("/api/uploads/images", {
-            method: "POST",
-            body: form,
-          });
-
-          if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            const errorText = data?.error || response.statusText || "Unknown error";
-            const message = `Image upload failed (${response.status}): ${errorText}`;
-            console.error("[image-upload]", message, { status: response.status, data });
-            showToast?.(message, { type: "error" });
-            discardPendingImageUpload({ sessionId, textarea, markerId, uploadingPlaceholder, thumbnailUrl });
-            continue;
-          }
-
-          const payload = await response.json().catch(() => ({}));
+          const payload = await uploadImageWithRecovery({ agent: session.agent, file });
           const placeholder =
             typeof payload?.placeholder === "string"
               ? payload.placeholder
@@ -179,7 +162,7 @@ export function createAttachmentUploadFlows({
         } catch (error) {
           console.error("Failed to upload image", error);
           discardPendingImageUpload({ sessionId, textarea, markerId, uploadingPlaceholder, thumbnailUrl });
-          showToast?.("Image upload failed. Check console for details.", { type: "error" });
+          showToast?.(error?.message || "Image upload failed. Check console for details.", { type: "error" });
         }
       }
     } finally {

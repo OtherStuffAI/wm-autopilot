@@ -59,10 +59,11 @@ export const createUploadHelpers = (roots: UploadRoots) => {
     return await ensureUserUploadDirectory(roots.attachmentRoot, segment, agent);
   };
 
-  const createImageFilename = (name: string, mime: string): string => {
+  const createImageFilename = (name: string, mime: string, uploadId?: string): string => {
+    const fileId = uploadId ?? randomUUID();
     const originalExt = extname(name) || "";
     if (originalExt) {
-      return `${randomUUID()}${originalExt.toLowerCase()}`;
+      return `${fileId}${originalExt.toLowerCase()}`;
     }
     const inferred = (() => {
       if (!mime) return ".bin";
@@ -74,7 +75,7 @@ export const createUploadHelpers = (roots: UploadRoots) => {
       }
       return ".bin";
     })();
-    return `${randomUUID()}${inferred}`;
+    return `${fileId}${inferred}`;
   };
 
   const createAttachmentFilename = (name: string, mime: string): string => {

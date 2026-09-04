@@ -4,6 +4,7 @@
  *
  * Covers:
  *  - POST /api/uploads/images
+ *  - GET  /api/uploads/images/status
  *  - POST /api/uploads/files
  *  - GET  /uploads/images/:segment/...  (static serving outside handleApi)
  *  - GET  /uploads/files/:segment/...   (static serving outside handleApi)
@@ -34,7 +35,7 @@ export interface UploadApiContext {
   isAgentType: (value: string) => value is AgentType;
   ensureImageDirectory: (agent: AgentType, npub: string | null) => Promise<string>;
   ensureAttachmentDirectory: (agent: AgentType, npub: string | null) => Promise<string>;
-  createImageFilename: (name: string, mime: string) => string;
+  createImageFilename: (name: string, mime: string, uploadId?: string) => string;
   createAttachmentFilename: (name: string, mime: string) => string;
   buildAgentImagePlaceholder: (agent: AgentType, absolutePath: string, publicPath: string) => string;
   buildAgentFilePlaceholder: (
@@ -107,6 +108,27 @@ function resolveScopedUpload(
   }
 }
 
+const imageUploadIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function buildImageUploadPayload(
+  agent: AgentType,
+  originalName: string,
+  filename: string,
+  diskPath: string,
+  imageSegment: string,
+  ctx: UploadApiContext,
+) {
+  const relativePath = normalize(join(imageSegment, agent, filename)).replace(/\\/g, "/");
+  const publicPath = `/uploads/images/${relativePath}`;
+  return {
+    agent,
+    name: originalName,
+    publicPath,
+    relativePath,
+    placeholder: ctx.buildAgentImagePlaceholder(agent, diskPath, publicPath),
+  };
+}
+
 // ---------- Static serving (called outside handleApi) ----------
 
 /**
@@ -176,6 +198,50 @@ export async function handleUploadsApi(
 ): Promise<Response | null> {
   const pathname = url.pathname;
 
+  // GET /api/uploads/images/status — recover a completed upload whose POST response was lost
+  if (pathname === "/api/uploads/images/status" && method === "GET") {
+    const denied = await ctx.ensureApiAccess(ctx.AccessActions.FilesWrite, request, url, authContext);
+    if (denied) {
+      return denied;
+    }
+
+    const agentInput = url.searchParams.get("agent")?.toLowerCase() ?? "";
+    if (!ctx.isAgentType(agentInput)) {
+      return Response.json({ error: "Unsupported agent target" }, { status: 400 });
+    }
+
+    const uploadId = url.searchParams.get("uploadId") ?? "";
+    const originalName = url.searchParams.get("name") ?? "";
+    const mime = url.searchParams.get("mime") ?? "";
+    if (!imageUploadIdPattern.test(uploadId) || !originalName || !mime.startsWith("image/")) {
+      return Response.json({ error: "Invalid image upload reference" }, { status: 400 });
+    }
+
+    const userNpub = authContext.npub ?? null;
+    const imageSegment = deriveNpubSegment(userNpub);
+    let directory: string;
+    try {
+      directory = await ctx.ensureImageDirectory(agentInput, userNpub);
+    } catch (error) {
+      console.error("[uploads] failed to inspect image storage", error);
+      return Response.json({ error: "Failed to inspect image storage" }, { status: 500 });
+    }
+    const filename = ctx.createImageFilename(originalName, mime, uploadId);
+    const diskPath = join(directory, filename);
+    if (Bun.file(diskPath).size === 0) {
+      return Response.json({ error: "Image upload not found" }, { status: 404 });
+    }
+
+    return Response.json(buildImageUploadPayload(
+      agentInput,
+      originalName,
+      filename,
+      diskPath,
+      imageSegment,
+      ctx,
+    ));
+  }
+
   // POST /api/uploads/images — image upload with formdata
   if (pathname === "/api/uploads/images" && method === "POST") {
     const denied = await ctx.ensureApiAccess(ctx.AccessActions.FilesWrite, request, url, authContext);
@@ -211,6 +277,14 @@ export async function handleUploadsApi(
 
     const file = fileEntry as Blob & { name?: string; size: number; type?: string };
 
+    const uploadIdEntry = form.get("uploadId");
+    const uploadId = typeof uploadIdEntry === "string" && uploadIdEntry.length > 0
+      ? uploadIdEntry
+      : undefined;
+    if (uploadId && !imageUploadIdPattern.test(uploadId)) {
+      return Response.json({ error: "Invalid image upload ID" }, { status: 400 });
+    }
+
     if (file.size === 0) {
       return Response.json({ error: "Empty files are not allowed" }, { status: 400 });
     }
@@ -233,7 +307,8 @@ export async function handleUploadsApi(
       return Response.json({ error: "Failed to prepare image storage" }, { status: 500 });
     }
 
-    const filename = ctx.createImageFilename(file.name ?? "upload", file.type ?? "");
+    const originalName = file.name ?? "upload";
+    const filename = ctx.createImageFilename(originalName, file.type ?? "", uploadId);
     const diskPath = join(directory, filename);
     try {
       const buffer = Buffer.from(await file.arrayBuffer());
@@ -243,17 +318,14 @@ export async function handleUploadsApi(
       return Response.json({ error: "Failed to store image" }, { status: 500 });
     }
 
-    const relativePath = normalize(join(imageSegment, agent, filename)).replace(/\\/g, "/");
-    const publicPath = `/uploads/images/${relativePath}`;
-    const placeholder = ctx.buildAgentImagePlaceholder(agent, diskPath, `${publicPath}`);
-
-    return Response.json({
+    return Response.json(buildImageUploadPayload(
       agent,
-      name: file.name,
-      publicPath,
-      relativePath,
-      placeholder,
-    });
+      originalName,
+      filename,
+      diskPath,
+      imageSegment,
+      ctx,
+    ));
   }
 
   // POST /api/uploads/files — multi-file upload with formdata
