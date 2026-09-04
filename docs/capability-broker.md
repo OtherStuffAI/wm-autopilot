@@ -192,20 +192,105 @@ for installations whose historical escrow key is still available under the
 retired Key Teleport setting or matches the current instance identity. It never
 prints private material and validates the stable agent identity before writing.
 
+## Administrator-managed signing policies
+
+Settings → Signing Policies is the administrator control plane for non-secret
+policy fragments. The built-in `builtin-default-agent` baseline remains applied
+to every capability and is read-only. With no enabled matching assignment, the
+effective policy is byte-for-byte the existing default agent policy. Custom
+fragments are sorted by stable policy ID and match profile/workspace assignments
+with fail-closed semantics: when both lists are populated, both must match.
+Unassigned or disabled fragments grant nothing.
+
+Policy documents include a stable ID, name, description, enabled state,
+revision, broker operations, event kinds, exact HTTPS origins, methods, exact
+paths/path prefixes, payload-hash rules, constrained challenge tags,
+profile/workspace assignments, timestamps, and actor attribution. Every create,
+update, enable, and disable operation appends an immutable revision snapshot to
+`data/signing-policies.json` (override with `WINGMAN_SIGNING_POLICY_FILE`). The
+registry rejects wildcard/non-HTTPS origins, unsafe methods, root or broad API
+prefixes, mutating targets without body hashes, arbitrary kind `27235` event
+signing, unknown operations/tags, duplicate target/rule IDs, and challenge
+windows outside 1–60 seconds.
+
+Each issued capability records both the fully merged policy snapshot and the
+effective policy ID/revision list. Editing a policy never mutates that snapshot.
+The Settings page compares issued references with current assignment resolution
+and labels active capabilities `current` or `stale`. Normal
+`capability.refresh` only extends the exact old snapshot. The deliberate
+reissue action first revokes all old session capabilities and then resolves and
+issues current revisions using the session's bound owner, profile, workspace,
+and bot identity. On success, the already-running local broker client uses a
+one-time, explicit `reissue-adopt` handoff on its next call; this is separate
+from same-policy refresh. On issuance failure the old bearer stays revoked and
+the operator must restart that session to recover. Neither the API nor UI
+returns the replacement bearer.
+
+Administrator-only API routes are:
+
+- `GET/POST /api/admin/signing-policies`
+- `GET/PUT /api/admin/signing-policies/:id`
+- `POST /api/admin/signing-policies/:id/enabled`
+- `GET /api/admin/signing-policies/:id/history`
+- `GET /api/admin/signing-policies/:id/sessions`
+- `POST /api/admin/signing-policies/sessions/:sessionId/reissue`
+
+Authentication and administrator authorization run before any policy or active
+session inventory is read.
+
+### Tower Forgejo Login template
+
+`tower-forgejo-login` ships disabled and unassigned. Configure its one exact
+HTTPS completion origin/path in Settings, assign profile IDs and optionally
+workspace IDs, then enable it. Set `TOWER_GIT_OIDC_COMPLETION_URL` before the
+first policy-store creation to seed a nonstandard Tower issuer path; otherwise
+the seed is `/api/v4/git/oidc/authorize/complete` on the configured HTTPS Tower
+origin, or the visibly inert `tower.example.invalid` placeholder when
+Autopilot only knows an internal HTTP Tower URL.
+
+This template produces kind `27235` only through `nip98.sign`. It requires
+`POST`, the exact completion path, and the SHA-256 hash of the exact
+`JSON.stringify({request_id: nonce})` bytes. The caller must provide exactly
+one bounded `nonce`, `aud`, and integer `expiration`; expiration must be after
+broker time and no more than 60 seconds ahead (or the administrator's narrower
+configured value). Canonical `u`, `method`, and `payload` tags are broker-owned.
+The returned event contains only the six Tower contract tags, so the usual
+private session-binding tag is intentionally omitted. Capability ID/session
+binding and allow/deny audit remain internal. Replay of the same challenge is
+denied even with a fresh broker request nonce.
+
+Agents can request the proof without a raw-key fallback:
+
+```sh
+body_file="$(mktemp)"
+printf '%s' '{"request_id":"<opaque-request-id>"}' > "$body_file"
+bun clis/wingman-capability.ts nip98 \
+  --url 'https://tower.example/api/v4/git/oidc/authorize/complete' \
+  --method POST \
+  --body-file "$body_file" \
+  --tags-json '[["nonce","<opaque-request-id>"],["aud","<client-id>"],["expiration","<unix-seconds>"]]'
+```
+
+Use a disposable file with exact bytes and remove it after the test. Test first
+with a deliberately wrong path or expiration and confirm denial, then with a
+fresh Tower challenge. Successful signing proves only that Autopilot issued a
+constrained proof. It does **not** grant Tower or Forgejo membership: Tower
+still validates the proof, consumes the one-minute challenge, and independently
+decides whether the actor has active Forgejo access.
+
+Source changes and initial policy-store creation require an external Autopilot
+restart. Later policy edits persist and affect new or explicitly reissued
+capabilities immediately; they do not require a restart and never widen active
+capabilities silently.
+
 ## Deliberately deferred
 
 - Optional isolation of the vault behind a separate OS account, service, remote
   signer, or hardware boundary. The current local vault makes no claim against
   a malicious same-user agent recovering its own identity key.
 - A direct local NIP-46/bunker adapter for unmodified NAK commands.
-- Distribution of a refreshed token back into an already-running parent agent
-  environment. This is unnecessary while refresh retains the same opaque bearer:
-  long-lived MCP subprocesses renew proactively and standalone shell CLIs renew
-  on expiry. No raw-key fallback is permitted.
 - Production NWC/wallet adapter wiring. The policy and fake-only budget tests
   exist, but production wallet reads and spends fail closed (`501`) today.
-- Dynamic UI/control-plane issuance of peer-, object-, or destination-specific
-  policies beyond the server-owned default policy.
 - Migrating the operator-oriented Flight Deck PG client stack from synchronous
   local key signing to the asynchronous broker signer.
 

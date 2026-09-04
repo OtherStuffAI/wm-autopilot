@@ -12,6 +12,7 @@ const TOKEN_PREFIX = "wmcap_v1";
 export const SESSION_CAPABILITY_TTL_MS = 2 * 60 * 60_000;
 const MAX_NONCES_PER_CAPABILITY = 2_048;
 const DEFAULT_MAX_CALLS_PER_MINUTE = 120;
+const MAX_CHALLENGES_PER_CAPABILITY = 2_048;
 const NIP98_KIND = 27_235;
 const BLOSSOM_AUTH_KIND = 24_242;
 const FLIGHTDECK_PG_MESSAGE_INSTRUCTION_KIND = 33_358;
@@ -55,9 +56,27 @@ export interface Nip98Constraint {
     origin: string;
     methods: string[];
     pathPrefixes: string[];
-    exactPaths?: Array<{ path: string; methods: string[]; requireBodyHash?: boolean }>;
+    exactPaths?: Nip98ExactPathConstraint[];
     requireBodyHashMethods?: string[];
   }>;
+}
+
+export interface Nip98ExtraTagRule {
+  name: "nonce" | "aud" | "expiration";
+  valueType: "non-empty" | "unix-timestamp";
+  maxLength: number;
+  maxFutureSeconds?: number;
+}
+
+export interface Nip98ExactPathConstraint {
+  path: string;
+  methods: string[];
+  requireBodyHash?: boolean;
+  extraTags?: {
+    allowed: Nip98ExtraTagRule[];
+    required: Array<Nip98ExtraTagRule["name"]>;
+    omitSessionBinding?: boolean;
+  };
 }
 
 export interface NostrConstraint {
@@ -106,6 +125,24 @@ export interface IssuedSessionCapability {
   expiresAt: string;
   botNpub: string;
   botPubkeyHex: string;
+  policyRefs: PolicyRevisionRef[];
+}
+
+export interface PolicyRevisionRef {
+  id: string;
+  revision: number;
+}
+
+export interface ActiveSessionCapability {
+  capabilityId: string;
+  sessionId: string;
+  ownerNpub: string;
+  botNpub: string;
+  profileId: string | null;
+  workspaceId: string | null;
+  issuedAt: string;
+  expiresAt: string;
+  policyRefs: PolicyRevisionRef[];
 }
 
 export interface CapabilityAuditEntry {
@@ -149,11 +186,14 @@ interface CapabilityRecord {
   botNpub: string;
   botPubkeyHex: string;
   profileId?: string | null;
+  workspaceId?: string | null;
   policy: SessionCapabilityPolicy;
+  policyRefs: PolicyRevisionRef[];
   revokedAtMs: number | null;
   usedNonces: Set<string>;
   callTimestamps: number[];
   spentMsats: number;
+  usedChallenges: Set<string>;
 }
 
 export interface CapabilityBrokerDependencies {
@@ -171,8 +211,9 @@ export interface CapabilityBrokerDependencies {
   } | null;
 }
 
-export interface PersistedCapabilityRecord extends Omit<CapabilityRecord, "usedNonces"> {
+export interface PersistedCapabilityRecord extends Omit<CapabilityRecord, "usedNonces" | "usedChallenges"> {
   usedNonces: string[];
+  usedChallenges?: string[];
 }
 
 export interface CapabilityBrokerStateStore {
@@ -221,10 +262,55 @@ function clonePolicy(policy: SessionCapabilityPolicy): SessionCapabilityPolicy {
   return structuredClone(policy);
 }
 
+function parseNip98ExtraTags(value: unknown): string[][] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  if (!value.every((tag) => Array.isArray(tag) && tag.length === 2 && tag.every((part) => typeof part === "string"))) {
+    return null;
+  }
+  return value as string[][];
+}
+
+function validateNip98ExtraTags(
+  tags: string[][],
+  constraint: Nip98ExactPathConstraint["extraTags"],
+  nowSeconds: number,
+): string | null {
+  if (!constraint) return tags.length === 0 ? null : "NIP-98 challenge tags are not allowed for this target";
+  const rules = new Map(constraint.allowed.map((rule) => [rule.name, rule]));
+  for (const tag of tags) {
+    const name = tag[0] ?? "";
+    const value = tag[1] ?? "";
+    const rule = rules.get(name as Nip98ExtraTagRule["name"]);
+    if (!rule) return "NIP-98 challenge tag is not allowed";
+    if (tags.filter((candidate) => candidate[0] === name).length !== 1) {
+      return "NIP-98 challenge tags must occur exactly once";
+    }
+    if (!value.trim() || Buffer.byteLength(value) > rule.maxLength) {
+      return `NIP-98 ${name} tag is empty or exceeds policy`;
+    }
+    if (rule.valueType === "unix-timestamp") {
+      if (!/^\d{1,12}$/.test(value)) return `NIP-98 ${name} tag must be an integer Unix timestamp`;
+      const timestamp = Number(value);
+      if (!Number.isSafeInteger(timestamp) || timestamp <= nowSeconds) return `NIP-98 ${name} tag has expired`;
+      if (!rule.maxFutureSeconds || timestamp > nowSeconds + rule.maxFutureSeconds) {
+        return `NIP-98 ${name} tag exceeds the allowed freshness window`;
+      }
+    }
+  }
+  for (const required of constraint.required) {
+    if (tags.filter((tag) => tag[0] === required).length !== 1) {
+      return `NIP-98 challenge requires exactly one ${required} tag`;
+    }
+  }
+  return null;
+}
+
 export class CapabilityBroker {
   private readonly capabilitiesByHash = new Map<string, CapabilityRecord>();
   private readonly capabilitiesById = new Map<string, CapabilityRecord>();
   private readonly capabilityHashesBySession = new Map<string, Set<string>>();
+  private readonly reissueHandoffsByHash = new Map<string, { sessionId: string; replacementToken: string }>();
   private readonly now: () => number;
 
   constructor(private readonly deps: CapabilityBrokerDependencies) {
@@ -235,7 +321,9 @@ export class CapabilityBroker {
         ...persisted,
         policy: clonePolicy(persisted.policy),
         usedNonces: new Set(persisted.usedNonces),
+        usedChallenges: new Set(persisted.usedChallenges ?? []),
         callTimestamps: [...persisted.callTimestamps],
+        policyRefs: Array.isArray(persisted.policyRefs) ? structuredClone(persisted.policyRefs) : [],
       };
       this.capabilitiesByHash.set(record.tokenHash, record);
       this.capabilitiesById.set(record.id, record);
@@ -253,6 +341,7 @@ export class CapabilityBroker {
         ...record,
         policy: clonePolicy(record.policy),
         usedNonces: [...record.usedNonces],
+        usedChallenges: [...record.usedChallenges],
         callTimestamps: [...record.callTimestamps],
       }));
     this.deps.stateStore.save(records);
@@ -263,8 +352,10 @@ export class CapabilityBroker {
     ownerNpub: string;
     identityManagerNpub?: string;
     profileId?: string | null;
+    workspaceId?: string | null;
     botNpub?: string | null;
     policy: SessionCapabilityPolicy;
+    policyRefs?: PolicyRevisionRef[];
     ttlMs?: number;
   }): IssuedSessionCapability {
     const session = this.deps.getSession(input.sessionId);
@@ -319,11 +410,14 @@ export class CapabilityBroker {
       botNpub: botRecord?.botNpub ?? selectedInstanceIdentity!.npub,
       botPubkeyHex: botRecord?.botPubkeyHex ?? selectedInstanceIdentity!.pubkeyHex,
       profileId: input.profileId ?? boundProfileId,
+      workspaceId: input.workspaceId ?? (typeof metadata?.flightdeckWorkspaceId === "string" ? metadata.flightdeckWorkspaceId : null),
       policy: clonePolicy(input.policy),
+      policyRefs: structuredClone(input.policyRefs ?? []),
       revokedAtMs: null,
       usedNonces: new Set(),
       callTimestamps: [],
       spentMsats: 0,
+      usedChallenges: new Set(),
     };
     this.capabilitiesByHash.set(hash, record);
     this.capabilitiesById.set(id, record);
@@ -337,7 +431,29 @@ export class CapabilityBroker {
       expiresAt: new Date(record.expiresAtMs).toISOString(),
       botNpub: record.botNpub,
       botPubkeyHex: record.botPubkeyHex,
+      policyRefs: structuredClone(record.policyRefs),
     };
+  }
+
+  listActiveCapabilities(): ActiveSessionCapability[] {
+    return [...this.capabilitiesByHash.values()]
+      .filter((record) => {
+        if (record.revokedAtMs !== null) return false;
+        const session = this.deps.getSession(record.sessionId);
+        return Boolean(session && session.status !== "stopped" && session.status !== "error");
+      })
+      .map((record) => ({
+        capabilityId: record.id,
+        sessionId: record.sessionId,
+        ownerNpub: record.ownerNpub,
+        botNpub: record.botNpub,
+        profileId: record.profileId ?? null,
+        workspaceId: record.workspaceId ?? null,
+        issuedAt: new Date(record.issuedAtMs).toISOString(),
+        expiresAt: new Date(record.expiresAtMs).toISOString(),
+        policyRefs: structuredClone(record.policyRefs),
+      }))
+      .sort((left, right) => left.sessionId.localeCompare(right.sessionId));
   }
 
   revokeSession(sessionId: string): number {
@@ -345,6 +461,7 @@ export class CapabilityBroker {
     if (!hashes) return 0;
     let revoked = 0;
     for (const hash of hashes) {
+      this.reissueHandoffsByHash.delete(hash);
       const record = this.capabilitiesByHash.get(hash);
       if (record && record.revokedAtMs === null) {
         record.revokedAtMs = this.now();
@@ -354,6 +471,17 @@ export class CapabilityBroker {
     }
     this.persist();
     return revoked;
+  }
+
+  reissueSessionCapability(sessionId: string, issue: () => IssuedSessionCapability): IssuedSessionCapability {
+    const oldHashes = [...(this.capabilityHashesBySession.get(sessionId) ?? [])]
+      .filter((hash) => this.capabilitiesByHash.get(hash)?.revokedAtMs === null);
+    this.revokeSession(sessionId);
+    const replacement = issue();
+    for (const hash of oldHashes) {
+      this.reissueHandoffsByHash.set(hash, { sessionId, replacementToken: replacement.token });
+    }
+    return replacement;
   }
 
   revokeBotNpub(botNpub: string): number {
@@ -410,6 +538,7 @@ export class CapabilityBroker {
       return await this.handleIdentity(request);
     }
     if (method !== "POST") return jsonError("Not found", 404);
+    if (url.pathname === "/api/mcp/capabilities/reissue-adopt") return await this.handleReissueAdopt(request);
     if (url.pathname === "/api/mcp/capabilities/refresh") return await this.handleRefresh(request);
     if (url.pathname === "/api/mcp/capabilities/nip98") return await this.handleNip98(request);
     if (url.pathname === "/api/mcp/capabilities/nostr-event") return await this.handleNostrEvent(request);
@@ -451,7 +580,13 @@ export class CapabilityBroker {
       });
     };
     const now = this.now();
-    if (capability.revokedAtMs !== null) return deny("Capability has been revoked");
+    if (capability.revokedAtMs !== null) {
+      if (this.reissueHandoffsByHash.has(capability.tokenHash)) {
+        this.audit(capability, operation, "denied", "Capability has an explicit administrator-issued replacement");
+        return Response.json({ error: "Capability was reissued by an administrator", code: "capability_reissued" }, { status: 409 });
+      }
+      return deny("Capability has been revoked");
+    }
     if (capability.expiresAtMs <= now && !options.allowExpired) return deny("Capability has expired");
     if (capability.sessionId !== sessionId) return deny("Capability is bound to a different session");
     if (!capability.policy.operations.includes(operation)) return deny("Capability does not allow this operation");
@@ -517,6 +652,31 @@ export class CapabilityBroker {
     });
   }
 
+  private async handleReissueAdopt(request: Request): Promise<Response> {
+    const token = readBearerToken(request);
+    if (!token) return jsonError("Missing capability bearer token", 401);
+    const hash = tokenHash(token);
+    const handoff = this.reissueHandoffsByHash.get(hash);
+    const oldCapability = this.capabilitiesByHash.get(hash);
+    if (!handoff || !oldCapability) return jsonError("No explicit capability replacement is available", 403);
+    const body = await parseBody(request);
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    if (sessionId !== handoff.sessionId || oldCapability.sessionId !== sessionId) return jsonError("Capability replacement is bound to a different session", 403);
+    const nonce = request.headers.get("x-wingman-capability-nonce")?.trim() ?? "";
+    if (!/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) return jsonError("Missing or malformed capability nonce", 400);
+    if (oldCapability.usedNonces.has(nonce)) return jsonError("Capability nonce has already been used", 403);
+    const session = this.deps.getSession(sessionId);
+    if (!session || session.npub !== oldCapability.ownerNpub || session.status === "stopped" || session.status === "error") {
+      return jsonError("Session is not active", 403);
+    }
+    for (const [candidateHash, candidate] of this.reissueHandoffsByHash) {
+      if (candidate.sessionId === sessionId && candidate.replacementToken === handoff.replacementToken) {
+        this.reissueHandoffsByHash.delete(candidateHash);
+      }
+    }
+    return Response.json({ token: handoff.replacementToken });
+  }
+
   private async handleRefresh(request: Request): Promise<Response> {
     const body = await parseBody(request);
     const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
@@ -536,6 +696,7 @@ export class CapabilityBroker {
       expiresAt: new Date(authorized.capability.expiresAtMs).toISOString(),
       botNpub: authorized.capability.botNpub,
       botPubkeyHex: authorized.capability.botPubkeyHex,
+      policyRefs: structuredClone(authorized.capability.policyRefs),
     } satisfies IssuedSessionCapability);
   }
 
@@ -547,6 +708,7 @@ export class CapabilityBroker {
     const targetUrl = typeof body.url === "string" ? body.url.trim() : "";
     const method = typeof body.method === "string" ? normalizeMethod(body.method) : "";
     const bodyHash = typeof body.bodyHash === "string" ? normalizeHex(body.bodyHash) : undefined;
+    const extraTags = parseNip98ExtraTags(body.tags);
     let parsed: URL;
     try {
       parsed = new URL(targetUrl);
@@ -556,42 +718,94 @@ export class CapabilityBroker {
     if (bodyHash && !isHex64(bodyHash)) {
       return this.denied(authorized.capability, "nip98.sign", "bodyHash must be a SHA-256 hex digest", 400);
     }
+    if (!extraTags) {
+      return this.denied(authorized.capability, "nip98.sign", "tags must be an array of two-string tuples", 400);
+    }
     const constraint = authorized.capability.policy.nip98;
     if (!constraint) return this.denied(authorized.capability, "nip98.sign", "NIP-98 policy is missing");
-    const target = constraint.targets?.find((candidate) => candidate.origin === parsed.origin);
+    const originTargets = constraint.targets?.filter((candidate) => candidate.origin === parsed.origin) ?? [];
+    const exactMatches = originTargets.flatMap((candidate) => (candidate.exactPaths ?? [])
+      .filter((exactPath) => exactPath.path === parsed.pathname)
+      .map((exactPath) => ({ target: candidate, exactPath })));
+    const exactMatch = exactMatches[0];
+    const prefixTargets = originTargets.filter((candidate) => candidate.pathPrefixes.some((prefix) => pathMatchesPrefix(parsed.pathname, prefix)));
+    const legacyOriginAllowed = originTargets.length === 0 && constraint.origins.includes(parsed.origin);
+    const target = exactMatch?.target ?? prefixTargets[0];
+    const exactPath = exactMatch?.exactPath;
     const allowedOrigins = constraint.targets?.map((candidate) => candidate.origin) ?? constraint.origins;
-    const allowedMethods = target?.methods ?? constraint.methods;
-    const allowedPathPrefixes = target?.pathPrefixes ?? constraint.pathPrefixes;
-    const exactPath = target?.exactPaths?.find((candidate) => candidate.path === parsed.pathname);
+    const allowedMethods = exactPath?.methods ?? target?.methods ?? constraint.methods;
     const requireBodyHashMethods = target?.requireBodyHashMethods ?? constraint.requireBodyHashMethods;
     if (!allowedOrigins.includes(parsed.origin)) return this.denied(authorized.capability, "nip98.sign", "NIP-98 origin is not allowed");
-    if (!allowedMethods.map(normalizeMethod).includes(method) || (exactPath && !exactPath.methods.map(normalizeMethod).includes(method))) {
+    if (!allowedMethods.map(normalizeMethod).includes(method)) {
       return this.denied(authorized.capability, "nip98.sign", "NIP-98 method is not allowed");
     }
-    if (!exactPath && !allowedPathPrefixes.some((prefix) => pathMatchesPrefix(parsed.pathname, prefix))) {
+    if (!exactPath && prefixTargets.length === 0 && !(legacyOriginAllowed && constraint.pathPrefixes.some((prefix) => pathMatchesPrefix(parsed.pathname, prefix)))) {
       return this.denied(authorized.capability, "nip98.sign", "NIP-98 path is not allowed");
     }
     if (constraint.bodyHashes?.length && (!bodyHash || !constraint.bodyHashes.map(normalizeHex).includes(bodyHash))) {
       return this.denied(authorized.capability, "nip98.sign", "NIP-98 body hash is not allowed");
     }
-    if (exactPath?.requireBodyHash !== false && requireBodyHashMethods?.map(normalizeMethod).includes(method) && !bodyHash) {
+    const bodyHashRequired = exactPath
+      ? exactPath.requireBodyHash === true
+      : requireBodyHashMethods?.map(normalizeMethod).includes(method) === true;
+    if (bodyHashRequired && !bodyHash) {
       return this.denied(authorized.capability, "nip98.sign", "NIP-98 body hash is required for this method", 400);
     }
-    const result = await this.withAuthorizedKey(authorized, (secretKey) => {
-      const createdAt = Math.floor(this.now() / 1000);
-      const tags = [["u", parsed.toString()], ["method", method]];
-      if (bodyHash) tags.push(["payload", bodyHash]);
-      const bindingMac = this.createSessionBindingMac(authorized.capability, {
-        pubkey: authorized.capability.botPubkeyHex,
-        createdAt,
-        url: parsed.toString(),
-        method,
-        bodyHash,
+    const createdAt = Math.floor(this.now() / 1000);
+    const tagError = validateNip98ExtraTags(extraTags, exactPath?.extraTags, createdAt);
+    if (tagError) return this.denied(authorized.capability, "nip98.sign", tagError, 400);
+    const challengeTagOrder = new Map(exactPath?.extraTags?.allowed.map((rule, index) => [rule.name, index]) ?? []);
+    const canonicalExtraTags = exactPath?.extraTags
+      ? [...extraTags].sort((left, right) => (challengeTagOrder.get(left[0] as Nip98ExtraTagRule["name"]) ?? Number.MAX_SAFE_INTEGER)
+        - (challengeTagOrder.get(right[0] as Nip98ExtraTagRule["name"]) ?? Number.MAX_SAFE_INTEGER))
+      : extraTags;
+    if (exactPath?.extraTags) {
+      const requestId = canonicalExtraTags.find((tag) => tag[0] === "nonce")?.[1] ?? "";
+      const expectedBodyHash = createHash("sha256").update(JSON.stringify({ request_id: requestId })).digest("hex");
+      if (bodyHash !== expectedBodyHash) {
+        return this.denied(authorized.capability, "nip98.sign", "NIP-98 challenge payload hash does not match the exact request body", 400);
+      }
+    }
+    const challengeFingerprint = canonicalExtraTags.length > 0
+      ? createHash("sha256").update(JSON.stringify([parsed.toString(), method, bodyHash ?? null, canonicalExtraTags])).digest("hex")
+      : null;
+    if (challengeFingerprint && authorized.capability.usedChallenges.has(challengeFingerprint)) {
+      return this.denied(authorized.capability, "nip98.sign", "NIP-98 challenge has already been signed");
+    }
+    if (challengeFingerprint) {
+      authorized.capability.usedChallenges.add(challengeFingerprint);
+      if (authorized.capability.usedChallenges.size > MAX_CHALLENGES_PER_CAPABILITY) {
+        const oldest = authorized.capability.usedChallenges.values().next().value;
+        if (oldest) authorized.capability.usedChallenges.delete(oldest);
+      }
+      this.persist();
+    }
+    let result: { token: string; signedBy: string };
+    try {
+      result = await this.withAuthorizedKey(authorized, (secretKey) => {
+        const tags = [["u", parsed.toString()], ["method", method]];
+        if (bodyHash) tags.push(["payload", bodyHash]);
+        tags.push(...canonicalExtraTags);
+        if (!exactPath?.extraTags?.omitSessionBinding) {
+          const bindingMac = this.createSessionBindingMac(authorized.capability, {
+            pubkey: authorized.capability.botPubkeyHex,
+            createdAt,
+            url: parsed.toString(),
+            method,
+            bodyHash,
+          });
+          tags.push([SESSION_BINDING_TAG, authorized.capability.id, authorized.capability.sessionId, bindingMac]);
+        }
+        const event = finalizeEvent({ kind: NIP98_KIND, content: "", tags, created_at: createdAt }, secretKey);
+        return { token: `Nostr ${Buffer.from(JSON.stringify(event)).toString("base64")}`, signedBy: authorized.capability.botNpub };
       });
-      tags.push([SESSION_BINDING_TAG, authorized.capability.id, authorized.capability.sessionId, bindingMac]);
-      const event = finalizeEvent({ kind: NIP98_KIND, content: "", tags, created_at: createdAt }, secretKey);
-      return { token: `Nostr ${Buffer.from(JSON.stringify(event)).toString("base64")}`, signedBy: authorized.capability.botNpub };
-    });
+    } catch (error) {
+      if (challengeFingerprint) {
+        authorized.capability.usedChallenges.delete(challengeFingerprint);
+        this.persist();
+      }
+      throw error;
+    }
     this.audit(authorized.capability, "nip98.sign", "allowed");
     return Response.json(result);
   }

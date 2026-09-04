@@ -63,6 +63,7 @@ import {
   handleWappLegacyCustodyMigrationRoute,
 } from "./wapp-legacy-custody-migration-route";
 import type { LegacyWappCustodyMigration } from "../wapps/legacy-custody-migration";
+import { handleSigningPolicyApi, type SigningPolicyRoutesContext } from "./signing-policy-routes";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -139,6 +140,7 @@ export interface ApiRoutesContext {
   terminalRoutesContext?: TerminalRoutesContext;
   userSettingsRoutesContext: UserSettingsRoutesContext;
   instanceSettingsRoutesContext: InstanceSettingsRoutesContext;
+  signingPolicyRoutesContext?: SigningPolicyRoutesContext;
   remoteInstructRoutesContext: RemoteInstructRoutesContext;
   cloudflareTunnelRoutesContext?: CloudflareTunnelRoutesContext;
   workspaceDelegationStore: WorkspaceDelegationStore;
@@ -371,6 +373,17 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     );
     if (instanceSettingsResponse) {
       return instanceSettingsResponse;
+    }
+
+    if (ctx.signingPolicyRoutesContext) {
+      const signingPolicyResponse = await handleSigningPolicyApi(
+        request,
+        url,
+        method,
+        authContext,
+        ctx.signingPolicyRoutesContext,
+      );
+      if (signingPolicyResponse) return signingPolicyResponse;
     }
 
     if (pathname.startsWith("/api/cloudflare/tunnel-hostnames")) {

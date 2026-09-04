@@ -84,6 +84,8 @@ describe("createStaticRouteHandler", () => {
       "/sessions/session-attention.js",
       "/sessions/session-tab-state.js",
       "/views/settings/restart-settings-section.js",
+      "/views/settings/signing-policies-section.js",
+      "/services/signing-policies.js",
       "/views/settings/agent-profile-media-picker.js",
     ]) {
       const moduleResponse = await handler.serveBeforeApi(new Request(`http://localhost${pathname}`), pathname);

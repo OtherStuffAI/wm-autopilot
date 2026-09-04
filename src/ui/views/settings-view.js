@@ -22,6 +22,7 @@ import { createSettingsCard, createSettingsGrid } from './settings-layout.js';
 import { createTerminalSecuritySection } from './settings/terminal-security-section.js';
 import { createAgentProfilesSection } from './settings/agent-profiles-section.js';
 import { createRestartSettingsSection } from './settings/restart-settings-section.js';
+import { createSigningPoliciesSection } from './settings/signing-policies-section.js';
 
 const PAGE_COPY = Object.freeze({
   profile: ['Profile', 'Your identity, sign-in state and default launch agent.'],
@@ -39,6 +40,7 @@ const PAGE_COPY = Object.freeze({
   appearance: ['Appearance', 'Autopilot name, branding and accent colour.'],
   flags: ['Feature Flags', 'Experimental capabilities and rollout state.'],
   starter: ['Starter Projects', 'Templates made available when users create projects.'],
+  signingPolicies: ['Signing Policies', 'Review assigned signing authority, immutable revisions and active capability state.'],
 });
 
 function createPage(pageId, ...content) {
@@ -296,6 +298,10 @@ export function initSettingsView(deps) {
     return createPage('starter', renderStarterProjectsPanel());
   }
 
+  function renderSigningPoliciesPage() {
+    return createPage('signingPolicies', createSigningPoliciesSection());
+  }
+
   function renderDeniedPage() {
     return createPage('system', createManagedCard('Administrator access required', 'This settings destination is restricted. No administrator controls or secret values have been loaded.'));
   }
@@ -334,6 +340,7 @@ export function initSettingsView(deps) {
       appearance: renderAppearancePage,
       flags: renderFlagsPage,
       starter: renderStarterPage,
+      signingPolicies: renderSigningPoliciesPage,
     };
     const pageDefs = getSettingsNavigationItems(state.identity.isAdmin)
       .map((item) => ({ ...item, render: renderers[item.id] }));

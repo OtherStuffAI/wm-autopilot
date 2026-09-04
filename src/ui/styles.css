@@ -1604,6 +1604,72 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
   }
 }
 
+.wm-signing-policies__content {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.wm-signing-policies__list,
+.wm-signing-policies__detail,
+.wm-signing-policy-sessions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.wm-signing-policies__list button {
+  padding: 0.7rem;
+  border: 1px solid var(--border-primary);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.wm-signing-policies__list button[aria-current="true"] {
+  border-color: var(--accent);
+}
+
+.wm-signing-policy-summary {
+  display: grid;
+  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
+  gap: 0.4rem 0.8rem;
+}
+
+.wm-signing-policy-summary dt {
+  font-weight: 700;
+}
+
+.wm-signing-policy-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.wm-signing-policies textarea {
+  width: 100%;
+  margin-top: 0.4rem;
+  font-family: var(--font-mono, monospace);
+}
+
+.wm-signing-policy-sessions {
+  padding: 0;
+  list-style: none;
+}
+
+.wm-signing-policy-sessions li {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-primary);
+  border-radius: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .wm-signing-policies__content {
+    grid-template-columns: 1fr;
+  }
+}
+
 .wm-alert {
   padding: 0.85rem 1rem;
   border-radius: 0.75rem;
