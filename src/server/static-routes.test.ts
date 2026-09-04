@@ -74,6 +74,7 @@ describe("createStaticRouteHandler", () => {
     for (const pathname of [
       "/apps/lifecycle-command.js",
       "/core/attachment-upload-flows.js",
+      "/core/image-upload-request.js",
       "/live/composer-upload-state.js",
       "/live/conversation-queue.js",
       "/live/permission-actions.js",

@@ -309,7 +309,7 @@ describe("image attachment previews", () => {
     expect(composer.textarea.value).not.toContain("Uploading");
     expect(composer.textarea.value).not.toContain("<!--IMG:");
     expect(state.messageDrafts.get("session-1")).not.toContain("Uploading");
-    expect(toastMessages).toContain("Image upload failed. Check console for details.");
+    expect(toastMessages).toContain("network unavailable");
   });
 
   test("writes a completed image reference into a remounted session composer", async () => {
