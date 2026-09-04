@@ -120,12 +120,14 @@ Tower service metadata. Only advertised HTTPS gateway origins are installed as
 Git credential scopes, with `credential.useHttpPath=true`.
 
 For `get`, the broker canonicalizes exactly
-`/<organization>/<repository>.git`, rejects unadvertised hosts, resolves the
-path to a stable Tower repository ID, and sends a payload-hashed NIP-98
-credential exchange signed by the session agent. Only the fixed username,
-ephemeral password, and expiry cross back to the helper. `store` and `erase`
-are no-ops because the helper keeps no credential cache. No capability is
-written to Git configuration, disk, logs, command arguments, or environment
+`/<organization>/<repository>.git`, rejects unadvertised hosts, and reads the
+actor-visible `GET /api/v4/git/workspaces/:workspaceId/repositories` contract.
+It exact-matches the canonical helper path against `repository.git_path`,
+validates the stable repository and workspace IDs, and sends a payload-hashed
+NIP-98 credential exchange signed by the session agent. Only the fixed
+username, ephemeral password, and expiry cross back to the helper. `store` and
+`erase` are no-ops because the helper keeps no credential cache. No capability
+is written to Git configuration, disk, logs, command arguments, or environment
 variables.
 
 For Flight Deck work, use the broker-aware MCP `flightdeck_*` tools. PG chat

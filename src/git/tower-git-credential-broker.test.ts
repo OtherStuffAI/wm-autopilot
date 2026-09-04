@@ -71,6 +71,16 @@ function serviceMetadata() {
   };
 }
 
+function repositoryList(path = "/studio/project.git") {
+  return {
+    repositories: [{
+      git_path: path,
+      repository_id: repositoryId,
+      workspace_id: workspaceId,
+    }],
+  };
+}
+
 describe("TowerGitCredentialBroker", () => {
   test("discovers only the active workspace and bot binding", async () => {
     const requests: Request[] = [];
@@ -93,7 +103,7 @@ describe("TowerGitCredentialBroker", () => {
     expect(requests[0]!.headers.get("x-flightdeck-pg-app-npub")).toBe("npub1app");
   });
 
-  test("resolves the canonical path and exchanges an exact body-hashed request", async () => {
+  test("exact-matches an actor-visible repository and exchanges a body-hashed request", async () => {
     const signed: Array<{ url: string; method: string; bodyHash?: string }> = [];
     let exchangeBody = "";
     const broker = new TowerGitCredentialBroker({
@@ -102,9 +112,9 @@ describe("TowerGitCredentialBroker", () => {
       fetch: mock(async (request: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(request));
         if (url.pathname.endsWith("/service")) return Response.json(serviceMetadata());
-        if (url.pathname.endsWith("/resolve")) {
-          expect(url.searchParams.get("path")).toBe("/studio/project.git");
-          return Response.json({ canonical_path: "/studio/project.git", repository: { repository_id: repositoryId, workspace_id: workspaceId } });
+        if (url.pathname.endsWith("/repositories")) {
+          expect(url.search).toBe("");
+          return Response.json(repositoryList());
         }
         exchangeBody = String(init?.body);
         return Response.json({
@@ -149,9 +159,14 @@ describe("TowerGitCredentialBroker", () => {
       method: "POST",
       bodyHash: createHash("sha256").update(exchangeBody).digest("hex"),
     });
+    expect(signed[1]).toEqual({
+      url: `https://tower.example.test/api/v4/git/workspaces/${workspaceId}/repositories`,
+      method: "GET",
+      bodyHash: undefined,
+    });
   });
 
-  test("rejects unadvertised gateways before repository resolution", async () => {
+  test("rejects unadvertised gateways before listing repositories", async () => {
     const fetchImpl = mock(async () => Response.json(serviceMetadata()));
     const broker = new TowerGitCredentialBroker({
       listSubscriptions: () => [subscription()],
@@ -172,6 +187,88 @@ describe("TowerGitCredentialBroker", () => {
       signNip98: async () => "Nostr proof",
     })).rejects.toThrow("not advertised");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects a path absent from the actor-visible repository list", async () => {
+    const broker = new TowerGitCredentialBroker({
+      listSubscriptions: () => [subscription()],
+      fetch: mock(async (request: RequestInfo | URL) => {
+        const url = new URL(String(request));
+        return Response.json(url.pathname.endsWith("/service")
+          ? serviceMetadata()
+          : repositoryList("/studio/other.git"));
+      }) as typeof fetch,
+    });
+    await expect(broker.exchange({
+      session,
+      botNpub,
+      workspaceId,
+      request: {
+        protocol: "https",
+        host: "git.example.test",
+        gatewayOrigin: "https://git.example.test",
+        path: "/studio/project.git",
+        organization: "studio",
+        repository: "project",
+      },
+      signNip98: async () => "Nostr proof",
+    })).rejects.toThrow("does not resolve to an advertised Tower repository");
+  });
+
+  test("rejects a malformed actor-visible repository list", async () => {
+    const broker = new TowerGitCredentialBroker({
+      listSubscriptions: () => [subscription()],
+      fetch: mock(async (request: RequestInfo | URL) => (
+        Response.json(new URL(String(request)).pathname.endsWith("/service")
+          ? serviceMetadata()
+          : { repositories: [null] })
+      )) as typeof fetch,
+    });
+    await expect(broker.exchange({
+      session,
+      botNpub,
+      workspaceId,
+      request: {
+        protocol: "https",
+        host: "git.example.test",
+        gatewayOrigin: "https://git.example.test",
+        path: "/studio/project.git",
+        organization: "studio",
+        repository: "project",
+      },
+      signNip98: async () => "Nostr proof",
+    })).rejects.toThrow("malformed repository list");
+  });
+
+  test("rejects inconsistent repository workspace and identifier fields", async () => {
+    const responses = [
+      { repositories: [{ ...repositoryList().repositories[0], workspace_id: "33333333-3333-4333-8333-333333333333" }] },
+      { repositories: [{ ...repositoryList().repositories[0], repository_id: "not-a-uuid" }] },
+    ];
+    for (const repositoryResponse of responses) {
+      const broker = new TowerGitCredentialBroker({
+        listSubscriptions: () => [subscription()],
+        fetch: mock(async (request: RequestInfo | URL) => (
+          Response.json(new URL(String(request)).pathname.endsWith("/service")
+            ? serviceMetadata()
+            : repositoryResponse)
+        )) as typeof fetch,
+      });
+      await expect(broker.exchange({
+        session,
+        botNpub,
+        workspaceId,
+        request: {
+          protocol: "https",
+          host: "git.example.test",
+          gatewayOrigin: "https://git.example.test",
+          path: "/studio/project.git",
+          organization: "studio",
+          repository: "project",
+        },
+        signNip98: async () => "Nostr proof",
+      })).rejects.toThrow("inconsistent repository identity");
+    }
   });
 
   test("rejects service metadata for a different Tower identity", async () => {
@@ -197,12 +294,7 @@ describe("TowerGitCredentialBroker", () => {
       fetch: mock(async (request: RequestInfo | URL) => {
         const url = new URL(String(request));
         if (url.pathname.endsWith("/service")) return Response.json(serviceMetadata());
-        if (url.pathname.endsWith("/resolve")) {
-          return Response.json({
-            canonical_path: "/studio/project.git",
-            repository: { repository_id: repositoryId, workspace_id: workspaceId },
-          });
-        }
+        if (url.pathname.endsWith("/repositories")) return Response.json(repositoryList());
         exchangeCount += 1;
         return Response.json({
           username: "nostr",

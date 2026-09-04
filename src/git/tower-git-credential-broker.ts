@@ -13,12 +13,14 @@ interface TowerGitServiceMetadata {
   };
 }
 
-interface TowerRepositoryResolution {
-  canonical_path?: unknown;
-  repository?: {
-    repository_id?: unknown;
-    workspace_id?: unknown;
-  };
+interface TowerRepositoryList {
+  repositories?: unknown;
+}
+
+interface TowerRepositorySummary {
+  git_path: string;
+  repository_id: string;
+  workspace_id: string;
 }
 
 interface TowerCredentialExchange {
@@ -84,29 +86,32 @@ export class TowerGitCredentialBroker implements GitCredentialBrokerAdapter {
     const service = services.find((candidate) => candidate.gatewayOrigins.includes(input.request.gatewayOrigin));
     if (!service) throw new Error("The Git gateway is not advertised for this session.");
 
-    const resolveUrl = new URL(
-      `/api/v4/git/workspaces/${encodeURIComponent(service.workspaceId)}/repositories/resolve`,
+    const repositoriesUrl = new URL(
+      `/api/v4/git/workspaces/${encodeURIComponent(service.workspaceId)}/repositories`,
       service.towerOrigin,
-    );
-    resolveUrl.searchParams.set("path", input.request.path);
-    const resolution = await this.signedJson<TowerRepositoryResolution>({
-      url: resolveUrl.toString(),
+    ).toString();
+    const repositoryList = await this.signedJson<TowerRepositoryList>({
+      url: repositoriesUrl,
       method: "GET",
       appNpub: service.appNpub,
       signNip98: input.signNip98,
     });
-    const repositoryId = typeof resolution.repository?.repository_id === "string"
-      ? resolution.repository.repository_id
-      : "";
-    const repositoryWorkspaceId = typeof resolution.repository?.workspace_id === "string"
-      ? resolution.repository.workspace_id
-      : "";
     if (
-      resolution.canonical_path !== input.request.path
-      || repositoryWorkspaceId !== service.workspaceId
-      || !isUuid(repositoryId)
+      !Array.isArray(repositoryList.repositories)
+      || !repositoryList.repositories.every(isTowerRepositorySummary)
     ) {
-      throw new Error("Tower returned an inconsistent repository resolution.");
+      throw new Error("Tower returned a malformed repository list.");
+    }
+    const matchingRepositories = repositoryList.repositories.filter((repository) => (
+      repository.git_path === input.request.path
+    ));
+    if (matchingRepositories.length !== 1) {
+      throw new Error("The Git path does not resolve to an advertised Tower repository.");
+    }
+    const repository = matchingRepositories[0]!;
+    const repositoryId = repository.repository_id;
+    if (repository.workspace_id !== service.workspaceId || !isUuid(repositoryId)) {
+      throw new Error("Tower returned an inconsistent repository identity.");
     }
 
     const exchangeUrl = new URL("/api/v4/git/credential-exchanges", service.towerOrigin).toString();
@@ -230,6 +235,14 @@ function normalizeGatewayOrigin(value: unknown): string {
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isTowerRepositorySummary(value: unknown): value is TowerRepositorySummary {
+  if (!value || typeof value !== "object") return false;
+  const repository = value as Record<string, unknown>;
+  return typeof repository.git_path === "string"
+    && typeof repository.repository_id === "string"
+    && typeof repository.workspace_id === "string";
 }
 
 function sessionTaskId(session: SessionSnapshot): string | null {
