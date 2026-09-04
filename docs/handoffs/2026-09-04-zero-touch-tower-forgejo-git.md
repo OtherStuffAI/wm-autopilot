@@ -84,14 +84,3 @@ Integrate against the rebuilt local Tower + gateway + Forgejo stack and prove au
 ## Handoff
 
 Report changed files, test/build commands and results, integration evidence, commit SHA, and any remaining managed-runtime acceptance step on the Flight Deck task. Leave the task in progress for the manager's cross-repository review.
-
-## Manager cross-contract correction
-
-The active stack-bearing Tower API does not expose
-`/repositories/resolve`. Its authenticated
-`GET /api/v4/git/workspaces/:workspaceId/repositories` response already lists
-only actor-visible repositories and includes each canonical `git_path`.
-`TowerGitCredentialBroker` must use that existing route and exact-match the
-helper's canonical request path against `repository.git_path`, while validating
-the returned workspace and repository identifiers. Remove the speculative
-resolver call and update its tests/documentation before final acceptance.
