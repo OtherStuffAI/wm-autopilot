@@ -179,7 +179,7 @@ describe("TowerGitCredentialBroker", () => {
       listSubscriptions: () => [subscription()],
       fetch: mock(async () => Response.json({
         ...serviceMetadata(),
-        identity: { tower_service_npub: "npub1differenttower" },
+        service: { base_url: "https://tower.example.test", service_npub: "npub1differenttower" },
       })) as typeof fetch,
     });
     await expect(broker.discover({
