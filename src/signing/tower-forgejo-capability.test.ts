@@ -38,6 +38,7 @@ function draft(policy: SigningPolicyDocument): SigningPolicyDraft {
   return {
     id: policy.id, name: policy.name, description: policy.description, enabled: policy.enabled,
     operations: [...policy.operations], eventKinds: [...policy.eventKinds],
+    nostrKindRules: structuredClone(policy.nostrKindRules),
     nip98Targets: structuredClone(policy.nip98Targets), assignments: structuredClone(policy.assignments),
   };
 }

@@ -36,6 +36,7 @@ function narrowDraft(id = "custom-nip98"): SigningPolicyDraft {
     enabled: true,
     operations: ["nip98.sign"],
     eventKinds: [27_235],
+    nostrKindRules: [],
     nip98Targets: [{
       origin: "https://service.example",
       methods: ["POST"],
@@ -43,6 +44,27 @@ function narrowDraft(id = "custom-nip98"): SigningPolicyDraft {
       pathPrefixes: [],
       requireBodyHash: true,
     }],
+    assignments: { profileIds: ["profile-a"], workspaceIds: [] },
+  };
+}
+
+function customNostrDraft(): SigningPolicyDraft {
+  return {
+    id: "custom-nostr",
+    name: "Custom Nostr event",
+    description: "Allows a constrained application event kind.",
+    enabled: true,
+    operations: ["nostr.sign"],
+    eventKinds: [31_337],
+    nostrKindRules: [{
+      kind: 31_337,
+      maxContentBytes: 1_024,
+      maxTags: 8,
+      maxTagBytes: 2_048,
+      allowedTagNames: ["scope", "p"],
+      requiredTags: [["scope", "release"]],
+    }],
+    nip98Targets: [],
     assignments: { profileIds: ["profile-a"], workspaceIds: [] },
   };
 }
@@ -122,6 +144,31 @@ describe("SigningPolicyRegistry", () => {
     longExpiry.nip98Targets[0]!.challenge!.allowedTags.find((rule) => rule.name === "expiration")!.maxFutureSeconds = 61;
     expect(() => policies.update(template.id, longExpiry, "npub1admin")).toThrow(/1 and 60/);
   });
+
+  test("requires one bounded matching rule for every custom Nostr kind", () => {
+    const { registry: policies } = registry();
+    expect(policies.create(customNostrDraft(), "npub1admin")).toMatchObject({
+      eventKinds: [31_337],
+      nostrKindRules: [{ kind: 31_337, maxContentBytes: 1_024 }],
+    });
+    expect(() => policies.create({ ...customNostrDraft(), id: "missing-rule", nostrKindRules: [] }, "npub1admin")).toThrow(/exactly one matching/);
+    expect(() => policies.create({
+      ...customNostrDraft(), id: "duplicate-rule",
+      nostrKindRules: [customNostrDraft().nostrKindRules[0]!, customNostrDraft().nostrKindRules[0]!],
+    }, "npub1admin")).toThrow(/duplicate per-kind rules/);
+    expect(() => policies.create({
+      ...customNostrDraft(), id: "mismatched-rule",
+      nostrKindRules: [{ ...customNostrDraft().nostrKindRules[0]!, kind: 31_338 }],
+    }, "npub1admin")).toThrow(/match one declared/);
+    expect(() => policies.create({
+      ...customNostrDraft(), id: "broad-rule",
+      nostrKindRules: [{ ...customNostrDraft().nostrKindRules[0]!, maxContentBytes: 65_537 }],
+    }, "npub1admin")).toThrow(/between 0 and 65536/);
+    expect(() => policies.create({
+      ...customNostrDraft(), id: "malformed-rule",
+      nostrKindRules: [{ ...customNostrDraft().nostrKindRules[0]!, requiredTags: [["other", "value"]] }],
+    }, "npub1admin")).toThrow(/must also be allowed/);
+  });
 });
 
 function draftFrom(policy: SigningPolicyDocument): SigningPolicyDraft {
@@ -132,6 +179,7 @@ function draftFrom(policy: SigningPolicyDocument): SigningPolicyDraft {
     enabled: policy.enabled,
     operations: [...policy.operations],
     eventKinds: [...policy.eventKinds],
+    nostrKindRules: structuredClone(policy.nostrKindRules),
     nip98Targets: structuredClone(policy.nip98Targets),
     assignments: structuredClone(policy.assignments),
   };

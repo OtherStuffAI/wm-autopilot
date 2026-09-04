@@ -3,6 +3,12 @@ import {
   type BrokerOperation,
   type Nip98ExtraTagRule,
 } from "./capability-broker";
+import { normalizeNostrKindRules } from "./nostr-kind-policy";
+export {
+  MAX_CUSTOM_NOSTR_CONTENT_BYTES,
+  MAX_CUSTOM_NOSTR_TAGS,
+  MAX_CUSTOM_NOSTR_TAG_BYTES,
+} from "./nostr-kind-policy";
 import type {
   SigningPolicyAssignment,
   SigningPolicyDraft,
@@ -103,8 +109,8 @@ export function validateSigningPolicyDraft(input: SigningPolicyDraft): SigningPo
     throw new Error("eventKinds must contain valid non-negative integer kinds");
   }
   const eventKinds = [...new Set(input.eventKinds)].sort((left, right) => left - right);
-  if (operations.includes("nostr.sign") && eventKinds.some((kind) => kind === 27_235 || !DEFAULT_AGENT_NOSTR_EVENT_KINDS.includes(kind))) {
-    throw new Error("Generic Nostr policies cannot add kind 27235 or kinds outside the built-in safe allowlist");
+  if (operations.includes("nostr.sign") && eventKinds.includes(27_235)) {
+    throw new Error("Generic Nostr policies cannot add kind 27235");
   }
   if (operations.includes("nip98.sign") && !eventKinds.includes(27_235)) {
     throw new Error("NIP-98 policies must declare event kind 27235");
@@ -113,6 +119,10 @@ export function validateSigningPolicyDraft(input: SigningPolicyDraft): SigningPo
     && (eventKinds.length !== 1 || eventKinds[0] !== 27_235)) {
     throw new Error("Dedicated NIP-98 policies may declare only event kind 27235");
   }
+  const customKinds = operations.includes("nostr.sign")
+    ? eventKinds.filter((kind) => !DEFAULT_AGENT_NOSTR_EVENT_KINDS.includes(kind))
+    : [];
+  const nostrKindRules = normalizeNostrKindRules(input.nostrKindRules, customKinds);
   if (!Array.isArray(input.nip98Targets)) throw new Error("nip98Targets must be an array");
   if (operations.includes("nip98.sign") !== (input.nip98Targets.length > 0)) {
     throw new Error("NIP-98 policies require targets and non-NIP-98 policies cannot define them");
@@ -148,5 +158,5 @@ export function validateSigningPolicyDraft(input: SigningPolicyDraft): SigningPo
     ...target.pathPrefixes.map((path) => `${target.origin}|prefix|${path}`),
   ]);
   if (new Set(targetKeys).size !== targetKeys.length) throw new Error("Signing policy contains duplicate NIP-98 targets");
-  return { id, name, description, enabled: input.enabled, operations, eventKinds, nip98Targets, assignments: validateAssignments(input.assignments) };
+  return { id, name, description, enabled: input.enabled, operations, eventKinds, nostrKindRules, nip98Targets, assignments: validateAssignments(input.assignments) };
 }

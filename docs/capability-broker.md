@@ -203,15 +203,67 @@ with fail-closed semantics: when both lists are populated, both must match.
 Unassigned or disabled fragments grant nothing.
 
 Policy documents include a stable ID, name, description, enabled state,
-revision, broker operations, event kinds, exact HTTPS origins, methods, exact
-paths/path prefixes, payload-hash rules, constrained challenge tags,
-profile/workspace assignments, timestamps, and actor attribution. Every create,
+revision, broker operations, event kinds, per-kind Nostr constraints, exact
+HTTPS origins, methods, exact paths/path prefixes, payload-hash rules,
+constrained challenge tags, profile/workspace assignments, timestamps, and actor attribution. Every create,
 update, enable, and disable operation appends an immutable revision snapshot to
 `data/signing-policies.json` (override with `WINGMAN_SIGNING_POLICY_FILE`). The
 registry rejects wildcard/non-HTTPS origins, unsafe methods, root or broad API
 prefixes, mutating targets without body hashes, arbitrary kind `27235` event
 signing, unknown operations/tags, duplicate target/rule IDs, and challenge
 windows outside 1–60 seconds.
+
+### Custom generic Nostr kinds
+
+An administrator can add a kind that is not compiled into
+`DEFAULT_AGENT_NOSTR_EVENT_KINDS` with a `nostr.sign` policy. Every such kind
+must have exactly one matching `nostrKindRules` entry. The rule explicitly
+bounds UTF-8 content bytes, tag count, aggregate UTF-8 tag bytes, allowed tag
+names, and optional exact required `[name, value]` pairs. Custom rules are
+capped at 64 KiB of content, 64 tags, 16 KiB of aggregate tag data, and 32
+allowed tag names; larger limits are rejected as unreasonably broad. Required
+tag names must also appear in `allowedTagNames`, and duplicate, missing,
+mismatched, or malformed rules fail validation.
+
+For example, create a policy through the administrator API or edit an existing
+custom policy in Settings with this structured JSON shape:
+
+```json
+{
+  "id": "custom-release-event",
+  "name": "Custom release event",
+  "description": "Allows one application event with an exact release scope.",
+  "enabled": true,
+  "operations": ["nostr.sign"],
+  "eventKinds": [31337],
+  "nostrKindRules": [
+    {
+      "kind": 31337,
+      "maxContentBytes": 4096,
+      "maxTags": 8,
+      "maxTagBytes": 2048,
+      "allowedTagNames": ["scope", "p"],
+      "requiredTags": [["scope", "release"]]
+    }
+  ],
+  "nip98Targets": [],
+  "assignments": { "profileIds": ["agent-profile-id"], "workspaceIds": [] }
+}
+```
+
+Review the normalized limits and exact required pairs in the Settings summary,
+save the new revision, then enable and assign it. The revision affects only new
+capabilities. Existing sessions remain on their issued snapshots and appear
+stale; use **Revoke and reissue** only when that session should adopt the new
+authority. Normal capability refresh never adopts it.
+
+Generic `nostr.sign` rejects kind `27235` in the registry and again at the
+broker boundary, even if a malformed capability snapshot names it. Kind
+`27235` remains available only through an exact, body-bound `nip98.sign`
+target such as the Tower Forgejo template. A custom kind with no unique rule is
+also denied at the broker, so bypassing registry validation cannot turn a bare
+kind number into signing authority. The built-in kind list and its existing
+global limits remain unchanged.
 
 Each issued capability records both the fully merged policy snapshot and the
 effective policy ID/revision list. Editing a policy never mutates that snapshot.
