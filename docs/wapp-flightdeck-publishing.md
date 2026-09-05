@@ -235,3 +235,84 @@ against compromise of the Autopilot OS account. `WappSigningBroker` accepts a
 `BrokerKeyVaultBackend`; production hardening can supply an OS-keychain, TPM,
 HSM or external-secret-provider backend whose wrapping key is not stored beside
 its envelopes. Unknown configured backends fail closed.
+
+## Read-only publisher readiness
+
+Preflight must use actual signing custody and Tower's publisher-self grant read.
+Neither installation metadata, `hasAppSigningKey`, nor a human-signed
+`grants/me` response proves publisher readiness. Use:
+
+```text
+GET /api/wapps/:installationId/publisher-readiness?scope_id=...&channel_id=...&origin=...
+GET /api/owners/:ownerNpub/wapps/:installationId/publisher-readiness?scope_id=...&channel_id=...&origin=...
+```
+
+All three query parameters are required, each exactly once. `origin` must be
+an exact HTTP(S) origin, without a path or trailing slash. Unknown parameters
+are rejected. NIP-98 signs the exact external URL including query and `GET`;
+owner routing occurs after verification. The direct route accepts the same
+installation-bound scheduled execution authority as installation reads and
+activity publishing, or existing AppsManage authority. The owner route uses
+`wapps:read` delegation and its existing owner, installation, workspace and
+scope resource filters. This adds no signing-key export or arbitrary proxy.
+
+Authorized checks return HTTP 200 and `Cache-Control: no-store`, including when
+readiness fails. Invalid input returns 400; existing auth/not-found boundaries
+remain 403/404. The response is:
+
+```json
+{
+  "ready": true,
+  "code": "ready",
+  "installationId": "installation-uuid",
+  "checkedAt": "2026-09-05T04:15:00.000Z",
+  "evidence": {
+    "installationActive": "passed",
+    "noPendingPublisher": "passed",
+    "signingIdentity": "passed",
+    "grantIdentity": "passed",
+    "grantActive": "passed",
+    "capability": "passed",
+    "origin": "passed",
+    "destination": "passed",
+    "configuredPublisherNpub": "npub1...",
+    "signingNpub": "npub1...",
+    "grantVersion": 1,
+    "towerStatus": null
+  }
+}
+```
+
+Checks are `passed`, `failed`, or `not_checked`; early failures never imply
+success for unchecked evidence. Common failure codes include
+`installation_not_active`, `publisher_rotation_pending`,
+`publishing_configuration_missing`, `publisher_custody_unavailable`,
+`publisher_identity_mismatch`, `grant_identity_mismatch`, `grant_not_active`,
+`capability_not_granted`, `origin_not_granted`, `destination_not_granted`,
+`grant_invalid`, and `transport_error`. Unrecognized upstream errors become
+`tower_grant_read_failed`; upstream bodies, vault errors, keys and authorization
+events are never returned. `towerStatus` is populated for Tower HTTP failures.
+
+Autopilot opens existing protected custody, signs and locally verifies the
+NIP-98 event, compares its actual public identity to the configured publisher,
+and makes a fresh publisher-signed GET to Tower's `grants/me` with redirects
+disabled. It checks installation, workspace, active grant, `activity.publish`,
+origin and exact scope/channel. Local scope and registered origins must also
+match. No timers, mutation, Feed probe, rotation or publication occur.
+
+```bash
+bun clis/appctl.ts wapp-publisher-readiness <installation-id> \
+  --scope-id <scope-id> --channel-id <channel-id> --origin https://wapp.example \
+  --bot-crypto --json
+```
+
+Add `--owner <owner-npub>` for owner-delegated management. CLI exit code is 0
+only for `ready: true`, and 1 for not-ready or request errors. Readiness is a
+point-in-time observation; Tower still authorizes every eventual delivery.
+Source tests do not establish readiness of a running installation.
+
+Successful responses also include `grant`, containing only the verified public
+grant identity/version, status, capabilities, destinations and registered origins.
+This supports grant-inspection clients without requiring the agent to sign as
+the publisher. Unknown upstream fields are not forwarded. A matching destination
+with `available: false` does not pass readiness.

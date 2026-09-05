@@ -34,6 +34,7 @@ type Command =
   | "tower-bindings"
   | "tower-binding-create"
   | "tower-binding-default"
+  | "wapp-publisher-readiness"
   | "wapp-publisher-repair"
   | "review-wapp-tower-broker"
   | "domains"
@@ -67,6 +68,9 @@ Commands:
   tower-bindings       List WApp Tower bindings
   tower-binding-create Create WApp Tower binding (requires --name, --tower-url, --workspace-owner-npub)
   tower-binding-default <id> Select default WApp Tower binding
+  wapp-publisher-readiness <wapp-installation-id>
+                       Read-only signing and Tower grant check
+                       Requires --scope-id, --channel-id, --origin
   wapp-publisher-repair <wapp-installation-id>
                        Generate, approve, and activate a missing WApp publisher key
   review-wapp-tower-broker <app-id>
@@ -192,6 +196,9 @@ async function run() {
   let gitUrl: string | undefined;
   let towerUrl: string | undefined;
   let workspaceOwnerNpub: string | undefined;
+  let readinessScope: string | undefined;
+  let readinessChannel: string | undefined;
+  let readinessOrigin: string | undefined;
   let ownerNpub: string | undefined;
   let userAlias: string | undefined;
   let serviceUrl: string | undefined;
@@ -217,6 +224,15 @@ async function run() {
     } else if (flag === "--workspace-owner-npub") {
       workspaceOwnerNpub = args[++i];
       if (!workspaceOwnerNpub) throw new Error("--workspace-owner-npub requires a value");
+    } else if (flag === "--scope-id") {
+      readinessScope = args[++i];
+      if (!readinessScope) throw new Error("--scope-id requires a value");
+    } else if (flag === "--channel-id") {
+      readinessChannel = args[++i];
+      if (!readinessChannel) throw new Error("--channel-id requires a value");
+    } else if (flag === "--origin") {
+      readinessOrigin = args[++i];
+      if (!readinessOrigin) throw new Error("--origin requires a value");
     } else if (flag === "--owner") {
       ownerNpub = args[++i];
       if (!ownerNpub) throw new Error("--owner requires a value");
@@ -244,7 +260,7 @@ async function run() {
   const validCommands = [
     "list", "status", "start", "stop", "restart", "build", "setup",
     "register", "unregister", "clone", "starters", "starters-create", "starters-delete",
-    "tower-bindings", "tower-binding-create", "tower-binding-default", "wapp-publisher-repair", "review-wapp-tower-broker",
+    "tower-bindings", "tower-binding-create", "tower-binding-default", "wapp-publisher-repair", "wapp-publisher-readiness", "review-wapp-tower-broker",
     "domains", "domain-add", "domain-verify", "domain-remove",
     "cf-tunnel-upsert", "cf-tunnel-verify", "cf-tunnel-remove", "help",
   ];
@@ -458,6 +474,20 @@ async function run() {
     } else {
       console.log(`Selected default WApp Tower binding: ${appId}`);
     }
+    return;
+  }
+
+  if (command === "wapp-publisher-readiness") {
+    if (!appId || !readinessScope || !readinessChannel || !readinessOrigin) {
+      throw new Error("wapp-publisher-readiness requires installation ID, --scope-id, --channel-id and --origin");
+    }
+    const root = ownerNpub ? `/api/owners/${encodeURIComponent(ownerNpub)}/wapps` : "/api/wapps";
+    const query = new URLSearchParams({ scope_id: readinessScope, channel_id: readinessChannel, origin: readinessOrigin });
+    const result = await req<{ ready: boolean; code: string }>(
+      "GET", `${root}/${encodeURIComponent(appId)}/publisher-readiness?${query}`,
+    );
+    console.log(asJson ? JSON.stringify(result, null, 2) : `${appId}: ${result.code}`);
+    if (result.ready !== true) process.exitCode = 1;
     return;
   }
 

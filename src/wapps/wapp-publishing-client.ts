@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 
-import { finalizeEvent, nip19 } from "nostr-tools";
+import { finalizeEvent, nip19, verifyEvent } from "nostr-tools";
 
 export interface WappPublishingGrantDestination {
   scope_id: string;
+  available?: boolean;
   channel_id?: string;
   channel_ids?: string[];
   scope_label?: string | null;
@@ -34,6 +35,13 @@ export interface WappActivityProjection {
   priority: "low" | "normal" | "high";
   state: "active" | "resolved" | "withdrawn";
   open_url?: string | null;
+}
+
+export function isWappDestinationGranted(grant: WappPublishingGrant, scopeId: string, channelId: string): boolean {
+  return Array.isArray(grant.destinations) && grant.destinations.some((destination) => (
+    destination && destination.available !== false && destination.scope_id === scopeId &&
+    (destination.channel_id === channelId || (Array.isArray(destination.channel_ids) && destination.channel_ids.includes(channelId)))
+  ));
 }
 
 export type WappPublishingErrorCategory = "retryable" | "refresh_grant" | "permanent";
@@ -167,6 +175,11 @@ export class WappPublishingClient {
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly refreshScheduler: NonNullable<WappPublishingClientOptions["refreshScheduler"]>;
   private grant: WappPublishingGrant | null = null;
+  private signedNpub: string | null = null;
+
+  get signingNpub(): string | null {
+    return this.signedNpub;
+  }
   private grantEtag: string | null = null;
   private stopRefresh: (() => void) | null = null;
 
@@ -207,16 +220,24 @@ export class WappPublishingClient {
 
   async refreshGrant(): Promise<WappPublishingGrant> {
     const url = this.#options.routes.grantUrl(this.#options.towerUrl, this.#options.workspaceId);
+    const authorization = createWappNip98Authorization({
+      url, method: "GET", nsec: this.#options.nsec,
+      createdAt: Math.floor(this.now() / 1_000),
+    });
+    const event = JSON.parse(Buffer.from(authorization.slice(6), "base64").toString("utf8"));
+    if (!verifyEvent(event)) {
+      throw new WappPublishingError({ code: "publisher_signature_invalid", category: "permanent" });
+    }
+    this.signedNpub = nip19.npubEncode(event.pubkey);
+    if (this.signedNpub !== this.#options.publisherNpub) {
+      throw new WappPublishingError({ code: "publisher_identity_mismatch", category: "permanent" });
+    }
     const response = await this.fetchImpl(url, {
       method: "GET",
+      redirect: "error",
       headers: {
         Accept: "application/json",
-        Authorization: createWappNip98Authorization({
-          url,
-          method: "GET",
-          nsec: this.#options.nsec,
-          createdAt: Math.floor(this.now() / 1_000),
-        }),
+        Authorization: authorization,
         ...(this.grantEtag ? { "If-None-Match": this.grantEtag } : {}),
       },
     }).catch(() => {
@@ -226,7 +247,7 @@ export class WappPublishingClient {
     if (!response.ok) throw await this.responseError(response);
     const payload = await response.json().catch(() => null);
     const grant = grantFromPayload(payload);
-    if (!grant || grant.wapp_installation_id !== this.#options.wappInstallationId || grant.publisher_npub !== this.#options.publisherNpub) {
+    if (!grant || grant.wapp_installation_id !== this.#options.wappInstallationId || grant.publisher_npub !== this.#options.publisherNpub || grant.workspace_id !== this.#options.workspaceId) {
       throw new WappPublishingError({ status: response.status, code: "grant_identity_mismatch", category: "permanent" });
     }
     if (grant.status !== "active") {
@@ -242,10 +263,7 @@ export class WappPublishingClient {
     if (grant.status !== "active" || !grant.capabilities.includes("activity.publish")) {
       throw new WappPublishingError({ code: "grant_not_active", category: "permanent" });
     }
-    const destinationAllowed = grant.destinations.some((destination) => (
-      destination.scope_id === projection.scope_id
-      && (destination.channel_id === projection.channel_id || destination.channel_ids?.includes(projection.channel_id))
-    ));
+    const destinationAllowed = isWappDestinationGranted(grant, projection.scope_id, projection.channel_id);
     if (!destinationAllowed) {
       throw new WappPublishingError({ code: "destination_not_granted", category: "permanent" });
     }
