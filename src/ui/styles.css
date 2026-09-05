@@ -6480,9 +6480,29 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 }
 
 .wm-tab[data-state="running"]:not(.active) {
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(96, 165, 250, 0.2);
+  background: rgba(59, 130, 246, 0.035);
+  border-color: rgba(96, 165, 250, 0.12);
   color: var(--text-primary);
+  animation: wm-tab-working-breathe 3.6s ease-in-out infinite;
+}
+
+@keyframes wm-tab-working-breathe {
+  0%,
+  100% {
+    background-color: rgba(59, 130, 246, 0.025);
+    border-color: rgba(96, 165, 250, 0.1);
+  }
+  50% {
+    background-color: rgba(59, 130, 246, 0.075);
+    border-color: rgba(96, 165, 250, 0.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wm-tab[data-state="running"]:not(.active) {
+    animation: none;
+    background: rgba(59, 130, 246, 0.05);
+  }
 }
 
 .wm-tab[data-state="complete"]:not(.active) {
