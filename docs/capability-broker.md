@@ -354,6 +354,42 @@ restart. Later policy edits persist and affect new or explicitly reissued
 capabilities immediately; they do not require a restart and never widen active
 capabilities silently.
 
+## Execution-bound WApp native reader login
+
+`POST /api/mcp/capabilities/wapp-login` accepts the ordinary broker bearer and
+fresh capability nonce, with JSON `{sessionId, wappInstallationId, url}`. The
+URL must be the exact HTTPS `<registered-origin>/api/auth/login`, without query,
+fragment or credentials. This route uses the existing `nostr.sign` operation
+but has its own mandatory native-login constraint; it does not add kind 27235
+to generic event signing or expand NIP-98 origins.
+
+The live session must be scheduler-originated and bound to the same installation
+both in its metadata and in the current trigger. The installation must be active,
+owned by the session owner, in that owner's workspace, and explicitly register
+the requested origin. These checks run again after fetching the challenge, so
+removing the execution binding revokes access immediately. Existing session
+capabilities use the live binding without requiring reissue once the host loads
+this implementation.
+
+The broker obtains `GET /api/auth/challenge` from that exact origin itself, with
+redirects disabled, a ten-second timeout and a 16 KiB response limit. Supported
+native templates contain exactly `kind:27235`, a bounded slug ending in `-login`,
+a timestamp within 60 seconds, and one UUIDv4 `challenge` tag. Caller-supplied
+events and tags are never used. Duplicate challenges are denied per capability.
+The result is `{event, signedBy, wappInstallationId, url}`; the stable session bot
+signs, never the owner or installed publisher. The client sends `{event}` to the
+exact login URL and uses the resulting app session for reads. The WApp remains
+responsible for validating its login challenge and reader authorization.
+
+This is a native event login, not NIP-98 over the login JSON: placing the signed
+event inside `{event}` cannot produce a non-circular payload hash. Do not obtain
+a Tower-targeted signature and replay it against a WApp login route.
+
+Source validation: `bun test src/signing/wapp-login.test.ts
+src/signing/capability-broker.test.ts src/auth/wapp-activity-authority.test.ts`
+and `bun run typecheck`. Loading this new route requires the managed host to
+reload source; no host restart is performed by the implementation or client.
+
 ## Deliberately deferred
 
 - Optional isolation of the vault behind a separate OS account, service, remote
