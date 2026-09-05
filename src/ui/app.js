@@ -9,6 +9,7 @@ import {
   initLiveModule,
   MessageStore,
   PromptQueueStore,
+  UiPreferenceStore,
   isAlpineChatEnabled,
   initAlpineChat,
   attachWorkingNotesToggle,
@@ -151,6 +152,11 @@ import { initIdentityStateManager } from "./identity/state-manager.js";
 import { createNavigation } from "./navigation/navigation.js";
 import { createSessionRouting } from "./sessions/session-routing.js";
 import { applyInstanceBranding, getInstanceName } from "./branding/instance-branding.js";
+import {
+  attachCompletionSoundUnlock,
+  createCompletionSoundController,
+  createWebAudioCompletionPing,
+} from "./notifications/completion-sound.js";
 
 // Ace editor is lazy-loaded when the file editor is first opened.
 // See loadAceEditor() below and initFileEditor deps.
@@ -172,6 +178,11 @@ async function loadAceEditor() {
 const sessionsStore = () => window.Alpine?.store("sessions");
 /** Lazy accessor for the Dexie-backed apps Alpine store. */
 const appsStore = () => window.Alpine?.store("apps");
+const completionSoundController = createCompletionSoundController({
+  preferenceStore: UiPreferenceStore,
+  playPing: createWebAudioCompletionPing(),
+});
+attachCompletionSoundUnlock(completionSoundController);
 const sessionMessageSendInFlight = new Set();
 let sessionDialogController = null;
 let liveRefreshController = null;
@@ -2104,6 +2115,7 @@ const settingsViewModule = initSettingsView({
     sessionDialogController?.syncModelOptions?.();
   },
   triggerRestart: (...args) => triggerRestart(...args),
+  completionSoundController,
   showToast,
 });
 renderSettings = settingsViewModule.renderSettings;
@@ -2800,6 +2812,9 @@ dialog.addEventListener("cancel", (event) => {
     },
     onItemsChanged: () => {
       handleSessionsStoreItemsChanged();
+    },
+    onSessionCompleted: () => {
+      void completionSoundController.notifyCompletion();
     },
     // The main bootstrap restores auth first, then performs the initial fetch.
     syncOnInit: false,

@@ -104,6 +104,19 @@ db.version(9).stores({
   sessionAttention: "sessionId, runtimeStatus, lastRunningAt, completedAt, viewedAt",
 });
 
+// Version 10: persist browser-specific UI preferences without relying on
+// memory-only state or localStorage.
+db.version(10).stores({
+  messages: "++id, sessionId, [sessionId+createdAt], [sessionId+messageId], [sessionId+order], messageHash",
+  sessions: "id, status, updatedAt",
+  apiSessions: "id, status, agentType, npub, updatedAt, targetFile",
+  apps: "id, label, updatedAt",
+  permissions: "id, sessionId, status, createdAt, [sessionId+status]",
+  promptQueue: "id, sessionId, order, timestamp, [sessionId+order]",
+  sessionAttention: "sessionId, runtimeStatus, lastRunningAt, completedAt, viewedAt",
+  uiPreferences: "key",
+});
+
 /**
  * Message store operations.
  *
@@ -653,9 +666,9 @@ export const SessionAttentionStore = {
   async reconcile(sessions, now = new Date().toISOString()) {
     if (!Array.isArray(sessions)) return;
 
-    await db.transaction("rw", db.sessionAttention, async () => {
+    return await db.transaction("rw", db.sessionAttention, async () => {
       const existingRecords = await db.sessionAttention.toArray();
-      const { updates } = buildSessionAttentionChanges(
+      const { updates, completedSessionIds } = buildSessionAttentionChanges(
         sessions,
         existingRecords,
         now,
@@ -664,6 +677,7 @@ export const SessionAttentionStore = {
       if (updates.length > 0) {
         await db.sessionAttention.bulkPut(updates);
       }
+      return completedSessionIds;
     });
   },
 
@@ -677,6 +691,22 @@ export const SessionAttentionStore = {
 
   async clear() {
     return db.sessionAttention.clear();
+  },
+};
+
+export const UiPreferenceStore = {
+  async get(key) {
+    if (typeof key !== "string" || key.length === 0) return null;
+    return (await db.uiPreferences.get(key)) ?? null;
+  },
+
+  async set(key, value) {
+    if (typeof key !== "string" || key.length === 0) {
+      throw new Error("UI preference key is required");
+    }
+    const record = { key, value, updatedAt: new Date().toISOString() };
+    await db.uiPreferences.put(record);
+    return record;
   },
 };
 

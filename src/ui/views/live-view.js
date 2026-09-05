@@ -89,6 +89,7 @@ import { resolveLiveSessionUiReconciliation } from "../live/session-ui-reconcili
 import { canResumeNativeAgentSession } from "../home/native-session-resume.js";
 import { filterTaskDispatchSessionsForTabs } from "../sessions/session-classification.js";
 import { getSessionTabState, sortSessionsForTabState } from "../sessions/session-tab-state.js";
+import { decorateSessionTabCompletion } from "../sessions/session-completion-indicator.js";
 
 export function initLiveView(deps) {
   const {
@@ -491,7 +492,6 @@ export function initLiveView(deps) {
     tabButton.className = "wm-tab__button";
     tabButton.setAttribute("role", "tab");
     tabButton.setAttribute("aria-selected", isActive ? "true" : "false");
-    tabButton.setAttribute("aria-label", `Open ${displayName} (${tabState})`);
     tabButton.setAttribute("data-testid", `live-session-tab-${session.id}`);
     tabButton.addEventListener("click", () => {
       activateSessionTab(session, onSelect);
@@ -501,6 +501,11 @@ export function initLiveView(deps) {
     label.className = "wm-tab__label";
     label.textContent = displayName;
     tabButton.append(label);
+    decorateSessionTabCompletion(tabButton, {
+      displayName,
+      tabState,
+      unread: tabState === "complete",
+    });
 
     const closeButton = document.createElement("button");
     closeButton.type = "button";

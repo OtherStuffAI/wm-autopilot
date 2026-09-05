@@ -3668,6 +3668,35 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
   color: var(--danger, #ef4444);
 }
 
+.wm-completion-notifications {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.wm-completion-notifications h2,
+.wm-completion-notifications p {
+  margin: 0;
+}
+
+.wm-completion-notifications__option {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.wm-completion-notifications__option input {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.wm-completion-notifications__status {
+  min-height: 1.25rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
 .wm-instance-settings__editor .wm-input {
   min-width: 0;
   width: 100%;
@@ -6498,12 +6527,6 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
   }
 }
 
-.wm-tab[data-state="complete"]:not(.active) {
-  background: rgba(34, 197, 94, 0.2);
-  border-color: rgba(74, 222, 128, 0.34);
-  color: var(--text-primary);
-}
-
 .wm-tab.active {
   background: rgb(from var(--accent-primary) r g b / 0.08);
   border-color: rgb(from var(--accent-primary) r g b / 0.22);
@@ -6525,11 +6548,6 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
     background-color: rgb(from var(--accent-primary) r g b / 0.1);
     border-color: rgb(from var(--accent-primary) r g b / 0.3);
   }
-}
-
-.wm-tab.active[data-state="complete"] {
-  background: rgba(34, 197, 94, 0.2);
-  border-color: rgba(74, 222, 128, 0.34);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6577,6 +6595,16 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.wm-tab__completion-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-left: 0.5rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px var(--bg-primary);
 }
 
 .wm-tab .close {
