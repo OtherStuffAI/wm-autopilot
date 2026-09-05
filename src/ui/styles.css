@@ -6498,13 +6498,6 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .wm-tab[data-state="running"]:not(.active) {
-    animation: none;
-    background: rgba(59, 130, 246, 0.07);
-  }
-}
-
 .wm-tab[data-state="complete"]:not(.active) {
   background: rgba(34, 197, 94, 0.2);
   border-color: rgba(74, 222, 128, 0.34);
@@ -6518,9 +6511,37 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
   font-weight: 600;
 }
 
+.wm-tab.active[data-state="running"] {
+  animation: wm-tab-active-working-breathe 3.6s ease-in-out infinite;
+}
+
+@keyframes wm-tab-active-working-breathe {
+  0%,
+  100% {
+    background-color: transparent;
+    border-color: rgb(from var(--accent-primary) r g b / 0.14);
+  }
+  50% {
+    background-color: rgb(from var(--accent-primary) r g b / 0.1);
+    border-color: rgb(from var(--accent-primary) r g b / 0.3);
+  }
+}
+
 .wm-tab.active[data-state="complete"] {
   background: rgba(34, 197, 94, 0.2);
   border-color: rgba(74, 222, 128, 0.34);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wm-tab[data-state="running"]:not(.active) {
+    animation: none;
+    background: rgba(59, 130, 246, 0.07);
+  }
+
+  .wm-tab.active[data-state="running"] {
+    animation: none;
+    background: rgb(from var(--accent-primary) r g b / 0.08);
+  }
 }
 
 .wm-tab__button {
