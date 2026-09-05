@@ -16,6 +16,10 @@ describe("live layout CSS", () => {
     expect(styles).toContain('.wm-tab[data-state="complete"]:not(.active)');
     expect(styles).toContain('background: rgba(34, 197, 94, 0.2);');
     expect(styles).toContain('.wm-tab.active');
+    expect(styles).toContain('.wm-tab.active[data-state="running"]');
+    expect(styles).toContain('animation: wm-tab-active-working-breathe 3.6s ease-in-out infinite;');
+    expect(styles).toContain('@keyframes wm-tab-active-working-breathe');
+    expect(styles).toContain('background-color: rgb(from var(--accent-primary) r g b / 0.1);');
     expect(styles).toContain('.wm-tab.active[data-state="complete"]');
   });
 
