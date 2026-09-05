@@ -68,6 +68,20 @@ describe("NIP-98 request verification", () => {
     expect(await verify(signedRequest({ signedUrl: "https://autopilot.example/api/items?owner=bob" }))).toBeNull();
   });
 
+  test("readiness signatures bind installation, destination query, owner URL and method", async () => {
+    const path = "/api/wapps/installation-1/publisher-readiness?scope_id=scope-1&channel_id=channel-1&origin=https%3A%2F%2Fbook.example";
+    const actualUrl = `https://autopilot.example${path}`;
+    expect(await verify(signedRequest({ actualUrl }))).not.toBeNull();
+    for (const signedUrl of [
+      actualUrl.replace("installation-1", "installation-2"),
+      actualUrl.replace("channel-1", "channel-2"),
+      actualUrl.replace("/api/wapps/", "/api/owners/npub1owner/wapps/"),
+    ]) expect(await verify(signedRequest({ actualUrl, signedUrl }))).toBeNull();
+    const wrongMethod = signedRequest({ actualUrl });
+    wrongMethod.request = new Request(actualUrl, { method: "POST", headers: wrongMethod.request.headers });
+    expect(await verify(wrongMethod)).toBeNull();
+  });
+
   test("requires an exact payload hash for body bytes", async () => {
     expect(await verify(signedRequest({ method: "POST", body: '{"ok":true}', signedBody: '{"ok":true}' }))).not.toBeNull();
     expect(await verify(signedRequest({ method: "POST", body: '{"ok":false}' }))).toBeNull();

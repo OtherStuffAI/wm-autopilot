@@ -15,11 +15,13 @@ import { handleWappPublisherRotation, type WappPublisherRotationVerifier } from 
 import { HttpTowerWappRegistrar, TowerWappRegistrationError, type TowerWappRegistrar } from "../wapps/tower-registration";
 import { buildFlightDeckWappRecordPayload, type WappPublisher } from "../wapps/wapp-publisher";
 import { createWappTemplate } from "../wapps/wapp-template";
-import { TowerWappActivityRoutes, WappPublishingClient, type WappActivityProjection } from "../wapps/wapp-publishing-client";
+import type { WappActivityProjection } from "../wapps/wapp-publishing-client";
 import type { WappAppKeyMode, WappRecord, WappSchedule, WappScheduleWindow, WappStatus, WappTowerBinding } from "../wapps/types";
 import type { WappStore } from "../wapps/wapp-store";
 import type { InstallationIntentConsumer } from "../wapps/installation-intent-consumer";
 import { WAPP_ACTIVITY_AUTHORITY_REQUIRED } from "../auth/wapp-activity-authority";
+import { withManagedPublishingClient } from "../wapps/managed-publishing";
+import { checkPublisherReadiness, parsePublisherReadinessTarget } from "../wapps/publisher-readiness";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -191,15 +193,9 @@ async function publishManagedWappActivity(
   projection: WappActivityProjection,
 ): Promise<unknown> {
   if (ctx.publishActivity) return await ctx.publishActivity(wapp, projection);
-  const binding = wapp.towerBindingId ? ctx.wappStore.getTowerBinding(wapp.towerBindingId) : null;
-  if (!binding?.workspaceId || !ctx.wappStore.hasAppSigningKey(wapp.id) || !wapp.publisherNpub) {
-    throw Object.assign(new Error("WApp Tower publishing identity is incomplete"), { status: 409 });
-  }
-  return await ctx.wappStore.withAppSigningKey(wapp.id, async (nsec) => {
-    const client = new WappPublishingClient({ towerUrl: binding.towerUrl, workspaceId: binding.workspaceId!,
-      wappInstallationId: wapp.wappInstallationId, publisherNpub: wapp.publisherNpub!, nsec, routes: TowerWappActivityRoutes });
-    try { const grant = await client.start(); return { grant, published: await client.publish(projection) }; }
-    finally { client.stop(); }
+  return await withManagedPublishingClient(ctx.wappStore, wapp, async (client) => {
+    const grant = await client.refreshGrant();
+    return { grant, published: await client.publish(projection) };
   });
 }
 
@@ -283,11 +279,11 @@ export async function handleWappsApi(
     ? url.pathname.match(/^\/api\/wapps\/([^/]+)\/activity$/)
     : null;
   const publisherRepairMatch = method === "GET" || method === "POST"
-    ? url.pathname.match(/^\/api\/wapps\/([^/]+)(?:\/(rotate-publisher-key))?$/)
+    ? url.pathname.match(/^\/api\/wapps\/([^/]+)(?:\/(rotate-publisher-key|publisher-readiness))?$/)
     : null;
   const publisherRepairOperation = Boolean(
     publisherRepairMatch && (
-      (method === "GET" && !publisherRepairMatch[2]) ||
+      (method === "GET" && (!publisherRepairMatch[2] || publisherRepairMatch[2] === "publisher-readiness")) ||
       (method === "POST" && publisherRepairMatch[2] === "rotate-publisher-key")
     ),
   );
@@ -470,6 +466,14 @@ export async function handleWappsApi(
 
   if (!action && method === "GET") {
     return Response.json({ wapp });
+  }
+
+  if (action === "publisher-readiness" && method === "GET") {
+    const target = parsePublisherReadinessTarget(url);
+    if (!target) return Response.json({ error: "scope_id, channel_id and an exact HTTP(S) origin are required" }, { status: 400 });
+    return Response.json(await checkPublisherReadiness(ctx.wappStore, wapp, target), {
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
   if (action === "nsec" && method === "GET") {
