@@ -72,31 +72,36 @@ Visit:
 - `http://localhost:<PORT>/home` for the session dashboard
 - `http://localhost:<PORT>/live` for the real-time live/session surface
 
-## Tower-backed Forgejo issues
+## Native Forgejo Git and APIs
 
-Agent sessions can read and write repository issues through Tower without a
-Forgejo token or private signing key:
+Tower authenticates allowlisted Nostr identities. Stock Forgejo owns accounts,
+OAuth credentials, repository permissions, branch protections, Git and APIs.
+Configure native hosts on the Autopilot server using `WINGMAN_FORGEJO_SERVERS`:
 
-```bash
-bun clis/wingman.ts forgejo issues list \
-  --workspace <workspace-id> --repo <repository-id> --state open
-
-bun clis/wingman.ts forgejo issues read 1 \
-  --workspace <workspace-id> --repo <repository-id>
-
-bun clis/wingman.ts forgejo issues create \
-  --workspace <workspace-id> --repo <repository-id> \
-  --title "Outcome-oriented title" --body-file issue.md
-
-bun clis/wingman.ts forgejo issues comment 1 \
-  --workspace <workspace-id> --repo <repository-id> \
-  --body-file update.md
+```json
+[{"origin":"https://forgejo.example","towerIssuer":"https://tower.example/api/v4/git/oidc","sourceName":"Tower","clientId":"a4792ccc-144e-407e-86c9-5e7d8d9c3269","redirectUri":"http://127.0.0.1/"}]
 ```
 
-The CLI uses `TOWER_URL` plus the session-provided `WINGMAN_URL`, `SESSION_ID`,
-and `WINGMAN_CAPABILITY`. Autopilot brokers the agent's short-lived NIP-98
-proof, while the CLI sends the exact signed body to Tower's issue API. It never
-calls Forgejo directly and does not accept a human key or provider token.
+This uses Forgejo's stock public git-credential-oauth client. No client secret,
+admin token or repository grant is configured. These are native account tokens;
+Forgejo OAuth scopes do not narrow them to individual repositories. Native OIDC auto registration
+must be enabled for fresh accounts; password/2FA/account linking challenges
+still require their normal interactive completion.
+
+```bash
+wingman forgejo issues list --forgejo-url https://forgejo.example --repo owner/repository
+wingman forgejo issues create --forgejo-url https://forgejo.example --repo owner/repository --title "Fix" --body-file issue.md
+wingman forgejo pulls create --forgejo-url https://forgejo.example --repo owner/repository --title "Fix" --head feature --base main
+```
+
+The CLI accepts `FORGEJO_URL` as the default host and uses session-provided
+`WINGMAN_BROKER_URL`, `SESSION_ID`, and `WINGMAN_CAPABILITY`. The broker obtains
+native OAuth credentials with authorization-code PKCE and a managed Nostr
+signer. Git and API calls go directly to Forgejo. Expiry triggers a fresh Tower
+sign-in; permissions denied by Forgejo do not cause repeated authentication.
+Valid cached native tokens work during Tower outages. Removing a Tower login
+allowlist entry prevents new sign-in only; native token/account revocation is
+managed separately in Forgejo.
 
 ## CapRover Targets
 
@@ -241,13 +246,14 @@ the operator can inspect files directly outside Docker. Codex sessions trust
 `/workspace` by default to avoid an interactive first-run trust prompt in the
 web UI.
 
-The image also installs `/usr/local/bin/git-credential-wingman`. Sessions bound
-to a Tower workspace discover Tower-advertised HTTPS Git gateways and receive
-host-specific Git configuration with `credential.useHttpPath=true`. The helper
-uses only the session's loopback capability broker; operators do not configure
-or store a Forgejo password or token. A Tower connection that does not advertise
-Git remains unconfigured and fails visibly instead of falling back to a known
-hostname.
+The image installs `/usr/local/bin/git-credential-wingman` version 3. Configured
+native HTTPS origins receive host-specific Git configuration with
+`credential.useHttpPath=true`. The helper uses the session's loopback broker.
+Native tokens are cached only in broker process memory per actor and origin;
+they are never written to disk, agent environment, remote URLs or logs. A broker
+restart discards tokens and causes a fresh native sign-in. Updating the server
+and helper requires an operator-managed Autopilot restart; do not restart from
+inside an active managed session.
 
 For hosted app subdomains, configure the base-machine Cloudflare Tunnel with
 both `apps.example.invalid` and `*.apps.example.invalid` pointing to the Wingman host

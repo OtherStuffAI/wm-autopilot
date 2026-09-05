@@ -11,7 +11,7 @@ interface GitConfigEntry {
 function normalizeGatewayOrigin(value: string): string {
   const origin = new URL(value);
   if (origin.protocol !== "https:" || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) {
-    throw new Error("Tower advertised an invalid Git gateway origin.");
+    throw new Error("Native Forgejo configuration contains an invalid origin.");
   }
   return origin.origin;
 }

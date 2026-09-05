@@ -62,7 +62,7 @@ describe("Wingman Git credential environment", () => {
     "https://git.example.test/path",
   ])("rejects an invalid advertised origin: %s", (origin) => {
     expect(() => replaceWingmanGitCredentialConfig({}, [origin])).toThrow(
-      "Tower advertised an invalid Git gateway origin.",
+      "Native Forgejo configuration contains an invalid origin.",
     );
   });
 });
