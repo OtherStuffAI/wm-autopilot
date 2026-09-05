@@ -13,14 +13,15 @@ describe("live layout CSS", () => {
     expect(styles).toContain('background-color: transparent;');
     expect(styles).toContain('background-color: rgba(59, 130, 246, 0.1);');
     expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
-    expect(styles).toContain('.wm-tab[data-state="complete"]:not(.active)');
-    expect(styles).toContain('background: rgba(34, 197, 94, 0.2);');
+    expect(styles).not.toContain('.wm-tab[data-state="complete"]:not(.active)');
+    expect(styles).toContain('.wm-tab__completion-dot');
+    expect(styles).toContain('background: #ef4444;');
     expect(styles).toContain('.wm-tab.active');
     expect(styles).toContain('.wm-tab.active[data-state="running"]');
     expect(styles).toContain('animation: wm-tab-active-working-breathe 3.6s ease-in-out infinite;');
     expect(styles).toContain('@keyframes wm-tab-active-working-breathe');
     expect(styles).toContain('background-color: rgb(from var(--accent-primary) r g b / 0.1);');
-    expect(styles).toContain('.wm-tab.active[data-state="complete"]');
+    expect(styles).not.toContain('.wm-tab.active[data-state="complete"]');
   });
 
   test("uses most of the viewport for wide content routes", () => {

@@ -29,6 +29,7 @@ describe("session attention transitions", () => {
 
     expect(result.updates[0].completedAt).toBe(now);
     expect(result.updates[0].viewedAt).toBeUndefined();
+    expect(result.completedSessionIds).toEqual(["session-1"]);
   });
 
   test("keeps a completion unread until the viewer leaves the session", () => {
@@ -40,5 +41,6 @@ describe("session attention transitions", () => {
 
     expect(result.updates[0].completedAt).toBe(now);
     expect(result.updates[0].viewedAt).toBeUndefined();
+    expect(result.completedSessionIds).toEqual(["session-1"]);
   });
 });

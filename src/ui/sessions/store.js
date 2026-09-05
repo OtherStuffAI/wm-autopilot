@@ -34,6 +34,7 @@ function normaliseNpub(npub) {
  * @param {Function} deps.getIdentity - Returns current identity state object
  * @param {Function} [deps.onUnauthorized] - Called on 401 responses
  * @param {Function} [deps.onIdentityUpdate] - Called with identity updates from session data
+ * @param {Function} [deps.onSessionCompleted] - Called for browser-observed completion transitions
  * @param {boolean} [deps.syncOnInit=true] - Whether init() should immediately sync from the API
  */
 export function initSessionsStore({
@@ -42,6 +43,7 @@ export function initSessionsStore({
   onUnauthorized,
   onIdentityUpdate,
   onItemsChanged,
+  onSessionCompleted,
   syncOnInit = true,
 }) {
   Alpine.store("sessions", {
@@ -61,6 +63,7 @@ export function initSessionsStore({
     _liveQuerySub: null,
     _attentionLiveQuerySub: null,
     _attentionReconcile: Promise.resolve(),
+    _completionNotificationsReady: false,
 
     // ----- Lifecycle -----
 
@@ -104,7 +107,7 @@ export function initSessionsStore({
       this._liveQuerySub = observable.subscribe({
         next: (sessions) => {
           this.items = sortSessionsForTabs(sessions);
-          this._queueAttentionReconcile(this.items);
+          void this._queueAttentionReconcile(this.items);
           if (typeof onItemsChanged === "function") {
             onItemsChanged(this.items);
           }
@@ -136,10 +139,18 @@ export function initSessionsStore({
       });
     },
 
-    _queueAttentionReconcile(sessions) {
+    _queueAttentionReconcile(sessions, { notify = this._completionNotificationsReady } = {}) {
       this._attentionReconcile = this._attentionReconcile
-        .then(() => SessionAttentionStore.reconcile(sessions))
+        .then(async () => {
+          const completedSessionIds = await SessionAttentionStore.reconcile(sessions) ?? [];
+          if (notify && typeof onSessionCompleted === "function") {
+            completedSessionIds.forEach((sessionId) => {
+              onSessionCompleted(this.getById(sessionId));
+            });
+          }
+        })
         .catch((err) => console.error("[sessions-store] attention reconcile failed:", err));
+      return this._attentionReconcile;
     },
 
     // ----- Server sync -----
@@ -181,6 +192,13 @@ export function initSessionsStore({
         const orderedSessions = sortSessionsForTabs(sessions);
         const identities = Array.isArray(data.identities) ? data.identities : [];
         this.identitySummaries = identities;
+
+        // The first authoritative sync establishes a no-sound baseline. Later
+        // running-to-stable transitions may notify while the browser is open.
+        await this._queueAttentionReconcile(orderedSessions, {
+          notify: this._completionNotificationsReady,
+        });
+        this._completionNotificationsReady = true;
 
         // Write to Dexie — liveQuery fires -> this.items updates (async)
         await ApiSessionStore.upsertMany(orderedSessions);

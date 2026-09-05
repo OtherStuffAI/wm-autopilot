@@ -3,7 +3,16 @@
  * Provides real-time session updates via SSE with Dexie persistence.
  */
 
-export { db, MessageStore, PermissionStore, PromptQueueStore, SessionStore, DbUtils, Dexie } from "./db.js";
+export {
+  db,
+  MessageStore,
+  PermissionStore,
+  PromptQueueStore,
+  SessionStore,
+  UiPreferenceStore,
+  DbUtils,
+  Dexie,
+} from "./db.js";
 export { sseManager } from "./sse-manager.js";
 export { visibilityManager } from "./visibility-manager.js";
 export { attachWorkingNotesToggle } from "./working-notes-toggle.js";

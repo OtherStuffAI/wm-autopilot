@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let registeredStore = null;
-let liveQueryNext = null;
+let liveQueryObservers = [];
 
 const getAllMock = mock(async () => []);
 const upsertManyMock = mock(async () => {});
 const clearMock = mock(async () => {});
+const attentionGetAllMock = mock(async () => []);
+const attentionReconcileMock = mock(async () => []);
+const attentionMarkViewedMock = mock(async () => null);
 const fetchSessionsApiMock = mock(async () => ({
   sessions: [],
   identities: [],
@@ -28,7 +31,7 @@ mock.module("../live/db.js", () => ({
     liveQuery(callback) {
       return {
         subscribe(observer) {
-          liveQueryNext = observer.next;
+          liveQueryObservers.push(observer);
           void callback();
           return { unsubscribe() {} };
         },
@@ -39,6 +42,11 @@ mock.module("../live/db.js", () => ({
     getAll: getAllMock,
     upsertMany: upsertManyMock,
     clear: clearMock,
+  },
+  SessionAttentionStore: {
+    getAll: attentionGetAllMock,
+    reconcile: attentionReconcileMock,
+    markViewed: attentionMarkViewedMock,
   },
 }));
 
@@ -51,10 +59,13 @@ const { initSessionsStore } = await import("./store.js");
 describe("sessions store", () => {
   beforeEach(() => {
     registeredStore = null;
-    liveQueryNext = null;
+    liveQueryObservers = [];
     getAllMock.mockClear();
     upsertManyMock.mockClear();
     clearMock.mockClear();
+    attentionGetAllMock.mockClear();
+    attentionReconcileMock.mockClear();
+    attentionMarkViewedMock.mockClear();
     fetchSessionsApiMock.mockClear();
     getAllMock.mockResolvedValue([]);
     fetchSessionsApiMock.mockResolvedValue({
@@ -74,11 +85,41 @@ describe("sessions store", () => {
     });
 
     await registeredStore.init();
-    liveQueryNext?.([{ id: "session-1", startedAt: "2026-06-13T01:00:00.000Z" }]);
+    liveQueryObservers[0]?.next([{ id: "session-1", startedAt: "2026-06-13T01:00:00.000Z" }]);
 
     expect(onItemsChanged).toHaveBeenCalledWith([
       { id: "session-1", startedAt: "2026-06-13T01:00:00.000Z" },
     ]);
+  });
+
+  test("notifies only after the initial server completion baseline", async () => {
+    const onSessionCompleted = mock(() => {});
+    fetchSessionsApiMock
+      .mockResolvedValueOnce({
+        sessions: [{ id: "session-1", agentRuntimeStatus: "running" }],
+        identities: [],
+        filters: { npubs: [] },
+      })
+      .mockResolvedValueOnce({
+        sessions: [{ id: "session-1", agentRuntimeStatus: "stable" }],
+        identities: [],
+        filters: { npubs: [] },
+      });
+    attentionReconcileMock
+      .mockResolvedValueOnce(["session-1"])
+      .mockResolvedValueOnce(["session-1"]);
+
+    initSessionsStore({
+      showToast: mock(() => {}),
+      getIdentity: () => ({ npub: "npub1viewer" }),
+      onSessionCompleted,
+      syncOnInit: false,
+    });
+
+    await registeredStore.sync();
+    expect(onSessionCompleted).not.toHaveBeenCalled();
+    await registeredStore.sync();
+    expect(onSessionCompleted).toHaveBeenCalledTimes(1);
   });
 
   test("notifies render subscribers after explicit API sync", async () => {

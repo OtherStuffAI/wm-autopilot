@@ -23,6 +23,7 @@ import { createTerminalSecuritySection } from './settings/terminal-security-sect
 import { createAgentProfilesSection } from './settings/agent-profiles-section.js';
 import { createRestartSettingsSection } from './settings/restart-settings-section.js';
 import { createSigningPoliciesSection } from './settings/signing-policies-section.js';
+import { createCompletionNotificationsSection } from './settings/completion-notifications-section.js';
 
 const PAGE_COPY = Object.freeze({
   profile: ['Profile', 'Your identity, sign-in state and default launch agent.'],
@@ -99,6 +100,7 @@ export function initSettingsView(deps) {
     showToast,
     appsStore,
     triggerRestart,
+    completionSoundController,
   } = deps;
 
   function renderAssignedPortsSection({ allocationActions = false } = {}) {
@@ -154,10 +156,16 @@ export function initSettingsView(deps) {
   }
 
   function renderProfilePage() {
-    return createPage('profile', renderIdentityPanel({
-      variant: 'settings',
-      summaryAside: createDefaultAgentSection({ state }),
-    }));
+    return createPage(
+      'profile',
+      renderIdentityPanel({
+        variant: 'settings',
+        summaryAside: createDefaultAgentSection({ state }),
+      }),
+      createSettingsCard(createCompletionNotificationsSection({
+        soundController: completionSoundController,
+      }), { testId: 'settings-profile-session-notifications' }),
+    );
   }
 
   function renderCredentialsPage() {

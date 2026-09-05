@@ -5,6 +5,7 @@ export function buildSessionAttentionChanges(
 ) {
   const existingById = new Map(existingRecords.map((record) => [record.sessionId, record]));
   const updates = [];
+  const completedSessionIds = [];
 
   for (const session of sessions) {
     const sessionId = typeof session?.id === "string" ? session.id : null;
@@ -17,9 +18,10 @@ export function buildSessionAttentionChanges(
       next.lastRunningAt = now;
     } else if (runtimeStatus === "stable" && existing.runtimeStatus === "running") {
       next.completedAt = now;
+      completedSessionIds.push(sessionId);
     }
     updates.push(next);
   }
 
-  return { updates };
+  return { updates, completedSessionIds };
 }
