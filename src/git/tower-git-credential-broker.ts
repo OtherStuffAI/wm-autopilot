@@ -1,3 +1,4 @@
+import { TowerGitError, towerGitResponseError } from "./tower-git-error";
 import { createHash } from "node:crypto";
 
 import type { SessionSnapshot } from "../agents/process-manager";
@@ -38,7 +39,7 @@ interface DiscoveredTowerGitService {
 
 type SignNip98 = (input: {
   url: string;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PUT";
   bodyHash?: string;
 }) => Promise<string>;
 
@@ -65,6 +66,23 @@ export class TowerGitCredentialBroker implements GitCredentialBrokerAdapter {
     return { gatewayOrigins: [...new Set(services.flatMap((service) => service.gatewayOrigins))].sort() };
   }
 
+  async bootstrap(input: {
+    session: SessionSnapshot; botNpub: string; workspaceId: string; signNip98: SignNip98;
+    action: "status" | "request" | "username" | "repositories"; username?: string; towerOrigin?: string;
+  }): Promise<unknown> {
+    const services = await this.discoverServices(input);
+    const matches = services.filter((service) => !input.towerOrigin || service.towerOrigin === input.towerOrigin);
+    if (matches.length !== 1) throw new TowerGitError("discovery", 409, "git_active_tower_ambiguous");
+    const service = matches[0]!;
+    const suffix = input.action === "username" ? "actor-username" : input.action === "repositories" ? "repositories" : "actor-bootstrap";
+    return this.signedJson({
+      url: `${service.towerOrigin}/api/v4/git/workspaces/${encodeURIComponent(input.workspaceId)}/${suffix}`,
+      method: input.action === "request" ? "POST" : input.username !== undefined ? "PUT" : "GET",
+      ...(input.action === "request" ? { body: "{}" } : input.username !== undefined ? { body: JSON.stringify({ username: input.username }) } : {}),
+      appNpub: service.appNpub, signNip98: input.signNip98,
+    });
+  }
+
   async exchange(input: {
     session: SessionSnapshot;
     botNpub: string;
@@ -81,7 +99,7 @@ export class TowerGitCredentialBroker implements GitCredentialBrokerAdapter {
   }): Promise<{ username: string; password: string; expiresAt: string }> {
     const services = await this.discoverServices(input);
     const service = services.find((candidate) => candidate.gatewayOrigins.includes(input.request.gatewayOrigin));
-    if (!service) throw new Error("The Git gateway is not advertised for this session.");
+    if (!service) throw new TowerGitError("discovery", 403, "git_gateway_not_advertised");
 
     const resolveUrl = new URL(
       `/api/v4/git/workspaces/${encodeURIComponent(service.workspaceId)}/repositories/resolve`,
@@ -152,7 +170,7 @@ export class TowerGitCredentialBroker implements GitCredentialBrokerAdapter {
       && subscription.workspaceId === input.workspaceId
       && subscription.botNpub === input.botNpub
     ));
-    if (bindings.length === 0) throw new Error("No active Tower workspace connection matches this session.");
+    if (bindings.length === 0) throw new TowerGitError("discovery", 409, "git_active_workspace_missing");
 
     const uniqueBindings = [...new Map(bindings.map((binding) => [
       `${new URL(binding.backendBaseUrl).origin}\u0000${binding.sourceAppNpub}`,
@@ -190,7 +208,7 @@ export class TowerGitCredentialBroker implements GitCredentialBrokerAdapter {
 
   private async signedJson<T>(input: {
     url: string;
-    method: "GET" | "POST";
+    method: "GET" | "POST" | "PUT";
     appNpub: string;
     body?: string;
     signNip98: SignNip98;
@@ -213,7 +231,12 @@ export class TowerGitCredentialBroker implements GitCredentialBrokerAdapter {
       },
       body: input.body,
     });
-    if (!response.ok) throw new Error(`Tower request failed (${response.status}).`);
+    if (!response.ok) {
+      const path = new URL(input.url).pathname;
+      const stage = path.endsWith('/service') ? 'discovery' : path.endsWith('/resolve') ? 'repository resolution'
+        : path.endsWith('/credential-exchanges') ? 'credential exchange' : 'bootstrap';
+      throw await towerGitResponseError(response, stage);
+    }
     return await response.json() as T;
   }
 }

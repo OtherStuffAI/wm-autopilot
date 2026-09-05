@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import type { CapabilityClientContext } from '../mcp/capability-client';
+import { callCapabilityBroker, type CapabilityClientContext } from '../mcp/capability-client';
 import { TowerForgejoIssueError, TowerForgejoIssuesClient } from './issues-client';
 
 export interface ForgejoCliResult {
@@ -32,6 +32,22 @@ export async function runForgejoCli(argv: string[], io: {
     }
 
     const env = io.env ?? Bun.env;
+    const [area, action] = parsed.positionals;
+    if (['bootstrap', 'username', 'repositories'].includes(area ?? '')) {
+      const operation = area === 'bootstrap' && ['request', 'status'].includes(action ?? '') ? action
+        : area === 'username' && ['get', 'set'].includes(action ?? '') ? 'username'
+        : area === 'repositories' && action === 'list' ? 'repositories' : null;
+      if (!operation) throw new Error('Use bootstrap request|status, username get|set, or repositories list.');
+      const result = await callCapabilityBroker('/api/mcp/capabilities/git-bootstrap', {
+        action: operation,
+        ...(area === 'username' && action === 'set' ? { username: requiredFlag(parsed.flags, '--username', 'username') } : {}),
+        ...(stringFlag(parsed.flags, '--workspace') ? { workspaceId: stringFlag(parsed.flags, '--workspace') } : {}),
+        ...(stringFlag(parsed.flags, '--tower-url') ? { towerOrigin: new URL(stringFlag(parsed.flags, '--tower-url')!).origin } : {}),
+      }, io.capabilityContext ?? resolveCapabilityContext(parsed.flags, env, io.fetchImpl));
+      const output = JSON.stringify(result, null, 2);
+      io.stdout?.(output);
+      return { exitCode: 0, stdout: output };
+    }
     const towerUrl = stringFlag(parsed.flags, '--tower-url') ?? env.TOWER_URL?.trim();
     if (!towerUrl) throw new Error('Missing Tower URL. Pass --tower-url or set TOWER_URL.');
     const capabilityContext = io.capabilityContext ?? resolveCapabilityContext(parsed.flags, env, io.fetchImpl);
@@ -162,6 +178,9 @@ function usageText(): string {
   return `Wingman Tower-backed Forgejo issue client
 
 Usage:
+  bun clis/wingman.ts forgejo bootstrap request|status [--workspace <id>] [--tower-url <origin>]
+  bun clis/wingman.ts forgejo username get|set [--username <name>] [--workspace <id>]
+  bun clis/wingman.ts forgejo repositories list [--workspace <id>]
   bun clis/wingman.ts forgejo issues list --workspace <id> --repo <id> [--state open|closed|all] [--page <n>] [--limit <n>]
   bun clis/wingman.ts forgejo issues read <number> --workspace <id> --repo <id>
   bun clis/wingman.ts forgejo issues create --workspace <id> --repo <id> --title <text> [--body <text> | --body-file <path>] [--correlation-id <id>]
