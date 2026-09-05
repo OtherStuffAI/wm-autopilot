@@ -50,7 +50,7 @@ function buildFixture(options: { workspaceBinding?: boolean; exchangeError?: Err
       exchange: async ({ signNip98 }) => {
         if (options.exchangeError) throw options.exchangeError;
         const token = await signNip98({
-          url: "https://tower.example.test/api/v4/git/credential-exchanges",
+          url: "https://tower.example.test/api/v4/git/oidc/authorize/complete",
           method: "POST",
           bodyHash: "ab".repeat(32),
         });
@@ -102,20 +102,20 @@ describe("Tower Git session capability boundary", () => {
     const event = fixture.getSignedEvent()! as { kind: number; tags: string[][] };
     expect(verifyEvent(event as never)).toBe(true);
     expect(event.tags).toEqual(expect.arrayContaining([
-      ["u", "https://tower.example.test/api/v4/git/credential-exchanges"],
+      ["u", "https://tower.example.test/api/v4/git/oidc/authorize/complete"],
       ["method", "POST"],
       ["payload", "ab".repeat(32)],
     ]));
     expect(JSON.stringify(fixture.audit)).not.toContain("ephemeral-secret");
   });
 
-  test("rejects a session without a Tower workspace binding", async () => {
+  test("permits native Forgejo credentials without a Tower workspace binding", async () => {
     const response = await buildFixture({ workspaceBinding: false }).call({
       protocol: "https",
       host: "git.example.test",
       path: "/studio/project.git",
     });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
   });
 
   test("redacts adapter failures from the helper response and audit", async () => {

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
-import { callCapabilityBroker, type CapabilityClientContext } from '../mcp/capability-client';
-import { TowerForgejoIssueError, TowerForgejoIssuesClient } from './issues-client';
+import { type CapabilityClientContext } from '../mcp/capability-client';
+import { NativeForgejoIssueError, NativeForgejoIssuesClient } from './issues-client';
 
 export interface ForgejoCliResult {
   exitCode: number;
@@ -33,25 +33,11 @@ export async function runForgejoCli(argv: string[], io: {
 
     const env = io.env ?? Bun.env;
     const [area, action] = parsed.positionals;
-    if (['bootstrap', 'username', 'repositories'].includes(area ?? '')) {
-      const operation = area === 'bootstrap' && ['request', 'status'].includes(action ?? '') ? action
-        : area === 'username' && ['get', 'set'].includes(action ?? '') ? 'username'
-        : area === 'repositories' && action === 'list' ? 'repositories' : null;
-      if (!operation) throw new Error('Use bootstrap request|status, username get|set, or repositories list.');
-      const result = await callCapabilityBroker('/api/mcp/capabilities/git-bootstrap', {
-        action: operation,
-        ...(area === 'username' && action === 'set' ? { username: requiredFlag(parsed.flags, '--username', 'username') } : {}),
-        ...(stringFlag(parsed.flags, '--workspace') ? { workspaceId: stringFlag(parsed.flags, '--workspace') } : {}),
-        ...(stringFlag(parsed.flags, '--tower-url') ? { towerOrigin: new URL(stringFlag(parsed.flags, '--tower-url')!).origin } : {}),
-      }, io.capabilityContext ?? resolveCapabilityContext(parsed.flags, env, io.fetchImpl));
-      const output = JSON.stringify(result, null, 2);
-      io.stdout?.(output);
-      return { exitCode: 0, stdout: output };
-    }
-    const towerUrl = stringFlag(parsed.flags, '--tower-url') ?? env.TOWER_URL?.trim();
-    if (!towerUrl) throw new Error('Missing Tower URL. Pass --tower-url or set TOWER_URL.');
+    if (['bootstrap', 'username', 'repositories'].includes(area ?? '')) throw new Error('Tower Forgejo bootstrap is retired. Manage accounts, usernames and repositories in native Forgejo.');
+    const forgejoUrl = stringFlag(parsed.flags, '--forgejo-url') ?? env.FORGEJO_URL?.trim();
+    if (!forgejoUrl) throw new Error('Missing Forgejo URL. Pass --forgejo-url or set FORGEJO_URL.');
     const capabilityContext = io.capabilityContext ?? resolveCapabilityContext(parsed.flags, env, io.fetchImpl);
-    const client = new TowerForgejoIssuesClient({ towerUrl, capabilityContext, fetchImpl: io.fetchImpl });
+    const client = new NativeForgejoIssuesClient({ forgejoUrl, capabilityContext, fetchImpl: io.fetchImpl });
     const result = await dispatch(client, parsed.positionals, parsed.flags);
     const output = JSON.stringify(result, null, 2);
     io.stdout?.(output);
@@ -61,7 +47,7 @@ export async function runForgejoCli(argv: string[], io: {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     };
-    if (error instanceof TowerForgejoIssueError) {
+    if (error instanceof NativeForgejoIssueError) {
       payload.status = error.status;
       payload.code = error.code;
     }
@@ -71,35 +57,38 @@ export async function runForgejoCli(argv: string[], io: {
   }
 }
 
-async function dispatch(client: TowerForgejoIssuesClient, positionals: string[], flags: FlagMap): Promise<unknown> {
+async function dispatch(client: NativeForgejoIssuesClient, positionals: string[], flags: FlagMap): Promise<unknown> {
   const [area, action, id] = positionals;
-  if (area !== 'issues') throw new Error(`Unknown forgejo command: ${positionals.join(' ')}`);
-  const workspaceId = requiredFlag(flags, '--workspace', 'workspace id');
-  const repositoryId = requiredFlag(flags, '--repo', 'repository id');
+  if (!['issues', 'pulls'].includes(area ?? '')) throw new Error(`Unknown forgejo command: ${positionals.join(' ')}`);
+  const repositoryId = requiredFlag(flags, '--repo', 'native owner/repository');
+  if (area === 'pulls') {
+    if (action === 'list') return client.listPulls(repositoryId);
+    if (action === 'read') return client.readPull(repositoryId, positiveInteger(id, 'pull request number'));
+    if (action === 'create') return client.createPull(repositoryId, { title: requiredFlag(flags, '--title', 'title'), body: bodyFlag(flags, false), head: requiredFlag(flags, '--head', 'head branch'), base: requiredFlag(flags, '--base', 'base branch') });
+    throw new Error('Use pulls list|read|create.');
+  }
 
   if (action === 'list') {
     const state = stringFlag(flags, '--state') ?? 'open';
     if (!['open', 'closed', 'all'].includes(state)) throw new Error('--state must be open, closed, or all.');
-    return await client.listIssues(workspaceId, repositoryId, {
+    return await client.listIssues(repositoryId, {
       state: state as 'open' | 'closed' | 'all',
       page: integerFlag(flags, '--page', 1),
       limit: integerFlag(flags, '--limit', 30, 100),
     });
   }
   if (action === 'read') {
-    return await client.readIssue(workspaceId, repositoryId, positiveInteger(id, 'issue number'));
+    return await client.readIssue(repositoryId, positiveInteger(id, 'issue number'));
   }
   if (action === 'create') {
-    return await client.createIssue(workspaceId, repositoryId, {
+    return await client.createIssue(repositoryId, {
       title: requiredFlag(flags, '--title', 'title'),
       body: bodyFlag(flags, false),
-      correlationId: stringFlag(flags, '--correlation-id'),
     });
   }
   if (action === 'comment') {
-    return await client.commentIssue(workspaceId, repositoryId, positiveInteger(id, 'issue number'), {
+    return await client.commentIssue(repositoryId, positiveInteger(id, 'issue number'), {
       body: bodyFlag(flags, true),
-      correlationId: stringFlag(flags, '--correlation-id'),
     });
   }
   throw new Error(`Unknown forgejo issues command: ${action ?? ''}`.trim());
@@ -175,22 +164,23 @@ function bodyFlag(flags: FlagMap, required: boolean): string {
 }
 
 function usageText(): string {
-  return `Wingman Tower-backed Forgejo issue client
+  return `Wingman native Forgejo client
 
 Usage:
-  bun clis/wingman.ts forgejo bootstrap request|status [--workspace <id>] [--tower-url <origin>]
-  bun clis/wingman.ts forgejo username get|set [--username <name>] [--workspace <id>]
-  bun clis/wingman.ts forgejo repositories list [--workspace <id>]
-  bun clis/wingman.ts forgejo issues list --workspace <id> --repo <id> [--state open|closed|all] [--page <n>] [--limit <n>]
-  bun clis/wingman.ts forgejo issues read <number> --workspace <id> --repo <id>
-  bun clis/wingman.ts forgejo issues create --workspace <id> --repo <id> --title <text> [--body <text> | --body-file <path>] [--correlation-id <id>]
-  bun clis/wingman.ts forgejo issues comment <number> --workspace <id> --repo <id> (--body <text> | --body-file <path>) [--correlation-id <id>]
+  wingman forgejo issues list --repo owner/repository [--state open|closed|all]
+  wingman forgejo issues read <number> --repo owner/repository
+  wingman forgejo issues create --repo owner/repository --title <text> [--body <text> | --body-file <path>]
+  wingman forgejo issues comment <number> --repo owner/repository (--body <text> | --body-file <path>)
+  wingman forgejo pulls list --repo owner/repository
+  wingman forgejo pulls read <number> --repo owner/repository
+  wingman forgejo pulls create --repo owner/repository --title <text> --head <branch> --base <branch> [--body-file <path>]
 
 Options:
-  --tower-url <url>    Tower origin; defaults to TOWER_URL
-  --wingman-url <url>  Autopilot broker origin; defaults to WINGMAN_BROKER_URL or WINGMAN_URL
-  --session-id <id>    Agent session; defaults to SESSION_ID
+  --forgejo-url <origin> Native Forgejo origin; defaults to FORGEJO_URL
+  --wingman-url <url> Autopilot broker; defaults to WINGMAN_BROKER_URL or WINGMAN_URL
+  --session-id <id> Agent session; defaults to SESSION_ID
 
-All commands use the session capability to obtain a short-lived NIP-98 proof.
-The CLI calls Tower only and never accepts a Forgejo token or private key.`;
+The session broker obtains an account OAuth token through stock Forgejo PKCE
+and Tower Nostr sign-in. All issue and pull requests call native Forgejo APIs.
+Expired credentials trigger a new sign-in; permission denials are final.`;
 }

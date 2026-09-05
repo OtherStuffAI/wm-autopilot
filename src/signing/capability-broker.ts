@@ -1,4 +1,3 @@
-import { TowerGitError } from "../git/tower-git-error";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { finalizeEvent } from "nostr-tools";
@@ -176,16 +175,11 @@ export interface WalletBrokerAdapter {
 }
 
 export interface GitCredentialBrokerAdapter {
-  bootstrap?(input: {
-    session: SessionSnapshot; botNpub: string; workspaceId: string;
-    action: "status" | "request" | "username" | "repositories"; username?: string; towerOrigin?: string;
-    signNip98: (input: { url: string; method: "GET" | "POST" | "PUT"; bodyHash?: string }) => Promise<string>;
-  }): Promise<unknown>;
   discover(input: {
     session: SessionSnapshot;
     botNpub: string;
     workspaceId: string;
-    signNip98: (input: { url: string; method: "GET" | "POST" | "PUT"; bodyHash?: string }) => Promise<string>;
+    signNip98: (input: { url: string; method: "GET" | "POST" | "PUT"; bodyHash?: string; tags?: string[][] }) => Promise<string>;
   }): Promise<{ gatewayOrigins: string[] }>;
   exchange(input: {
     session: SessionSnapshot;
@@ -199,7 +193,7 @@ export interface GitCredentialBrokerAdapter {
       organization: string;
       repository: string;
     };
-    signNip98: (input: { url: string; method: "GET" | "POST" | "PUT"; bodyHash?: string }) => Promise<string>;
+    signNip98: (input: { url: string; method: "GET" | "POST" | "PUT"; bodyHash?: string; tags?: string[][] }) => Promise<string>;
   }): Promise<{ username: string; password: string; expiresAt: string }>;
 }
 
@@ -581,7 +575,7 @@ export class CapabilityBroker {
     if (url.pathname === "/api/mcp/capabilities/nip98") return await this.handleNip98(request);
     if (url.pathname === "/api/mcp/capabilities/wapp-login") return await this.handleWappLogin(request);
     if (url.pathname === "/api/mcp/capabilities/git-discovery") return await this.handleGitDiscovery(request);
-    if (url.pathname === "/api/mcp/capabilities/git-bootstrap") return await this.handleGitBootstrap(request);
+    if (url.pathname === "/api/mcp/capabilities/git-bootstrap") return Response.json({ error: "Retired: use native Forgejo account and repository APIs." }, { status: 410 });
     if (url.pathname === "/api/mcp/capabilities/git-credential") return await this.handleGitCredential(request);
     if (url.pathname === "/api/mcp/capabilities/nostr-event") return await this.handleNostrEvent(request);
     if (url.pathname === "/api/mcp/capabilities/nip44/encrypt") return await this.handleNip44Encrypt(request);
@@ -896,11 +890,11 @@ export class CapabilityBroker {
     const authorized = await this.authorize(request, "nip98.sign", sessionId);
     if (authorized instanceof Response) return authorized;
     const adapter = this.deps.gitCredential;
-    if (!adapter) return this.denied(authorized.capability, "nip98.sign", "Tower Git credential brokerage is unavailable", 503);
+    if (!adapter) return this.denied(authorized.capability, "nip98.sign", "Native Forgejo credential brokerage is unavailable", 503);
     const session = this.deps.getSession(sessionId);
     const workspaceId = authorized.capability.workspaceId?.trim() ?? "";
-    if (!session || !workspaceId) {
-      return this.denied(authorized.capability, "nip98.sign", "The session has no active Tower workspace binding");
+    if (!session) {
+      return this.denied(authorized.capability, "nip98.sign", "The agent session is unavailable");
     }
     try {
       const result = await adapter.discover({
@@ -912,36 +906,7 @@ export class CapabilityBroker {
       this.audit(authorized.capability, "nip98.sign", "allowed");
       return Response.json(result);
     } catch (error) {
-      return this.denied(authorized.capability, "nip98.sign", error instanceof TowerGitError ? error.message : "Tower Git service discovery failed (git_broker_unavailable)", error instanceof TowerGitError ? error.status : 502);
-    }
-  }
-
-  private async handleGitBootstrap(request: Request): Promise<Response> {
-    const body = await parseBody(request);
-    const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
-    const authorized = await this.authorize(request, "nip98.sign", sessionId);
-    if (authorized instanceof Response) return authorized;
-    const session = this.deps.getSession(sessionId);
-    const workspaceId = authorized.capability.workspaceId;
-    const adapter = this.deps.gitCredential;
-    if (!session || !workspaceId || (body.workspaceId && body.workspaceId !== workspaceId)) {
-      return this.denied(authorized.capability, "nip98.sign", "Git bootstrap requires the session's active workspace", 403);
-    }
-    if (!adapter?.bootstrap) return this.denied(authorized.capability, "nip98.sign", "Git bootstrap broker is unavailable", 503);
-    if (!["status", "request", "username", "repositories"].includes(String(body.action))
-      || (body.username !== undefined && (body.action !== "username" || typeof body.username !== "string"))) {
-      return this.denied(authorized.capability, "nip98.sign", "Invalid Git bootstrap action", 400);
-    }
-    try {
-      const result = await adapter.bootstrap({ session, workspaceId, botNpub: authorized.capability.botNpub,
-        action: body.action as "status" | "request" | "username" | "repositories",
-        username: body.username as string | undefined,
-        towerOrigin: typeof body.towerOrigin === "string" ? body.towerOrigin : undefined,
-        signNip98: (input) => this.signExactNip98(authorized, input) });
-      this.audit(authorized.capability, "nip98.sign", "allowed");
-      return Response.json(result);
-    } catch (error) {
-      return this.denied(authorized.capability, "nip98.sign", error instanceof TowerGitError ? error.message : "Tower Git bootstrap failed (git_broker_unavailable)", error instanceof TowerGitError ? error.status : 502);
+      return this.denied(authorized.capability, "nip98.sign", "Native Forgejo configuration is unavailable (git_broker_unavailable)", 502);
     }
   }
 
@@ -951,11 +916,11 @@ export class CapabilityBroker {
     const authorized = await this.authorize(request, "nip98.sign", sessionId);
     if (authorized instanceof Response) return authorized;
     const adapter = this.deps.gitCredential;
-    if (!adapter) return this.denied(authorized.capability, "nip98.sign", "Tower Git credential brokerage is unavailable", 503);
+    if (!adapter) return this.denied(authorized.capability, "nip98.sign", "Native Forgejo credential brokerage is unavailable", 503);
     const session = this.deps.getSession(sessionId);
     const workspaceId = authorized.capability.workspaceId?.trim() ?? "";
-    if (!session || !workspaceId) {
-      return this.denied(authorized.capability, "nip98.sign", "The session has no active Tower workspace binding");
+    if (!session) {
+      return this.denied(authorized.capability, "nip98.sign", "The agent session is unavailable");
     }
     let credentialRequest;
     try {
@@ -978,18 +943,20 @@ export class CapabilityBroker {
       this.audit(authorized.capability, "nip98.sign", "allowed");
       return Response.json(result);
     } catch (error) {
-      return this.denied(authorized.capability, "nip98.sign", error instanceof TowerGitError ? error.message : "Tower Git credential exchange failed (git_broker_unavailable)", error instanceof TowerGitError ? error.status : 502);
+      return this.denied(authorized.capability, "nip98.sign", "Native Forgejo sign-in failed; check the native account and Tower login allowlist (git_broker_unavailable)", 502);
     }
   }
 
   private async signExactNip98(
     authorized: AuthorizedOperation,
-    input: { url: string; method: "GET" | "POST" | "PUT"; bodyHash?: string },
+    input: { url: string; method: "GET" | "POST" | "PUT"; bodyHash?: string; tags?: string[][] },
   ): Promise<string> {
     const parsed = new URL(input.url);
     const createdAt = Math.floor(this.now() / 1_000);
     return await this.withAuthorizedKey(authorized, (secretKey) => {
-      const tags = [["u", parsed.toString()], ["method", input.method], ["nonce", randomBytes(16).toString("hex")]];
+      const extras = input.tags ?? [["nonce", randomBytes(16).toString("hex")]];
+      if (extras.some(tag => !["nonce", "aud", "expiration"].includes(tag[0] ?? ""))) throw new Error("Invalid native login signing tag.");
+      const tags = [["u", parsed.toString()], ["method", input.method], ...extras];
       if (input.bodyHash) tags.push(["payload", input.bodyHash]);
       const event = finalizeEvent({ kind: NIP98_KIND, content: "", tags, created_at: createdAt }, secretKey);
       return `Nostr ${Buffer.from(JSON.stringify(event)).toString("base64")}`;

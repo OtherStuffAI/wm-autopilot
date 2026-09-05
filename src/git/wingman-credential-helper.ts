@@ -39,7 +39,7 @@ export async function runWingmanCredentialHelper(
   context?: CapabilityClientContext,
 ): Promise<number> {
   if (action === "--version") {
-    io.writeStdout("git-credential-wingman 2\n");
+    io.writeStdout("git-credential-wingman 3\n");
     return 0;
   }
   if (action === "store" || action === "erase") {

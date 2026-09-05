@@ -250,7 +250,7 @@ import { createSchedulerApiHandler } from "./scheduler/scheduler-api";
 import { wappStore } from "./wapps/wapp-store";
 import { backendConnectionStore } from "./agent-chat/backend-connection-store";
 import { workspaceSubscriptionStore } from "./agent-chat/workspace-subscription-store";
-import { TowerGitCredentialBroker } from "./git/tower-git-credential-broker";
+import { TowerGitCredentialBroker, nativeForgejoServersFromEnv } from "./git/tower-git-credential-broker";
 import { TowerPgWappPublisher } from "./wapps/wapp-publisher";
 import { createWappSourceAppNpubResolver } from "./wapps/wapp-publish-target";
 import { FlightDeckScopeAccessResolver } from "./wapps/scope-access";
@@ -786,8 +786,7 @@ if (teamBillingService.isCreditsEnabled()) {
 const sharedAgentDispatchEnabled = isSharedAgentDispatchEnabled();
 let manager: ProcessManager;
 const towerGitCredentialBroker = new TowerGitCredentialBroker({
-  listSubscriptions: () => workspaceSubscriptionStore.listAll(),
-  getAutopilotInstanceNpub: () => wingmanInstanceIdentity?.npub ?? null,
+  servers: nativeForgejoServersFromEnv(process.env.WINGMAN_FORGEJO_SERVERS),
 });
 const capabilityBroker = new CapabilityBroker({
   botKeyStore,

@@ -791,8 +791,7 @@ export class ProcessManager {
       const gitCredentialInjectStartedAt = Date.now();
       const dataDir = new URL("../../data", import.meta.url).pathname;
       const giteaCreds = resolveGiteaCredentials(npub, this.config);
-      const hasTowerWorkspaceBinding = Boolean(sessionMetadata.flightdeckWorkspaceId);
-      let towerGitGatewayOrigins: string[] | undefined = hasTowerWorkspaceBinding ? [] : undefined;
+      let towerGitGatewayOrigins: string[] = [];
       if (capabilityToken && capabilityBrokerUrl && this.resolveTowerGitGatewayOrigins) {
         try {
           towerGitGatewayOrigins = await this.resolveTowerGitGatewayOrigins({
@@ -801,7 +800,7 @@ export class ProcessManager {
             brokerUrl: capabilityBrokerUrl,
           });
         } catch (error) {
-          this.appendLog(session, `[manager] Tower Git discovery failed; no gateway helper was configured: ${(error as Error).message}`);
+          this.appendLog(session, `[manager] Native Forgejo host configuration failed; no helper was configured: ${(error as Error).message}`);
         }
       }
       const gitCredentialEnv = buildSessionGitCredentialEnv({
@@ -845,7 +844,7 @@ export class ProcessManager {
         this.appendLog(session, `[manager] Gitea credentials configured for ${giteaCreds.owner}@${this.config.giteaUrl}`);
       }
       if (towerGitGatewayOrigins?.length) {
-        this.appendLog(session, `[manager] Tower Git credentials configured for ${towerGitGatewayOrigins.length} advertised gateway(s)`);
+        this.appendLog(session, `[manager] Native Forgejo credentials configured for ${towerGitGatewayOrigins.length} host(s)`);
       }
 
       giteaInjectMs = Date.now() - gitCredentialInjectStartedAt;

@@ -18,6 +18,7 @@ services:
       - "${WINGMAN_HOST_PORT:-3600}:3600"
     environment:
       PORT: "3600"
+      WINGMAN_FORGEJO_SERVERS: "${WINGMAN_FORGEJO_SERVERS:-[]}"
       HOME: /home/wingman
       AGENT_PORTS: "${WINGMAN_AGENT_PORTS:-3700}"
       AGENT_MAX: "${WINGMAN_AGENT_MAX:-10}"

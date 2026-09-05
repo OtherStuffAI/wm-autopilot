@@ -109,24 +109,39 @@ Direct `nak --sec`, `NOSTR_SECRET_KEY`, and raw-key `nak bunker` workflows are
 forbidden for agents. A direct NIP-46 adapter for unmodified NAK commands is
 deferred; use the broker client for event, NIP-98, NIP-44, and Blossom work.
 
-### Tower-backed Git credentials
+### Native Forgejo credentials
 
-`git-credential-wingman` calls the loopback-only capability routes
+`git-credential-wingman` version 3 uses the loopback capability routes
 `POST /api/mcp/capabilities/git-discovery` and
-`POST /api/mcp/capabilities/git-credential`. Both requests remain bound to the
-live session capability and its stable agent identity. Discovery selects the
-active workspace subscription for the exact agent profile, then reads signed
-Tower service metadata. Only advertised HTTPS gateway origins are installed as
-Git credential scopes, with `credential.useHttpPath=true`.
+`POST /api/mcp/capabilities/git-credential`. They bind to the live session's
+managed actor identity; a Tower workspace binding is not required. Discovery
+returns configured `WINGMAN_FORGEJO_SERVERS` origins without contacting Tower.
+Each configured server has `origin`, `towerIssuer`, `sourceName`, `clientId`, and
+`redirectUri`. Use the stock public git-credential-oauth client and registered
+loopback callback. Native origins must be HTTPS. Forgejo OAuth account tokens
+are not repository-scoped; native permissions apply on every request.
 
-For `get`, the broker canonicalizes exactly
-`/<organization>/<repository>.git`, rejects unadvertised hosts, resolves the
-path to a stable Tower repository ID, and sends a payload-hashed NIP-98
-credential exchange signed by the session agent. Only the fixed username,
-ephemeral password, and expiry cross back to the helper. `store` and `erase`
-are no-ops because the helper keeps no credential cache. No capability is
-written to Git configuration, disk, logs, command arguments, or environment
-variables.
+The broker obtains a stock Forgejo authorization-code OAuth token with S256
+PKCE, exact callback state, native HTTP session cookies, and the stock consent
+form. Tower's structured one-minute OIDC challenge is signed with exact URL,
+method, payload hash, nonce, audience and expiration. The private key stays in
+the managed signer. The broker refuses foreign redirects and cannot bypass
+password, 2FA or account-linking screens. Forgejo native auto registration is
+required for unattended fresh accounts. No admin PAT is used.
+
+Native account credentials are held only in process memory, keyed by actor and
+origin. The helper `store` and `erase` actions do not persist tokens. Before
+reuse the broker validates the native account at `/api/v1/user`; expiry or 401
+discards the credential and triggers one new sign-in. Permission denials and
+network failures do not reauthenticate. The issue/PR client retries a 401 once;
+403/404 are final. Tokens are never written to Git configuration, disk, logs,
+command arguments, remote URLs or environment. A valid cached token requires
+only Forgejo, so it continues working while Tower is unavailable.
+
+All repository Git/API operations and permissions are native Forgejo. The old
+`git-bootstrap` endpoint returns 410; there is no Tower grant, issue proxy or
+repository-resolution fallback. Tower allowlist removal stops new login only;
+revoke native accounts/tokens separately in Forgejo.
 
 For Flight Deck work, use the broker-aware MCP `flightdeck_*` tools. PG chat
 creates and edits require two signatures from the same stable bot identity: a
@@ -347,7 +362,7 @@ with a deliberately wrong path or expiration and confirm denial, then with a
 fresh Tower challenge. Successful signing proves only that Autopilot issued a
 constrained proof. It does **not** grant Tower or Forgejo membership: Tower
 still validates the proof, consumes the one-minute challenge, and independently
-decides whether the actor has active Forgejo access.
+decides whether the Nostr identity is allowed to sign in. Forgejo alone decides repository access.
 
 Source changes and initial policy-store creation require an external Autopilot
 restart. Later policy edits persist and affect new or explicitly reissued

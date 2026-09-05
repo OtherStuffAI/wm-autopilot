@@ -19,7 +19,7 @@ describe("git-credential-wingman", () => {
   test("reports a stable executable version", async () => {
     const f = fixture("");
     expect(await runWingmanCredentialHelper("--version", f.io)).toBe(0);
-    expect(f.output()).toEqual({ stdout: "git-credential-wingman 2\n", stderr: "" });
+    expect(f.output()).toEqual({ stdout: "git-credential-wingman 3\n", stderr: "" });
   });
 
   test("gets an ephemeral credential only through the loopback broker context", async () => {

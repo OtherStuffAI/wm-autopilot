@@ -1,270 +1,31 @@
-import { describe, expect, mock, test } from "bun:test";
-import { createHash } from "node:crypto";
-
-import type { SessionSnapshot } from "../agents/process-manager";
-import type { WorkspaceSubscriptionRecord } from "../agent-chat/types";
+import { expect, test } from "bun:test";
 import { TowerGitCredentialBroker } from "./tower-git-credential-broker";
-
-const workspaceId = "11111111-1111-4111-8111-111111111111";
-const repositoryId = "22222222-2222-4222-8222-222222222222";
-const botNpub = "npub1agent";
-const session: SessionSnapshot = {
-  id: "session-a",
-  agent: "codex",
-  port: 3700,
-  name: "Agent",
-  status: "running",
-  startedAt: new Date().toISOString(),
-  command: [],
-  workingDirectory: "/tmp",
-  logs: [],
-  metadata: { AGENT: true, billingMode: "subscription", flightdeckWorkspaceId: workspaceId },
-};
-
-function subscription(overrides: Partial<WorkspaceSubscriptionRecord> = {}): WorkspaceSubscriptionRecord {
-  return {
-    subscriptionId: "subscription-a",
-    workspaceOwnerNpub: "npub1owner",
-    backendBaseUrl: "https://tower.example.test",
-    towerServiceNpub: "npub1tower",
-    workspaceId,
-    workspaceServiceNpub: "npub1workspace",
-    botNpub,
-    sourceAppNpub: "npub1app",
-    onboardingSource: "manual",
-    lifecycleStatus: "active",
-    lifecycleChangedAt: new Date().toISOString(),
-    wsKeyNpub: null,
-    wsKeyStatus: "active",
-    groupKeyStatus: "active",
-    sseStatus: "connected",
-    healthStatus: "healthy",
-    triggerConfigRecordId: null,
-    lastSseEventId: null,
-    lastAuthOkAt: null,
-    lastGroupRefreshAt: null,
-    lastErrorCode: null,
-    lastErrorAt: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    managedByNpub: "npub1manager",
-    wsKeyBlobJson: null,
-    wrappedGroupKeysJson: null,
-    lastAuthResult: null,
-    lastGroupRefreshResult: null,
-    lastRecordPullResult: null,
-    lastDecryptResult: null,
-    lastRoutingResult: null,
-    lastSseEvent: null,
-    recentSseEvents: [],
-    recentDispatches: [],
-    lastSuccessfulStartupReloadAt: null,
-    ...overrides,
-  };
-}
-
-function serviceMetadata() {
-  return {
-    identity: { tower_service_npub: null },
-    service: { base_url: "https://tower.example.test", service_npub: "npub1tower" },
-    git: { gateway_origins: ["https://git.example.test"], audience: "wingman-git" },
-  };
-}
-
-describe("TowerGitCredentialBroker", () => {
-  test("discovers only the active workspace and bot binding", async () => {
-    const requests: Request[] = [];
-    const broker = new TowerGitCredentialBroker({
-      listSubscriptions: () => [
-        subscription(),
-        subscription({ subscriptionId: "foreign", workspaceId: "33333333-3333-4333-8333-333333333333" }),
-      ],
-      fetch: mock(async (request: RequestInfo | URL, init?: RequestInit) => {
-        requests.push(new Request(request, init));
-        return Response.json(serviceMetadata());
-      }) as typeof fetch,
-    });
-    const signNip98 = mock(async () => "Nostr proof");
-    expect(await broker.discover({ session, botNpub, workspaceId, signNip98 })).toEqual({
-      gatewayOrigins: ["https://git.example.test"],
-    });
-    expect(requests).toHaveLength(1);
-    expect(requests[0]!.url).toBe("https://tower.example.test/api/v4/flightdeck-pg/service");
-    expect(requests[0]!.headers.get("x-flightdeck-pg-app-npub")).toBe("npub1app");
-  });
-
-  test("resolves the canonical path and exchanges an exact body-hashed request", async () => {
-    const signed: Array<{ url: string; method: string; bodyHash?: string }> = [];
-    let exchangeBody = "";
-    const broker = new TowerGitCredentialBroker({
-      listSubscriptions: () => [subscription()],
-      getAutopilotInstanceNpub: () => "npub1autopilot",
-      fetch: mock(async (request: RequestInfo | URL, init?: RequestInit) => {
-        const url = new URL(String(request));
-        if (url.pathname.endsWith("/service")) return Response.json(serviceMetadata());
-        if (url.pathname.endsWith("/resolve")) {
-          expect(url.searchParams.get("path")).toBe("/studio/project.git");
-          return Response.json({ canonical_path: "/studio/project.git", repository: { repository_id: repositoryId, workspace_id: workspaceId } });
-        }
-        exchangeBody = String(init?.body);
-        return Response.json({
-          username: "nostr",
-          capability: "opaque-capability-material",
-          expires_at: "2030-01-01T00:00:00.000Z",
-          repository_id: repositoryId,
-          audience: "wingman-git",
-        }, { status: 201 });
-      }) as typeof fetch,
-    });
-    const credential = await broker.exchange({
-      session,
-      botNpub,
-      workspaceId,
-      request: {
-        protocol: "https",
-        host: "git.example.test",
-        gatewayOrigin: "https://git.example.test",
-        path: "/studio/project.git",
-        organization: "studio",
-        repository: "project",
-      },
-      signNip98: async (input) => {
-        signed.push(input);
-        return "Nostr proof";
-      },
-    });
-    expect(credential).toEqual({
-      username: "nostr",
-      password: "opaque-capability-material",
-      expiresAt: "2030-01-01T00:00:00.000Z",
-    });
-    expect(JSON.parse(exchangeBody)).toEqual({
-      repository_id: repositoryId,
-      audience: "wingman-git",
-      session_id: "session-a",
-      autopilot_instance_npub: "npub1autopilot",
-    });
-    expect(signed.at(-1)).toEqual({
-      url: "https://tower.example.test/api/v4/git/credential-exchanges",
-      method: "POST",
-      bodyHash: createHash("sha256").update(exchangeBody).digest("hex"),
-    });
-  });
-
-  test("rejects unadvertised gateways before repository resolution", async () => {
-    const fetchImpl = mock(async () => Response.json(serviceMetadata()));
-    const broker = new TowerGitCredentialBroker({
-      listSubscriptions: () => [subscription()],
-      fetch: fetchImpl as typeof fetch,
-    });
-    await expect(broker.exchange({
-      session,
-      botNpub,
-      workspaceId,
-      request: {
-        protocol: "https",
-        host: "foreign.example.test",
-        gatewayOrigin: "https://foreign.example.test",
-        path: "/studio/project.git",
-        organization: "studio",
-        repository: "project",
-      },
-      signNip98: async () => "Nostr proof",
-    })).rejects.toThrow("git_gateway_not_advertised");
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-  });
-
-  test("rejects service metadata for a different Tower identity", async () => {
-    const broker = new TowerGitCredentialBroker({
-      listSubscriptions: () => [subscription()],
-      fetch: mock(async () => Response.json({
-        ...serviceMetadata(),
-        service: { base_url: "https://tower.example.test", service_npub: "npub1differenttower" },
-      })) as typeof fetch,
-    });
-    await expect(broker.discover({
-      session,
-      botNpub,
-      workspaceId,
-      signNip98: async () => "Nostr proof",
-    })).rejects.toThrow("does not match the active connection");
-  });
-
-  test("rejects an expired capability and renews on the next exchange", async () => {
-    let exchangeCount = 0;
-    const broker = new TowerGitCredentialBroker({
-      listSubscriptions: () => [subscription()],
-      fetch: mock(async (request: RequestInfo | URL) => {
-        const url = new URL(String(request));
-        if (url.pathname.endsWith("/service")) return Response.json(serviceMetadata());
-        if (url.pathname.endsWith("/resolve")) {
-          return Response.json({
-            canonical_path: "/studio/project.git",
-            repository: { repository_id: repositoryId, workspace_id: workspaceId },
-          });
-        }
-        exchangeCount += 1;
-        return Response.json({
-          username: "nostr",
-          capability: exchangeCount === 1 ? "expired-capability-material" : "renewed-capability-material",
-          expires_at: exchangeCount === 1 ? "2020-01-01T00:00:00.000Z" : "2030-01-01T00:00:00.000Z",
-          repository_id: repositoryId,
-          audience: "wingman-git",
-        }, { status: 201 });
-      }) as typeof fetch,
-    });
-    const input = {
-      session,
-      botNpub,
-      workspaceId,
-      request: {
-        protocol: "https" as const,
-        host: "git.example.test",
-        gatewayOrigin: "https://git.example.test",
-        path: "/studio/project.git",
-        organization: "studio",
-        repository: "project",
-      },
-      signNip98: async () => "Nostr proof",
-    };
-
-    await expect(broker.exchange(input)).rejects.toThrow("malformed Git credential exchange");
-    expect(await broker.exchange(input)).toMatchObject({ password: "renewed-capability-material" });
-    expect(exchangeCount).toBe(2);
-  });
+import { nativeFixture, nativeServer } from "./native-forgejo-login.test";
+const request = { protocol: "https" as const, host: "forgejo.test", gatewayOrigin: "https://forgejo.test", path: "/org/repo.git", organization: "org", repository: "repo" };
+const input = { session: {} as any, botNpub: "npub-agent", workspaceId: "", request, signNip98: async () => "Nostr proof" };
+test("uses static configured hosts without Tower discovery",async()=>{
+  const broker=new TowerGitCredentialBroker({servers:[nativeServer],fetch:(async()=>{throw new Error('offline');}) as typeof fetch});
+  expect(await broker.discover()).toEqual({gatewayOrigins:['https://forgejo.test']});
+  await expect(broker.exchange({...input,request:{...request,gatewayOrigin:'https://foreign.test'}})).rejects.toThrow('not configured');
+});
+test("native credentials are isolated by actor, retained across paths and Tower downtime",async()=>{
+  const fixture=nativeFixture(); const broker=new TowerGitCredentialBroker({servers:[nativeServer],fetch:fixture.fetchImpl});
+  const first=await broker.exchange(input); expect(fixture.logins()).toBe(1);
+  const second=await broker.exchange({...input,request:{...request,path:'/other/repo.git'}});expect(second.password).toBe(first.password);expect(fixture.logins()).toBe(1);
+  const lastCalls=fixture.calls.slice(-1);expect(lastCalls[0]!.url).toBe('https://forgejo.test/api/v1/user');
+  await broker.exchange({...input,botNpub:'other-actor'});expect(fixture.logins()).toBe(2);
+});
+test("permission failures do not retry Nostr login; revoked credentials reauthenticate once",async()=>{
+  const fixture=nativeFixture(); const broker=new TowerGitCredentialBroker({servers:[nativeServer],fetch:fixture.fetchImpl});await broker.exchange(input);
+  fixture.setUserStatus(403);await expect(broker.exchange(input)).rejects.toThrow('(403)');expect(fixture.logins()).toBe(1);
+  fixture.setUserStatus(401);await expect(broker.exchange(input)).rejects.toThrow('issued account');expect(fixture.logins()).toBe(2);
+});
+test("concurrent credential requests share a single login",async()=>{
+  const fixture=nativeFixture(); const broker=new TowerGitCredentialBroker({servers:[nativeServer],fetch:fixture.fetchImpl});
+  await Promise.all([broker.exchange(input),broker.exchange(input)]);expect(fixture.logins()).toBe(1);
 });
 
-test('bootstrap discovers the active Tower and signs only the actor route and exact name payload', async () => {
-  const signed: any[] = [];
-  const requests: any[] = [];
-  const broker = new TowerGitCredentialBroker({ listSubscriptions: () => [subscription()],
-    fetch: (async (url: any, init: any) => {
-      requests.push({ url, init });
-      if (url.endsWith('/service')) return Response.json(serviceMetadata());
-      return Response.json({ actor_username: { state: 'pending' } });
-    }) as typeof fetch,
-  });
-  await broker.bootstrap({ session, botNpub, workspaceId, action: 'username', username: 'new-agent',
-    signNip98: async input => { signed.push(input); return 'Nostr proof'; } });
-  expect(signed[1]).toEqual({
-    url: `https://tower.example.test/api/v4/git/workspaces/${workspaceId}/actor-username`, method: 'PUT',
-    bodyHash: createHash('sha256').update(JSON.stringify({ username: 'new-agent' })).digest('hex'),
-  });
-  expect(requests[1].init.body).toBe('{"username":"new-agent"}');
-});
-
-test('only safe Tower error codes cross the Git broker boundary', async () => {
-  for (const code of ['git_transport_not_granted', 'secret-token\nAuthorization: confidential']) {
-    const broker = new TowerGitCredentialBroker({ listSubscriptions: () => [subscription()],
-      fetch: (async (url: any) => url.endsWith('/service') ? Response.json(serviceMetadata())
-        : Response.json({ code, error: 'private-token-body' }, { status: 403 })) as typeof fetch,
-    });
-    let error: any;
-    try { await broker.bootstrap({ session, botNpub, workspaceId, action: 'status', signNip98: async () => 'Nostr proof' }); }
-    catch (caught) { error = caught; }
-    expect(error.message).toContain('HTTP 403');
-    expect(error.message).not.toContain('private-token-body');
-    expect(error.message).not.toContain('confidential');
-    expect(error.code).toBe(code.startsWith('git_') ? code : 'git_request_failed');
-  }
+test("expired native tokens force fresh Nostr-backed authorization",async()=>{
+  const fixture=nativeFixture({expiresIn:1});const broker=new TowerGitCredentialBroker({servers:[nativeServer],fetch:fixture.fetchImpl});
+  const first=await broker.exchange(input);const second=await broker.exchange(input);expect(first.password).not.toBe(second.password);expect(fixture.logins()).toBe(2);
 });

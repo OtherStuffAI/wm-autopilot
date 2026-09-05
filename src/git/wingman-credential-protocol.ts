@@ -42,7 +42,7 @@ export function canonicalizeGitCredentialRequest(
   input: Pick<GitCredentialInput, "protocol" | "host" | "path">,
 ): CanonicalGitCredentialRequest {
   if (input.protocol !== "https") {
-    throw new Error("Tower-backed Git credentials require HTTPS.");
+    throw new Error("Native Forgejo credentials require HTTPS.");
   }
   if (!input.host || /[\s/@?#\\]/.test(input.host)) {
     throw new Error("Git credential host is malformed.");
