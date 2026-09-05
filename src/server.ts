@@ -37,6 +37,7 @@ import {
 import { redactAppEnv } from "./apps/app-env";
 import { createTrustedExecutionRule, type ExecutionAuditEntry } from "./auth/trusted-execution";
 import { hasWappActivityAuthority } from "./auth/wapp-activity-authority";
+import { hasWappLoginAuthority } from "./signing/wapp-login";
 import { appCommand, validateAppCommand } from "./apps/app-command";
 import { appAliasRegistry } from "./apps/app-alias-registry";
 import { appDomainRegistry, type AppDomainRecord } from "./apps/app-domain-registry";
@@ -793,6 +794,10 @@ const capabilityBroker = new CapabilityBroker({
   keyVault: brokerKeyVault,
   getInstanceIdentity: () => wingmanInstanceIdentity,
   getSession: (sessionId) => manager?.getSession(sessionId) ?? null,
+  hasWappLoginAuthority: (input) => hasWappLoginAuthority(input,
+    (sessionId) => manager?.getSession(sessionId),
+    (triggerId) => schedulerStore.getJob(triggerId)?.wappActivityInstallationId,
+    (installationId) => wappStore.get(installationId)),
   audit: (entry) => writeServerLog("INFO", "[capability-broker]", entry),
   stateStore: capabilityStateStore,
   gitCredential: towerGitCredentialBroker,

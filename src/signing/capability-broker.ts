@@ -10,6 +10,7 @@ import { nip44Decrypt, nip44Encrypt } from "../nostr/nip44-crypto";
 import { jsonError, parseBody } from "../utils/request-utils";
 import { normalizeNostrKindRules, type NostrKindConstraint } from "./nostr-kind-policy";
 import { canonicalizeGitCredentialRequest } from "../git/wingman-credential-protocol";
+import { fetchWappLoginChallenge, type WappLoginRequest } from "./wapp-login";
 
 export type { NostrKindConstraint } from "./nostr-kind-policy";
 
@@ -231,6 +232,8 @@ interface CapabilityRecord {
 }
 
 export interface CapabilityBrokerDependencies {
+  hasWappLoginAuthority?: (input: WappLoginRequest) => boolean;
+  fetchWappLogin?: typeof fetch;
   botKeyStore: Pick<BotKeyStore, "getActiveKeyForUser"> & Partial<Pick<BotKeyStore, "getActiveKeyForBotNpub">>;
   keyVault: Pick<BrokerKeyVaultBackend, "withKey">;
   getSession: (sessionId: string) => SessionSnapshot | null | undefined;
@@ -576,6 +579,7 @@ export class CapabilityBroker {
     if (url.pathname === "/api/mcp/capabilities/reissue-adopt") return await this.handleReissueAdopt(request);
     if (url.pathname === "/api/mcp/capabilities/refresh") return await this.handleRefresh(request);
     if (url.pathname === "/api/mcp/capabilities/nip98") return await this.handleNip98(request);
+    if (url.pathname === "/api/mcp/capabilities/wapp-login") return await this.handleWappLogin(request);
     if (url.pathname === "/api/mcp/capabilities/git-discovery") return await this.handleGitDiscovery(request);
     if (url.pathname === "/api/mcp/capabilities/git-bootstrap") return await this.handleGitBootstrap(request);
     if (url.pathname === "/api/mcp/capabilities/git-credential") return await this.handleGitCredential(request);
@@ -736,6 +740,44 @@ export class CapabilityBroker {
       botPubkeyHex: authorized.capability.botPubkeyHex,
       policyRefs: structuredClone(authorized.capability.policyRefs),
     } satisfies IssuedSessionCapability);
+  }
+
+  private async handleWappLogin(request: Request): Promise<Response> {
+    const body = await parseBody(request);
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const authorized = await this.authorize(request, "nostr.sign", sessionId);
+    if (authorized instanceof Response) return authorized;
+    const input: WappLoginRequest = {
+      sessionId, ownerNpub: authorized.capability.ownerNpub,
+      installationId: typeof body.wappInstallationId === "string" ? body.wappInstallationId.trim() : "",
+      url: typeof body.url === "string" ? body.url : "",
+    };
+    if (!this.deps.hasWappLoginAuthority?.(input)) {
+      return this.denied(authorized.capability, "nostr.sign", "WApp login requires an active execution-bound installation and exact registered login URL");
+    }
+    let template;
+    try { template = await fetchWappLoginChallenge(input.url, this.now(), this.deps.fetchWappLogin); }
+    catch (error) {
+      return this.denied(authorized.capability, "nostr.sign", (error as Error).message, 502);
+    }
+    if (authorized.capability.revokedAtMs !== null || authorized.capability.expiresAtMs <= this.now()
+      || !this.deps.hasWappLoginAuthority(input)) {
+      return this.denied(authorized.capability, "nostr.sign", "WApp login authority changed during challenge fetch");
+    }
+    const fingerprint = `wapp-login:${input.installationId}:${input.url}:${template.tags[0]![1]}`;
+    if (authorized.capability.usedChallenges.has(fingerprint)) {
+      return this.denied(authorized.capability, "nostr.sign", "WApp login challenge has already been signed");
+    }
+    // Reserve before the asynchronous vault call, preventing concurrent reuse.
+    authorized.capability.usedChallenges.add(fingerprint);
+    if (authorized.capability.usedChallenges.size > MAX_CHALLENGES_PER_CAPABILITY) {
+      const oldest = authorized.capability.usedChallenges.values().next().value;
+      if (oldest) authorized.capability.usedChallenges.delete(oldest);
+    }
+    this.persist();
+    const event = await this.withAuthorizedKey(authorized, (key) => finalizeEvent(template, key));
+    this.audit(authorized.capability, "nostr.sign", "allowed", "execution-bound WApp native login");
+    return Response.json({ event, signedBy: authorized.capability.botNpub, wappInstallationId: input.installationId, url: input.url });
   }
 
   private async handleNip98(request: Request): Promise<Response> {
