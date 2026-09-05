@@ -6480,7 +6480,7 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 }
 
 .wm-tab[data-state="running"]:not(.active) {
-  background: rgba(59, 130, 246, 0.035);
+  background: rgba(59, 130, 246, 0.05);
   border-color: rgba(96, 165, 250, 0.12);
   color: var(--text-primary);
   animation: wm-tab-working-breathe 3.6s ease-in-out infinite;
@@ -6489,19 +6489,19 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 @keyframes wm-tab-working-breathe {
   0%,
   100% {
-    background-color: rgba(59, 130, 246, 0.025);
-    border-color: rgba(96, 165, 250, 0.1);
+    background-color: transparent;
+    border-color: rgba(96, 165, 250, 0.08);
   }
   50% {
-    background-color: rgba(59, 130, 246, 0.075);
-    border-color: rgba(96, 165, 250, 0.18);
+    background-color: rgba(59, 130, 246, 0.1);
+    border-color: rgba(96, 165, 250, 0.22);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .wm-tab[data-state="running"]:not(.active) {
     animation: none;
-    background: rgba(59, 130, 246, 0.05);
+    background: rgba(59, 130, 246, 0.07);
   }
 }
 
