@@ -154,3 +154,20 @@ function testIo(
     },
   };
 }
+
+test('bootstrap and username commands use the scoped broker without inherited Tower configuration', async () => {
+  const calls: any[] = [];
+  const context = {
+    wingmanUrl: 'http://127.0.0.1:3600', sessionId: 'headless', capabilityToken: 'scoped',
+    fetch: (async (url: any, init: any) => {
+      calls.push({ url, body: JSON.parse(init.body) });
+      return Response.json({ bootstrap: { state: 'pending' } });
+    }) as typeof fetch,
+  };
+  for (const args of [['bootstrap', 'request'], ['bootstrap', 'status'], ['username', 'set', '--username', 'new-agent']]) {
+    expect((await runForgejoCli(args, { env: {}, capabilityContext: context })).exitCode).toBe(0);
+  }
+  expect(calls.map(c => c.body.action)).toEqual(['request', 'status', 'username']);
+  expect(calls[2].body).toMatchObject({ username: 'new-agent', sessionId: 'headless' });
+  expect(calls.every(c => c.url.endsWith('/api/mcp/capabilities/git-bootstrap'))).toBeTrue();
+});

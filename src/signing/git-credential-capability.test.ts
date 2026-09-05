@@ -101,11 +101,11 @@ describe("Tower Git session capability boundary", () => {
     });
     const event = fixture.getSignedEvent()! as { kind: number; tags: string[][] };
     expect(verifyEvent(event as never)).toBe(true);
-    expect(event.tags).toEqual([
+    expect(event.tags).toEqual(expect.arrayContaining([
       ["u", "https://tower.example.test/api/v4/git/credential-exchanges"],
       ["method", "POST"],
       ["payload", "ab".repeat(32)],
-    ]);
+    ]));
     expect(JSON.stringify(fixture.audit)).not.toContain("ephemeral-secret");
   });
 
@@ -129,4 +129,17 @@ describe("Tower Git session capability boundary", () => {
     const serialized = JSON.stringify({ body: await response.json(), audit: fixture.audit });
     expect(serialized).not.toContain("ephemeral-secret");
   });
+});
+
+test('consecutive Git credential requests receive distinct signed events within one second', async () => {
+  const fixture = buildFixture();
+  const body = { protocol: 'https', host: 'git.example.test', path: '/studio/project.git' };
+  expect((await fixture.call(body)).status).toBe(200);
+  const first = fixture.getSignedEvent() as any;
+  expect((await fixture.call(body)).status).toBe(200);
+  const second = fixture.getSignedEvent() as any;
+  expect(first.id).not.toBe(second.id);
+  expect(first.tags.find((tag: string[]) => tag[0] === 'nonce')?.[1]).toMatch(/^[a-f0-9]{32}$/);
+  expect(verifyEvent(first)).toBeTrue();
+  expect(verifyEvent(second)).toBeTrue();
 });

@@ -170,7 +170,7 @@ describe("TowerGitCredentialBroker", () => {
         repository: "project",
       },
       signNip98: async () => "Nostr proof",
-    })).rejects.toThrow("not advertised");
+    })).rejects.toThrow("git_gateway_not_advertised");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -232,4 +232,39 @@ describe("TowerGitCredentialBroker", () => {
     expect(await broker.exchange(input)).toMatchObject({ password: "renewed-capability-material" });
     expect(exchangeCount).toBe(2);
   });
+});
+
+test('bootstrap discovers the active Tower and signs only the actor route and exact name payload', async () => {
+  const signed: any[] = [];
+  const requests: any[] = [];
+  const broker = new TowerGitCredentialBroker({ listSubscriptions: () => [subscription()],
+    fetch: (async (url: any, init: any) => {
+      requests.push({ url, init });
+      if (url.endsWith('/service')) return Response.json(serviceMetadata());
+      return Response.json({ actor_username: { state: 'pending' } });
+    }) as typeof fetch,
+  });
+  await broker.bootstrap({ session, botNpub, workspaceId, action: 'username', username: 'new-agent',
+    signNip98: async input => { signed.push(input); return 'Nostr proof'; } });
+  expect(signed[1]).toEqual({
+    url: `https://tower.example.test/api/v4/git/workspaces/${workspaceId}/actor-username`, method: 'PUT',
+    bodyHash: createHash('sha256').update(JSON.stringify({ username: 'new-agent' })).digest('hex'),
+  });
+  expect(requests[1].init.body).toBe('{"username":"new-agent"}');
+});
+
+test('only safe Tower error codes cross the Git broker boundary', async () => {
+  for (const code of ['git_transport_not_granted', 'secret-token\nAuthorization: confidential']) {
+    const broker = new TowerGitCredentialBroker({ listSubscriptions: () => [subscription()],
+      fetch: (async (url: any) => url.endsWith('/service') ? Response.json(serviceMetadata())
+        : Response.json({ code, error: 'private-token-body' }, { status: 403 })) as typeof fetch,
+    });
+    let error: any;
+    try { await broker.bootstrap({ session, botNpub, workspaceId, action: 'status', signNip98: async () => 'Nostr proof' }); }
+    catch (caught) { error = caught; }
+    expect(error.message).toContain('HTTP 403');
+    expect(error.message).not.toContain('private-token-body');
+    expect(error.message).not.toContain('confidential');
+    expect(error.code).toBe(code.startsWith('git_') ? code : 'git_request_failed');
+  }
 });
