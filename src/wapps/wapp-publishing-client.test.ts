@@ -88,6 +88,23 @@ describe("WApp publishing client", () => {
     ]);
   });
 
+  test("rejects unavailable destinations before publication", async () => {
+    let reads = 0;
+    const client = new WappPublishingClient({
+      towerUrl: "https://tower.example", workspaceId: "workspace-1",
+      wappInstallationId: "installation-1", publisherNpub, nsec, routes,
+      fetchImpl: async (_url, init) => {
+        expect(init?.method).toBe("GET");
+        reads++;
+        return Response.json({ grant: {
+          ...grant(), destinations: [{ scope_id: "scope-1", channel_ids: ["channel-1"], available: false }],
+        } });
+      },
+    });
+    await expect(client.publish(projection)).rejects.toMatchObject({ code: "destination_not_granted" });
+    expect(reads).toBe(1);
+  });
+
   test("caches the self grant version and ETag", async () => {
     const requests: Request[] = [];
     const client = new WappPublishingClient({
