@@ -5,9 +5,12 @@ import { describe, expect, test } from "bun:test";
 const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 describe("live layout CSS", () => {
-  test("keeps unread completion visible while its tab is selected", () => {
+  test("distinguishes running, completed, and selected tabs", () => {
     expect(styles).toContain('.wm-tab[data-state="running"]:not(.active)');
-    expect(styles).toContain('background: rgba(59, 130, 246, 0.12);');
+    expect(styles).toContain('background: rgba(59, 130, 246, 0.035);');
+    expect(styles).toContain('animation: wm-tab-working-breathe 3.6s ease-in-out infinite;');
+    expect(styles).toContain('@keyframes wm-tab-working-breathe');
+    expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
     expect(styles).toContain('.wm-tab[data-state="complete"]:not(.active)');
     expect(styles).toContain('background: rgba(34, 197, 94, 0.2);');
     expect(styles).toContain('.wm-tab.active');
