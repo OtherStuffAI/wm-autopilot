@@ -1,3 +1,4 @@
+import { prepareAgentProfileDirectory } from "./agent-profile-directory";
 import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { nip19, verifyEvent, type Event as NostrEvent } from 'nostr-tools';
@@ -2160,6 +2161,7 @@ export class WorkspaceSubscriptionManager {
     if (decoded.type !== 'npub' || typeof decoded.data !== 'string') {
       throw new Error('Managing owner npub is invalid.');
     }
+    input = { ...input, workingDirectory: await prepareAgentProfileDirectory(input.workingDirectory, this.validateWorkingDirectory) };
     let record: BotKeyStoreRecord | null = null;
     // Compensating transaction order: persist non-secret lookup metadata,
     // provision its identity-bound vault envelope, then persist the profile.

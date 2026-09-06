@@ -37,6 +37,8 @@ function createDisclosureSection(title, description, testId) {
   const summary = document.createElement('summary');
   summary.style.cssText = 'cursor:pointer;font-weight:600;';
   summary.textContent = title;
+  summary.setAttribute('aria-label', title);
+  if (testId) summary.setAttribute('data-testid', `${testId}-toggle`);
   details.append(summary);
 
   const body = document.createElement('div');
@@ -528,17 +530,18 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
 
   const heading = document.createElement('h3');
   heading.id = 'agent-chat-agent-name-title';
-  heading.textContent = 'Create Agent Profile';
+  heading.textContent = 'Create bot';
+  modal.panel.className = 'wm-card wm-agent-profile-form';
 
   const note = document.createElement('p');
   note.className = 'wm-settings__port-note';
   note.textContent = standalone
-    ? 'Create a sovereign local agent profile. Its Nostr identity is generated into the encrypted local vault and cannot be exported.'
+    ? 'Choose a name, working folder, and agent tool. Your bot gets its own identity automatically.'
     : 'Create a sovereign local agent profile and non-exportable Nostr identity for this workspace.';
 
   const nameField = createInput('Agent name', 'Lara', 'agent-chat-agent-name');
-  const workingDirectoryField = createInput('Working Directory', '/workspace/lara', 'agent-chat-agent-working-directory');
-  const harnessField = createLookupField('Harness', 'agent-chat-agent-create-harness', 'Agent profile harness');
+  const workingDirectoryField = createInput('Working folder', '/workspace/lara', 'agent-chat-agent-working-directory');
+  const harnessField = createLookupField('Agent tool', 'agent-chat-agent-create-harness', 'Agent profile harness');
   const modelField = createLookupField('Model', 'agent-chat-agent-create-model', 'Agent profile model');
   const lookupStatus = createStatusLine();
   lookupStatus.setAttribute('aria-live', 'polite');
@@ -559,7 +562,9 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
   const advancedNote = document.createElement('p');
   advancedNote.className = 'wm-settings__port-note';
   advancedNote.style.margin = '0 0 8px 0';
-  advancedNote.textContent = 'Choose the backend agent directory. Use the same directory when this workspace should be handled by the same local agent process.';
+  advancedNote.textContent = 'Choose a folder on the Autopilot server. Missing folders are created when you create the bot, if permissions allow.';
+  advancedNote.id = 'agent-profile-directory-help';
+  workingDirectoryField.input.setAttribute('aria-describedby', advancedNote.id);
 
   let browseDirectoryButton = null;
   if (typeof onBrowseDirectory === 'function') {
@@ -588,27 +593,27 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     });
   }
 
+  const publicDetails = createDisclosureSection('Picture & public profile (optional)', 'These details are published with your bot’s public identity.', 'agent-profile-create-public');
+  publicDetails.body.append(mediaPicker.element, pictureField.row, aboutField.row, nip05Field.row);
   advancedPanel.append(
-    advancedNote,
     workingDirectoryField.row,
+    advancedNote,
     harnessField.row,
     modelField.row,
     lookupStatus,
-    pictureField.row,
-    mediaPicker.element,
-    aboutField.row,
-    nip05Field.row,
+    publicDetails.element,
   );
 
   const preview = document.createElement('dl');
   preview.className = 'wm-settings__detail-list';
+  preview.hidden = standalone;
   preview.style.cssText = 'display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 12px;margin:14px 0 0;';
 
   const statusLine = createStatusLine();
   statusLine.setAttribute('data-testid', 'agent-chat-agent-name-status');
 
   const createButtonEl = createButton(
-    'Create Profile',
+    'Create bot',
     'agent-chat-agent-name-submit',
     standalone ? 'Create sovereign local agent profile' : 'Create Agent Dispatch workspace binding from name',
   );
@@ -623,6 +628,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     standalone ? 'Show agent profile fields' : 'Show advanced workspace binding fields',
   );
 
+  advancedButton.hidden = standalone;
   let advancedOpen = false;
   let directoryTouched = false;
 
@@ -739,6 +745,11 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
       nameField.input.focus();
       return;
     }
+    if (advancedOpen && !workingDirectoryField.input.value.trim()) {
+      statusLine.textContent = 'Enter a working folder.';
+      workingDirectoryField.input.focus();
+      return;
+    }
     if (!harnessField.select.value || harnessField.select.disabled) {
       statusLine.textContent = 'Select an available harness before creating the profile.';
       harnessField.select.focus();
@@ -772,7 +783,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     note,
     nameField.row,
     advancedPanel,
-    preview,
+    ...(standalone ? [] : [preview]),
     createInlineActions(advancedButton, createButtonEl, cancelButton),
     statusLine,
   );
@@ -793,6 +804,9 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
       workingDirectoryField.input.value = deriveDefaults(defaultName).workingDirectory;
       pictureField.input.value = '';
       mediaPicker.reset();
+      aboutField.input.value = '';
+      nip05Field.input.value = '';
+      publicDetails.setOpen(false);
       setAdvancedOpen(standalone);
       renderPreview();
       setModalVisible(modal.overlay, true);

@@ -20,18 +20,18 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
   overlay.dataset.testid = 'agent-profile-editor-modal';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:1000;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.46);';
   const form = document.createElement('form');
-  form.className = 'wm-card';
+  form.className = 'wm-card wm-agent-profile-form';
   form.setAttribute('role', 'dialog');
   form.setAttribute('aria-modal', 'true');
   form.setAttribute('aria-labelledby', 'agent-profile-editor-title');
   form.style.cssText = 'width:min(680px,100%);max-height:86vh;overflow:auto;padding:18px;';
   const title = document.createElement('h2');
   title.id = 'agent-profile-editor-title';
-  title.textContent = 'Edit Agent Profile';
-  const identity = createInput('Immutable npub', '', 'agent-profile-edit-npub');
+  title.textContent = 'Edit bot';
+  const identity = createInput('Public key (read only)', '', 'agent-profile-edit-npub');
   identity.input.readOnly = true;
   const label = createInput('Label', '', 'agent-profile-edit-label', true);
-  const directory = createInput('Working / start directory', '', 'agent-profile-edit-directory', true);
+  const directory = createInput('Working folder', '', 'agent-profile-edit-directory');
   if (typeof onBrowseDirectory === 'function') {
     const browse = createButton('Browse…', 'agent-profile-edit-directory-browse', 'Browse for the agent working directory');
     browse.type = 'button';
@@ -41,7 +41,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
     }));
     directory.row.append(browse);
   }
-  const harness = createSelect('Harness', 'agent-profile-edit-harness', 'Agent profile harness');
+  const harness = createSelect('Agent tool', 'agent-profile-edit-harness', 'Agent profile harness');
   const model = createSelect('Model', 'agent-profile-edit-model', 'Agent profile model');
   const lookupStatus = createStatusLine();
   lookupStatus.setAttribute('aria-live', 'polite');
@@ -63,8 +63,14 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
   const actions = document.createElement('div');
   actions.className = 'wm-settings-page__actions';
   actions.append(save, cancel);
-  form.append(title, identity.row, label.row, directory.row, harness.row, model.row, lookupStatus,
-    enabled.row, directChatEnabled.row, name.row, picture.row, mediaPicker.element, about.row, nip05.row, status, actions);
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'Public profile & identity';
+  summary.setAttribute('aria-label', 'Edit public profile and view identity');
+  summary.dataset.testid = 'agent-profile-edit-public-toggle';
+  details.append(summary, name.row, mediaPicker.element, picture.row, about.row, nip05.row, identity.row);
+  form.append(title, label.row, directory.row, harness.row, model.row, lookupStatus,
+    enabled.row, directChatEnabled.row, details, status, actions);
   overlay.append(form);
   let current = null;
   let runtimeConfig = null;
@@ -92,11 +98,12 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
     label.input.focus();
   }
   cancel.addEventListener('click', close);
+  overlay.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); });
   picture.input.addEventListener('input', () => mediaPicker.setExternalUrl(picture.input.value));
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
   async function submit(event) {
     event.preventDefault();
-    if (!current) return;
+    if (!current || save.disabled) return;
     save.disabled = true;
     status.textContent = 'Saving agent profile…';
     try {

@@ -106,7 +106,7 @@ describe('Agent Profiles Settings entry', () => {
 
       const addButton = findByTestId(section, 'agent-profiles-add');
       const modal = findByTestId(section, 'agent-chat-agent-name-modal');
-      expect(addButton?.textContent).toBe('Add Agent Profile');
+      expect(addButton?.textContent).toBe('Create bot');
       expect(findByTestId(section, 'agent-profiles-empty')?.textContent).toContain('workspace connection is not required');
 
       addButton.click();

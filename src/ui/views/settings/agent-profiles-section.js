@@ -1,3 +1,4 @@
+import { createProfileCard } from './agent-profile-card.js';
 import {
   createAgentChatProfile,
   deleteAgentChatProfile,
@@ -12,74 +13,22 @@ import { createAgentProfileEditor } from './agent-profile-editor.js';
 import { createButton, createStatusLine } from './agent-chat-shared-ui.js';
 import { fetchConfigApi } from '../../services/config.js';
 
-function createProfileFact(label, value) {
-  const term = document.createElement('dt');
-  term.textContent = label;
-  const detail = document.createElement('dd');
-  detail.textContent = value || 'Not set';
-  return [term, detail];
-}
-
-function createProfileCard(agent, canManage, isDefault, onEdit, onRotate, onSetDefault, onDelete) {
-  const card = document.createElement('article');
-  card.className = 'wm-card';
-  card.dataset.testid = `agent-profile-${agent.agentId}`;
-  const heading = document.createElement('h2');
-  heading.textContent = agent.publicProfile?.name || agent.label || agent.agentId;
-  if (isDefault) {
-    const defaultStatus = document.createElement('p');
-    defaultStatus.textContent = 'Default agent';
-    defaultStatus.dataset.testid = `agent-profile-default-${agent.agentId}`;
-    defaultStatus.setAttribute('aria-label', `${agent.label || agent.agentId} is the default Autopilot agent`);
-    card.append(heading, defaultStatus);
-  } else {
-    card.append(heading);
-  }
-  const facts = document.createElement('dl');
-  facts.className = 'wm-settings__detail-list';
-  facts.append(
-    ...createProfileFact('Active npub', agent.botNpub),
-    ...createProfileFact('Working directory', agent.workingDirectory),
-    ...createProfileFact('Harness', agent.harness || agent.directChat?.sessionAgent),
-    ...createProfileFact('Model', agent.model || agent.directChat?.model),
-    ...createProfileFact('Public about', agent.publicProfile?.about),
-    ...createProfileFact('Public picture', agent.publicProfile?.picture),
-    ...createProfileFact('NIP-05', agent.publicProfile?.nip05),
-  );
-  const editButton = createButton('Edit Agent Profile', `agent-profile-edit-${agent.agentId}`, `Edit ${agent.label || agent.agentId} agent profile`);
-  editButton.addEventListener('click', () => onEdit(agent));
-  card.append(facts, editButton);
-  if (canManage) {
-    if (!isDefault) {
-      const defaultButton = createButton('Make default', `agent-profile-make-default-${agent.agentId}`, `Use ${agent.label || agent.agentId} for ordinary Autopilot sessions`);
-      defaultButton.addEventListener('click', () => onSetDefault(agent, defaultButton));
-      card.append(defaultButton);
-    }
-    const rotateButton = createButton('Rotate agent key', `agent-profile-rotate-${agent.agentId}`, `Rotate signing key for ${agent.label || agent.agentId}`);
-    rotateButton.addEventListener('click', () => onRotate(agent, rotateButton));
-    const deleteButton = createButton('Delete profile', `agent-profile-delete-${agent.agentId}`, `Delete ${agent.label || agent.agentId} agent profile and its locally managed signing key`);
-    deleteButton.className = 'wm-button danger';
-    deleteButton.addEventListener('click', () => onDelete(agent, deleteButton));
-    card.append(rotateButton, deleteButton);
-  }
-  return card;
-}
-
 export function createAgentProfilesSection({ openDirectoryBrowser = null } = {}) {
   const section = document.createElement('section');
   section.dataset.testid = 'agent-profiles-settings-section';
+  section.className = 'wm-agent-profiles-section';
   const actions = document.createElement('div');
   actions.className = 'wm-settings-page__actions';
   const addButton = createButton(
-    'Add Agent Profile',
+    'Create bot',
     'agent-profiles-add',
-    'Open Create Agent Profile form',
+    'Create a new bot',
   );
   const status = createStatusLine();
   status.setAttribute('aria-live', 'polite');
   status.dataset.testid = 'agent-profiles-status';
   const list = document.createElement('div');
-  list.className = 'wm-settings-grid';
+  list.className = 'wm-settings-grid wm-agent-profiles';
   list.dataset.testid = 'agent-profiles-list';
 
   const modal = createPrimaryAgentNameModal({
@@ -99,8 +48,8 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
         mediaFile: defaults.mediaFile,
       });
       status.textContent = created.media?.savedLocally && created.media?.publishedToRelays
-        ? `Created ${created.agent.label}. Image saved locally and profile published to relays. Immutable identity: ${created.agent.botNpub}`
-        : `Created ${created.agent.label}. Immutable identity: ${created.agent.botNpub}`;
+        ? `Created ${created.agent.label}. Image saved and profile published.`
+        : `Created ${created.agent.label}.`;
       await refresh();
     },
   });
@@ -112,7 +61,7 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
         ? await uploadAgentChatProfileMedia(_agent.agentId, mediaFile, profileInput)
         : await updateAgentChatProfile(_agent.agentId, profileInput);
       status.textContent = result.media?.savedLocally && result.media?.publishedToRelays
-        ? `Saved ${result.agent.label}'s image locally and published its profile without changing ${result.agent.botNpub}.`
+        ? `Saved ${result.agent.label}'s image locally and published its profile with the same identity.`
         : result.published
         ? `Saved ${result.agent.label} and published its public profile. Its picture URL remains externally hosted.`
         : `Saved local runtime settings for ${result.agent.label}; public profile was unchanged.`;

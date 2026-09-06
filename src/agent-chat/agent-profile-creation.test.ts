@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -42,13 +42,13 @@ function fixture(overrides: {
   return { root, botKeyStore, agentStore, store, vault, manager, managedByNpub };
 }
 
-function createInput(managedByNpub: string) {
+function createInput(managedByNpub: string, root: string) {
   return {
     managedByNpub,
     agentId: 'fresh-agent',
     label: 'Fresh Agent',
     workspaceOwnerNpub: managedByNpub,
-    workingDirectory: '/tmp/fresh-agent',
+    workingDirectory: join(root, 'new', 'fresh-agent'),
     harness: 'codex',
     publicProfile: { name: 'Fresh Agent', picture: null, about: 'Sovereign', nip05: null },
     capabilities: ['chat_intercept' as const],
@@ -66,7 +66,8 @@ describe('sovereign Agent Profile creation', () => {
     delete process.env.KEYTELEPORT_PRIVKEY;
     try {
       const f = fixture();
-      const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub));
+      const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub, f.root));
+      expect(statSync(created.agent.workingDirectory).isDirectory()).toBe(true);
       const record = f.botKeyStore.getActiveKeyForBotNpub(created.agent.botNpub)!;
       expect(record.encryptedToUser).toBe('');
       expect(record.encryptedEscrow).toBe('');
@@ -93,16 +94,25 @@ describe('sovereign Agent Profile creation', () => {
     }
   });
 
+  test('does not create an identity when the working folder cannot be created', async () => {
+    const f = fixture();
+    const input = createInput(f.managedByNpub, f.root);
+    writeFileSync(join(f.root, 'new'), 'file blocks the folder');
+    await expect(f.manager.createAgentProfileForManager(input)).rejects.toThrow();
+    expect(f.botKeyStore.listActiveKeys()).toHaveLength(0);
+    expect(f.agentStore.getByAgentId(input.agentId)).toBeNull();
+  });
+
   test('removes metadata when vault provisioning fails', async () => {
     const f = fixture({ provision: () => { throw new Error('vault offline'); } });
-    await expect(f.manager.createAgentProfileForManager(createInput(f.managedByNpub))).rejects.toThrow('vault offline');
+    await expect(f.manager.createAgentProfileForManager(createInput(f.managedByNpub, f.root))).rejects.toThrow('vault offline');
     expect(f.botKeyStore.listActiveKeys()).toHaveLength(0);
     expect(f.agentStore.getByAgentId('fresh-agent')).toBeNull();
   });
 
   test('compensates agent, metadata, and envelope after a later failure', async () => {
     const f = fixture();
-    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub));
+    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub, f.root));
     const record = f.botKeyStore.getActiveKeyForBotNpub(created.agent.botNpub)!;
     await f.manager.rollbackCreatedAgentProfile(created.agent.agentId, record);
     expect(f.agentStore.getByAgentId(created.agent.agentId)).toBeNull();
@@ -130,7 +140,7 @@ describe('sovereign Agent Profile creation', () => {
       managedByNpub: otherManagerNpub,
     });
 
-    await expect(f.manager.createAgentProfileForManager(createInput(f.managedByNpub)))
+    await expect(f.manager.createAgentProfileForManager(createInput(f.managedByNpub, f.root)))
       .rejects.toThrow('owned by another manager');
 
     expect(f.agentStore.getByAgentId('fresh-agent')).toMatchObject({
@@ -143,7 +153,7 @@ describe('sovereign Agent Profile creation', () => {
 
   test('deletes a standalone profile and purges its brokered signing key', async () => {
     const f = fixture();
-    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub));
+    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub, f.root));
     const record = f.botKeyStore.getActiveKeyForBotNpub(created.agent.botNpub)!;
 
     const deleted = await f.manager.deleteAgentProfileForManager(created.agent.agentId, f.managedByNpub);
@@ -156,7 +166,7 @@ describe('sovereign Agent Profile creation', () => {
 
   test('keeps a profile and key while a workspace subscription still uses its identity', async () => {
     const f = fixture();
-    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub));
+    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub, f.root));
     const record = f.botKeyStore.getActiveKeyForBotNpub(created.agent.botNpub)!;
     const subscription = f.store.createDefault({
       managedByNpub: f.managedByNpub,
@@ -177,7 +187,7 @@ describe('sovereign Agent Profile creation', () => {
 
   test('allows profile deletion after its workspace subscription is disconnected locally', async () => {
     const f = fixture();
-    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub));
+    const created = await f.manager.createAgentProfileForManager(createInput(f.managedByNpub, f.root));
     const subscription = f.store.createDefault({
       managedByNpub: f.managedByNpub,
       workspaceOwnerNpub: f.managedByNpub,
