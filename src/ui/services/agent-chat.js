@@ -38,6 +38,7 @@ export async function listAgentChatAgents() {
   }
   return {
     agents: Array.isArray(payload.agents) ? payload.agents : [],
+    workspaceBotConnections: Array.isArray(payload.workspaceBotConnections) ? payload.workspaceBotConnections : [],
     permissions: payload.permissions && typeof payload.permissions === 'object'
       ? payload.permissions
       : { shared: false, canManage: true },

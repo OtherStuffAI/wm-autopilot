@@ -1401,6 +1401,20 @@ export class WorkspaceSubscriptionManager {
     return this.agentStore.listForManagerNpub(npub);
   }
 
+  listWorkspaceBotConnectionsForManager(npub: string) {
+    return this.agentStore.listForManagerNpub(npub).flatMap((agent) =>
+      this.profilePolicyStore.listWorkspacesForProfile(agent.agentId, npub).map((workspace) => ({
+        agentId: agent.agentId,
+        subscriptionId: workspace.subscriptionId,
+        workspaceId: workspace.workspaceId,
+        backendBaseUrl: workspace.backendBaseUrl,
+        workspaceTitle: workspace.workspaceTitle,
+        status: workspace.relayOnboardingStatus,
+        updatedAt: workspace.updatedAt,
+      })),
+    );
+  }
+
   getDefaultAgentForManager(npub: string): AgentDefinitionRecord | null {
     return this.agentStore.getDefaultForManagerNpub(npub);
   }

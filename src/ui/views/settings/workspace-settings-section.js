@@ -1,376 +1,175 @@
+import Alpine from '/vendor/alpinejs/module.esm.js';
 import {
-  deleteAgentChatSubscription,
-  importAgentConnectPackage,
-  listAgentChatAgents,
-  listAgentChatBackendConnections,
-  listAgentChatSubscriptions,
-  runAgentChatSubscriptionAction,
-  saveAgentChatProfileWorkspace,
+  deleteAgentChatSubscription, importAgentConnectPackage, listAgentChatAgents,
+  listAgentChatBackendConnections, listAgentChatSubscriptions, runAgentChatSubscriptionAction,
 } from '../../services/agent-chat.js';
 import { createAgentConnectImportModal } from './agent-chat-connect-import-card.js';
-import { createAgentChatSection } from './agent-chat-section.js';
-import {
-  createFlightDeckDispatchCard,
-} from './flight-deck-section.js';
 import { getWorkspaceSettingsPath, resolveSettingsRoute } from '../settings-routes.js';
-import { createWorkspaceLifecycleSection } from './workspace-lifecycle-section.js';
-import {
-  getWorkspaceHealthLabel,
-  isRevokedWorkspaceSubscription,
-} from './workspace-settings-state.js';
+import { createButton } from './agent-chat-shared-ui.js';
+import { buildWorkspaceSettingsModel } from './workspace-settings-model.js';
+import { createWorkspaceDetails, disclosure, element } from './workspace-settings-details.js';
+import { workspaceSettingsDb, Dexie } from './workspace-settings-db.js';
 
-const SUBVIEWS = [
-  ['overview', 'Overview'],
-  ['agent', 'Agent'],
-  ['routing', 'Routing'],
-  ['advanced', 'Advanced diagnostics'],
-];
+Alpine.data('workspaceSettingsView', () => ({
+  snapshot: null,
+  init() {
+    const host = this.$el;
+    this.$watch('snapshot', (value) => { if (value) host.renderWorkspaceSnapshot(value); });
+    this.query = Dexie.liveQuery(() => workspaceSettingsDb.views.get(host.dataset.viewId)).subscribe({
+      next: (value) => { this.snapshot = value || null; },
+      error: (error) => host.workspaceError(error),
+    });
+    host.refreshWorkspace();
+  },
+  destroy() {
+    this.query?.unsubscribe();
+    this.$el.stopWorkspaceRefresh();
+    void workspaceSettingsDb.views.delete(this.$el.dataset.viewId);
+  },
+}));
 
-function workspaceTitle(subscription) {
-  return subscription?.profileWorkspace?.workspace?.workspaceTitle
-    || subscription?.profileWorkspace?.workspace?.workspaceId
-    || subscription?.workspaceId
-    || subscription?.workspaceName
-    || 'Workspace';
-}
-
-function towerHost(subscription, backendConnection) {
-  const raw = subscription?.backendBaseUrl || backendConnection?.backendBaseUrl || '';
-  try {
-    return new URL(raw).host;
-  } catch {
-    return raw || 'Tower host unavailable';
-  }
-}
-
-function healthLabel(subscription) {
-  return getWorkspaceHealthLabel(subscription);
-}
-
-function agentForSubscription(subscription, agents) {
-  const workspaceNpub = subscription?.workspaceServiceNpub || subscription?.workspaceOwnerNpub;
-  return agents.find((agent) => agent?.workspaceOwnerNpub === workspaceNpub && agent?.botNpub === subscription?.botNpub) || null;
-}
-
-function backendForSubscription(subscription, connections) {
-  return connections.find((connection) => connection?.backendConnectionId === subscription?.backendConnectionId) || null;
-}
-
-function createStatus(message, tone = '') {
-  const status = document.createElement('p');
-  status.className = `wm-settings-workspaces__status${tone ? ` is-${tone}` : ''}`;
+export function createWorkspaceSettingsSection() {
+  const container = element('div', '', 'wm-workspaces-page');
+  const viewId = crypto.randomUUID();
+  container.dataset.testid = 'workspace-settings-section';
+  container.dataset.viewId = viewId;
+  container.setAttribute('x-data', 'workspaceSettingsView');
+  const status = element('p', 'Loading workspaces…', 'wm-workspace-note');
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  status.textContent = message;
-  return status;
-}
+  status.dataset.testid = 'workspace-status';
+  const body = element('div');
+  const route = resolveSettingsRoute(globalThis.location?.pathname || '');
+  let selectedId = route.subscriptionId;
+  let busy = false;
+  let refreshing = false;
+  let stopped = false;
+  let timer = null;
+  const modal = createAgentConnectImportModal({ onImport: async (input) => {
+    const result = await importAgentConnectPackage(input);
+    selectedId = result.subscription?.subscriptionId || null;
+    await refresh();
+    return result;
+  } });
+  container.append(status, body, modal.element);
 
-function createFact(label, value, detail = '') {
-  const item = document.createElement('div');
-  item.className = 'wm-settings-workspaces__fact';
-  const term = document.createElement('dt');
-  term.textContent = label;
-  const description = document.createElement('dd');
-  description.textContent = value || 'Unavailable';
-  if (detail) description.title = detail;
-  item.append(term, description);
-  return item;
-}
-
-function createOverview(subscription, backendConnection, agent) {
-  const wrapper = document.createElement('div');
-  const facts = document.createElement('dl');
-  facts.className = 'wm-settings-workspaces__facts';
-  facts.append(
-    createFact('Backend connection', backendConnection ? 'Available to this viewer' : 'Connection details unavailable'),
-    createFact('Workspace subscription', isRevokedWorkspaceSubscription(subscription) ? 'Access revoked' : healthLabel(subscription)),
-    createFact('Tower host', towerHost(subscription, backendConnection)),
-    createFact('Bound local agent', agent?.label || agent?.agentId || 'No local agent bound'),
-    createFact('Direct chat', agent?.directChat?.enabled === false ? 'Disabled' : agent ? 'Enabled' : 'Not configured'),
-    createFact('Last activity', subscription?.lastEventPollOkAt || subscription?.lastAuthOkAt || 'No activity recorded'),
-  );
-  const identities = document.createElement('details');
-  identities.className = 'wm-settings-disclosure';
-  const summary = document.createElement('summary');
-  summary.textContent = 'Raw identities';
-  const raw = document.createElement('dl');
-  raw.className = 'wm-settings-workspaces__facts';
-  raw.append(
-    createFact('Subscription id', subscription?.subscriptionId),
-    createFact('Workspace id', subscription?.workspaceId),
-    createFact('Workspace service', subscription?.workspaceServiceNpub),
-    createFact('Human workspace owner', subscription?.workspaceOwnerNpub),
-    createFact('Source app', subscription?.sourceAppNpub),
-    createFact('Agent/bot actor', subscription?.botNpub),
-  );
-  identities.append(summary, raw);
-  wrapper.append(facts, identities);
-  return wrapper;
-}
-
-function createSubviewNav(subscriptionId, activeSubview, onNavigate) {
-  const nav = document.createElement('nav');
-  nav.className = 'wm-settings-workspaces__subnav';
-  nav.setAttribute('aria-label', 'Workspace settings');
-  SUBVIEWS.forEach(([id, label]) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = label;
-    button.className = id === activeSubview ? 'is-active' : '';
-    button.setAttribute('aria-current', id === activeSubview ? 'page' : 'false');
-    button.setAttribute('aria-label', `Open ${label} for selected workspace`);
-    button.dataset.testid = `workspace-subview-${id}`;
-    button.addEventListener('click', () => onNavigate(subscriptionId, id));
-    nav.append(button);
-  });
-  return nav;
-}
-
-async function fetchPipelineDefinitions() {
-  const response = await fetch('/api/pipelines/definitions', { credentials: 'include' });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || 'Pipeline routes could not be loaded.');
-  return Array.isArray(payload.definitions) ? payload.definitions : [];
-}
-
-export function createWorkspaceSettingsSection({ openDirectoryBrowser = null } = {}) {
-  const container = document.createElement('div');
-  container.className = 'wm-settings-workspaces';
-  container.dataset.testid = 'workspace-settings-section';
-  let data = null;
-  let selectedSubscriptionId = null;
-  let selectedSubview = 'overview';
-  let actionMessage = '';
-
-  const connectModal = createAgentConnectImportModal({
-    onImport: async (input) => {
-      const result = await importAgentConnectPackage(input);
-      selectedSubscriptionId = result?.subscription?.subscriptionId || selectedSubscriptionId;
-      selectedSubview = 'overview';
-      await refresh();
-      navigate(selectedSubscriptionId, selectedSubview, { replace: true });
-      return result;
-    },
-  });
-
-  function readRoute() {
-    if (typeof window === 'undefined') return;
-    const route = resolveSettingsRoute(window.location.pathname);
-    selectedSubscriptionId = route.subscriptionId;
-    selectedSubview = route.subview;
-  }
-
-  function navigate(subscriptionId, subview, { replace = false } = {}) {
-    selectedSubscriptionId = subscriptionId || null;
-    selectedSubview = subview || 'overview';
-    if (typeof window !== 'undefined') {
-      const path = getWorkspaceSettingsPath(selectedSubscriptionId || '', selectedSubview);
-      window.history[replace ? 'replaceState' : 'pushState'](
-        { route: 'settings', settingsPage: 'workspaces', subscriptionId, subview },
-        '',
-        path,
-      );
-    }
-    renderData();
-  }
-
-  async function saveRouting(subscription, input) {
-    const profileWorkspace = await saveAgentChatProfileWorkspace(subscription.subscriptionId, input);
-    data.subscriptions = data.subscriptions.map((candidate) => candidate.subscriptionId === subscription.subscriptionId
-      ? { ...candidate, profileWorkspace }
-      : candidate);
-    actionMessage = 'Routing settings saved.';
-    renderData();
-  }
-
-  async function runLifecycle(subscription, action) {
-    actionMessage = `${action === 'reconnect' ? 'Reconnecting' : action === 'disable' ? 'Disabling' : 'Enabling'} workspace subscription…`;
-    renderData();
-    try {
-      const updated = await runAgentChatSubscriptionAction(subscription.subscriptionId, action);
-      if (updated) data.subscriptions = data.subscriptions.map((candidate) => candidate.subscriptionId === updated.subscriptionId ? updated : candidate);
-      actionMessage = action === 'disable'
-        ? 'Subscription disabled. The backend connection, routes and local agent remain saved.'
-        : action === 'enable'
-          ? 'Subscription enabled and its event connection was repaired.'
-          : 'Subscription event connection reconnected.';
-    } catch (error) {
-      actionMessage = error?.message || `Failed to ${action} subscription.`;
-    }
-    renderData();
-  }
-
-  async function removeSubscription(subscription) {
-    const flightDeckDiscovered = subscription?.onboardingSource === 'nostr_33357';
-    const confirmed = window.confirm(flightDeckDiscovered
-      ? 'Disconnect this workspace locally? This stops and hides the local subscription and ignores older discovery events. It does not change Tower membership, delete the Tower workspace, or delete the local agent.'
-      : 'Remove this local workspace subscription? This removes its local routes and binding reference. It does not delete the Tower workspace, backend connection, or local agent.');
-    if (!confirmed) return;
-    try {
-      await deleteAgentChatSubscription(subscription.subscriptionId);
-      actionMessage = flightDeckDiscovered
-        ? 'Workspace disconnected locally. Tower membership and the local agent were not deleted.'
-        : 'Local workspace subscription and its routes removed. The backend connection and local agent were not deleted.';
-      selectedSubscriptionId = null;
-      await refresh();
-      navigate('', 'overview', { replace: true });
-    } catch (error) {
-      actionMessage = error?.message || 'Failed to remove the local subscription.';
-      renderData();
-    }
-  }
-
-  function renderSelected(subscription) {
-    const detail = document.createElement('section');
-    detail.className = 'wm-card wm-settings-workspaces__detail';
-    detail.dataset.testid = `workspace-detail-${subscription.subscriptionId}`;
-    const header = document.createElement('header');
-    const title = document.createElement('h2');
-    title.textContent = workspaceTitle(subscription);
-    const status = createStatus(healthLabel(subscription), isRevokedWorkspaceSubscription(subscription) ? 'danger' : '');
-    header.append(title, status);
-    detail.append(header, createSubviewNav(subscription.subscriptionId, selectedSubview, navigate));
-    const body = document.createElement('div');
-    body.className = 'wm-settings-workspaces__detail-body';
-    const agent = agentForSubscription(subscription, data.agents);
-    if (selectedSubview === 'agent') {
-      body.append(createAgentChatSection({
-        openDirectoryBrowser,
-        initialSubscriptionId: subscription.subscriptionId,
-        showWorkspaceSelector: false,
-      }));
-    } else if (selectedSubview === 'routing') {
-      if (data.canManage === false) {
-        body.append(createManagedNotice());
-      }
-      body.append(createFlightDeckDispatchCard({
-        subscription,
-        pipelineDefinitions: data.pipelineDefinitions,
-        workspaceTitle: workspaceTitle(subscription),
-        canManage: data.canManage,
-        onSaveProfileWorkspace: saveRouting,
-      }));
-    } else if (selectedSubview === 'advanced') {
-      body.append(createWorkspaceLifecycleSection({
-        subscription,
-        canManage: data.canManage,
-        actionMessage,
-        onAction: (action) => void runLifecycle(subscription, action),
-        onRemove: () => void removeSubscription(subscription),
-      }));
-    } else {
-      body.append(createOverview(subscription, backendForSubscription(subscription, data.backendConnections), agent));
-    }
-    detail.append(body);
-    return detail;
-  }
-
-  function createManagedNotice() {
-    const notice = document.createElement('div');
-    notice.className = 'wm-settings-workspaces__notice';
-    notice.setAttribute('role', 'note');
-    notice.textContent = 'Managed by administrator — you can inspect the effective shared dispatch policy, but only an administrator can change it.';
-    return notice;
-  }
-
-  function renderData() {
-    if (!data) return;
-    const content = document.createElement('div');
-    const toolbar = document.createElement('div');
-    toolbar.className = 'wm-settings-page__actions';
-    const connect = document.createElement('button');
-    connect.type = 'button';
-    connect.className = 'wm-button';
-    connect.textContent = 'Connect workspace';
-    connect.setAttribute('aria-label', 'Connect a Flight Deck workspace with AgentConnect');
-    connect.dataset.testid = 'workspace-connect';
-    connect.disabled = data.canManage === false;
-    connect.addEventListener('click', () => connectModal.open());
-    const reload = document.createElement('button');
-    reload.type = 'button';
-    reload.className = 'wm-button secondary';
-    reload.textContent = 'Refresh';
-    reload.setAttribute('aria-label', 'Refresh workspace connection state');
-    reload.addEventListener('click', () => void refresh());
-    toolbar.append(connect, reload);
-    content.append(toolbar);
-    if (data.partialErrors.length) content.append(createStatus(`Some workspace details could not be refreshed: ${data.partialErrors.join(' ')}`, 'danger'));
-    if (data.canManage === false) content.append(createManagedNotice());
-
-    if (data.subscriptions.length === 0) {
-      const empty = document.createElement('section');
-      empty.className = 'wm-card wm-settings-workspaces__empty';
-      empty.dataset.testid = 'workspace-empty-state';
-      const heading = document.createElement('h2');
-      heading.textContent = 'No workspace subscriptions';
-      const note = document.createElement('p');
-      note.textContent = 'Connect a Flight Deck workspace to receive eligible events. A local agent may serve more than one subscription.';
-      empty.append(heading, note);
-      content.append(empty);
-    } else {
-      const layout = document.createElement('div');
-      layout.className = 'wm-settings-workspaces__layout';
-      const list = document.createElement('nav');
-      list.className = 'wm-settings-workspaces__list';
-      list.setAttribute('aria-label', 'Connected workspaces');
-      data.subscriptions.forEach((subscription) => {
-        const agent = agentForSubscription(subscription, data.agents);
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = subscription.subscriptionId === selectedSubscriptionId ? 'is-active' : '';
-        button.dataset.testid = `workspace-select-${subscription.subscriptionId}`;
-        button.setAttribute('aria-current', subscription.subscriptionId === selectedSubscriptionId ? 'page' : 'false');
-        const name = document.createElement('strong');
-        name.textContent = workspaceTitle(subscription);
-        const host = document.createElement('span');
-        host.textContent = towerHost(subscription, backendForSubscription(subscription, data.backendConnections));
-        const facts = document.createElement('span');
-        facts.textContent = `${healthLabel(subscription)} · ${agent?.label || agent?.agentId || 'No agent'} · Direct chat ${agent?.directChat?.enabled === false ? 'off' : agent ? 'on' : 'not configured'} · ${subscription?.lastEventPollOkAt || 'No activity'}`;
-        button.append(name, host, facts);
-        button.addEventListener('click', () => navigate(subscription.subscriptionId, 'overview'));
-        list.append(button);
-      });
-      layout.append(list);
-      const selected = data.subscriptions.find((subscription) => subscription.subscriptionId === selectedSubscriptionId);
-      if (selected) layout.append(renderSelected(selected));
-      else if (selectedSubscriptionId) layout.append(createStatus('The linked workspace subscription was not found. It may have been removed or is not visible to this account.', 'danger'));
-      else layout.append(createStatus('Select a workspace to inspect its connection, agent, routing and diagnostics.'));
-      content.append(layout);
-    }
-    container.replaceChildren(content, connectModal.element);
+  function showError(error) {
+    status.textContent = error?.message || 'Workspace settings could not be loaded.';
+    status.className = 'wm-workspace-error';
   }
 
   async function refresh() {
-    container.replaceChildren(createStatus('Loading workspace subscriptions…'));
+    if (refreshing || stopped) return;
+    refreshing = true;
     container.setAttribute('aria-busy', 'true');
-    readRoute();
     try {
-      const [subscriptions, agents, connections, pipelines] = await Promise.allSettled([
-        listAgentChatSubscriptions(),
-        listAgentChatAgents(),
-        listAgentChatBackendConnections(),
-        fetchPipelineDefinitions(),
-      ]);
-      if (subscriptions.status === 'rejected') throw subscriptions.reason;
-      const values = subscriptions.value;
-      data = {
-        subscriptions: Array.isArray(values) ? values.filter((item) => item?.subscriptionId) : [],
-        canManage: values.permissions?.canManage !== false,
-        agents: agents.status === 'fulfilled' ? agents.value.agents : [],
-        backendConnections: connections.status === 'fulfilled' ? connections.value : [],
-        pipelineDefinitions: pipelines.status === 'fulfilled' ? pipelines.value : [],
-        partialErrors: [agents, connections, pipelines]
-          .filter((result) => result.status === 'rejected')
-          .map((result) => result.reason?.message || 'A related request failed.'),
-      };
-      renderData();
-    } catch (error) {
-      container.replaceChildren(createStatus(error?.message || 'Failed to load workspace subscriptions.', 'danger'));
-    } finally {
+      const results = await Promise.allSettled([listAgentChatSubscriptions(), listAgentChatAgents(), listAgentChatBackendConnections()]);
+      const [subscriptions, agents, connections] = results;
+      // Keep the previous snapshot intact if any source fails; never replace memberships with an empty list.
+      for (const result of results) if (result.status === 'rejected') throw result.reason;
+      const servers = buildWorkspaceSettingsModel(subscriptions.value, agents.value, connections.value);
+      if (!stopped) await workspaceSettingsDb.views.put({ id: viewId, syncedAt: Date.now(), servers,
+        canManage: subscriptions.value.permissions?.canManage === true });
+      status.textContent = 'Updated just now. Nostr-discovered connections appear automatically.';
+      status.className = 'wm-workspace-note';
+      return true;
+    } catch (error) { showError(error); return false; }
+    finally {
+      refreshing = false;
       container.setAttribute('aria-busy', 'false');
+      clearTimeout(timer);
+      if (!stopped) timer = setTimeout(() => { if (container.isConnected) void refresh(); }, 30000);
     }
   }
 
-  void refresh();
+  async function runAction(subscription, action) {
+    if (busy) return;
+    busy = true;
+    await renderCached();
+    status.textContent = 'Updating connection…';
+    try {
+      if (action === 'remove') await deleteAgentChatSubscription(subscription.subscriptionId);
+      else await runAgentChatSubscriptionAction(subscription.subscriptionId, action);
+      const refreshed = await refresh();
+      if (refreshed) status.textContent = action === 'remove' ? 'Disconnected locally. Workspace membership and bot profiles are unchanged.' : 'Connection updated.';
+    } catch (error) { showError(error); }
+    finally { busy = false; await renderCached(); }
+  }
+
+  function remove(subscription) {
+    if (globalThis.confirm('Disconnect this local connection? Events for this connection will stop. Tower workspace membership and bot profiles will remain.')) {
+      void runAction(subscription, 'remove');
+    }
+  }
+
+  async function renderCached() {
+    const snapshot = await workspaceSettingsDb.views.get(viewId);
+    if (snapshot) render(snapshot);
+  }
+
+  function select(workspace) {
+    selectedId = workspace.subscriptions[0].subscriptionId;
+    globalThis.history?.replaceState({}, '', getWorkspaceSettingsPath(selectedId));
+    void renderCached();
+  }
+
+  function render(snapshot) {
+    const toolbar = element('div', '', 'wm-settings-page__actions');
+    const connect = createButton('Paste AgentConnect', 'workspace-connect', 'Paste AgentConnect from Flight Deck');
+    connect.disabled = !snapshot.canManage || busy;
+    connect.addEventListener('click', () => modal.open());
+    const reload = createButton('Refresh', 'workspace-refresh', 'Refresh servers and workspaces');
+    reload.disabled = busy;
+    reload.addEventListener('click', () => void refresh());
+    toolbar.append(connect, reload);
+    const intro = element('p', 'Add bots to workspaces in Flight Deck. Autopilot picks up trusted Nostr announcements, or you can paste AgentConnect here.', 'wm-workspace-note');
+    const layout = element('div', '', 'wm-workspaces-layout');
+    const nav = element('nav', '', 'wm-workspace-tree');
+    nav.setAttribute('aria-label', 'Servers and workspaces');
+    const workspaces = snapshot.servers.flatMap((server) => server.workspaces);
+    const selected = workspaces.find((workspace) => workspace.subscriptions.some((item) => item.subscriptionId === selectedId))
+      || (!selectedId ? workspaces[0] : null);
+    for (const server of snapshot.servers) {
+      const group = element('section', '', 'wm-workspace-server');
+      group.append(element('h2', server.label), element('small', `${server.workspaces.length} workspace${server.workspaces.length === 1 ? '' : 's'}`));
+      for (const workspace of server.workspaces) {
+        const button = createButton('', `workspace-select-${workspace.subscriptions[0].subscriptionId}`, `Open ${workspace.name} on ${server.label}`);
+        button.className = `wm-workspace-select${workspace === selected ? ' is-active' : ''}`;
+        button.setAttribute('aria-current', workspace === selected ? 'page' : 'false');
+        button.append(element('strong', workspace.name), element('span', `${workspace.bots.length} bot${workspace.bots.length === 1 ? '' : 's'} · ${[...new Set(workspace.subscriptions.map((item) => item.health))].join(' / ')}`));
+        button.addEventListener('click', () => select(workspace));
+        group.append(button);
+      }
+      nav.append(group);
+    }
+    if (selected) layout.append(nav, createWorkspaceDetails(selected, { canManage: snapshot.canManage, busy, onAction: runAction, onRemove: remove }));
+    else if (workspaces.length) layout.append(nav, element('p', 'The linked workspace is no longer available. Select a workspace.', 'wm-workspace-error'));
+    else {
+      const empty = element('section', '', 'wm-card wm-workspace-detail');
+      empty.dataset.testid = 'workspace-empty-state';
+      empty.append(element('h2', 'No connected workspaces'), element('p', 'Add a bot to a workspace in Flight Deck, or paste AgentConnect to get started.'));
+      layout.append(empty);
+    }
+    const access = disclosure('Access & dispatch rules', 'workspace-access-rules');
+    access.append(element('p', 'Nostr onboarding accepts grants from trusted Autopilot users: admins and users marked approved or onboard. Admin-only dispatch mode restricts the issuer check to admins.'),
+      element('p', 'Tower controls workspace and conversation visibility. A local bot must be enabled, support Agent Direct, and be addressed (or be the recipient of a two-party DM).'),
+      element('p', 'Current limitation: Agent Direct does not apply the local sender whitelist check used by pipeline dispatch. Workspace access and bot eligibility checks still apply.', 'wm-workspace-error'));
+    const sameWorkspace = body.dataset.workspace === selected?.key;
+    const openPanels = sameWorkspace ? [...body.querySelectorAll('details[open] > summary')].map((summary) => summary.dataset.testid) : [];
+    const focusedId = body.contains(document.activeElement) ? document.activeElement.dataset.testid : null;
+    body.replaceChildren(toolbar, intro, layout, access);
+    body.dataset.workspace = selected?.key || '';
+    for (const summary of body.querySelectorAll('details > summary')) {
+      if (openPanels.includes(summary.dataset.testid)) summary.parentElement.open = true;
+    }
+    if (focusedId) {
+      [...body.querySelectorAll('[data-testid]')].find((node) => node.dataset.testid === focusedId)?.focus();
+    }
+    if (!snapshot.canManage) body.prepend(element('p', 'Read-only access. Connection changes require an authorized Autopilot user.', 'wm-workspace-note'));
+  }
+  container.renderWorkspaceSnapshot = render;
+  container.workspaceError = showError;
+  container.refreshWorkspace = refresh;
+  container.stopWorkspaceRefresh = () => { stopped = true; clearTimeout(timer); };
   return container;
 }

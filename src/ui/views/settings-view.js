@@ -29,7 +29,7 @@ const PAGE_COPY = Object.freeze({
   profile: ['Profile', 'Your identity, sign-in state and default launch agent.'],
   credentials: ['Credentials', 'Personal AI, tool and developer account credentials. Secret values are never displayed.'],
   speech: ['Speech', 'Speech provider settings and generated Flight Deck reply audio.'],
-  workspaces: ['Workspaces', 'Connect Flight Deck workspaces and manage their local agent, routing and diagnostics.'],
+  workspaces: ['Workspaces', 'Your servers, workspaces, and bots — connected through Agent Direct.'],
   agentProfiles: ['Agent Profiles', 'Manage your bots, their working folders, and the tools they use.'],
   remote: ['Remote Instruct', 'Control the context added to remote instructions and review its supported variables.'],
   models: ['Models', 'Choose and order the OpenRouter models offered when launching compatible agents.'],

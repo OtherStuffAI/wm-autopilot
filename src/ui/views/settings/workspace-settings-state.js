@@ -1,6 +1,8 @@
 export function isRevokedWorkspaceSubscription(subscription) {
   const status = subscription?.profileWorkspace?.workspace?.relayOnboardingStatus;
-  return status === 'revoked'
+  return subscription?.lifecycleStatus === 'revoked'
+    || subscription?.lifecycleStatus === 'deleted'
+    || status === 'revoked'
     || status === 'deleted'
     || subscription?.wsKeyStatus === 'revoked'
     || subscription?.lastErrorCode === 'workspace_access_revoked';
@@ -11,7 +13,7 @@ export function getWorkspaceHealthLabel(subscription) {
   if (subscription?.sseStatus === 'disabled') return 'Disabled';
   if (subscription?.sseStatus === 'disconnected') return 'Disconnected';
   if (subscription?.healthStatus === 'healthy') return 'Connected';
-  if (subscription?.lastErrorCode) return 'Needs attention';
+  if (subscription?.lastErrorCode || ['unhealthy', 'degraded'].includes(subscription?.healthStatus)) return 'Needs attention';
   return subscription?.healthStatus || 'Status unavailable';
 }
 

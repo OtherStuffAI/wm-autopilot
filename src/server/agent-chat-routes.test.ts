@@ -1242,3 +1242,24 @@ describe('agent-chat routes', () => {
     expect(body.error).toContain('workspace subscription');
   });
 });
+
+test('agent list exposes manager-scoped recorded workspace bot connections', async () => {
+  let requestedManager = '';
+  const workspaceBotConnections = [
+    { agentId: 'rick', subscriptionId: 'one', workspaceId: 'workspace-one', status: 'verified' },
+    { agentId: 'rick', subscriptionId: 'two', workspaceId: 'workspace-two', status: 'verified' },
+  ];
+  const manager = {
+    getDefaultAgentForManager: () => null,
+    listAgentsForManager: () => [],
+    listWorkspaceBotConnectionsForManager: (npub: string) => {
+      requestedManager = npub;
+      return workspaceBotConnections;
+    },
+  } as unknown as WorkspaceSubscriptionManager;
+  const request = new Request('http://localhost/api/agent-chat/agents');
+  const response = await handleAgentChatApi(request, new URL(request.url), 'GET', authContext, { manager });
+  expect(response?.status).toBe(200);
+  expect(requestedManager).toBe(authContext.npub!);
+  expect((await response!.json()).workspaceBotConnections).toEqual(workspaceBotConnections);
+});

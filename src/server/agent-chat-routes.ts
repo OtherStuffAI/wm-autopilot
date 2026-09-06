@@ -670,6 +670,7 @@ export async function handleAgentChatApi(
         canManage: scope.canManage,
       },
       agents: ctx.manager.listAgentsForManager(scope.managerNpub).map(serialiseAgent),
+      workspaceBotConnections: ctx.manager.listWorkspaceBotConnectionsForManager?.(scope.managerNpub) ?? [],
       defaults: {
         defaultAgentProfileId: defaultAgentProfile?.agentId ?? null,
         agentTypes: ctx.agentTypes ?? [],

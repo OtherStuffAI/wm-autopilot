@@ -92,6 +92,9 @@ describe("createStaticRouteHandler", () => {
       "/services/signing-policies.js",
       "/views/settings/agent-profile-media-picker.js",
       "/views/settings/agent-profile-card.js",
+      "/views/settings/workspace-settings-model.js",
+      "/views/settings/workspace-settings-details.js",
+      "/views/settings/workspace-settings-db.js",
     ]) {
       const moduleResponse = await handler.serveBeforeApi(new Request(`http://localhost${pathname}`), pathname);
       expect(moduleResponse?.status).toBe(200);
