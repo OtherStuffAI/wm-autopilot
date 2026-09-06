@@ -91,4 +91,3 @@ export function createProfileCard(agent, canManage, isDefault, onEdit, onRotate,
   }
   return card;
 }
-
