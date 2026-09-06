@@ -17201,3 +17201,23 @@ textarea.wm-input {
   .wm-workspaces-layout { grid-template-columns: minmax(0, 1fr); }
   .wm-workspace-detail { padding: 1rem; }
 }
+
+.wm-settings-purpose { padding: 1.3rem; margin-bottom: 1.25rem; }
+.wm-settings-purpose h2 { margin: 0; font-size: 1.15rem; }
+.wm-settings-purpose > p { color: var(--text-secondary); line-height: 1.5; }
+.wm-settings-purpose__links { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: .75rem; }
+.wm-settings-purpose__links a { display: grid; gap: .3rem; padding: .8rem; border: 1px solid var(--border-color, #8884); border-radius: .65rem; text-decoration: none; color: var(--text-primary); }
+.wm-settings-purpose__links a:hover { border-color: var(--text-secondary); }
+.wm-settings-purpose__links span { font-size: .8rem; color: var(--text-secondary); line-height: 1.45; }
+.wm-instance-settings__category > summary, .wm-settings-maintenance > summary { padding: .8rem 0; cursor: pointer; font-weight: 600; }
+.wm-instance-settings__category > .wm-settings__port-note { margin-top: 0; }
+.wm-instance-settings__setting-meta { display: block; }
+.wm-instance-settings__setting-meta > summary { cursor: pointer; font-size: .8rem; color: var(--text-secondary); }
+.wm-instance-settings__setting-meta > code { display: block; margin-top: .5rem; overflow-wrap: anywhere; }
+.wm-settings-maintenance { margin-top: 1.5rem; border-top: 1px solid var(--border-color, #8884); }
+.wm-settings-maintenance > p { color: var(--text-secondary); line-height: 1.5; font-size: .85rem; }
+.wm-settings-maintenance > .wm-instance-settings__actions { margin-bottom: 1rem; }
+[data-testid="terminal-security-settings"] { padding: 1.25rem; }
+[data-testid="terminal-pin-settings-form"] { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; max-width: 26rem; }
+[data-testid="terminal-pin-settings-form"] input { width: 100%; padding: .65rem; border: 1px solid var(--border-color, #8884); border-radius: .5rem; background: var(--bg-primary); color: var(--text-primary); }
+[data-testid="terminal-pin-settings-form"] button { margin-top: .5rem; justify-self: start; }

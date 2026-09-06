@@ -37,7 +37,10 @@ export function createInstanceSettingsSection() {
   const cleanupButton = createButton('Clean up env');
   cleanupButton.setAttribute('aria-label', 'Remove selected imported keys from env file');
   cleanupButton.setAttribute('data-testid', 'instance-settings-cleanup-env');
-  actions.append(reloadButton, importButton, backupButton, cleanupButton);
+  actions.append(reloadButton);
+  const maintenanceActions = document.createElement("div");
+  maintenanceActions.className = "wm-instance-settings__actions";
+  maintenanceActions.append(importButton, backupButton, cleanupButton);
 
   const body = document.createElement('div');
   body.className = 'wm-instance-settings__body';
@@ -57,11 +60,19 @@ export function createInstanceSettingsSection() {
       selectionInitialized = false;
     }
     body.replaceChildren();
-    body.append(createCleanupNotice(payload));
+    const maintenance = document.createElement("details");
+    maintenance.className = "wm-settings-maintenance";
+    const summary = document.createElement("summary");
+    summary.textContent = "Environment import & cleanup (maintenance)";
+    summary.setAttribute("aria-label", "Open environment import and cleanup tools");
+    summary.dataset.testid = "instance-settings-maintenance";
+    const note = document.createElement("p");
+    note.textContent = "These tools move deployment environment values into encrypted Autopilot settings. They are not part of normal bot or workspace setup. Importing is optional; cleanup removes only eligible imported entries and creates a backup.";
+    maintenance.append(summary, note, maintenanceActions, createCleanupNotice(payload));
 
     const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
     if (candidates.length > 0) {
-      body.append(createImportPanel(candidates, selectedKeys, !selectionInitialized));
+      maintenance.append(createImportPanel(candidates, selectedKeys, !selectionInitialized));
       selectionInitialized = true;
     }
 
@@ -97,6 +108,7 @@ export function createInstanceSettingsSection() {
       },
     }));
 
+    body.append(maintenance);
     cleanupButton.disabled = payload.cleanupStatus !== 'cleanupSupported';
     backupButton.disabled = payload.cleanupStatus !== 'cleanupSupported';
     importButton.disabled = candidates.length === 0;

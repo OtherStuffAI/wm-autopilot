@@ -95,6 +95,7 @@ describe("createStaticRouteHandler", () => {
       "/views/settings/workspace-settings-model.js",
       "/views/settings/workspace-settings-details.js",
       "/views/settings/workspace-settings-db.js",
+      "/views/settings/settings-purpose.js",
     ]) {
       const moduleResponse = await handler.serveBeforeApi(new Request(`http://localhost${pathname}`), pathname);
       expect(moduleResponse?.status).toBe(200);

@@ -10,9 +10,9 @@ import { getSettingsNavigationItems } from './settings-navigation.js';
 describe('settings route helpers', () => {
   test('groups personal, automation and runtime pages while hiding administration from non-admins', () => {
     const memberItems = getSettingsNavigationItems(false);
-    expect(memberItems.map((item) => item.group)).toContain('Personal');
-    expect(memberItems.map((item) => item.group)).toContain('Agents & Automation');
-    expect(memberItems.map((item) => item.group)).toContain('Runtime');
+    expect(memberItems.map((item) => item.group)).toContain('Your account');
+    expect(memberItems.map((item) => item.group)).toContain('Bots & connections');
+    expect(memberItems.map((item) => item.group)).toContain('Server');
     expect(memberItems.map((item) => item.group)).not.toContain('Administration');
     expect(memberItems.map((item) => item.id)).not.toContain('system');
     expect(getSettingsNavigationItems(true).map((item) => item.id)).toContain('access');

@@ -1,12 +1,4 @@
-const CATEGORY_LABELS = {
-  branding: 'Branding',
-  runtime: 'Runtime',
-  agents: 'Agents',
-  integrations: 'Integrations',
-  pipelines: 'Pipelines',
-  identity: 'Identity',
-  internal: 'Internal',
-};
+import { SETTING_GROUPS, settingGroup, settingValueState } from './settings-purpose.js';
 
 export function createStatus() {
   const status = document.createElement('p');
@@ -59,7 +51,7 @@ function formatCandidateSource(source) {
 
 function groupByCategory(items) {
   return items.reduce((groups, item) => {
-    const key = item.category || 'runtime';
+    const key = settingGroup(item);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(item);
     return groups;
@@ -70,21 +62,15 @@ function resolveSettingValue(setting) {
   if (setting.configured) return setting.maskedValue || 'Configured';
   if (setting.maskedValue) return setting.maskedValue;
   if (setting.defaultValue) return setting.defaultValue;
-  return 'Not configured';
+  return 'No override set';
 }
 
 function resolveSettingTone(setting) {
-  if (setting.bootstrapOnly) return 'warning';
-  if (setting.configured) return 'success';
-  if (setting.maskedValue) return 'muted';
-  return 'danger';
+  return setting.configured ? 'success' : 'muted';
 }
 
 function resolveSettingState(setting) {
-  if (setting.bootstrapOnly) return 'Bootstrap env';
-  if (setting.configured) return 'App managed';
-  if (setting.maskedValue) return 'Using env fallback';
-  return 'Missing';
+  return settingValueState(setting);
 }
 
 function resolveCandidateState(candidate) {
@@ -121,10 +107,10 @@ export function createHeader(actions, status) {
   const copy = document.createElement('div');
   copy.className = 'wm-instance-settings__header-copy';
   const heading = document.createElement('h2');
-  heading.textContent = 'Environment & Runtime Settings';
+  heading.textContent = 'Server configuration';
   const description = document.createElement('p');
   description.className = 'wm-settings__port-note';
-  description.textContent = 'Encrypted app settings override env values after import. Bootstrap values stay in env.';
+  description.textContent = 'Saved values override environment values. A setting with no override can use a runtime default or remain unused until its feature is enabled. Restart labels show when a change takes effect.';
   copy.append(heading, description, status);
 
   header.append(copy, actions);
@@ -152,7 +138,7 @@ export function createImportPanel(candidates, selectedKeys, initializeSelection)
   const header = document.createElement('div');
   header.className = 'wm-instance-settings__panel-header';
   const heading = document.createElement('h3');
-  heading.textContent = 'Detected Environment Values';
+  heading.textContent = 'Environment values available for review';
   const count = createBadge(`${candidates.length} found`, 'muted');
   header.append(heading, count);
 
@@ -195,7 +181,7 @@ function createImportCandidate(candidate, selectedKeys, initializeSelection) {
 
   const env = document.createElement('span');
   env.className = 'wm-instance-settings__candidate-env';
-  env.append(createCode(candidate.envKeys.join(', ')));
+  env.append(createCode([...new Set(candidate.envKeys)].join(', ')));
   if (candidate.maskedEnvValue) {
     env.append(document.createTextNode(' = '));
     env.append(createCode(candidate.maskedEnvValue));
@@ -224,20 +210,12 @@ function createImportCandidate(candidate, selectedKeys, initializeSelection) {
 }
 
 function createSettingMeta(setting) {
-  const meta = document.createElement('div');
+  const meta = document.createElement('details');
   meta.className = 'wm-instance-settings__setting-meta';
-
-  const aliases = createCode(setting.envAliases.join(', '));
-  meta.append(aliases);
-
-  const badges = document.createElement('span');
-  badges.className = 'wm-instance-settings__setting-badges';
-  badges.append(createBadge(formatSource(setting.source), setting.configured ? 'success' : 'muted'));
-  if (setting.autoImport) badges.append(createBadge('Auto import', 'muted'));
-  if (setting.requiresRestart) badges.append(createBadge('Restart', 'warning'));
-  if (setting.bootstrapOnly) badges.append(createBadge('Env only', 'warning'));
-  meta.append(badges);
-
+  const summary = document.createElement('summary');
+  summary.textContent = setting.requiresRestart ? 'Technical details · restart after changes' : 'Technical details';
+  summary.setAttribute('aria-label', `Technical details for ${setting.label}`);
+  meta.append(summary, createCode([...new Set(setting.envAliases)].join(', ')));
   return meta;
 }
 
@@ -376,7 +354,9 @@ export function createSettingsPanel(settings, options) {
   const wrapper = document.createElement('div');
   wrapper.className = 'wm-instance-settings__settings';
 
-  for (const [category, items] of groupByCategory(settings)) {
+  const order = Object.keys(SETTING_GROUPS);
+  const groups = [...groupByCategory(settings)].sort(([a], [b]) => order.indexOf(a) - order.indexOf(b));
+  for (const [category, items] of groups) {
     wrapper.append(createSettingCategory(category, items, options));
   }
 
@@ -384,11 +364,17 @@ export function createSettingsPanel(settings, options) {
 }
 
 function createSettingCategory(category, items, options) {
-  const section = document.createElement('section');
+  const section = document.createElement('details');
   section.className = 'wm-instance-settings__category';
-  const heading = document.createElement('h3');
-  heading.textContent = CATEGORY_LABELS[category] || category;
-  section.append(heading);
+  section.open = items.some((item) => item.key === options.editingKey);
+  const heading = document.createElement('summary');
+  heading.textContent = `${SETTING_GROUPS[category]?.[0] || category} · ${items.length}`;
+  heading.setAttribute('aria-label', `Open ${SETTING_GROUPS[category]?.[0] || category} settings`);
+  heading.dataset.testid = `instance-settings-category-${category}`;
+  const purpose = document.createElement('p');
+  purpose.className = 'wm-settings__port-note';
+  purpose.textContent = SETTING_GROUPS[category]?.[1] || '';
+  section.append(heading, purpose);
 
   const list = document.createElement('div');
   list.className = 'wm-instance-settings__setting-list';

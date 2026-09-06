@@ -1,3 +1,4 @@
+import { createSettingsPurposeGuide } from './settings/settings-purpose.js';
 import { createSettingsTabs } from './settings-tabs.js';
 import {
   getSettingsPathForTab,
@@ -27,19 +28,19 @@ import { createCompletionNotificationsSection } from './settings/completion-noti
 
 const PAGE_COPY = Object.freeze({
   profile: ['Profile', 'Your identity, sign-in state and default launch agent.'],
-  credentials: ['Credentials', 'Personal AI, tool and developer account credentials. Secret values are never displayed.'],
+  credentials: ['API keys & accounts', 'Personal AI, tool and developer account credentials. Secret values are never displayed.'],
   speech: ['Speech', 'Speech provider settings and generated Flight Deck reply audio.'],
   workspaces: ['Workspaces', 'Your servers, workspaces, and bots — connected through Agent Direct.'],
-  agentProfiles: ['Agent Profiles', 'Manage your bots, their working folders, and the tools they use.'],
-  remote: ['Remote Instruct', 'Control the context added to remote instructions and review its supported variables.'],
-  models: ['Models', 'Choose and order the OpenRouter models offered when launching compatible agents.'],
+  agentProfiles: ['Bots', 'Manage your bots, their working folders, and the tools they use.'],
+  remote: ['Remote instruction prompt', 'Control the context added to remote instructions and review its supported variables.'],
+  models: ['Model choices', 'Choose and order the OpenRouter models offered when launching compatible agents.'],
   hosting: ['App Hosting', 'Instance routing defaults and the web app ports assigned to your account.'],
   restart: ['Restart', 'Restart Autopilot with one consistent session recovery policy.'],
-  system: ['System', 'Encrypted instance settings, effective sources and environment migration tools.'],
+  system: ['Server configuration', 'Installation-wide defaults, optional services, and deployment maintenance.'],
   access: ['Users & Access', 'Approved users, nicknames, access state and administrator port allocation.'],
   billing: ['Billing', 'Team credit allocation, markup and recent usage.'],
   appearance: ['Appearance', 'Autopilot name, branding and accent colour.'],
-  flags: ['Feature Flags', 'Experimental capabilities and rollout state.'],
+  flags: ['Experimental features', 'Experimental capabilities and rollout state.'],
   starter: ['Starter Projects', 'Templates made available when users create projects.'],
   signingPolicies: ['Signing Policies', 'Review assigned signing authority, immutable revisions and active capability state.'],
 });
@@ -263,17 +264,7 @@ export function initSettingsView(deps) {
   }
 
   function renderSystemPage() {
-    const disclosure = document.createElement('details');
-    disclosure.className = 'wm-settings-disclosure';
-    disclosure.open = true;
-    const summary = document.createElement('summary');
-    summary.textContent = 'Advanced instance settings and migration';
-    disclosure.append(summary, createInstanceSettingsSection());
-    return createPage('system', createTerminalSecuritySection({
-      configured: state.config?.terminalConfigured === true,
-      onSaved: refreshConfig,
-      notify: showToast,
-    }), disclosure);
+    return createPage('system', createSettingsPurposeGuide(), createInstanceSettingsSection());
   }
 
   function renderRestartPage() {
@@ -288,6 +279,7 @@ export function initSettingsView(deps) {
     return createPage('access', createSettingsGrid(
       'access',
       renderAdminUsersPanel(),
+      createTerminalSecuritySection({ configured: state.config?.terminalConfigured === true, onSaved: refreshConfig, notify: showToast }),
       renderAssignedPortsSection({ allocationActions: true }),
     ));
   }
