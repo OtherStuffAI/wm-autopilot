@@ -31,6 +31,7 @@ interface AgentDirectDeliveryReconcilerDependencies {
   store?: DirectChatTurnStore;
   interceptStore?: ChatInterceptStateStore;
   publish?: typeof createFlightDeckPgChannelMessage;
+  reconcileActivity?: (record: DirectChatTurnRecord, identity: RuntimeBotIdentity, transport: AgentDirectDeliveryTransport) => Promise<void>;
   intervalMs?: number;
   activeIntervalMs?: number;
   unavailableIntervalMs?: number;
@@ -183,6 +184,7 @@ export class AgentDirectDeliveryReconciler {
             integrityClass: 'profile_vault_identity_mismatch',
           });
         }
+        await this.deps.reconcileActivity?.(record, botIdentity, transport);
         return (this.deps.publish ?? createFlightDeckPgChannelMessage)({
           backendBaseUrl: transport.backendBaseUrl, workspaceId: transport.workspaceId, channelId: record.channelId!,
           appNpub: transport.appNpub, botIdentity, body: payload.body, threadId: payload.threadId,

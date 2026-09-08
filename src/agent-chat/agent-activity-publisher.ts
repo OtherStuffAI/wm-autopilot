@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { readLatestCodexUserVisibleActivity } from '../agents/codex-session-messages';
+import { readCodexUserVisibleActivities, type CodexUserVisibleActivity } from '../agents/codex-session-messages';
 import type { ProcessManager } from '../agents/process-manager';
 import { upsertFlightDeckPgAgentActivity } from './tower-client';
 import type { RuntimeBotIdentity } from './types';
@@ -36,7 +36,6 @@ export class AgentActivityPublisher {
   private sequence: number;
   private lastBody = '';
   private lastState: AgentActivityState | null = null;
-  private latestCommentaryAt = Number.NEGATIVE_INFINITY;
   private terminal = false;
   private established = false;
   private publishQueue = Promise.resolve();
@@ -48,7 +47,7 @@ export class AgentActivityPublisher {
     private readonly context: AgentActivityContext,
     private readonly deliver: typeof upsertFlightDeckPgAgentActivity = upsertFlightDeckPgAgentActivity,
     sequenceBase?: number,
-    private readonly readLatestActivity = readLatestCodexUserVisibleActivity,
+    private readonly readLatestActivity: (input: Parameters<typeof readCodexUserVisibleActivities>[0]) => Promise<CodexUserVisibleActivity[] | CodexUserVisibleActivity | null> = readCodexUserVisibleActivities,
     private readonly log: Pick<Console, 'error'> & Partial<Pick<Console, 'info'>> = console,
     private readonly publicationStore: AgentActivityPublicationStore = agentActivityPublicationStore,
   ) {
@@ -57,6 +56,8 @@ export class AgentActivityPublisher {
     this.sequence = this.sequenceBase;
     this.runtimeSessionId = context.sessionId;
     this.activityId = buildAgentActivityId(context);
+    const saved = this.publicationStore.contextFor(this.activityId);
+    if (typeof saved?.sessionId === 'string') this.context = { ...context, sessionId: saved.sessionId };
   }
 
   bindSession(sessionId: string): void {
@@ -74,18 +75,31 @@ export class AgentActivityPublisher {
   }
 
   private async publishNow(state: AgentActivityState, body?: string, sourceIdentity?: string): Promise<void> {
-    if (this.terminal) return;
+    if (this.terminal && !sourceIdentity) return;
     const normalized = body ? normalizeUserVisibleActivity(body) : null;
-    if (state === 'working' && normalized === this.lastBody && (normalized || this.lastState === 'working')) return;
-    if (normalized) this.lastBody = normalized;
+    if (!sourceIdentity && state === 'working' && normalized === this.lastBody && (normalized || this.lastState === 'working')) return;
     const terminal = state === 'completed' || state === 'failed' || state === 'cancelled';
     // A replay can construct another publisher for the same durable turn while
     // the owning lifecycle is still active. Its stable sequence makes the
     // replayed receipt stale at Tower; do not let that unestablished replay
     // terminalize the owner's visible activity afterward.
-    if (terminal && !this.established) return;
+    if (terminal && !this.established && !this.publicationStore.hasPending(this.activityId)) return;
     const eventKey = sourceIdentity ?? `${state}:${normalized ?? ''}`;
-    const claim = this.publicationStore.claim(this.activityId, eventKey, this.sequenceBase);
+    const { botIdentity: _identity, ...publicContext } = this.context;
+    const publicRequest = {
+      ...publicContext,
+      activityId: this.activityId,
+      state,
+      // Tower treats session_id as immutable correlation data for one
+      // activity_id. Keep the originally published value when the pending
+      // turn later binds to its concrete runtime session.
+      sessionId: this.context.sessionId,
+      label: state === 'accepted' ? 'Message received' : state === 'working' ? (normalized ? 'Working' : 'Agent started') : undefined,
+      summary: normalized ? normalized.replace(/\s+/g, ' ').slice(0, 240) : undefined,
+      body: normalized ?? undefined,
+      expiresInSeconds: terminal ? 60 : 300,
+    };
+    const claim = this.publicationStore.claim(this.activityId, eventKey, this.sequenceBase, new Date().toISOString(), publicRequest);
     this.sequence = Math.max(this.sequence, claim.sequence);
     if (claim.duplicate) {
       if (claim.accepted && state === 'working') this.established = true;
@@ -108,20 +122,7 @@ export class AgentActivityPublisher {
       sequence,
     };
     try {
-      const request = {
-        ...this.context,
-        activityId: this.activityId,
-        state,
-        sequence,
-        // Tower treats session_id as immutable correlation data for one
-        // activity_id. Keep the originally published value when the pending
-        // turn later binds to its concrete runtime session.
-        sessionId: this.context.sessionId,
-        label: state === 'accepted' ? 'Message received' : state === 'working' ? (normalized ? 'Working' : 'Agent started') : undefined,
-        summary: normalized ? normalized.replace(/\s+/g, ' ').slice(0, 240) : undefined,
-        body: normalized ?? undefined,
-        expiresInSeconds: terminal ? 60 : 300,
-      };
+      const request = { ...publicRequest, sequence, botIdentity: this.context.botIdentity };
       let delivered = false;
       let lastError: unknown = null;
       let towerResult: Awaited<ReturnType<typeof upsertFlightDeckPgAgentActivity>> | null = null;
@@ -168,6 +169,7 @@ export class AgentActivityPublisher {
         uiConsumable: Boolean(towerActivity),
         uiConsumableVia: towerOutbox ? 'sse_and_hydration' : 'hydration',
       });
+      if (normalized) this.lastBody = normalized;
       this.lastState = state;
       this.established = true;
       if (terminal) this.terminal = true;
@@ -184,16 +186,32 @@ export class AgentActivityPublisher {
     const session = manager.getSession(this.runtimeSessionId);
     const native = session?.metadata?.nativeAgentSession;
     if (session?.agent !== 'codex' || native?.agent !== 'codex' || !native.sessionId || !native.workingDirectory) return;
-    const activity = await this.readLatestActivity({
-      sessionId: native.sessionId,
-      workingDirectory: native.workingDirectory,
-    }).catch(() => null);
-    if (!activity) return;
-    const createdAt = Date.parse(activity.createdAt);
+    await this.publishCommentaryFromSource({ sessionId: native.sessionId,
+      workingDirectory: native.workingDirectory, startedAt: this.context.startedAt });
+  }
+
+  async publishCommentaryFromSource(source: Parameters<typeof readCodexUserVisibleActivities>[0]): Promise<void> {
     await this.enqueuePublish(async () => {
-      if (Number.isFinite(createdAt) && createdAt <= this.latestCommentaryAt) return;
-      if (Number.isFinite(createdAt)) this.latestCommentaryAt = createdAt;
-      await this.publishNow('working', activity.content, `commentary:${activity.createdAt}:${createHash('sha256').update(activity.content).digest('hex').slice(0, 16)}`);
+      const { botIdentity: _identity, ...context } = this.context;
+      const generation = this.publicationStore.saveCommentarySource(this.activityId, { context, source });
+      let result: Awaited<ReturnType<typeof this.readLatestActivity>>;
+      try {
+        result = await this.readLatestActivity(source);
+      } catch (error) {
+        this.log.error('[agent-activity] commentary read failed; will retry', { sessionId: this.runtimeSessionId,
+          error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      const activities = Array.isArray(result) ? result : result ? [result] : [];
+      for (const activity of activities) {
+        const startedAt = Date.parse(this.context.startedAt ?? '');
+        if (Number.isFinite(startedAt) && Date.parse(activity.createdAt) < startedAt) continue;
+        const hash = createHash('sha256').update(activity.content).digest('hex').slice(0, 16);
+        const identity = `commentary:${source.sessionId}:${activity.sourceId ?? activity.createdAt}:${hash}`;
+        this.publicationStore.migrateLegacyCommentary(this.activityId, identity, `commentary:${activity.createdAt}:${hash}`);
+        await this.publishNow('working', activity.content, identity);
+      }
+      this.publicationStore.finishCommentarySource(this.activityId, generation);
     });
   }
 }

@@ -97,7 +97,6 @@ export class FlightDeckSessionTurnBridge {
   async waitForIdle(): Promise<void> { await Promise.all([...this.running.values()]); }
 
   private async process(record: FlightDeckSessionTurnRecord): Promise<void> {
-    if (record.replyBody) { await this.publish(record); return; }
     const session = this.deps.manager.getSession(record.sessionId);
     if (!session) throw new Error(`Flight Deck turn ${record.turnId} cannot recover because session ${record.sessionId} is missing.`);
     const binding = resolveFlightDeckSessionBinding(session, this.deps.resolveDelivery(session));
@@ -114,16 +113,25 @@ export class FlightDeckSessionTurnBridge {
       ...binding, triggerMessageId,
       sessionId: session.id, turnId: record.turnId, startedAt: record.createdAt,
     });
+    if (record.replyBody) {
+      await this.publishActivity(record, 'working', () => activity.publish('working'));
+      await this.publishActivity(record, 'commentary', () => activity.publishLatestCommentary(this.deps.manager));
+      await this.publish(record);
+      await this.publishActivity(record, 'completed', () => activity.publish('completed'));
+      return;
+    }
     await this.publishActivity(record, 'accepted', () => activity.publish('accepted'));
     try {
       const reply = await awaitAcceptedFinalResponse(this.deps.manager, session.id, record.prompt, record.sourceMessageIds,
         { acceptedAt: record.createdAt,
           onPoll: () => this.publishActivity(record, 'commentary', () => activity.publishLatestCommentary(this.deps.manager)) });
+      await this.publishActivity(record, 'commentary', () => activity.publishLatestCommentary(this.deps.manager));
       await this.publishKnownFinal(record, reply.content, reply.createdAt);
       await this.publishActivity(record, 'completed', () => activity.publish('completed'));
     } catch (error) {
       const latest = this.store.get(record.turnId) ?? record;
       this.store.save({ ...latest, state: 'failed', lastError: error instanceof Error ? error.message : String(error), updatedAt: new Date().toISOString() });
+      await this.publishActivity(record, 'commentary', () => activity.publishLatestCommentary(this.deps.manager));
       await this.publishActivity(record, 'failed', () => activity.publish('failed'));
       throw error;
     }

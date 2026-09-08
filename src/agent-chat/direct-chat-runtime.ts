@@ -285,8 +285,17 @@ export class AgentDirectChatRuntime {
         activeTurnId = pending?.turnId ?? null;
         const pendingAwaiting = pending?.state === 'accepted' || pending?.state === 'awaiting_reply';
         if (pending?.replyBody) {
+          activity = this.createActivityPublisher({ backendBaseUrl: input.subscription.backendBaseUrl,
+            workspaceId: input.subscription.workspaceId!, appNpub: input.subscription.sourceAppNpub,
+            botIdentity: input.botIdentity, channelId: intercept.channelId, threadId: intercept.threadId,
+            triggerMessageId: pending.sourceMessageIds.at(-1)!, sessionId: `pending:${pending.turnId}`,
+            agentNpub: intercept.botNpub, turnId: pending.turnId, startedAt: pending.createdAt });
+          if (pending.sessionId ?? intercept.sessionId) activity.bindSession((pending.sessionId ?? intercept.sessionId)!);
+          await activity.publish('working');
+          await activity.publishLatestCommentary(this.deps.processManager);
           await this.publishTurn(input, intercept, agent, pending.turnId, pending.sourceMessageIds, pending.clientRequestId,
             pending.replyBody, pending.replyReadyAt ?? undefined);
+          await activity.publish('completed');
           continue;
         }
         const history = orderDirectChatMessages(input.messages);
@@ -384,6 +393,7 @@ export class AgentDirectChatRuntime {
           for (const recordId of recoverySourceMessageIds) {
             this.recordRecoveredSessionOutcome(input, agent, recordId, session.id, routingKey, 'final_turn');
           }
+          await activity.publishLatestCommentary(this.deps.processManager);
           const published = await this.publishTurn(input, intercept, agent, pending.turnId, recoverySourceMessageIds,
             pending.clientRequestId, recovered.content, recovered.createdAt);
           if (published) await activity.publish('completed');
@@ -478,6 +488,7 @@ export class AgentDirectChatRuntime {
           this.recordRecoveredSessionOutcome(input, agent, recordId, session.id, routingKey, 'final_turn');
         }
         const body = reply.content;
+        await activity.publishLatestCommentary(this.deps.processManager);
         const published = await this.publishTurn(input, intercept, agent, turnId, sourceMessageIds, clientRequestId,
           body, reply.createdAt);
         if (published) await activity.publish('completed');
@@ -502,6 +513,7 @@ export class AgentDirectChatRuntime {
           });
           continue;
         }
+        await activity?.publishLatestCommentary(this.deps.processManager);
         await activity?.publish('failed');
         const errorMessage = error instanceof Error ? error.message : String(error);
         const errorCode = (error as { code?: unknown })?.code === BROKER_KEY_NOT_PROVISIONED

@@ -79,7 +79,7 @@ describe('Flight Deck-bound session turn bridge', () => {
     expect(f.publish.mock.calls[0]?.[0].body).toBe('Authoritative callback result');
     expect(f.publish.mock.calls[0]?.[0].body).not.toContain('internal callback envelope');
     expect(f.publish.mock.calls[0]?.[0].metadata.prompt_type).toBe('dispatch_inbox_wake');
-    expect(f.activityStates).toEqual(['accepted', 'working', 'completed']);
+    expect(f.activityStates).toEqual(['accepted', 'working', 'working', 'completed']);
     expect(f.activityBodies).toContain('Visible commentary');
     expect(f.activityTriggers).toEqual(['thread-root-message-1']);
   });
@@ -105,7 +105,7 @@ describe('Flight Deck-bound session turn bridge', () => {
       expect(f.store.get(turn.turnId)).toMatchObject(seconds <= 180
         ? { state: 'suppressed', publishedMessageId: null, lastError: 'duplicate_callback_within_window' }
         : { state: 'completed', publishedMessageId: 'tower-message-1', lastError: null });
-      expect(f.activityStates).toEqual(['accepted', 'working', 'completed']);
+      expect(f.activityStates).toEqual(['accepted', 'working', 'working', 'completed']);
       expect(f.activityBodies).toContain('Visible commentary');
     }
   });

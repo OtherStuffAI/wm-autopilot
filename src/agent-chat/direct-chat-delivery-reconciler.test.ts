@@ -18,7 +18,7 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 function fixture(options: { publish?: (input: any, attempt: number) => Promise<any>; auth?: boolean;
-  resolvedNpub?: string; identityError?: Error } = {}) {
+  resolvedNpub?: string; identityError?: Error; reconcileActivity?: () => Promise<void> } = {}) {
   const routingKey = buildDirectChatRoutingKey({ towerServiceNpub: 'npub1tower', workspaceId: 'workspace-1',
     channelId: 'channel-1', threadId: 'thread-1', agentNpub: 'npub1agent' });
   const root = mkdtempSync(join(tmpdir(), 'agent-direct-delivery-'));
@@ -53,7 +53,7 @@ function fixture(options: { publish?: (input: any, attempt: number) => Promise<a
       if (options.identityError) throw options.identityError;
       return operation({ botNpub: options.resolvedNpub ?? record.agentNpub!, botPubkeyHex: '00'.repeat(32), botSecret: new Uint8Array(32) });
     },
-    publish: publish as never, publicationFilter });
+    publish: publish as never, publicationFilter, reconcileActivity: options.reconcileActivity });
   const seed = (patch: Record<string, unknown> = {}) => store.save({ turnId: 'turn-1', routingKey, sourceMessageIds: ['m1'],
     clientRequestId: 'agentdirect:route:turn-1', replyBody: null, publishedMessageId: null, state: 'awaiting_reply',
     createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString(), subscriptionId: 'sub-1',
@@ -94,6 +94,17 @@ describe('Agent Direct durable delivery reconciler', () => {
     expect(f.store.get('turn-1')).toMatchObject({ state: 'awaiting_reply', lastErrorClass: null });
     expect(f.store.getPending(f.routingKey)?.turnId).toBe('turn-1');
     expect(f.calls).toHaveLength(0);
+  });
+
+  test('drains recoverable activity before committing the recovered final reply', async () => {
+    const order: string[] = [];
+    const f = fixture({ reconcileActivity: async () => { order.push('activity'); },
+      publish: async () => { order.push('reply'); return { message: { id: 'message' } }; } });
+    f.seed();
+    f.store.freezeReply('turn-1', 'Recovered final', '2026-07-29T00:00:00.000Z');
+    await f.make('recovery').processTurnNow('turn-1');
+    expect(order).toEqual(['activity', 'reply']);
+    expect(f.store.get('turn-1')?.state).toBe('published');
   });
 
   test('publishes a late final after the initial observation owner releases the turn', async () => {

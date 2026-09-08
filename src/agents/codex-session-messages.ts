@@ -18,6 +18,8 @@ export interface CodexSessionMessagesInput {
 export interface CodexUserVisibleActivity {
   content: string;
   createdAt: string;
+  sourceId?: string;
+  turnSourceId?: string;
 }
 
 interface CachedTranscript {
@@ -26,6 +28,8 @@ interface CachedTranscript {
   refreshedAt: number;
   messages: ReplaceMessageInput[];
   latestActivity: CodexUserVisibleActivity | null;
+  activities: CodexUserVisibleActivity[];
+  activityTurns: { sourceId: string; createdAt: string }[];
 }
 
 const resolvedFiles = new Map<string, string>();
@@ -113,6 +117,21 @@ export async function readLatestCodexUserVisibleActivity(
   return transcript?.latestActivity ? { ...transcript.latestActivity } : null;
 }
 
+/** Explicit public commentary only; never import reasoning or tool summaries. */
+export async function readCodexUserVisibleActivities(input: CodexSessionMessagesInput & { startedAt?: string }): Promise<CodexUserVisibleActivity[]> {
+  const filePath = await resolveSessionFile(input);
+  if (!filePath) throw new Error("Native Codex commentary transcript is not available yet");
+  const transcript = await readCodexTranscriptFromFile(filePath, 0);
+  const startedAt = Date.parse(input.startedAt ?? '');
+  const boundary = Number.isFinite(startedAt)
+    ? transcript.activityTurns.find((turn) => Date.parse(turn.createdAt) >= startedAt)
+      ?? transcript.activityTurns.at(-1)
+    : transcript.activityTurns.at(-1);
+  return transcript.activities.filter((activity) => activity.turnSourceId === (boundary?.sourceId ?? '0')
+    && (!Number.isFinite(startedAt) || Date.parse(activity.createdAt) >= startedAt))
+    .map((activity) => ({ ...activity }));
+}
+
 export async function readCodexSessionMessages(
   input: CodexSessionMessagesInput,
 ): Promise<ReplaceMessageInput[]> {
@@ -163,13 +182,36 @@ async function readCodexTranscriptFromFile(
     try {
       const importer = new CodexMessageImporter();
       let latestActivity: CodexUserVisibleActivity | null = null;
+      const activities: CodexUserVisibleActivity[] = [];
+      let turnSourceId = "0";
+      const activityTurns: { sourceId: string; createdAt: string }[] = [];
+      const activityMirrors = new Map<string, Set<number>>();
+      let recordIndex = 0;
       await readCodexJsonlRecords(filePath, (record) => {
         importer.addRecord(record);
+        recordIndex += 1;
         const event = extractEventMessage(record);
-        if (event?.type === "user_message") {
+        if (event && event.timestampMs !== null) {
+          const key = JSON.stringify([event.type, event.phase, event.content]);
+          const otherSource = event.source === 'event_msg' ? 'response_item' : 'event_msg';
+          const bucket = Math.floor(event.timestampMs / 500);
+          const mirrored = [bucket - 1, bucket, bucket + 1].some((candidate) => {
+            const mirrors = activityMirrors.get(`${otherSource}:${candidate}:${key}`);
+            return mirrors && [...mirrors].some((at) => Math.abs(at - event.timestampMs!) <= 500);
+          });
+          if (mirrored) return;
+          const ownKey = `${event.source}:${bucket}:${key}`;
+          const timestamps = activityMirrors.get(ownKey) ?? new Set<number>();
+          timestamps.add(event.timestampMs);
+          activityMirrors.set(ownKey, timestamps);
+        }
+        if (event?.type === "user_message" && !isInjectedAgentContext(event.content)) {
           latestActivity = null;
+          turnSourceId = String(recordIndex);
+          activityTurns.push({ sourceId: turnSourceId, createdAt: event.createdAt });
         } else if (event?.type === "agent_message" && event.phase === "commentary" && event.content.trim()) {
           latestActivity = { content: event.content.trim(), createdAt: event.createdAt };
+          activities.push({ ...latestActivity, sourceId: String(recordIndex), turnSourceId });
         } else if (extractCodexTurnError(record)) {
           latestActivity = null;
         }
@@ -182,6 +224,8 @@ async function readCodexTranscriptFromFile(
         refreshedAt: Date.now(),
         messages: cloneMessages(messages),
         latestActivity,
+        activities,
+        activityTurns,
       } satisfies CachedTranscript;
       transcriptCache.set(filePath, transcript);
       return transcript;

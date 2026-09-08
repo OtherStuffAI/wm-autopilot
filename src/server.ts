@@ -1,3 +1,5 @@
+import { createActivityProfileRecovery, createReconciledActivityPublisher } from './agent-chat/agent-activity-lifecycle-recovery';
+import { AgentActivityRecovery } from './agent-chat/agent-activity-recovery';
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { type Dirent } from "node:fs";
 import { cp, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -1691,6 +1693,7 @@ const agentDirectDeliveryReconciler = new AgentDirectDeliveryReconciler({
     towerServiceNpub: record.towerServiceNpub!, workspaceId: record.workspaceId!, sourceAppNpub: record.sourceAppNpub!,
   }),
   withProfileIdentity: directChatProfileIdentityRunner,
+  reconcileActivity: createReconciledActivityPublisher(manager),
   publicationFilter: duplicateCallbackPublicationFilter,
   dispatchOutcomeStore: flightDeckDispatchOutcomeStore,
   log: console,
@@ -2595,6 +2598,12 @@ const agentProfileMetadataCache = new AgentProfileMetadataCache({
 });
 await agentProfileMetadataCache.start();
 flightDeckSessionTurnBridge.recover();
+new AgentActivityRecovery((request) => workspaceSubscriptionManager.resolveAgentActivityIdentity(request),
+  undefined, undefined, console, createActivityProfileRecovery({ store: directChatTurnStore,
+    resolveTransport: (record) => workspaceSubscriptionManager.resolveDirectChatTurnTransport({
+      subscriptionId: record.subscriptionId!, backendBaseUrl: record.backendBaseUrl!,
+      towerServiceNpub: record.towerServiceNpub!, workspaceId: record.workspaceId!, sourceAppNpub: record.sourceAppNpub!,
+    }), withProfileIdentity: directChatProfileIdentityRunner })).start();
 agentDirectDeliveryReconciler.start();
 
 void resumeRunningPipelineRuns({

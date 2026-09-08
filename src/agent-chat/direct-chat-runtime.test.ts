@@ -122,7 +122,7 @@ function fixture(options: {
     sendFinalResponse,
     createActivityPublisher: (context) => new AgentActivityPublisher(context,
       async (activity) => { activities.push(activity); return {}; },
-      undefined, undefined, undefined, activityPublicationStore) });
+      undefined, async () => [], undefined, activityPublicationStore) });
   const runtime = makeRuntime();
   const now = new Date().toISOString();
   const defaultDirectChat = { enabled: true, sessionAgent: 'codex', directory: '/Users/example/wingmen/agent-workspace', model: null, idleRetentionMinutes: 60 };

@@ -1343,6 +1343,14 @@ export class WorkspaceSubscriptionManager {
       appNpub: subscription.sourceAppNpub };
   }
 
+  resolveAgentActivityIdentity(input: { backendBaseUrl: string; workspaceId: string; appNpub: string; agentNpub: string }): RuntimeBotIdentity | null {
+    const subscription = this.store.listAll().find((record) =>
+      (record.lifecycleStatus ?? 'active') === 'active'
+      && record.backendBaseUrl === input.backendBaseUrl && record.workspaceId === input.workspaceId
+      && record.sourceAppNpub === input.appNpub && record.botNpub === input.agentNpub);
+    return subscription ? this.getRuntimeBotIdentity(subscription.subscriptionId) : null;
+  }
+
   resolveFlightDeckTurnDelivery(input: {
     towerServiceNpub: string;
     workspaceId: string;

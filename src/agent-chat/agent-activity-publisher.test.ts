@@ -85,6 +85,17 @@ describe('Agent activity publisher', () => {
     ]);
   });
 
+  test('keeps the first published session correlation when recovery uses the concrete session', async () => {
+    const store = publicationStore();
+    const delivered: any[] = [];
+    const deliver = async (request: any) => { delivered.push(request); return {}; };
+    await new AgentActivityPublisher({ ...context, sessionId: 'pending:turn-1' }, deliver, 0,
+      undefined, undefined, store).publish('accepted');
+    await new AgentActivityPublisher({ ...context, sessionId: 'concrete-session' }, deliver, 0,
+      undefined, undefined, store).publish('working');
+    expect(delivered.map((request) => request.sessionId)).toEqual(['pending:turn-1', 'pending:turn-1']);
+  });
+
   test('retries one delivery failure and never throws into the reply path', async () => {
     let attempts = 0;
     const publisher = new AgentActivityPublisher(context, async () => {
@@ -208,7 +219,7 @@ describe('Agent activity publisher', () => {
     expect(delivered).toEqual(['First commentary', 'Newest commentary']);
   });
 
-  test('ignores an older commentary read that completes after a newer poll', async () => {
+  test('serializes transcript reads and retains both older and newer commentary', async () => {
     const delivered: string[] = [];
     let resolveOlder!: (value: any) => void;
     let reads = 0;
@@ -224,9 +235,10 @@ describe('Agent activity publisher', () => {
       agent: 'codex', metadata: { nativeAgentSession: { agent: 'codex', sessionId: 'native-1', workingDirectory: '/repo' } },
     }) } as any;
     const olderPoll = publisher.publishLatestCommentary(manager);
-    await publisher.publishLatestCommentary(manager);
+    const newerPoll = publisher.publishLatestCommentary(manager);
+    await Promise.resolve();
     resolveOlder({ content: 'Older commentary', createdAt: '2026-07-24T00:00:02.000Z' });
-    await olderPoll;
-    expect(delivered).toEqual(['Newest commentary']);
+    await Promise.all([olderPoll, newerPoll]);
+    expect(delivered).toEqual(['Older commentary', 'Newest commentary']);
   });
 });

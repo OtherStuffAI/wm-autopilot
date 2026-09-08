@@ -10,6 +10,7 @@ import {
   readCodexSessionMessages,
   readCodexSessionMessagesFromFile,
   readLatestCodexUserVisibleActivity,
+  readCodexUserVisibleActivities,
 } from "./codex-session-messages";
 
 describe("Codex session message importer", () => {
@@ -383,4 +384,41 @@ describe("Codex session message importer", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+});
+
+test("retains a burst through terminal and later turns, deduplicating mirrors without exporting secrets", async () => {
+  const codexHome = await mkdtemp(join(tmpdir(), "codex-public-burst-"));
+  const sessionId = "public-burst";
+  const sessionDir = join(codexHome, "sessions", "2026", "09", "08");
+  const filePath = join(sessionDir, `rollout-2026-09-08T00-00-00-${sessionId}.jsonl`);
+  await mkdir(sessionDir, { recursive: true });
+  const record = (type: string, payload: unknown, timestamp = "2026-09-08T00:00:02Z") => ({ type, timestamp, payload });
+  const burst = Array.from({ length: 12 }, (_, i) => `Public update ${i}`);
+  const records = [
+    record("session_meta", { id: sessionId, cwd: "/repo" }),
+    record("event_msg", { type: "user_message", message: "First request" }, "2026-09-08T00:00:01Z"),
+    ...burst.map((message) => record("event_msg", { type: "agent_message", phase: "commentary", message })),
+    ...burst.map((text) => record("response_item", { type: "message", role: "assistant", phase: "commentary",
+      content: [{ type: "output_text", text }] })),
+    record("response_item", { type: "reasoning", summary: [{ text: "PRIVATE REASONING" }] }),
+    record("response_item", { type: "function_call", name: "exec_command", arguments: "SECRET TOOL ARGS" }),
+    record("event_msg", { type: "agent_message", phase: "final_answer", message: "Done" }),
+    record("event_msg", { type: "task_complete", error: { message: "Failure after commentary" } }),
+    record("event_msg", { type: "user_message", message: "Next request" }, "2026-09-08T00:00:03Z"),
+    record("event_msg", { type: "agent_message", phase: "commentary", message: "Next turn" }, "2026-09-08T00:00:04Z"),
+  ];
+  try {
+    await writeFile(filePath, records.map((item) => JSON.stringify(item)).join("\n"));
+    const input = { codexHome, sessionId, workingDirectory: "/repo", startedAt: "2026-09-08T00:00:01Z" };
+    const activities = await readCodexUserVisibleActivities(input);
+    expect(activities.map((item) => item.content)).toEqual(burst);
+    expect(new Set(activities.map((item) => item.sourceId)).size).toBe(12);
+    clearCodexSessionMessageCaches();
+    expect(await readCodexUserVisibleActivities(input)).toEqual(activities);
+    expect((await readCodexUserVisibleActivities({ ...input, startedAt: "2026-09-08T00:00:03Z" }))
+      .map((item) => item.content)).toEqual(["Next turn"]);
+  } finally {
+    clearCodexSessionMessageCaches();
+    await rm(codexHome, { recursive: true, force: true });
+  }
 });
