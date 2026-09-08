@@ -56,7 +56,7 @@ export function resolveNativeResumeLaunch(
   return {
     agent,
     workingDirectory,
-    name: `${sourceName} (resumed)`,
+    name: `${sourceName.replace(/(?:\s*\(resumed\))+$/, "").trimEnd()} (resumed)`,
     origin: { type: "native-resume", id: source.id, label: `Native resume from ${sourceName}` },
     ownerNpub,
     metadata: normaliseSessionMetadata({

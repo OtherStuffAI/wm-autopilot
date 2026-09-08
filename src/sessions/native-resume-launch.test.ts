@@ -35,6 +35,30 @@ describe("resolveNativeResumeLaunch", () => {
     expect(launch.metadata.lastManagedByNpub).toBe("npub1wingman");
   });
 
+  test.each([
+    ["Update Autopilot (resumed)", "Update Autopilot (resumed)"],
+    ["Update Autopilot (resumed) (resumed)", "Update Autopilot (resumed)"],
+    ["Update Autopilot (resumed)   ", "Update Autopilot (resumed)"],
+    ["Update (resumed) Autopilot", "Update (resumed) Autopilot (resumed)"],
+  ])("uses one trailing resume tag for %s", (name, expectedName) => {
+    const launch = resolveNativeResumeLaunch({
+      id: "session-old",
+      agent: "codex",
+      name,
+      npub: null,
+      workingDirectory: "/tmp/project",
+      metadata: {
+        nativeAgentSession: {
+          agent: "codex",
+          sessionId: "native-123",
+          workingDirectory: "/tmp/project",
+        },
+      },
+    }, isAgentType);
+
+    expect(launch.name).toBe(expectedName);
+  });
+
   test("rejects a session before shutdown when its native id is missing", () => {
     expect(() => resolveNativeResumeLaunch({
       id: "session-old",
