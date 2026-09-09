@@ -464,6 +464,8 @@ describe('flightdeck pg cli', () => {
     expect(requests.some((request) => request.url === 'http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/channels/channel-1/docs' && request.method === 'POST')).toBe(true);
     expect(requests.some((request) => request.url === 'http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/docs/doc-1/body' && request.method === 'GET')).toBe(true);
     expect(requests.some((request) => request.url === 'http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/docs/doc-1' && request.method === 'PATCH')).toBe(true);
+    const patch = requests.find((request) => request.method === 'PATCH' && request.url.endsWith('/docs/doc-1'))!;
+    expect(await patch.json()).toMatchObject({ base_version_id: 'doc-1:3', base_body_sha256_hex: 'a'.repeat(64), row_version: 3 });
     expect(requests.some((request) => request.url === 'http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/docs/doc-1/comments?limit=200' && request.method === 'GET')).toBe(true);
     expect(requests.some((request) => request.url === 'http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/docs/doc-1/comments' && request.method === 'POST')).toBe(true);
   });
@@ -795,7 +797,8 @@ function makeFlightDeckRouter(): {
       });
     }
     if (url.pathname === '/api/v4/flightdeck-pg/workspaces/workspace-1/docs/doc-1' && method === 'GET') {
-      return Response.json({ doc: { id: 'doc-1', title: 'Plan', row_version: 3 } });
+      return Response.json({ doc: { id: 'doc-1', title: 'Plan', row_version: 3, storage_object_id: 'base-object' },
+        canonical_version: { version_id: 'doc-1:3', row_version: 3, storage_object_id: 'base-object', body_sha256_hex: 'a'.repeat(64) } });
     }
     if (url.pathname === '/api/v4/flightdeck-pg/workspaces/workspace-1/docs/doc-1' && method === 'PATCH') {
       return Response.json({ doc: { id: 'doc-1', row_version: 4 } });

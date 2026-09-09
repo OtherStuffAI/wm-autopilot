@@ -1,3 +1,4 @@
+import { flightDeckDocumentBase } from "../agent-chat/flightdeck-document-base";
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { basename, dirname, parse, relative, sep } from 'node:path';
@@ -418,7 +419,7 @@ export class FlightDeckPgClient {
     const leaseResult = await acquireFlightDeckPgEditLease({ ...this.base({ workspaceId }), entityType: 'document', entityId: documentId });
     const leaseToken = String(leaseResult.lease?.lease_token || '');
     if (!leaseToken) throw new Error('Flight Deck PG edit lease acquire did not return lease_token.');
-    return await updateFlightDeckPgDocument({ ...this.base({ workspaceId }), documentId, title: doc?.title ?? undefined, body, rowVersion, leaseToken });
+    return await updateFlightDeckPgDocument({ ...this.base({ workspaceId }), documentId, title: doc?.title ?? undefined, body, rowVersion, leaseToken, ...flightDeckDocumentBase(current) });
   }
 
   async moveDoc(workspaceId: string, documentId: string, destinationChannelId: string, destinationScopeId?: string | null) {
@@ -784,7 +785,7 @@ export class FlightDeckPgClient {
       if (downloadUrl) {
         const identity = this.config.botIdentity;
         const actual = new URL("towerTransport" in identity && identity.towerTransport
-          ? await identity.towerTransport.prepare(this.config.towerUrl)
+          ? await identity.towerTransport.prepare(new URL(`/api/v4/storage/${encodeURIComponent(objectId)}/content`, this.config.towerUrl).href)
           : await prepareTowerRequestUrl(this.config.towerUrl, this.config));
         if (actual.hostname.endsWith(".fips")) return this.downloadStorageObjectContent(workspaceId, objectId);
         const downloaded = await this.fetchImpl(downloadUrl);

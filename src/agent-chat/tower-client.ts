@@ -360,6 +360,7 @@ export interface FlightDeckPgTaskCommentsResult {
 }
 
 export interface FlightDeckPgDocumentResult {
+  canonical_version?: { version_id?: string; row_version?: number; storage_object_id?: string; body_sha256_hex?: string };
   identity?: Record<string, unknown>;
   doc?: FlightDeckPgDocument;
   storage_link?: Record<string, unknown> | null;
@@ -1356,6 +1357,7 @@ export async function createFlightDeckPgChannelDocument(params: {
 }): Promise<FlightDeckPgDocumentResult> {
   const content = buildFlightDeckPgDocumentContentBytes(params.body);
   const uploaded = await uploadFlightDeckPgStorageObject({
+    backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     backendBaseUrl: params.backendBaseUrl,
     workspaceId: params.workspaceId,
     appNpub: params.appNpub,
@@ -1477,14 +1479,18 @@ export async function updateFlightDeckPgDocument(params: {
   body?: string | null;
   rowVersion: number;
   leaseToken: string;
+  baseVersionId?: string;
+  baseBodySha256Hex?: string;
   metadata?: Record<string, unknown> | null;
   summary?: string | null;
   signal?: AbortSignal;
 }): Promise<FlightDeckPgDocumentResult> {
   let storageObjectId: string | null = null;
   if (params.body !== undefined && params.body !== null) {
+    if (!params.baseVersionId || !/^[0-9a-f]{64}$/i.test(params.baseBodySha256Hex ?? "")) throw new Error("Document body update requires its canonical base version and hash");
     const content = buildFlightDeckPgDocumentContentBytes(params.body);
     const uploaded = await uploadFlightDeckPgStorageObject({
+      backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
       backendBaseUrl: params.backendBaseUrl,
       workspaceId: params.workspaceId,
       appNpub: params.appNpub,
@@ -1502,7 +1508,7 @@ export async function updateFlightDeckPgDocument(params: {
     row_version: params.rowVersion,
     lease_token: params.leaseToken,
     ...(params.title ? { title: params.title } : {}),
-    ...(storageObjectId ? { storage_object_id: storageObjectId } : {}),
+    ...(storageObjectId ? { storage_object_id: storageObjectId, base_version_id: params.baseVersionId, base_body_sha256_hex: params.baseBodySha256Hex } : {}),
     ...(params.summary !== undefined ? { summary: params.summary } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
   };

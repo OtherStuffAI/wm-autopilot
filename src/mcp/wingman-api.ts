@@ -1,3 +1,4 @@
+import { flightDeckDocumentBase } from "../agent-chat/flightdeck-document-base";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
@@ -1474,6 +1475,7 @@ async function handleFlightDeckHelper(
         metadata: body.metadata === undefined ? undefined : asObject(body.metadata),
         rowVersion,
         leaseToken,
+        ...flightDeckDocumentBase(current),
       });
       deps.documentDirectStore?.recordCallback({ sessionId, kind: 'document_update', documentId, state: 'succeeded' });
       return jsonOk({ ok: true, result });

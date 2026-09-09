@@ -113,3 +113,16 @@ test("one caller can cancel shared identity verification without cancelling anot
   expect(transport.diagnostics.counters.fips.requests).toBe(1);
   transport.close();
 });
+
+test("a silent SSE socket times out so the consumer can recover by polling", async () => {
+  const { endpoint, transport: original } = await fixture();
+  const transport = new TowerTransport("https://public.example", original.config, {
+    resolveMesh: async () => "::1", streamIdleTimeoutMs: 25,
+  });
+  const response = await transport.fetch(`${endpoint}/stream`, { headers: { accept: "text/event-stream" } });
+  const reader = response.body!.getReader();
+  expect((await reader.read()).done).toBe(false);
+  await expect(reader.read()).rejects.toThrow();
+  expect(transport.diagnostics.reconnectState).toBe("error");
+  transport.close(); original.close();
+});
