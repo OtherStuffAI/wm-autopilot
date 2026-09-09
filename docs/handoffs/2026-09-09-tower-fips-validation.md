@@ -51,7 +51,7 @@ The tested snapshots record:
 | Flight Deck | `8a9784a1bad1c710911d83be5a02eccb9e14c011468042eae1052232d4ed6684` | Frontend built and served by harness; manifest records build metadata |
 | Tower | `509a442c915e3d3c35647f6fc6b1829dd364bbdb30868162dd2d51acb4f4e171` | `sha256:a6408ea0c8545791f6599cede31fe146425e5aa1027959c9c23661fadddd32ed` |
 
-Snapshots include current concurrent Tower source, explicitly listed in manifests; this worker made no Tower edit. App source snapshot hashes exclude documentation. Harness scripts are committed separately. Flight Deck's unrelated untracked `docs/imp/` is preserved and excluded from this harness-only commit.
+Snapshots include current concurrent Tower source, explicitly listed in manifests; this worker made no Tower edit. App source snapshot hashes exclude documentation. Harness scripts are committed separately. Manager reviewed the existing compatible `docs/imp/two-user-release-test-handoff.md` and requested preserving it in a separate documentation commit; its text is unchanged.
 
 Final full FIPS confirmation `fd-release-1788970342283-a94d8915`: **passed, cleanup true, process exit0**. Its source/build hashes match the table above. Root evidence directory: `/Users/mini/code/wm/flightdeck/test-results/release/fd-release-1788970342283-a94d8915/`.
 
