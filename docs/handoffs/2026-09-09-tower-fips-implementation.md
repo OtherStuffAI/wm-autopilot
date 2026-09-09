@@ -124,3 +124,7 @@ Test fault injection in an isolated fixture/connection, never by disrupting Pete
 Commit tested source on main while preserving concurrent changes; use repo release rules. Do not restart the Autopilot process without Pete's explicit approval. Complete code, tests and a concrete rollout handoff before that final restart step.
 
 Suggested delivery order: steps1–2 as the first checkpoint, step3 as the second, steps4–5 as final acceptance. Each checkpoint should report commits, tests, remaining consumers and exact live activation status. Discovery remains a separate later task.
+
+
+## Final audit acceptance gate
+Read `docs/handoffs/2026-09-09-tower-fips-final-audit.md` in full. Manager accepts its concrete outstanding findings: fresh post-restart work, live switch continuity, established SSE closure ordering, precise negative/ACL coverage, asserted positive-control increment, unconditional cleanup. Complete these before claiming acceptance. Latest run can diagnose bidirectional outage/reconnect but cannot itself fill missing matrix assertions.

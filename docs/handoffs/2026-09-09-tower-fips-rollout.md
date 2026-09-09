@@ -1,6 +1,6 @@
 # Tower FIPS rollout and remaining dependencies
 
-Status: implementation under isolated acceptance; **not yet ready for live restart**.
+Status: implementation and local acceptance complete. **Ready for manager handoff and Pete’s external Autopilot restart for staged testing.** No live restart has occurred.
 
 ## Runtime boundary
 
@@ -25,7 +25,9 @@ until its explicit binding is repaired; it never selects by array order.
 3. Ensure the native FIPS daemon is ready (persistent identity, active TUN) and the
    capability broker policy grants the exact mesh origin, required workspace/storage
    paths, HTTP methods and body hashes to the existing stable bot profile. Do not
-   export a signing key or broaden grants to arbitrary origins.
+   export a signing key or broaden grants to arbitrary origins. Reissue existing
+   session capabilities through the normal broker flow after a policy change;
+   policy edits do not widen already-issued capabilities.
 4. Test connection verifies mesh service identity and an authorized workspace read.
    Inspect selected/effective transport, error/reconnect state, verified identity,
    last request/event and separate HTTPS/FIPS counters. A failed mesh remains failed.
@@ -72,7 +74,7 @@ node scripts/release-test/run.mjs run --fips
 node scripts/release-test/run.mjs run --fips --faults
 ```
 
-The fault command is still being validated. Do not treat its existence as a pass.
+The full fault command passed in runs `d7ef0bc0` and `a94d8915`; the fresh trusted TLS baseline `9661e8f7` also passed. See `2026-09-09-tower-fips-validation.md` for final evidence and source hashes.
 Use `--retain` only for diagnostics; final acceptance must verify owned cleanup.
 Generated identities, TLS private keys, Compose secrets and browser profiles remain
 private under ignored test-results. Only reviewed reports, manifests and separate
