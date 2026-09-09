@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { finalizeEvent, nip19 } from "nostr-tools";
+import { testAdministratorCookie } from "./admin-cookie";
 
 if (process.env.WINGMAN_ISOLATED_TEST_RUNTIME !== "1" || !existsSync("/.dockerenv")) {
   throw new Error("Bootstrap API client is restricted to the isolated Docker runtime");
@@ -18,10 +19,12 @@ const url = new URL(path, process.env.WINGMAN_BASE_URL);
 const tags = [["u", url.href], ["method", method], ["nonce", randomUUID()]];
 if (body) tags.push(["payload", createHash("sha256").update(body).digest("hex")]);
 const event = finalizeEvent({ kind: 27235, created_at: Math.floor(Date.now() / 1000), tags, content: "" }, decoded.data);
+const cookie = (path.startsWith("/api/admin/") || path.startsWith("/api/sessions/")) ? await testAdministratorCookie(identity.npub, decoded.data) : null;
 decoded.data.fill(0);
 const response = await fetch(new URL(path, "http://127.0.0.1:3600"), {
   method, body,
-  headers: { "Content-Type": "application/json", Authorization: `Nostr ${Buffer.from(JSON.stringify(event)).toString("base64")}` },
+  headers: { "Content-Type": "application/json", Authorization: `Nostr ${Buffer.from(JSON.stringify(event)).toString("base64")}`,
+    ...(cookie ? { Cookie: cookie } : {}) },
 });
 const text = await response.text();
 if (!response.ok) throw new Error(`Bootstrap API returned ${response.status}: ${text}`);

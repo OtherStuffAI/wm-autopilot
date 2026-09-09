@@ -3871,11 +3871,22 @@ export class WorkspaceSubscriptionManager {
               const audience = await this.reconcileFlightDeckAudience(record, runtime.botIdentity, signal);
               await consumeTowerEventStream({
                 signal, isCurrent: () => runtime.abortController?.signal === signal && !runtime.removed,
-                connect: () => this.connectFlightDeckPgEventStreamImpl({
+                connect: async () => {
+                  const response = await this.connectFlightDeckPgEventStreamImpl({
                   backendConnectionId: record!.backendConnectionId, backendBaseUrl: record!.backendBaseUrl, workspaceId, appNpub: record!.sourceAppNpub,
                   botIdentity: runtime.botIdentity, cursor: record!.lastSyncCursor ?? encodeFlightDeckPgEventCursor(0),
                   limit: 100, audienceNpubs: audience, signal,
-                }),
+                  });
+                  if (response.ok && !signal.aborted && runtime.abortController?.signal === signal) {
+                    const current = this.store.getBySubscriptionId(subscriptionId);
+                    if (!current) { await response.body?.cancel(); throw new Error("Tower stream subscription disappeared"); }
+                    current.sseStatus = "connected";
+                    current.lastErrorCode = null; current.lastErrorAt = null;
+                    current.lastEventPollErrorCode = null; current.lastEventPollErrorAt = null;
+                    record = this.saveRecord(this.recomputeHealth(current));
+                  }
+                  return response;
+                },
                 deliver: async (event) => {
                   const latest = this.store.getBySubscriptionId(subscriptionId);
                   if (!latest) throw new Error("Tower event subscription disappeared");
