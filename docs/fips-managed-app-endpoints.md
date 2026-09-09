@@ -1,5 +1,8 @@
 # FIPS managed-app endpoints (PoC)
 
+For the main Autopilot UI/API endpoint alongside HTTPS, see
+[fips-autopilot-ingress.md](fips-autopilot-ingress.md).
+
 Autopilot can bundle and boot a FIPS v0.5.0 node, then expose every running
 managed web app at a stable mesh-only URL without DNS registration:
 
@@ -35,8 +38,8 @@ service declares the Linux capabilities FIPS requires:
 - IPv6 enabled in the container network namespace
 - the existing persistent `/app/data` volume
 
-Set `FIPS_APPS_ENABLED=false` only to disable the daemon inside a container
-that still has those capabilities. Hosts that cannot expose `/dev/net/tun`
+Set both `FIPS_APPS_ENABLED=false` and `FIPS_AUTOPILOT_ENABLED=false` to disable
+the daemon inside a container that still has those capabilities. Hosts that cannot expose `/dev/net/tun`
 cannot provide FIPS app endpoints.
 
 At container boot, the root entrypoint starts FIPS and applies its nftables
@@ -87,7 +90,8 @@ transport.
 
 The entrypoint applies upstream's `fips0`-only default-deny nftables baseline.
 It allows established/related traffic, ICMPv6 echo requests, and TCP ports
-`41000-65535`, the managed web-app allocation range. Traffic on non-FIPS
+`41000-65535`, the managed web-app allocation range, plus the exact enabled
+Autopilot ingress port (default `3601`). Traffic on non-FIPS
 interfaces returns from this table immediately.
 
 This range rule is a PoC limitation: it is narrower than exposing all `fips0`

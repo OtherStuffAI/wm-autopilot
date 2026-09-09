@@ -3,6 +3,7 @@
  * Extracted from server.ts to reduce file size.
  */
 
+import type { FipsAppEndpoint } from "../apps/fips-app-ingress-manager";
 import { stat } from "node:fs/promises";
 import type { ProcessManager } from "../agents/process-manager";
 import type { AccessAction } from "../auth/access-control";
@@ -24,6 +25,7 @@ type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEA
 // ---------- Context supplied by server.ts ----------
 
 export interface SystemRoutesContext {
+  getFipsEndpoint?: () => FipsAppEndpoint;
   restartMarkerPath: string;
   warmRestartManagerScriptPath: string;
   projectRoot: string;
@@ -95,6 +97,13 @@ export async function handleSystemRoutes(
   ctx: SystemRoutesContext,
 ): Promise<Response | null> {
   const pathname = url.pathname;
+
+  if (pathname === "/api/system/fips" && method === "GET") {
+    const denied = await ctx.ensureApiAccess(ctx.AccessActions.SystemManage, request, url, authContext);
+    if (denied) return denied;
+    if (!ctx.getFipsEndpoint) return Response.json({ error: "FIPS ingress is not initialized" }, { status: 503 });
+    return Response.json({ fips: ctx.getFipsEndpoint() });
+  }
 
   // GET /api/system/restart/status
   if (pathname === "/api/system/restart/status" && method === "GET") {

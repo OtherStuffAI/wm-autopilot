@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { finalizeEvent, generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
 
 import { AccessActions } from "../auth/access-control";
+import { mintSessionCookie, readSessionCookie } from "../auth/session-cookie";
 import { LoginChallengeStore } from "../auth/login-challenge-store";
 import type { RequestAuthContext } from "../auth/request-context";
 import { normaliseNpub } from "../identity/npub-utils";
 import { handleAuthApi, type AuthApiContext } from "./auth-routes";
+
+Bun.env.IDENTITY_SESSION_SECRET ??= "FipsIngress-TestOnly-SessionCookie-2026!";
 
 const makeNpub = () => nip19.npubEncode(getPublicKey(generateSecretKey()));
 
@@ -82,6 +85,30 @@ const signLoginEvent = (
   );
 
 describe("auth routes", () => {
+  test("logs in at the FIPS origin while public HTTPS is configured", async () => {
+    const secret = generateSecretKey();
+    const npub = nip19.npubEncode(getPublicKey(secret));
+    const ctx = createAuthContext(npub);
+    ctx.config.baseUrl = "https://autopilot.example";
+    ctx.mintSessionCookie = mintSessionCookie;
+    const challenge = ctx.loginChallengeStore.issue().challenge;
+    const url = "http://npub1sx42mj99aql52aklsg70y2jmr95u7uz2p40k769aw46ppjv302kqkhmu5r.fips:3601/api/auth/session";
+    ctx.isFipsRequest = (candidate) => candidate.origin === new URL(url).origin;
+    const request = new Request(url, { method: "POST", body: JSON.stringify({ npub, challenge, signedEvent: signLoginEvent(secret, challenge, url) }) });
+    const response = await handleAuthApi(request, new URL(url), "POST", requestAuthContext(), ctx);
+    expect(response!.status).toBe(200);
+    const cookie = response!.headers.get("set-cookie")!;
+    expect(cookie).not.toContain("; Secure");
+    expect(cookie).toContain("HttpOnly");
+    expect(readSessionCookie(cookie)?.npub).toBe(npub);
+    for (const wrongUrl of ["https://autopilot.example/api/auth/session", `${url}?changed=1`]) {
+      const fresh = ctx.loginChallengeStore.issue().challenge;
+      const wrong = new Request(url, { method: "POST", headers: { "x-forwarded-host": "autopilot.example", "x-forwarded-proto": "https" }, body: JSON.stringify({ npub, challenge: fresh, signedEvent: signLoginEvent(secret, fresh, wrongUrl) }) });
+      const denied = await handleAuthApi(wrong, new URL(url), "POST", requestAuthContext(), ctx);
+      expect(denied!.status).toBe(400);
+    }
+  });
+
   test("issues a no-store login challenge", async () => {
     const adminNpub = makeNpub();
     const ctx = createAuthContext(adminNpub);

@@ -1,3 +1,4 @@
+import { randomId } from "./random-id.js";
 const retryableUploadStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 function createUploadForm(agent, file, uploadId) {
@@ -46,7 +47,7 @@ export async function uploadImageWithRecovery({
   agent,
   file,
   fetchImpl = fetch,
-  uploadId = crypto.randomUUID(),
+  uploadId = randomId(),
   attempts = 2,
   retryDelayMs = 300,
 }) {

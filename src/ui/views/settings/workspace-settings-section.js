@@ -1,3 +1,4 @@
+import { randomId } from "../../core/random-id.js";
 import Alpine from '/vendor/alpinejs/module.esm.js';
 import {
   deleteAgentChatSubscription, importAgentConnectPackage, listAgentChatAgents,
@@ -30,7 +31,7 @@ Alpine.data('workspaceSettingsView', () => ({
 
 export function createWorkspaceSettingsSection() {
   const container = element('div', '', 'wm-workspaces-page');
-  const viewId = crypto.randomUUID();
+  const viewId = randomId();
   container.dataset.testid = 'workspace-settings-section';
   container.dataset.viewId = viewId;
   container.setAttribute('x-data', 'workspaceSettingsView');

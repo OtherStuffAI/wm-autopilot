@@ -16,9 +16,28 @@ export interface FipsAppEndpoint {
   error?: string;
 }
 
+export interface FipsIngressService {
+  id: string;
+  port: number | null;
+}
+
 export interface FipsNodeDescriptor {
   nodeNpub: string;
   meshAddress: string;
+}
+
+export interface TcpPeer {
+  address: string;
+  port: number;
+}
+
+/** Match the outgoing proxy connection, never trust a mesh client's Host header. */
+export function isForwardedTcpPeer(sockets: Set<Socket>, peer: TcpPeer): boolean {
+  const address = peer.address.replace(/^::ffff:/, "");
+  return Array.from(sockets).some((socket) =>
+    socket.remoteAddress === "127.0.0.1"
+    && socket.localAddress === address && socket.localPort === peer.port,
+  );
 }
 
 interface FipsIngressRecord {
@@ -27,7 +46,7 @@ interface FipsIngressRecord {
   endpoint: FipsAppEndpoint;
 }
 
-interface FipsIngressEnvironment {
+export interface FipsIngressEnvironment {
   FIPS_APPS_ENABLED?: string;
   FIPS_CONFIG_PATH?: string;
   FIPS_CONTROL_SOCKET?: string;
@@ -184,8 +203,12 @@ export class FipsAppIngressManager {
 
   getEndpoint(app: AppRecord): FipsAppEndpoint | null {
     if (!app.webApp) return null;
-    const port = typeof app.webAppPort === "number" && app.webAppPort > 0 ? app.webAppPort : null;
-    const existing = this.records.get(app.id)?.endpoint;
+    return this.getServiceEndpoint({ id: app.id, port: app.webAppPort ?? null });
+  }
+
+  getServiceEndpoint(service: FipsIngressService): FipsAppEndpoint {
+    const port = Number.isInteger(service.port) && service.port! > 0 && service.port! <= 65535 ? service.port : null;
+    const existing = this.records.get(service.id)?.endpoint;
     if (existing) return { ...existing };
     if (!this.enabled) {
       return { enabled: false, nodeNpub: null, meshAddress: null, port, url: null, status: "disabled" };
@@ -214,16 +237,20 @@ export class FipsAppIngressManager {
 
   async start(app: AppRecord): Promise<FipsAppEndpoint | null> {
     if (!app.webApp) return null;
+    return this.startService({ id: app.id, port: app.webAppPort ?? null }, app.webAppPort ?? 0);
+  }
+
+  async startService(service: FipsIngressService, targetPort: number): Promise<FipsAppEndpoint> {
     await this.initialize();
-    await this.stop(app.id);
-    const base = this.getEndpoint(app)!;
+    await this.stop(service.id);
+    const base = this.getServiceEndpoint(service);
     if (!this.enabled || !this.descriptor || !base.port) {
-      this.records.set(app.id, { server: null, sockets: new Set(), endpoint: base });
+      this.records.set(service.id, { server: null, sockets: new Set(), endpoint: base });
       return { ...base };
     }
 
     const sockets = new Set<Socket>();
-    const server = createTcpForwardingServer(base.port, this.serverFactory, sockets);
+    const server = createTcpForwardingServer(targetPort, this.serverFactory, sockets);
     const endpoint: FipsAppEndpoint = {
       enabled: true,
       nodeNpub: this.descriptor.nodeNpub,
@@ -240,13 +267,13 @@ export class FipsAppIngressManager {
           resolve();
         });
       });
-      this.records.set(app.id, { server, sockets, endpoint });
+      this.records.set(service.id, { server, sockets, endpoint });
       server.on("error", (error) => {
-        const current = this.records.get(app.id);
+        const current = this.records.get(service.id);
         if (current?.server !== server) return;
         current.endpoint.status = "error";
         current.endpoint.error = errorMessage(error);
-        console.warn(`[fips-apps] ${app.id} listener failed: ${current.endpoint.error}`);
+        console.warn(`[fips-apps] ${service.id} listener failed: ${current.endpoint.error}`);
       });
       return { ...endpoint };
     } catch (error) {
@@ -256,8 +283,8 @@ export class FipsAppIngressManager {
       endpoint.error = nodeError.code === "EADDRINUSE"
         ? `Port ${base.port} is already bound on the FIPS mesh address`
         : errorMessage(error);
-      this.records.set(app.id, { server: null, sockets: new Set(), endpoint });
-      console.warn(`[fips-apps] ${app.id}: ${endpoint.error}`);
+      this.records.set(service.id, { server: null, sockets: new Set(), endpoint });
+      console.warn(`[fips-apps] ${service.id}: ${endpoint.error}`);
       return { ...endpoint };
     }
   }
@@ -273,6 +300,10 @@ export class FipsAppIngressManager {
 
   async shutdown(): Promise<void> {
     await Promise.all(Array.from(this.records.keys(), (appId) => this.stop(appId)));
+  }
+
+  isForwardedPeer(peer: TcpPeer): boolean {
+    return Array.from(this.records.values()).some((record) => isForwardedTcpPeer(record.sockets, peer));
   }
 }
 

@@ -205,12 +205,8 @@ import {
 import { createProjectStaticAssetService } from "./server/static-assets";
 import { createStaticRouteHandler } from "./server/static-routes";
 import { maybeRefreshSessionCookie } from "./server/session-refresh";
-import { shouldUseSecureCookies } from "./server/cookie-security";
-import {
-  configuredPublicRequestUrl,
-  forwardedRequestUrl,
-  redirectInsecurePublicRequest,
-} from "./server/request-url";
+import { fipsControlPlane } from "./server/fips-control-plane";
+import { redirectInsecurePublicRequest } from "./server/request-url";
 import { handleAppHostRequest, type SubdomainProxyConfig } from "./server/subdomain-proxy";
 import { handlePathBasedAppRequest } from "./server/path-app-proxy";
 import { createBrowserSecurityHeadersContext } from "./server/browser-security-headers";
@@ -2408,7 +2404,7 @@ const verifyNip98AuthHeader = async (request: Request, url: URL): Promise<{
   const verified = await verifyNip98Request({
     request,
     requestUrl: url,
-    configuredBaseUrl: config.baseUrl,
+    configuredBaseUrl: fipsControlPlane.authenticationBaseUrl(url, config.baseUrl),
     replayCache: nip98ReplayCache,
   });
   if (!verified) return null;
@@ -2643,7 +2639,7 @@ const billingApiContext: BillingApiContext = {
 // Mutable reference filled in after Bun.serve() returns its server object.
 // Used to provide request IP resolution to the API route handler without a
 // forward-reference issue (the server const is defined after handleApi).
-const serverRef: { current: { requestIP: (req: Request) => { address: string } | null } | null } = { current: null };
+const serverRef: { current: { requestIP: (req: Request) => { address: string; port: number } | null } | null } = { current: null };
 const terminalConfig = resolveTerminalConfig({ defaultCwd: projectRootPath });
 const terminalTickets = new TerminalTicketStore({ ttlMs: terminalConfig.ticketTtlMs });
 const terminalSessions = new TerminalSessionManager(terminalConfig);
@@ -2672,7 +2668,7 @@ const remoteInstructRoutesContext: RemoteInstructRoutesContext = {
 
 const handleApi = createApiRouteHandler({
   sessionDispatchService,
-  getRequestIP: (req) => serverRef.current?.requestIP(req) ?? null,
+  getRequestIP: (req) => fipsControlPlane.externalRequestPeer(serverRef.current?.requestIP(req) ?? null),
   config: {
     port: config.port,
     baseUrl: config.baseUrl,
@@ -2718,6 +2714,7 @@ const handleApi = createApiRouteHandler({
   providerProxyApiContext,
   billingApiContext,
   systemRoutesContext: {
+    getFipsEndpoint: () => fipsControlPlane.getEndpoint(),
     restartMarkerPath,
     warmRestartManagerScriptPath,
     projectRoot,
@@ -2750,6 +2747,7 @@ const handleApi = createApiRouteHandler({
     appRegistry,
   },
   authApiContext: {
+    isFipsRequest: (url) => fipsControlPlane.isMeshUrl(url),
     config: {
       baseUrl: config.baseUrl,
       registrationEnabled: config.registrationEnabled,
@@ -2765,7 +2763,7 @@ const handleApi = createApiRouteHandler({
     getSessionCookieName,
     SessionCookieError,
     SESSION_COOKIE_NAME,
-    shouldUseSecureCookies,
+    shouldUseSecureCookies: (request) => fipsControlPlane.secureCookies(request),
     loginChallengeStore,
     generateIdentityAlias,
     handleKeyTeleport,
@@ -3148,8 +3146,7 @@ const server = Bun.serve<WingmanWebSocketData>({
       }
 
       if (pathname === "/" && method === "GET") {
-        const homeUrl = configuredPublicRequestUrl(url, config.baseUrl) ?? forwardedRequestUrl(request, url);
-        homeUrl.pathname = "/home";
+        const homeUrl = fipsControlPlane.homeUrl(request, url, config.baseUrl);
         return Response.redirect(homeUrl.toString(), 302);
       }
 
@@ -3184,7 +3181,7 @@ const server = Bun.serve<WingmanWebSocketData>({
     return maybeRefreshSessionCookie(
       securityHeaders.apply(response),
       authContext,
-      { secureCookie: shouldUseSecureCookies(request) },
+      { secureCookie: fipsControlPlane.secureCookies(request) },
     );
   },
   error(error: Error): Response {
@@ -3199,6 +3196,7 @@ const server = Bun.serve<WingmanWebSocketData>({
 
 // Wire up the request-IP resolver now that the server object exists.
 serverRef.current = server;
+
 
 const stopAllSessions = async () => {
   if (sessionsStoppedForRestart) {
@@ -3238,6 +3236,7 @@ const initiateShutdown = async (reason: string) => {
   }
 
   try {
+    await fipsControlPlane.shutdown();
     await appProcessManager.shutdownFipsIngresses();
   } catch (error) {
     console.warn(`[shutdown] failed to stop FIPS app ingresses: ${error instanceof Error ? error.message : String(error)}`);
@@ -3269,5 +3268,7 @@ console.log(
 
 // Start scheduler engine (loads enabled jobs from DB)
 schedulerEngine.start();
+
+await fipsControlPlane.start(server.port!);
 
 export { server, manager, config };

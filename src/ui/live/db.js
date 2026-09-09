@@ -1,3 +1,4 @@
+import { randomId } from "../core/random-id.js";
 /**
  * Dexie database for persistent live session data.
  * Stores messages and session state in IndexedDB.
@@ -212,7 +213,7 @@ export const MessageStore = {
       sessionId,
       role: "user",
       content,
-      messageId: `pending-${crypto.randomUUID()}`,
+      messageId: `pending-${randomId()}`,
       turnId: null,
       order: null,
       speech: null,

@@ -1,5 +1,8 @@
 # Native macOS FIPS managed-app endpoints
 
+The main Autopilot UI/API can use the same node alongside HTTPS; see
+[fips-autopilot-ingress.md](fips-autopilot-ingress.md) for pairing and activation.
+
 Native Bun-managed Autopilot installations now use the same FIPS v0.5.0 mesh
 contract as Docker and WMapp. On macOS, FIPS app ingress is enabled by default
 unless `FIPS_APPS_ENABLED=false` is set explicitly. Startup fails closed when

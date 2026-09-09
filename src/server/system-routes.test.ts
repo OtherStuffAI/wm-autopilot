@@ -14,6 +14,21 @@ const agentAuth: RequestAuthContext = {
   delegatedByBot: false,
 };
 
+test("FIPS status requires system access even for a trusted restart agent", async () => {
+  const url = new URL("http://node.fips:3601/api/system/fips");
+  const endpoint = { enabled: true, nodeNpub: "npub1node", meshAddress: "fd00::1", port: 3601, url: null, status: "unavailable" as const };
+  const ctx = {
+    ensureApiAccess: async () => Response.json({ error: "auth-required" }, { status: 401 }),
+    AccessActions: { SystemManage: "system:manage" },
+    isTrustedRestartAuthority: () => true,
+    getFipsEndpoint: () => endpoint,
+  } as unknown as SystemRoutesContext;
+  const denied = await handleSystemRoutes(new Request(url), url, "GET", agentAuth, ctx);
+  expect(denied!.status).toBe(401);
+  const allowed = await handleSystemRoutes(new Request(url), url, "GET", agentAuth, { ...ctx, ensureApiAccess: async () => null });
+  expect(await allowed!.json()).toEqual({ fips: endpoint });
+});
+
 describe("handleSystemRoutes restart", () => {
   beforeEach(() => {
     warmRestartState.inProgress = false;

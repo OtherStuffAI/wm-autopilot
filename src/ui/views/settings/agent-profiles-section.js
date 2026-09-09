@@ -1,3 +1,4 @@
+import { randomId } from "../../core/random-id.js";
 import { createProfileCard } from './agent-profile-card.js';
 import {
   createAgentChatProfile,
@@ -87,7 +88,7 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
     button.textContent = 'Rotating…';
     status.textContent = `Rotating ${agent.label || agent.agentId}…`;
     try {
-      const result = await rotateAgentChatProfileKey(agent.agentId, agent.botNpub, crypto.randomUUID());
+      const result = await rotateAgentChatProfileKey(agent.agentId, agent.botNpub, randomId());
       if (result.state === 'completed') {
         const counts = Object.entries(result.tower?.migrationCounts || {}).map(([name, count]) => `${name}: ${count}`).join(', ');
         const tower = result.tower?.status === 'completed' || result.tower?.status === 'idempotent_replay'

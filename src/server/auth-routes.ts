@@ -103,7 +103,7 @@ function signedLoginEventNpub(
     ctx.config.baseUrl ? configuredPublicRequestUrl(url, ctx.config.baseUrl) : null,
   ].filter((candidate): candidate is URL => Boolean(candidate));
 
-  const matchesUrl = candidates.some(
+  const matchesUrl = ctx.isFipsRequest?.(url) ? eventUrl.toString() === url.toString() : candidates.some(
     (candidate) =>
       eventUrl.origin === candidate.origin &&
       normalizePathname(eventUrl.pathname) === normalizePathname(candidate.pathname),
@@ -119,6 +119,7 @@ function signedLoginEventNpub(
 // ---------- Context supplied by server.ts ----------
 
 export interface AuthApiContext {
+  isFipsRequest?: (url: URL) => boolean;
   config: {
     baseUrl?: string;
     registrationEnabled: boolean;

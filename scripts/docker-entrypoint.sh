@@ -49,7 +49,7 @@ if [[ -n "${codex_workspace}" ]]; then
   fi
 fi
 
-if ! is_enabled "${FIPS_APPS_ENABLED:-false}"; then
+if ! is_enabled "${FIPS_APPS_ENABLED:-false}" && ! is_enabled "${FIPS_AUTOPILOT_ENABLED:-${FIPS_APPS_ENABLED:-false}}"; then
   run_autopilot "$@"
 fi
 
@@ -99,6 +99,10 @@ fi
 # established flows and ping by default, then includes this explicit app-port
 # allowance. Managed web app ports begin at 41000 and TCP ports end at 65535.
 printf '%s\n' 'tcp dport 41000-65535 accept' > /etc/fips/fips.d/autopilot-managed-apps.nft
+# Only the configured control-plane ingress port is added; no host publish.
+if ! bash /app/scripts/fips-control-plane-firewall.sh > /etc/fips/fips.d/autopilot-control-plane.nft; then
+  echo "Main FIPS ingress firewall rule unavailable; Autopilot will report the configuration error while HTTPS continues" >&2
+fi
 nft -f /etc/fips/fips.nft
 
 trap shutdown_children SIGINT SIGTERM SIGQUIT EXIT

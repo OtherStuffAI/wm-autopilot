@@ -23,6 +23,7 @@ Commands:
   flags-set <id> <val> Set a feature flag (val: true/false)
   restart              Restart and recover sessions by native resume or fresh launch
   restart-resume       Compatibility alias for restart
+  fips                 Show Autopilot mesh endpoint and listener status
   restart-status       Check restart status
 
 Options:
@@ -109,6 +110,10 @@ async function run() {
     requestJsonWithAuth<T>(auth, method, path, body);
 
   switch (command) {
+    case "fips": {
+      console.log(JSON.stringify(await request("GET", "/api/system/fips"), null, 2));
+      break;
+    }
     case "overview": {
       const [appsPayload, sessionsPayload] = await Promise.all([
         request<{ apps?: AppInfo[] }>("GET", "/api/apps"),
