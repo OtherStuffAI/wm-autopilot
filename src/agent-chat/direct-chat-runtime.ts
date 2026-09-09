@@ -285,7 +285,7 @@ export class AgentDirectChatRuntime {
         activeTurnId = pending?.turnId ?? null;
         const pendingAwaiting = pending?.state === 'accepted' || pending?.state === 'awaiting_reply';
         if (pending?.replyBody) {
-          activity = this.createActivityPublisher({ backendBaseUrl: input.subscription.backendBaseUrl,
+          activity = this.createActivityPublisher({ backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl,
             workspaceId: input.subscription.workspaceId!, appNpub: input.subscription.sourceAppNpub,
             botIdentity: input.botIdentity, channelId: intercept.channelId, threadId: intercept.threadId,
             triggerMessageId: pending.sourceMessageIds.at(-1)!, sessionId: `pending:${pending.turnId}`,
@@ -365,7 +365,7 @@ export class AgentDirectChatRuntime {
             sessionGeneration: sessionResolution.generation, previousSessionIds: sessionResolution.previousSessionIds,
             state: 'active', lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
           activity = this.createActivityPublisher({
-            backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
+            backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
             appNpub: input.subscription.sourceAppNpub, botIdentity: input.botIdentity,
             channelId: intercept.channelId, threadId: intercept.threadId,
             triggerMessageId: recoverySourceMessageIds.at(-1)!, sessionId: session.id,
@@ -409,7 +409,7 @@ export class AgentDirectChatRuntime {
         const clientRequestId = pending?.clientRequestId ?? buildDirectChatClientRequestId(routingKey, turnId);
         const now = pending?.createdAt ?? new Date().toISOString();
         activity = this.createActivityPublisher({
-          backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
+          backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
           appNpub: input.subscription.sourceAppNpub, botIdentity: input.botIdentity,
           channelId: intercept.channelId, threadId: intercept.threadId,
           triggerMessageId: sourceMessageIds.at(-1)!, sessionId: `pending:${turnId}`,
@@ -637,7 +637,7 @@ export class AgentDirectChatRuntime {
       if (suppressed) {
         messageId = null;
       } else {
-        messageId = (await this.publish({ backendBaseUrl: input.subscription.backendBaseUrl,
+        messageId = (await this.publish({ backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl,
             workspaceId: input.subscription.workspaceId!, channelId: intercept.channelId, appNpub: input.subscription.sourceAppNpub,
             botIdentity: input.botIdentity, body, threadId: intercept.threadId, clientRequestId,
             metadata: { source: 'autopilot_session', session_id: intercept.sessionId, turn_id: turnId,
@@ -727,6 +727,7 @@ export class AgentDirectChatRuntime {
     const session = await this.deps.processManager.createSession(sessionAgent, profile.directory, `${agent.label} Direct Chat`,
       { type: 'agent-chat', id: intercept.routingKey, label: `${agent.label} Flight Deck chat` }, undefined,
       subscription.managedByNpub ?? undefined, { AGENT: true, sessionClass: 'flightdeck_chat',
+        flightdeckSubscriptionId: subscription.subscriptionId, flightdeckBackendConnectionId: subscription.backendConnectionId ?? undefined,
         flightdeckTowerServiceNpub: intercept.towerServiceNpub, flightdeckWorkspaceId: intercept.workspaceId,
         flightdeckScopeId: scopeId ?? undefined, flightdeckChannelId: intercept.channelId, flightdeckThreadId: intercept.threadId,
         agentChatAgentId: agent.agentId, agentChatBotNpub: agent.botNpub,

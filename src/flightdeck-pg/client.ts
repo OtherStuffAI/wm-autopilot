@@ -36,8 +36,11 @@ import {
 } from '../agent-chat/tower-client';
 import { callCapabilityBroker, type CapabilityClientContext } from '../mcp/capability-client';
 import { fetchTowerRequest, prepareTowerRequestUrl } from "../agent-chat/tower-transport-runtime";
+import { remoteTowerTransport } from "./remote-tower-transport";
 
 export interface FlightDeckPgClientConfig {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   towerUrl: string;
   wingmanUrl: string;
   appNpub: string;
@@ -77,6 +80,7 @@ export function createBotIdentityFromSecret(secretKey: Uint8Array): RuntimeBotId
 }
 
 export function createBotIdentityFromCapability(input: {
+  useHostTransport?: boolean;
   wingmanUrl: string;
   sessionId: string;
   capabilityToken: string;
@@ -91,6 +95,7 @@ export function createBotIdentityFromCapability(input: {
     fetch: input.fetchImpl,
   });
   return {
+    ...(input.useHostTransport ? { towerTransport: remoteTowerTransport(currentContext) } : {}),
     botNpub: input.botNpub,
     botPubkeyHex: input.botPubkeyHex,
     signNip98: async ({ url, method, body }) => {
@@ -164,6 +169,7 @@ export function resolveFlightDeckPgConfig(input: {
       throw new Error('Flight Deck --bot-crypto requires WINGMAN_URL, SESSION_ID, WINGMAN_CAPABILITY, BOT_NPUB, and BOT_PUBKEY_HEX from an agent session.');
     }
     botIdentity = createBotIdentityFromCapability({
+      useHostTransport: Boolean(objectValue(input.initialContext?.workspace).subscriptionId),
       wingmanUrl,
       sessionId,
       capabilityToken,
@@ -179,6 +185,7 @@ export function resolveFlightDeckPgConfig(input: {
   }
   return {
     towerUrl,
+    subscriptionId: stringValue(objectValue(input.initialContext?.workspace).subscriptionId),
     wingmanUrl,
     appNpub,
     botIdentity,
@@ -650,6 +657,8 @@ export class FlightDeckPgClient {
 
   private base(extra: { workspaceId: string; taskId?: string }) {
     return {
+      backendConnectionId: this.config.backendConnectionId,
+      subscriptionId: this.config.subscriptionId,
       backendBaseUrl: this.config.towerUrl,
       workspaceId: extra.workspaceId,
       taskId: extra.taskId ?? '',
@@ -683,12 +692,13 @@ export class FlightDeckPgClient {
       if (value !== undefined && value !== null && String(value).trim()) url.searchParams.set(key, String(value));
     }
     const authorization = await signFlightDeckPgBotRequest({
+      backendConnectionId: this.config.backendConnectionId, subscriptionId: this.config.subscriptionId,
       botIdentity: this.config.botIdentity,
       url: url.toString(),
       method,
       body,
     });
-    const response = await (this.config.fetchImpl ?? fetchTowerRequest)(url.toString(), {
+    const response = await this.fetchTower(url.toString(), {
       method,
       headers: {
         Accept: 'application/json',
@@ -772,7 +782,10 @@ export class FlightDeckPgClient {
         };
       }
       if (downloadUrl) {
-        const actual = new URL(await prepareTowerRequestUrl(this.config.towerUrl));
+        const identity = this.config.botIdentity;
+        const actual = new URL("towerTransport" in identity && identity.towerTransport
+          ? await identity.towerTransport.prepare(this.config.towerUrl)
+          : await prepareTowerRequestUrl(this.config.towerUrl, this.config));
         if (actual.hostname.endsWith(".fips")) return this.downloadStorageObjectContent(workspaceId, objectId);
         const downloaded = await this.fetchImpl(downloadUrl);
         if (!downloaded.ok) throw new Error(`Storage download URL failed (${downloaded.status}): ${downloaded.statusText}`);
@@ -809,12 +822,13 @@ export class FlightDeckPgClient {
       if (value !== undefined && value !== null && String(value).trim()) url.searchParams.set(key, String(value));
     }
     const authorization = await signFlightDeckPgBotRequest({
+      backendConnectionId: this.config.backendConnectionId, subscriptionId: this.config.subscriptionId,
       botIdentity: this.config.botIdentity,
       url: url.toString(),
       method,
       body,
     });
-    const response = await (this.config.fetchImpl ?? fetchTowerRequest)(url.toString(), {
+    const response = await this.fetchTower(url.toString(), {
       method,
       headers: {
         Accept: '*/*',
@@ -830,6 +844,12 @@ export class FlightDeckPgClient {
       throw new Error(`${method} ${path} failed (${response.status}): ${text || response.statusText}`);
     }
     return response;
+  }
+
+  private fetchTower(url: string, init: RequestInit) {
+    const identity = this.config.botIdentity;
+    if ("towerTransport" in identity && identity.towerTransport) return identity.towerTransport.fetch(url, init);
+    return this.config.fetchImpl ? this.config.fetchImpl(url, init) : fetchTowerRequest(url, init, this.config);
   }
 }
 

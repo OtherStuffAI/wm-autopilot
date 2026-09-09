@@ -1,3 +1,4 @@
+import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
  *
@@ -11,6 +12,7 @@
  */
 
 import type { SessionOrigin, SessionSnapshot } from "../agents/process-manager";
+import { handleFlightDeckTransport } from "./flightdeck-transport-helper";
 import type { RuntimeBotIdentity } from "../agent-chat/types";
 import {
   acquireFlightDeckPgEditLease,
@@ -98,17 +100,15 @@ export interface WingmanMcpApiDependencies {
   getBotIdentityForSubscription?: (subscriptionId: string) => RuntimeBotIdentity | null;
   documentDirectStore?: DocumentDirectStore;
   getFlightDeckRuntimeContext?: (subscriptionId: string) => {
+    backendConnectionId?: string | null;
     backendBaseUrl: string;
     workspaceId: string;
     appNpub: string;
     botIdentity: RuntimeBotIdentity;
   } | null;
-  resolveFlightDeckDirectContext?: (input: {
-    towerServiceNpub: string;
-    workspaceId: string;
-    agentNpub: string;
-  }) => {
+  resolveFlightDeckDirectContext?: (input: FlightDeckTransportBinding) => {
     subscriptionId: string;
+    backendConnectionId?: string | null;
     backendBaseUrl: string;
     appNpub: string;
     botIdentity: RuntimeBotIdentity;
@@ -1197,6 +1197,7 @@ interface FlightDeckMcpContext {
   workspaceId: string | null;
   appNpub: string | null;
   subscriptionId: string | null;
+  backendConnectionId: string | null;
 }
 
 function asObject(value: unknown): JsonObject {
@@ -1230,7 +1231,7 @@ function resolveFlightDeckMcpContext(
   const directWorkspaceId = asString(metadata.flightdeckWorkspaceId);
   const directAgentNpub = asString(metadata.flightdeckAgentNpub) ?? asString(metadata.agentChatBotNpub);
   const resolvedDirect = towerServiceNpub && directWorkspaceId && directAgentNpub
-    ? deps.resolveFlightDeckDirectContext?.({ towerServiceNpub, workspaceId: directWorkspaceId, agentNpub: directAgentNpub }) ?? null
+    ? deps.resolveFlightDeckDirectContext?.(flightDeckSessionTransportBinding(session)) ?? null
     : null;
   const directRoot = resolvedDirect ? {
     workspace: {
@@ -1289,6 +1290,7 @@ function resolveFlightDeckMcpContext(
     workspaceId: asString(workspace.workspaceId) ?? directContext?.workspaceId ?? null,
     appNpub: asString(workspace.sourceAppNpub) ?? directContext?.appNpub ?? null,
     subscriptionId,
+    backendConnectionId: resolvedDirect?.backendConnectionId ?? directContext?.backendConnectionId ?? null,
   };
 }
 
@@ -1385,7 +1387,13 @@ async function handleFlightDeckHelper(
 
   const missing = requireFlightDeckPgContext(resolved);
   if (missing) return missing;
+  if (action === "transport_prepare" || action === "transport_request") {
+    if (!resolved.subscriptionId) return jsonError("Bound Tower subscription is required", 400);
+    return handleFlightDeckTransport({ action, body, subscriptionId: resolved.subscriptionId,
+      workspaceId: resolved.workspaceId!, botPubkeyHex: resolved.botIdentity!.botPubkeyHex, signal: request.signal });
+  }
   const pg = {
+    backendConnectionId: resolved.backendConnectionId,
     backendBaseUrl: resolved.backendBaseUrl!,
     workspaceId: resolved.workspaceId!,
     appNpub: resolved.appNpub!,

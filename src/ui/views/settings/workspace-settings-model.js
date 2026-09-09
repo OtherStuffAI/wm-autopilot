@@ -28,6 +28,7 @@ export function buildWorkspaceSettingsModel(subscriptions, agentPayload, connect
       if (backend) workspace.towerConnection = {
         backendConnectionId: backend.backendConnectionId, backendBaseUrl: backend.backendBaseUrl,
         serviceNpub: backend.serviceNpub, transport: backend.transport, transportDiagnostics: backend.transportDiagnostics,
+        canManageTransport: backend.operator?.canManageAvailability === true,
       };
       server.workspaces.push(workspace);
     } else if (name && workspace.name === 'Workspace name unavailable') workspace.name = name;

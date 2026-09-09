@@ -9,6 +9,8 @@ import { agentActivityPublicationStore, type AgentActivityPublicationStore } fro
 export type AgentActivityState = 'accepted' | 'working' | 'waiting' | 'completed' | 'failed' | 'cancelled';
 
 export interface AgentActivityContext {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;

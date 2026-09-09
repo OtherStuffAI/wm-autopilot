@@ -49,7 +49,7 @@ async function fetchAllMessages(input: {
   let cursor: string | null = null;
   do {
     const page = await deps.fetchMessages({
-      backendBaseUrl: input.subscription.backendBaseUrl,
+      backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl,
       workspaceId: input.subscription.workspaceId,
       channelId: input.channelId,
       appNpub: input.subscription.sourceAppNpub,
@@ -72,7 +72,7 @@ export async function hydrateDirectChatThread(input: {
   threadId: string;
 }, deps: HydrationDependencies): Promise<{ channel: FlightDeckPgChannel; messages: FlightDeckPgMessage[] }> {
   if (!input.subscription.workspaceId) throw new Error('Agent Direct Chat requires a Flight Deck PG workspace id.');
-  const common = { backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId,
+  const common = { backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId,
     channelId: input.channelId, appNpub: input.subscription.sourceAppNpub, botIdentity: input.botIdentity };
   const messages = await fetchAllMessages({ ...input, threadId: input.threadId }, deps);
   let channel: FlightDeckPgChannel;
@@ -116,7 +116,7 @@ export async function hydrateFlightDeckPgChatEvent(input: {
   if (!message || !input.includeChannel) return { channel, messages, message, threadId };
   try {
     channel = await deps.fetchChannel({
-      backendBaseUrl: input.subscription.backendBaseUrl,
+      backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl,
       workspaceId: input.subscription.workspaceId!,
       channelId: input.channelId,
       appNpub: input.subscription.sourceAppNpub,

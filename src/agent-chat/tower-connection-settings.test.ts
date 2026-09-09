@@ -44,3 +44,20 @@ test("switch retains subscription IDs/cursors and reconnects only this connectio
   await expect(saveTowerConnectionTransport({ store, id: backend.backendConnectionId, managerNpub: "foreign", transport: fips,
     subscriptions, reconnect: async () => {} })).rejects.toThrow("owner");
 });
+
+test("switch preserves disabled/revoked subscriptions and attempts every active reconnect", async () => {
+  const store = new BackendConnectionStore(join(tmpdir(), `tower-switch-guards-${randomUUID()}.sqlite`));
+  const backend = createTowerConnection(store, "owner", { transport: fips });
+  const subscriptions = [
+    { subscriptionId: "disabled", sseStatus: "disabled" },
+    { subscriptionId: "revoked", lifecycleStatus: "revoked" },
+    { subscriptionId: "first" }, { subscriptionId: "second" },
+  ].map((item) => ({ ...item, backendConnectionId: backend.backendConnectionId })) as WorkspaceSubscriptionRecord[];
+  const sequence: string[] = [];
+  await expect(saveTowerConnectionTransport({ store, id: backend.backendConnectionId, managerNpub: "owner", transport: fips,
+    subscriptions, quiesce: async (record) => { sequence.push(`stop:${record.subscriptionId}`); },
+    reconnect: async (record) => { sequence.push(`start:${record.subscriptionId}`); if (record.subscriptionId === "first") throw new Error("offline"); },
+  })).rejects.toThrow("first");
+  expect(sequence).toEqual(["stop:disabled", "stop:revoked", "stop:first", "stop:second", "start:first", "start:second"]);
+  expect(store.getById(backend.backendConnectionId)?.transport).toEqual(fips);
+});

@@ -28,9 +28,11 @@ export async function saveTowerConnectionTransport(input: {
   managerNpub: string;
   transport: unknown;
   subscriptions: WorkspaceSubscriptionRecord[];
+  quiesce?: (subscription: WorkspaceSubscriptionRecord) => Promise<void>;
   reconnect: (subscription: WorkspaceSubscriptionRecord) => Promise<void>;
 }) {
   const record = ownedTowerConnection(input.store, input.id, input.managerNpub);
+  if (!input.transport) throw new Error("Explicit transport approval is required");
   const transport = normalizeTowerTransport(input.transport, record.backendBaseUrl);
   if (record.serviceNpub && transport.expectedServiceNpub && record.serviceNpub !== transport.expectedServiceNpub) {
     throw new Error("Expected service identity differs from this Tower connection");
@@ -38,10 +40,17 @@ export async function saveTowerConnectionTransport(input: {
   const next = { ...record, transport, updatedAt: new Date().toISOString() };
   // Validate before persistence; selecting an unavailable mesh remains allowed and visibly unhealthy.
   effectiveTowerEndpoint(transport);
+  for (const subscription of input.subscriptions.filter((item) => item.backendConnectionId === input.id)) {
+    await input.quiesce?.(subscription);
+  }
   const saved = input.store.save(next);
   transportForConnection(saved); // Abort the obsolete request/stream generation immediately.
+  const failures: string[] = [];
   for (const subscription of input.subscriptions.filter((item) => item.backendConnectionId === input.id)) {
-    await input.reconnect(subscription);
+    if (subscription.sseStatus === "disabled" || subscription.lifecycleStatus === "revoked") continue;
+    try { await input.reconnect(subscription); }
+    catch { failures.push(subscription.subscriptionId); }
   }
+  if (failures.length) throw new Error(`Transport saved; subscriptions failed to reconnect: ${failures.join(", ")}`);
   return saved;
 }

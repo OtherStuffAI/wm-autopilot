@@ -36,6 +36,8 @@ export interface SessionMetadata {
   agentChatAgentId?: string;
   agentChatBotNpub?: string;
   sessionClass?: "flightdeck_chat";
+  flightdeckSubscriptionId?: string;
+  flightdeckBackendConnectionId?: string;
   flightdeckTowerServiceNpub?: string;
   flightdeckWorkspaceId?: string;
   flightdeckScopeId?: string;
@@ -227,6 +229,8 @@ export const normaliseSessionMetadata = (
     nextActionPayload: nextActionPayload || undefined,
     nextActionTemplate: nextActionTemplate || undefined,
     sessionClass: metadata?.sessionClass === "flightdeck_chat" ? metadata.sessionClass : undefined,
+    flightdeckSubscriptionId: cleanString(metadata?.flightdeckSubscriptionId) || undefined,
+    flightdeckBackendConnectionId: cleanString(metadata?.flightdeckBackendConnectionId) || undefined,
     flightdeckTowerServiceNpub: cleanString(metadata?.flightdeckTowerServiceNpub) || undefined,
     flightdeckWorkspaceId: cleanString(metadata?.flightdeckWorkspaceId) || undefined,
     flightdeckScopeId: cleanString(metadata?.flightdeckScopeId) || undefined,

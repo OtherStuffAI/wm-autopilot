@@ -952,6 +952,7 @@ async function resolveFlightDeckChannelContextFromTower(
     throw new Error('bot identity is required to read Flight Deck channel context.');
   }
   const result = await fetchFlightDeckPgScopeChannels({
+    backendConnectionId: input.subscription.backendConnectionId,
     backendBaseUrl,
     workspaceId,
     scopeId,

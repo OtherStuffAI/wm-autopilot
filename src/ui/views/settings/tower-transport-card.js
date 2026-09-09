@@ -2,12 +2,12 @@ import { element } from './workspace-settings-details.js';
 import { createButton } from './agent-chat-shared-ui.js';
 
 // The record is materialized from the workspace settings Dexie liveQuery.
-export function createTowerTransportCard(connection, { canManage, onAction }) {
+export function createTowerTransportCard(connection, { canManage, onAction, draft, onDraft }) {
   const card = element('section', '', 'wm-card wm-workspace-detail');
   card.setAttribute('aria-label', 'Tower transport');
   card.dataset.testid = 'tower-transport-settings';
   card.append(element('h3', 'Tower transport'));
-  const config = connection.transport || { mode: 'https', httpsEndpoint: connection.backendBaseUrl };
+  const config = draft || connection.transport || { mode: 'https', httpsEndpoint: connection.backendBaseUrl };
   const diagnostics = connection.transportDiagnostics || {};
   const fields = {};
   for (const [key, title, value] of [
@@ -26,8 +26,10 @@ export function createTowerTransportCard(connection, { canManage, onAction }) {
     input.dataset.testid = `tower-transport-${key}`;
     input.disabled = !canManage;
     label.append(input); card.append(label); fields[key] = input;
+    input.addEventListener('input', () => void onDraft(Object.fromEntries(
+      Object.entries(fields).map(([name, field]) => [name, field.value || null]))));
   }
-  const status = element('p', `Selected: ${config.mode}. Effective: ${diagnostics.effectiveTransport || 'unavailable'}. ${diagnostics.reconnectState || 'idle'}.`);
+  const status = element('p', `Selected: ${connection.transport?.mode || 'https'}. Effective: ${diagnostics.effectiveTransport || 'unavailable'}. ${diagnostics.reconnectState || 'idle'}.`);
   status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   status.dataset.testid = 'tower-transport-status';
   card.append(status,

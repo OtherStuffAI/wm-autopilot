@@ -1,3 +1,5 @@
+import { selectFlightDeckTransportSubscription, type FlightDeckTransportBinding } from "./flightdeck-session-transport";
+import { consumeTowerEventStream } from "./tower-event-stream";
 import { saveTowerConnectionTransport, ownedTowerConnection, createTowerConnection } from "./tower-connection-settings";
 import { transportForConnection } from "./tower-transport-runtime";
 import { prepareAgentProfileDirectory } from "./agent-profile-directory";
@@ -1307,6 +1309,7 @@ export class WorkspaceSubscriptionManager {
   }
 
   getFlightDeckRuntimeContext(subscriptionId: string): {
+    backendConnectionId?: string | null;
     backendBaseUrl: string;
     workspaceId: string;
     appNpub: string;
@@ -1316,7 +1319,7 @@ export class WorkspaceSubscriptionManager {
     const botIdentity = this.getRuntimeBotIdentity(subscriptionId);
     if (!subscription?.workspaceId || !botIdentity) return null;
     return {
-      backendBaseUrl: subscription.backendBaseUrl,
+      backendConnectionId: subscription.backendConnectionId, backendBaseUrl: subscription.backendBaseUrl,
       workspaceId: subscription.workspaceId,
       appNpub: subscription.sourceAppNpub,
       botIdentity,
@@ -1332,16 +1335,17 @@ export class WorkspaceSubscriptionManager {
 
   resolveDirectChatTurnTransport(input: {
     subscriptionId: string;
+    backendConnectionId?: string | null;
     backendBaseUrl: string;
     towerServiceNpub: string;
     workspaceId: string;
     sourceAppNpub: string;
-  }): { backendBaseUrl: string; workspaceId: string; appNpub: string } | null {
+  }): { backendConnectionId?: string | null; backendBaseUrl: string; workspaceId: string; appNpub: string } | null {
     const subscription = this.store.getBySubscriptionId(input.subscriptionId);
     if (!subscription?.workspaceId || subscription.backendBaseUrl !== input.backendBaseUrl
       || subscription.towerServiceNpub !== input.towerServiceNpub || subscription.workspaceId !== input.workspaceId
       || subscription.sourceAppNpub !== input.sourceAppNpub) return null;
-    return { backendBaseUrl: subscription.backendBaseUrl, workspaceId: subscription.workspaceId,
+    return { backendConnectionId: subscription.backendConnectionId, backendBaseUrl: subscription.backendBaseUrl, workspaceId: subscription.workspaceId,
       appNpub: subscription.sourceAppNpub };
   }
 
@@ -1353,21 +1357,13 @@ export class WorkspaceSubscriptionManager {
     return subscription ? this.getRuntimeBotIdentity(subscription.subscriptionId) : null;
   }
 
-  resolveFlightDeckTurnDelivery(input: {
-    towerServiceNpub: string;
-    workspaceId: string;
-    agentNpub: string;
-  }): { subscriptionId: string; backendBaseUrl: string; appNpub: string; botIdentity: RuntimeBotIdentity } | null {
-    const subscription = this.store.listAll().find((record) =>
-      (record.lifecycleStatus ?? 'active') === 'active'
-      && record.towerServiceNpub === input.towerServiceNpub
-      && record.workspaceId === input.workspaceId
-      && record.botNpub === input.agentNpub);
+  resolveFlightDeckTurnDelivery(input: FlightDeckTransportBinding): { backendConnectionId?: string | null; subscriptionId: string; backendBaseUrl: string; appNpub: string; botIdentity: RuntimeBotIdentity } | null {
+    const subscription = selectFlightDeckTransportSubscription(this.store.listAll(), input);
     if (!subscription) return null;
     const botIdentity = this.getRuntimeBotIdentity(subscription.subscriptionId);
     return botIdentity ? {
       subscriptionId: subscription.subscriptionId,
-      backendBaseUrl: subscription.backendBaseUrl,
+      backendConnectionId: subscription.backendConnectionId, backendBaseUrl: subscription.backendBaseUrl,
       appNpub: subscription.sourceAppNpub,
       botIdentity,
     } : null;
@@ -1442,11 +1438,17 @@ export class WorkspaceSubscriptionManager {
     return saveTowerConnectionTransport({
       store: this.backendStore, id, managerNpub, transport,
       subscriptions: this.store.listAll(),
-      reconnect: async (record) => {
+      quiesce: async (record) => {
         this.stopRuntime(record.subscriptionId, false);
+        // Finish durable work already accepted by the old generation before switching its route.
+        await this.flightDeckPgEventQueues.get(record.subscriptionId)?.catch(() => undefined);
+      },
+      reconnect: async (record) => {
+        if (record.sseStatus === "disabled" || isRevokedWorkspaceSubscription(record)) return;
+        record = this.store.getBySubscriptionId(record.subscriptionId) ?? record;
         const identity = await this.resolveStoredBotIdentity(record.botNpub);
         if (!identity) throw new Error("Tower subscription bot identity is unavailable");
-        await this.ensureFlightDeckPgConnected(record, identity, false);
+        await this.ensureConnected(record, identity, false);
       },
     });
   }
@@ -1463,7 +1465,7 @@ export class WorkspaceSubscriptionManager {
     const botIdentity = await this.resolveStoredBotIdentity(record.botNpub);
     if (!botIdentity) throw new Error("Test connection requires the subscription bot identity");
     await transport.prepare(backend.backendBaseUrl);
-    const result = await fetchFlightDeckPgWorkspaceMe({ backendBaseUrl: backend.backendBaseUrl,
+    const result = await fetchFlightDeckPgWorkspaceMe({ backendConnectionId: id, backendBaseUrl: backend.backendBaseUrl,
       workspaceId: record.workspaceId, appNpub: record.sourceAppNpub, botIdentity });
     return { ok: true, identity: result.identity, diagnostics: transport.diagnostics };
   }
@@ -1902,7 +1904,8 @@ export class WorkspaceSubscriptionManager {
   private isSameInstanceSubscription(
     record: WorkspaceSubscriptionRecord,
     input: {
-      backendBaseUrl: string;
+      backendConnectionId?: string | null;
+    backendBaseUrl: string;
       towerServiceNpub: string | null;
       workspaceOwnerNpub: string;
       workspaceId: string | null;
@@ -3118,6 +3121,7 @@ export class WorkspaceSubscriptionManager {
 
   private async createOrReuseBackendConnection(input: {
     managedByNpub: string;
+    backendConnectionId?: string | null;
     backendBaseUrl: string;
     serviceNpub?: string | null;
     setupWorkspaceOwnerNpub?: string | null;
@@ -3276,7 +3280,7 @@ export class WorkspaceSubscriptionManager {
     }
     try {
       const result = await this.fetchFlightDeckPgWorkspaceMeImpl({
-        backendBaseUrl: record.backendBaseUrl,
+        backendConnectionId: record.backendConnectionId, backendBaseUrl: record.backendBaseUrl,
         workspaceId: record.workspaceId,
         appNpub: record.sourceAppNpub,
         botIdentity,
@@ -3598,7 +3602,7 @@ export class WorkspaceSubscriptionManager {
     let result: Awaited<ReturnType<typeof reconcileFlightDeckPgEventSubscriptionAgents>>;
     try {
       result = await this.reconcileFlightDeckPgEventSubscriptionAgentsImpl({
-        backendBaseUrl: record.backendBaseUrl,
+        backendConnectionId: record.backendConnectionId, backendBaseUrl: record.backendBaseUrl,
         workspaceId: record.workspaceId,
         appNpub: record.sourceAppNpub,
         botIdentity,
@@ -3711,7 +3715,7 @@ export class WorkspaceSubscriptionManager {
         const cursor = record.lastSyncCursor ?? encodeFlightDeckPgEventCursor(0);
         const audienceNpubs = await this.reconcileFlightDeckAudience(record, runtime.botIdentity, signal);
         const response = await this.connectFlightDeckPgEventStreamImpl({
-          backendBaseUrl: record.backendBaseUrl,
+          backendConnectionId: record.backendConnectionId, backendBaseUrl: record.backendBaseUrl,
           workspaceId,
           appNpub: record.sourceAppNpub,
           botIdentity: runtime.botIdentity,
@@ -3766,10 +3770,10 @@ export class WorkspaceSubscriptionManager {
               payload: safeJsonParse(sseEvent.data) ?? { data: sseEvent.data },
             };
             if (record.backendConnectionId) {
-      const backend = this.backendStore.getById(record.backendConnectionId);
-      if (backend) transportForConnection(backend).event();
-    }
-    record.lastSseEvent = nextEvent;
+              const backend = this.backendStore.getById(record.backendConnectionId);
+              if (backend) transportForConnection(backend).event();
+            }
+            record.lastSseEvent = nextEvent;
             record.recentSseEvents = trimRecentEntries(
               [...(Array.isArray(record.recentSseEvents) ? record.recentSseEvents : []), nextEvent],
               MAX_RECENT_SSE_EVENTS,
@@ -3835,6 +3839,8 @@ export class WorkspaceSubscriptionManager {
         return;
       }
       const workspaceId = record.workspaceId;
+      const backend = record.backendConnectionId ? this.backendStore.getById(record.backendConnectionId) : null;
+      const usesMeshEvents = backend?.transport?.mode === "fips";
       try {
         record = await this.verifyFlightDeckPgWorkspaceAccess(record, runtime.botIdentity, {
           signal,
@@ -3855,11 +3861,37 @@ export class WorkspaceSubscriptionManager {
           isStartupReload = false;
         }
         record = this.saveRecord(this.recomputeHealth(record));
-        this.flightDeckPgEventWatchdog.start(subscriptionId, signal);
+        if (!usesMeshEvents) this.flightDeckPgEventWatchdog.start(subscriptionId, signal);
         this.clearRuntimeFailure(record.subscriptionId, 'flightdeck_pg_events_connected');
 
         while (!signal.aborted && !runtime.removed && runtime.abortController?.signal === signal) {
           record = this.store.getBySubscriptionId(subscriptionId) ?? record;
+          if (usesMeshEvents) {
+            try {
+              const audience = await this.reconcileFlightDeckAudience(record, runtime.botIdentity, signal);
+              await consumeTowerEventStream({
+                signal, isCurrent: () => runtime.abortController?.signal === signal && !runtime.removed,
+                connect: () => this.connectFlightDeckPgEventStreamImpl({
+                  backendConnectionId: record!.backendConnectionId, backendBaseUrl: record!.backendBaseUrl, workspaceId, appNpub: record!.sourceAppNpub,
+                  botIdentity: runtime.botIdentity, cursor: record!.lastSyncCursor ?? encodeFlightDeckPgEventCursor(0),
+                  limit: 100, audienceNpubs: audience, signal,
+                }),
+                deliver: async (event) => {
+                  const latest = this.store.getBySubscriptionId(subscriptionId);
+                  if (!latest) throw new Error("Tower event subscription disappeared");
+                  record = await this.handleFlightDeckPgEvent(latest, event);
+                },
+              });
+            } catch (error) {
+              if (signal.aborted || runtime.abortController?.signal !== signal) return;
+              // The same consumer now polls the durable cursor before reconnecting SSE.
+              record = this.store.getBySubscriptionId(subscriptionId) ?? record;
+              record.sseStatus = "backoff";
+              this.saveRecord(record);
+            }
+            if (signal.aborted || runtime.abortController?.signal !== signal) return;
+            record = this.store.getBySubscriptionId(subscriptionId) ?? record;
+          }
           const cursor = record.lastSyncCursor ?? encodeFlightDeckPgEventCursor(0);
           const audienceNpubs = await this.reconcileFlightDeckAudience(record, runtime.botIdentity, signal);
           const pollStartedAt = Date.now();
@@ -3868,7 +3900,7 @@ export class WorkspaceSubscriptionManager {
           signal.addEventListener('abort', abortPoll, { once: true });
           const result = await withTimeout(
             this.fetchFlightDeckPgEventsImpl({
-              backendBaseUrl: record.backendBaseUrl,
+              backendConnectionId: record.backendConnectionId, backendBaseUrl: record.backendBaseUrl,
               workspaceId,
               appNpub: record.sourceAppNpub,
               botIdentity: runtime.botIdentity,
@@ -3894,6 +3926,7 @@ export class WorkspaceSubscriptionManager {
             }
             record = await this.handleFlightDeckPgEvent(record, event);
           }
+          if (signal.aborted || runtime.removed || runtime.abortController?.signal !== signal) return;
           const highWaterCursor = decodeFlightDeckPgEventCursor(result.next_cursor);
           const savedCursor = decodeFlightDeckPgEventCursor(record.lastSyncCursor);
           if (result.next_cursor && (!savedCursor || !highWaterCursor || highWaterCursor.rowVersion > savedCursor.rowVersion)) {

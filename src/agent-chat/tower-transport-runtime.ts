@@ -1,3 +1,5 @@
+import { resolveTowerRequestConnection, type TowerRequestContext } from "./tower-request-context";
+export type { TowerRequestContext } from "./tower-request-context";
 import { TowerTransport } from "./tower-transport";
 import { normalizeTowerTransport } from "./tower-transport-config";
 import type { BackendConnectionRecord } from "./types";
@@ -15,33 +17,38 @@ export function transportForConnection(record: BackendConnectionRecord): TowerTr
   return transport;
 }
 
-async function lookup(input: string | URL): Promise<TowerTransport | null> {
+async function lookup(input: string | URL, context: TowerRequestContext): Promise<TowerTransport | null> {
   const url = new URL(input);
-  const { backendConnectionStore } = await import("./backend-connection-store");
-  const matches = backendConnectionStore.listAll().filter((record) => {
-    const config = normalizeTowerTransport(record.transport, record.backendBaseUrl);
-    return [record.backendBaseUrl, config.httpsEndpoint, config.fipsEndpoint]
-      .some((endpoint) => endpoint && new URL(endpoint).origin === url.origin);
-  });
-  const configurations = new Set(matches.map((record) => JSON.stringify(normalizeTowerTransport(record.transport, record.backendBaseUrl))));
-  if (configurations.size > 1) throw new Error("Tower origin has conflicting connection transport approvals; resolve connection settings before use");
-  if (!matches.length) {
+  if (!context.backendConnectionId && !context.subscriptionId) {
     if (url.hostname.endsWith(".fips")) throw new Error("FIPS destination has no approved Tower connection");
     return null;
   }
-  return transportForConnection(matches[0]!);
+  const [{ backendConnectionStore }, { workspaceSubscriptionStore }] = await Promise.all([
+    import("./backend-connection-store"), import("./workspace-subscription-store"),
+  ]);
+  const record = resolveTowerRequestConnection(context, {
+    connection: (id) => backendConnectionStore.getById(id),
+    subscription: (id) => workspaceSubscriptionStore.getBySubscriptionId(id),
+  });
+  if (!record) {
+    if (url.hostname.endsWith(".fips")) throw new Error("FIPS destination has no approved Tower connection");
+    return null;
+  }
+  const transport = transportForConnection(record);
+  transport.target(url);
+  return transport;
 }
 
-export async function prepareTowerRequestUrl(input: string | URL): Promise<string> {
-  const transport = await lookup(input);
+export async function prepareTowerRequestUrl(input: string | URL, context: TowerRequestContext = {}): Promise<string> {
+  const transport = await lookup(input, context);
   return transport ? (await transport.prepare(input)).toString() : input.toString();
 }
 
-export async function fetchTowerRequest(input: string | URL, init: RequestInit = {}): Promise<Response> {
-  const transport = await lookup(input);
+export async function fetchTowerRequest(input: string | URL, init: RequestInit = {}, context: TowerRequestContext = {}): Promise<Response> {
+  const transport = await lookup(input, context);
   if (!transport) return fetch(input, init);
   const actual = transport.target(input).toString();
-  if (transport.config.mode === "fips") {
+  {
     const auth = new Headers(init.headers).get("authorization");
     if (auth) {
       let target: unknown;

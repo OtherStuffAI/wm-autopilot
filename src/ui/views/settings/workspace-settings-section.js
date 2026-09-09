@@ -70,7 +70,8 @@ export function createWorkspaceSettingsSection() {
       // Keep the previous snapshot intact if any source fails; never replace memberships with an empty list.
       for (const result of results) if (result.status === 'rejected') throw result.reason;
       const servers = buildWorkspaceSettingsModel(subscriptions.value, agents.value, connections.value);
-      if (!stopped) await workspaceSettingsDb.views.put({ id: viewId, syncedAt: Date.now(), servers,
+      const transportDrafts = await workspaceSettingsDb.transportDrafts.toArray();
+      if (!stopped) await workspaceSettingsDb.views.put({ id: viewId, syncedAt: Date.now(), servers, transportDrafts,
         canManage: subscriptions.value.permissions?.canManage === true });
       status.textContent = 'Updated just now. Nostr-discovered connections appear automatically.';
       status.className = 'wm-workspace-note';
@@ -109,10 +110,11 @@ export function createWorkspaceSettingsSection() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Tower transport operation failed');
+      if (action === 'save') await workspaceSettingsDb.transportDrafts.delete(id);
       await refresh();
       status.textContent = action === 'test' ? 'Tower identity and workspace access verified.' : 'Tower transport applied.';
     } catch (error) { showError(error); }
-    finally { busy = false; }
+    finally { busy = false; await renderCached(); }
   }
 
   function remove(subscription) {
@@ -123,6 +125,7 @@ export function createWorkspaceSettingsSection() {
 
   async function renderCached() {
     const snapshot = await workspaceSettingsDb.views.get(viewId);
+    if (snapshot) snapshot.transportDrafts = await workspaceSettingsDb.transportDrafts.toArray();
     if (snapshot) render(snapshot);
   }
 
@@ -178,7 +181,9 @@ export function createWorkspaceSettingsSection() {
     const focusedId = body.contains(document.activeElement) ? document.activeElement.dataset.testid : null;
     body.replaceChildren(toolbar, intro, layout, access);
     if (selected?.towerConnection) body.append(createTowerTransportCard(selected.towerConnection, {
-      canManage: snapshot.canManage && !busy, onAction: transportAction,
+      canManage: snapshot.canManage && selected.towerConnection.canManageTransport && !busy, onAction: transportAction,
+      draft: snapshot.transportDrafts?.find((row) => row.id === selected.towerConnection.backendConnectionId)?.transport,
+      onDraft: (transport) => workspaceSettingsDb.transportDrafts.put({ id: selected.towerConnection.backendConnectionId, transport }),
     }));
     body.dataset.workspace = selected?.key || '';
     for (const summary of body.querySelectorAll('details > summary')) {

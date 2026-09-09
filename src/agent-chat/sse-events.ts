@@ -30,6 +30,7 @@ export async function* parseSseEvents(
     yield payload;
   };
 
+  try {
   while (true) {
     const { value, done } = await reader.read();
     buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
@@ -67,4 +68,7 @@ export async function* parseSseEvents(
     }
   }
   yield* flush();
+  } finally {
+    try { await reader.cancel(); } finally { reader.releaseLock(); }
+  }
 }

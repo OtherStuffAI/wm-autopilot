@@ -1,4 +1,6 @@
 import { Database } from 'bun:sqlite';
+import { TowerTransport } from "./tower-transport";
+import { normalizeTowerTransport, type TowerTransportConfig } from "./tower-transport-config";
 
 import { FlightDeckPgClient, createBotIdentityFromSecret } from '../flightdeck-pg/client';
 import { sourceLabelForFlightDeckChat } from './flightdeck-dispatch-metadata';
@@ -15,6 +17,7 @@ interface SubscriptionSourceConfig {
   backendBaseUrl: string;
   appNpub: string;
   botNpub: string;
+  transport: TowerTransportConfig;
 }
 
 export async function loadAuthoritativeFlightDeckSourceLabels(input: {
@@ -41,12 +44,16 @@ export async function loadAuthoritativeFlightDeckSourceLabels(input: {
       warnings.push(`The active signer does not match subscription ${subscriptionId}; source labels retain the explicit fallback.`);
       continue;
     }
+    const transport = new TowerTransport(config.backendBaseUrl, config.transport,
+      input.fetchImpl ? { fetch: input.fetchImpl } : {});
     const client = new FlightDeckPgClient({
       towerUrl: config.backendBaseUrl,
       wingmanUrl: '',
       appNpub: config.appNpub,
-      botIdentity,
-      fetchImpl: input.fetchImpl,
+      botIdentity: { ...botIdentity, towerTransport: {
+        prepare: async (url) => (await transport.prepare(url)).toString(),
+        fetch: (url, init) => transport.fetch(url, init),
+      } },
     });
     try {
       const result = await materialiseWorkspaceSources(client, config.workspaceId, rows);
@@ -56,6 +63,8 @@ export async function loadAuthoritativeFlightDeckSourceLabels(input: {
       }
     } catch (error) {
       warnings.push(`Source hydration failed for subscription ${subscriptionId}: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      transport.close();
     }
   }
 
@@ -131,7 +140,7 @@ async function materialiseWorkspaceSources(
 }
 
 function readSubscriptionConfigs(db: Database): Map<string, SubscriptionSourceConfig> {
-  const rows = db.query(`SELECT subscription_id, workspace_id, backend_base_url, source_app_npub, bot_npub
+  const rows = db.query(`SELECT *
     FROM workspace_subscriptions`).all() as Array<Record<string, unknown>>;
   const configs = new Map<string, SubscriptionSourceConfig>();
   for (const row of rows) {
@@ -141,7 +150,12 @@ function readSubscriptionConfigs(db: Database): Map<string, SubscriptionSourceCo
     const appNpub = text(row.source_app_npub);
     const botNpub = text(row.bot_npub);
     if (!subscriptionId || !workspaceId || !backendBaseUrl || !appNpub || !botNpub) continue;
-    configs.set(subscriptionId, { subscriptionId, workspaceId, backendBaseUrl, appNpub, botNpub });
+    const hasTransports = Boolean(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'backend_connection_transports'").get());
+    const stored = hasTransports && text(row.backend_connection_id)
+      ? db.query("SELECT config_json FROM backend_connection_transports WHERE backend_connection_id = ?1").get(text(row.backend_connection_id)) as { config_json: string } | null
+      : null;
+    const transport = normalizeTowerTransport(stored ? JSON.parse(stored.config_json) : undefined, backendBaseUrl);
+    configs.set(subscriptionId, { subscriptionId, workspaceId, backendBaseUrl, appNpub, botNpub, transport });
   }
   return configs;
 }

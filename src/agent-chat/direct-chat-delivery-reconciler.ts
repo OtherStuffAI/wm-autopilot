@@ -186,7 +186,7 @@ export class AgentDirectDeliveryReconciler {
         }
         await this.deps.reconcileActivity?.(record, botIdentity, transport);
         return (this.deps.publish ?? createFlightDeckPgChannelMessage)({
-          backendBaseUrl: transport.backendBaseUrl, workspaceId: transport.workspaceId, channelId: record.channelId!,
+          subscriptionId: record.subscriptionId, backendBaseUrl: transport.backendBaseUrl, workspaceId: transport.workspaceId, channelId: record.channelId!,
           appNpub: transport.appNpub, botIdentity, body: payload.body, threadId: payload.threadId,
           clientRequestId: record.clientRequestId, metadata: payload.metadata,
         });

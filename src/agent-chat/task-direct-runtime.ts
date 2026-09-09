@@ -194,7 +194,7 @@ export class TaskDirectRuntime {
         && actorNpub !== agent.botNpub);
       if (boundAgents.length === 1 && !targets.some(({ agent }) => agent.agentId === boundAgents[0]!.agentId)) {
         const taskResult = await (this.deps.fetchTask ?? fetchFlightDeckPgTask)({
-          backendBaseUrl: input.subscription.backendBaseUrl,
+          backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl,
           workspaceId: input.subscription.workspaceId,
           taskId: trigger.taskId,
           appNpub: input.subscription.sourceAppNpub,
@@ -266,7 +266,7 @@ export class TaskDirectRuntime {
           this.deps.processManager, session.id, prompt,
         );
         const result = await (this.deps.publish ?? createFlightDeckPgTaskComment)({
-          backendBaseUrl: latest.input.subscription.backendBaseUrl,
+          backendConnectionId: latest.input.subscription.backendConnectionId, backendBaseUrl: latest.input.subscription.backendBaseUrl,
           workspaceId: latest.input.subscription.workspaceId!, taskId: latest.trigger.taskId,
           appNpub: latest.input.subscription.sourceAppNpub, botIdentity: latest.input.botIdentity,
           body: reply.content, metadata: {
@@ -331,7 +331,7 @@ export class TaskDirectRuntime {
 
   private async hydrate(input: TaskDirectRuntimeInput, taskId: string): Promise<Record<string, unknown>> {
     const base = {
-      backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
+      backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
       appNpub: input.subscription.sourceAppNpub, botIdentity: input.botIdentity,
     };
     const taskResult = await (this.deps.fetchTask ?? fetchFlightDeckPgTask)({ ...base, taskId });

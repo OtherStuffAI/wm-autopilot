@@ -94,3 +94,22 @@ test("mesh outage remains explicit with zero HTTPS requests", async () => {
 test.each(["http://localhost:43100", `http://${nodeNpub}.fips:0`, `http://${nodeNpub}.fips:80`, `http://${nodeNpub}.fips:043100`, `http://${nodeNpub}.fips:65536`, `http://${nodeNpub}.fips:43100/path`, `http://${nodeNpub}.fips:43100?x=1`, "http://npub1fake.fips:43100"])("rejects unsafe endpoint %s", (endpoint) => {
   expect(() => parseTowerFipsEndpoint(endpoint)).toThrow();
 });
+
+test("one caller can cancel shared identity verification without cancelling another", async () => {
+  let release!: (address: string) => void;
+  const transport = new TowerTransport("https://public.example", normalizeTowerTransport({
+    mode: "fips", fipsEndpoint: `http://${nodeNpub}.fips:43100`, expectedServiceNpub: serviceNpub,
+  }, "https://public.example"), {
+    resolveMesh: () => new Promise((resolve) => { release = resolve; }),
+    requestMesh: async () => Response.json({ service_npub: serviceNpub }),
+  });
+  const controller = new AbortController();
+  const first = transport.prepare("https://public.example/one", controller.signal);
+  const second = transport.prepare("https://public.example/two");
+  controller.abort(new Error("Caller cancelled"));
+  await expect(first).rejects.toThrow("Caller cancelled");
+  release("::1");
+  expect((await second).pathname).toBe("/two");
+  expect(transport.diagnostics.counters.fips.requests).toBe(1);
+  transport.close();
+});

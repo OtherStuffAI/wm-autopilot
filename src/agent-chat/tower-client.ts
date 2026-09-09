@@ -1,4 +1,4 @@
-import { prepareTowerRequestUrl, fetchTowerRequest } from "./tower-transport-runtime";
+import { prepareTowerRequestUrl, fetchTowerRequest, transportForConnection } from "./tower-transport-runtime";
 import { createHash } from 'node:crypto';
 
 import { finalizeEvent, nip19 } from 'nostr-tools';
@@ -27,6 +27,7 @@ const FLIGHT_DECK_DOCUMENT_CONTENT_FORMAT = 'document_content_v1';
 const FLIGHT_DECK_DOCUMENT_CONTENT_MIME = 'application/vnd.wingman.flightdeck.document-content+json';
 
 export interface BrokeredFlightDeckPgBotIdentity {
+  towerTransport?: import("../flightdeck-pg/remote-tower-transport").RemoteTowerTransport;
   botNpub: string;
   botPubkeyHex: string;
   signNip98: (input: { url: string; method: string; body?: unknown }) => Promise<string>;
@@ -38,7 +39,9 @@ export interface BrokeredFlightDeckPgBotIdentity {
   }) => Promise<Record<string, unknown>>;
 }
 
-export type FlightDeckPgBotIdentity = StoredRuntimeBotIdentity | BrokeredFlightDeckPgBotIdentity;
+export type FlightDeckPgBotIdentity = (StoredRuntimeBotIdentity | BrokeredFlightDeckPgBotIdentity) & {
+  towerTransport?: import("../flightdeck-pg/remote-tower-transport").RemoteTowerTransport;
+};
 
 // Keep the existing parameter spelling throughout this client while allowing
 // the agent-facing CLI to use the capability broker instead of a raw key.
@@ -466,17 +469,21 @@ function buildFlightDeckPgUrl(
 }
 
 export async function signFlightDeckPgBotRequest(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   botIdentity: RuntimeBotIdentity;
   url: string;
   method: string;
   body?: unknown;
 }): Promise<string> {
-  const actualUrl = await prepareTowerRequestUrl(params.url);
+  const actualUrl = "towerTransport" in params.botIdentity && params.botIdentity.towerTransport
+    ? await params.botIdentity.towerTransport.prepare(params.url)
+    : await prepareTowerRequestUrl(params.url, params);
   if ('signNip98' in params.botIdentity) {
     return await params.botIdentity.signNip98({
       url: actualUrl,
       method: params.method,
-      body: params.body,
+      body: params.body ?? (new URL(actualUrl).hostname.endsWith(".fips") ? "" : params.body),
     });
   }
   const helpers = await loadYokeBotHelpers();
@@ -639,6 +646,8 @@ export async function fetchRecordHistory(
 }
 
 export async function fetchFlightDeckPgWorkspaceMe(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -647,12 +656,12 @@ export async function fetchFlightDeckPgWorkspaceMe(params: {
 }): Promise<FlightDeckPgWorkspaceMeResult> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/me`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -668,6 +677,8 @@ export async function fetchFlightDeckPgWorkspaceMe(params: {
 }
 
 export async function reconcileFlightDeckPgEventSubscriptionAgents(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -678,13 +689,13 @@ export async function reconcileFlightDeckPgEventSubscriptionAgents(params: {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/event-subscription-agents`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
   const body = JSON.stringify({ agent_npubs: [...new Set(params.agentNpubs)].sort() });
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'PUT',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'PUT',
     headers: {
       Accept: 'application/json',
@@ -730,6 +741,8 @@ export async function reconcileFlightDeckPgEventSubscriptionAgents(params: {
 }
 
 export async function fetchFlightDeckPgScopeChannels(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   scopeId: string;
@@ -742,12 +755,12 @@ export async function fetchFlightDeckPgScopeChannels(params: {
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path, {
     limit: params.limit ?? 200,
   });
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -768,6 +781,8 @@ export async function fetchFlightDeckPgScopeChannels(params: {
 }
 
 export async function fetchFlightDeckPgEvents(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -785,12 +800,12 @@ export async function fetchFlightDeckPgEvents(params: {
   for (const npub of [...new Set(params.audienceNpubs ?? [])].sort()) {
     url.searchParams.append('audience_npub', npub);
   }
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url: url.toString(),
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url.toString(), {
+  const response = await fetchPgRequest(params, url.toString(), {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -811,6 +826,8 @@ export async function fetchFlightDeckPgEvents(params: {
 }
 
 export async function connectFlightDeckPgEventStream(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -828,12 +845,12 @@ export async function connectFlightDeckPgEventStream(params: {
   for (const npub of [...new Set(params.audienceNpubs ?? [])].sort()) {
     url.searchParams.append('audience_npub', npub);
   }
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url: url.toString(),
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url.toString(), {
+  const response = await fetchPgRequest(params, url.toString(), {
     headers: {
       Accept: 'text/event-stream',
       Authorization: authorization,
@@ -849,6 +866,8 @@ export async function connectFlightDeckPgEventStream(params: {
 }
 
 export async function fetchFlightDeckPgChannelMessages(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   channelId: string;
@@ -867,12 +886,12 @@ export async function fetchFlightDeckPgChannelMessages(params: {
     cursor: params.cursor ?? null,
     limit: params.limit ?? 200,
   });
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -893,6 +912,8 @@ export async function fetchFlightDeckPgChannelMessages(params: {
 }
 
 export async function fetchFlightDeckPgChannel(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   channelId: string;
@@ -902,8 +923,8 @@ export async function fetchFlightDeckPgChannel(params: {
 }): Promise<FlightDeckPgChannel> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/channels/${encodeURIComponent(params.channelId)}`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
-  const authorization = await signFlightDeckPgBotRequest({ botIdentity: params.botIdentity, url, method: 'GET' });
-  const response = await fetchTowerRequest(url, { headers: { Accept: 'application/json', Authorization: authorization, 'x-flightdeck-pg-app-npub': params.appNpub }, signal: params.signal });
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId, botIdentity: params.botIdentity, url, method: 'GET' });
+  const response = await fetchPgRequest(params, url, { headers: { Accept: 'application/json', Authorization: authorization, 'x-flightdeck-pg-app-npub': params.appNpub }, signal: params.signal });
   if (!response.ok) {
     const error = await parseTowerError(response, 'flightdeck_pg_channel');
     throw Object.assign(new Error(error.message), error);
@@ -978,6 +999,8 @@ function normaliseWorkroomContext(value: unknown): FlightDeckPgWorkroomContext {
 }
 
 export async function fetchFlightDeckPgWorkroomContext(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   channelId: string;
@@ -993,8 +1016,8 @@ export async function fetchFlightDeckPgWorkroomContext(params: {
     thread_id: params.threadId,
     actor_npub: params.actorNpub ?? null,
   });
-  const authorization = await signFlightDeckPgBotRequest({ botIdentity: params.botIdentity, url, method: 'GET' });
-  const response = await fetchTowerRequest(url, {
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId, botIdentity: params.botIdentity, url, method: 'GET' });
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1013,6 +1036,8 @@ export async function fetchFlightDeckPgWorkroomContext(params: {
 }
 
 export async function patchFlightDeckPgWorkroomParticipantMetadata(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   workroomId: string;
@@ -1024,8 +1049,8 @@ export async function patchFlightDeckPgWorkroomParticipantMetadata(params: {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/workrooms/${encodeURIComponent(params.workroomId)}/participant`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
   const body = { metadata: params.metadata };
-  const authorization = await signFlightDeckPgBotRequest({ botIdentity: params.botIdentity, url, method: 'PATCH', body });
-  const response = await fetchTowerRequest(url, {
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId, botIdentity: params.botIdentity, url, method: 'PATCH', body });
+  const response = await fetchPgRequest(params, url, {
     method: 'PATCH',
     headers: {
       Accept: 'application/json',
@@ -1045,6 +1070,8 @@ export async function patchFlightDeckPgWorkroomParticipantMetadata(params: {
 }
 
 export async function createFlightDeckPgChannelMessage(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   channelId: string;
@@ -1073,13 +1100,13 @@ export async function createFlightDeckPgChannelMessage(params: {
     ...(params.metadata ? { metadata: params.metadata } : {}),
     ...(params.clientRequestId ? { client_request_id: params.clientRequestId } : {}),
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1098,6 +1125,8 @@ export async function createFlightDeckPgChannelMessage(params: {
 }
 
 export async function upsertFlightDeckPgResponseActivity(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -1130,13 +1159,13 @@ export async function upsertFlightDeckPgResponseActivity(params: {
     ...(params.metadata ? { metadata: params.metadata } : {}),
     ...(params.expiresInSeconds ? { expires_in_seconds: params.expiresInSeconds } : {}),
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1155,6 +1184,8 @@ export async function upsertFlightDeckPgResponseActivity(params: {
 }
 
 export async function upsertFlightDeckPgAgentActivity(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   activityId: string;
@@ -1191,8 +1222,8 @@ export async function upsertFlightDeckPgAgentActivity(params: {
     ...(params.body ? { body: params.body } : {}),
     ...(params.expiresInSeconds ? { expires_in_seconds: params.expiresInSeconds } : {}),
   };
-  const authorization = await signFlightDeckPgBotRequest({ botIdentity: params.botIdentity, url, method: 'PUT', body });
-  const response = await fetchTowerRequest(url, {
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId, botIdentity: params.botIdentity, url, method: 'PUT', body });
+  const response = await fetchPgRequest(params, url, {
     method: 'PUT',
     headers: { Accept: 'application/json', Authorization: authorization, 'Content-Type': 'application/json',
       'x-flightdeck-pg-app-npub': params.appNpub },
@@ -1207,6 +1238,8 @@ export async function upsertFlightDeckPgAgentActivity(params: {
 }
 
 export async function uploadFlightDeckPgStorageObject(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -1223,13 +1256,13 @@ export async function uploadFlightDeckPgStorageObject(params: {
     content_type: params.contentType,
     size_bytes: params.content.byteLength,
   };
-  const prepareAuthorization = await signFlightDeckPgBotRequest({
+  const prepareAuthorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url: prepareUrl,
     method: 'POST',
     body: prepareBody,
   });
-  const prepareResponse = await fetchTowerRequest(prepareUrl, {
+  const prepareResponse = await fetchPgRequest(params, prepareUrl, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1252,13 +1285,13 @@ export async function uploadFlightDeckPgStorageObject(params: {
   const uploadPath = `/api/v4/storage/${encodeURIComponent(prepared.object_id)}`;
   const uploadUrl = buildFlightDeckPgUrl(params.backendBaseUrl, uploadPath);
   const uploadBody = { base64_data: Buffer.from(params.content).toString('base64') };
-  const uploadAuthorization = await signFlightDeckPgBotRequest({
+  const uploadAuthorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url: uploadUrl,
     method: 'PUT',
     body: uploadBody,
   });
-  const uploadResponse = await fetchTowerRequest(uploadUrl, {
+  const uploadResponse = await fetchPgRequest(params, uploadUrl, {
     method: 'PUT',
     headers: {
       Accept: 'application/json',
@@ -1279,13 +1312,13 @@ export async function uploadFlightDeckPgStorageObject(params: {
     size_bytes: params.content.byteLength,
     sha256_hex: createHash('sha256').update(params.content).digest('hex'),
   };
-  const completeAuthorization = await signFlightDeckPgBotRequest({
+  const completeAuthorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url: completeUrl,
     method: 'POST',
     body: completeBody,
   });
-  const completeResponse = await fetchTowerRequest(completeUrl, {
+  const completeResponse = await fetchPgRequest(params, completeUrl, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1308,6 +1341,8 @@ export async function uploadFlightDeckPgStorageObject(params: {
 }
 
 export async function createFlightDeckPgChannelDocument(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   channelId: string;
@@ -1338,13 +1373,13 @@ export async function createFlightDeckPgChannelDocument(params: {
     ...(params.summary !== undefined ? { summary: params.summary } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body: requestBody,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1363,6 +1398,8 @@ export async function createFlightDeckPgChannelDocument(params: {
 }
 
 export async function listFlightDeckPgChannelDocs(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   channelId: string;
@@ -1375,12 +1412,12 @@ export async function listFlightDeckPgChannelDocs(params: {
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path, {
     limit: params.limit ?? 100,
   });
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1396,6 +1433,8 @@ export async function listFlightDeckPgChannelDocs(params: {
 }
 
 export async function fetchFlightDeckPgDocument(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   documentId: string;
@@ -1406,12 +1445,12 @@ export async function fetchFlightDeckPgDocument(params: {
 }): Promise<FlightDeckPgDocumentResult> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/docs/${encodeURIComponent(params.documentId)}${params.includeBody ? '/body' : ''}`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1427,6 +1466,8 @@ export async function fetchFlightDeckPgDocument(params: {
 }
 
 export async function updateFlightDeckPgDocument(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   documentId: string;
@@ -1465,13 +1506,13 @@ export async function updateFlightDeckPgDocument(params: {
     ...(params.summary !== undefined ? { summary: params.summary } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'PATCH',
     body: requestBody,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'PATCH',
     headers: {
       Accept: 'application/json',
@@ -1496,6 +1537,8 @@ export function decodeFlightDeckPgDocumentBody(result: FlightDeckPgDocumentResul
 }
 
 export async function fetchFlightDeckPgDocumentComments(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   documentId: string;
@@ -1510,12 +1553,12 @@ export async function fetchFlightDeckPgDocumentComments(params: {
     limit: params.limit ?? 200,
     cursor: params.cursor ?? undefined,
   });
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1536,6 +1579,8 @@ export async function fetchFlightDeckPgDocumentComments(params: {
 }
 
 export async function createFlightDeckPgDocumentComment(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   documentId: string;
@@ -1553,13 +1598,13 @@ export async function createFlightDeckPgDocumentComment(params: {
     ...(params.parentCommentId ? { parent_comment_id: params.parentCommentId } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body: requestBody,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1578,6 +1623,8 @@ export async function createFlightDeckPgDocumentComment(params: {
 }
 
 export async function createFlightDeckPgAudioNote(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   channelId: string;
@@ -1614,13 +1661,13 @@ export async function createFlightDeckPgAudioNote(params: {
     ...(params.summary ? { summary: params.summary } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1639,6 +1686,8 @@ export async function createFlightDeckPgAudioNote(params: {
 }
 
 export async function createFlightDeckPgReaction(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -1657,13 +1706,13 @@ export async function createFlightDeckPgReaction(params: {
     emoji: params.emoji,
     ...(params.metadata ? { metadata: params.metadata } : {}),
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1682,6 +1731,8 @@ export async function createFlightDeckPgReaction(params: {
 }
 
 export async function fetchFlightDeckPgTask(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   taskId: string;
@@ -1691,12 +1742,12 @@ export async function fetchFlightDeckPgTask(params: {
 }): Promise<FlightDeckPgWriteResult> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/tasks/${encodeURIComponent(params.taskId)}`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1723,6 +1774,8 @@ function dailyScopeError(error: TowerErrorDetails): Error & TowerErrorDetails {
 }
 
 export async function fetchFlightDeckPgDailyScope(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -1740,12 +1793,12 @@ export async function fetchFlightDeckPgDailyScope(params: {
     note_date: params.noteDate,
     limit: params.limit ?? 5,
   });
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1761,6 +1814,8 @@ export async function fetchFlightDeckPgDailyScope(params: {
 }
 
 export async function upsertFlightDeckPgDailyScope(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -1792,13 +1847,13 @@ export async function upsertFlightDeckPgDailyScope(params: {
       ...(params.metadata ?? {}),
     },
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1817,6 +1872,8 @@ export async function upsertFlightDeckPgDailyScope(params: {
 }
 
 export async function createFlightDeckPgChannelTask(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   channelId: string;
@@ -1840,13 +1897,13 @@ export async function createFlightDeckPgChannelTask(params: {
     ...(params.threadId ? { thread_id: params.threadId } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1865,6 +1922,8 @@ export async function createFlightDeckPgChannelTask(params: {
 }
 
 export async function createFlightDeckPgTaskComment(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   taskId: string;
@@ -1884,13 +1943,13 @@ export async function createFlightDeckPgTaskComment(params: {
     ...(params.threadId ? { thread_id: params.threadId } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1909,6 +1968,8 @@ export async function createFlightDeckPgTaskComment(params: {
 }
 
 export async function fetchFlightDeckPgTaskComments(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   taskId: string;
@@ -1921,12 +1982,12 @@ export async function fetchFlightDeckPgTaskComments(params: {
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path, {
     limit: params.limit ?? 200,
   });
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1947,6 +2008,8 @@ export async function fetchFlightDeckPgTaskComments(params: {
 }
 
 export async function acquireFlightDeckPgEditLease(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -1963,13 +2026,13 @@ export async function acquireFlightDeckPgEditLease(params: {
     entity_id: params.entityId,
     ttl_seconds: params.ttlSeconds ?? 120,
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1988,6 +2051,8 @@ export async function acquireFlightDeckPgEditLease(params: {
 }
 
 export async function updateFlightDeckPgTaskState(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   taskId: string;
@@ -2005,13 +2070,13 @@ export async function updateFlightDeckPgTaskState(params: {
     row_version: params.rowVersion,
     lease_token: params.leaseToken,
   };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -2030,6 +2095,8 @@ export async function updateFlightDeckPgTaskState(params: {
 }
 
 export async function fetchFlightDeckPgWorkspaceMembers(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -2038,12 +2105,12 @@ export async function fetchFlightDeckPgWorkspaceMembers(params: {
 }): Promise<{ identity?: Record<string, unknown>; members: FlightDeckPgWorkspaceMember[]; next_cursor?: string | null }> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/members`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'GET',
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -2064,6 +2131,8 @@ export async function fetchFlightDeckPgWorkspaceMembers(params: {
 }
 
 export async function assignFlightDeckPgTask(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   taskId: string;
@@ -2075,13 +2144,13 @@ export async function assignFlightDeckPgTask(params: {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/tasks/${encodeURIComponent(params.taskId)}/assignments`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
   const body = { actor_id: params.actorId };
-  const authorization = await signFlightDeckPgBotRequest({
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
     url,
     method: 'POST',
     body,
   });
-  const response = await fetchTowerRequest(url, {
+  const response = await fetchPgRequest(params, url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -2183,9 +2252,11 @@ export async function registerWorkspaceKeyWithTower(params: {
 
 export async function checkBackendConnectionHealth(
   record: BackendConnectionRecord,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl?: FetchLike,
 ): Promise<{ healthStatus: HealthStatus; diagnostic: AgentChatDiagnostic }> {
-  const targetUrl = record.healthUrl?.trim() || null;
+  const targetUrl = record.transport?.mode === "fips"
+    ? new URL("/health", record.backendBaseUrl).toString()
+    : record.healthUrl?.trim() || null;
   if (!targetUrl) {
     return {
       healthStatus: 'degraded',
@@ -2203,7 +2274,7 @@ export async function checkBackendConnectionHealth(
 
   const startedAt = Date.now();
   try {
-    const response = await fetchImpl(targetUrl, {
+    const response = await (fetchImpl ?? ((url, init) => transportForConnection(record).fetch(url.toString(), init)))(targetUrl, {
       method: 'GET',
       headers: { Accept: 'application/json' },
     });
@@ -2309,4 +2380,9 @@ function inferDetailCode(stage: string, status: number, message: string): string
   if (lowered.includes('epoch')) return 'group_key_epoch_stale';
   if (lowered.includes('group key')) return 'group_key_missing';
   return null;
+}
+
+function fetchPgRequest(context: { backendConnectionId?: string | null; subscriptionId?: string | null; botIdentity: RuntimeBotIdentity }, url: string | URL, init: RequestInit) {
+  if ("towerTransport" in context.botIdentity && context.botIdentity.towerTransport) return context.botIdentity.towerTransport.fetch(url, init);
+  return fetchTowerRequest(url, init, context);
 }

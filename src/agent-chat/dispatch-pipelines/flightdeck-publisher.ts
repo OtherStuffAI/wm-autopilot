@@ -271,6 +271,7 @@ function resolveFlightDeckPgChannelId(context: DispatchPipelineFlightDeckPublish
 }
 
 function getFlightDeckPgPublishContext(context: DispatchPipelineFlightDeckPublisherContext): {
+  backendConnectionId?: string | null;
   backendBaseUrl: string;
   workspaceId: string;
   appNpub: string;
@@ -284,7 +285,7 @@ function getFlightDeckPgPublishContext(context: DispatchPipelineFlightDeckPublis
     throw new Error('Flight Deck PG publish requires a workspace id.');
   }
   return {
-    backendBaseUrl: context.eventInput.subscription.backendBaseUrl,
+    backendConnectionId: context.eventInput.subscription.backendConnectionId, backendBaseUrl: context.eventInput.subscription.backendBaseUrl,
     workspaceId,
     appNpub: context.eventInput.subscription.sourceAppNpub,
     botIdentity: context.botIdentity,
@@ -332,7 +333,7 @@ async function attachFlightDeckPgSpeechToTarget(
       };
     }
     const storage = await uploadFlightDeckPgStorageObject({
-      backendBaseUrl: pg.backendBaseUrl,
+      backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
       workspaceId: pg.workspaceId,
       appNpub: pg.appNpub,
       botIdentity: pg.botIdentity,
@@ -341,7 +342,7 @@ async function attachFlightDeckPgSpeechToTarget(
       content: speech.audio,
     });
     const audioNote = await createFlightDeckPgAudioNote({
-      backendBaseUrl: pg.backendBaseUrl,
+      backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
       workspaceId: pg.workspaceId,
       channelId,
       appNpub: pg.appNpub,
@@ -396,7 +397,7 @@ async function createFlightDeckPgChannelMessageFromContext(
 ): Promise<JsonObject> {
   const pg = getFlightDeckPgPublishContext(context);
   const result = await createFlightDeckPgChannelMessage({
-    backendBaseUrl: pg.backendBaseUrl,
+    backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
     workspaceId: pg.workspaceId,
     channelId: input.channelId,
     appNpub: pg.appNpub,
@@ -551,7 +552,7 @@ async function createFlightDeckPgTaskFromContext(
     throw new Error('Flight Deck PG task creation requires a channel id.');
   }
   return await createFlightDeckPgChannelTask({
-    backendBaseUrl: pg.backendBaseUrl,
+    backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
     workspaceId: pg.workspaceId,
     channelId,
     appNpub: pg.appNpub,
@@ -572,7 +573,7 @@ async function resolveFlightDeckPgActorIdByNpub(
   if (!actorNpub) return null;
   const pg = getFlightDeckPgPublishContext(context);
   const result = await fetchFlightDeckPgWorkspaceMembers({
-    backendBaseUrl: pg.backendBaseUrl,
+    backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
     workspaceId: pg.workspaceId,
     appNpub: pg.appNpub,
     botIdentity: pg.botIdentity,
@@ -607,7 +608,7 @@ async function assignFlightDeckPgTaskToNpub(
     }
     const pg = getFlightDeckPgPublishContext(context);
     const result = await assignFlightDeckPgTask({
-      backendBaseUrl: pg.backendBaseUrl,
+      backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
       workspaceId: pg.workspaceId,
       taskId,
       appNpub: pg.appNpub,
@@ -634,7 +635,7 @@ async function createFlightDeckPgTaskCommentFromContext(
 ): Promise<JsonObject> {
   const pg = getFlightDeckPgPublishContext(context);
   const result = await createFlightDeckPgTaskComment({
-    backendBaseUrl: pg.backendBaseUrl,
+    backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
     workspaceId: pg.workspaceId,
     taskId,
     appNpub: pg.appNpub,
@@ -653,7 +654,7 @@ async function createFlightDeckPgTaskCommentFromContext(
   if (!channelId) {
     try {
       const task = await fetchFlightDeckPgTask({
-        backendBaseUrl: pg.backendBaseUrl,
+        backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
         workspaceId: pg.workspaceId,
         taskId,
         appNpub: pg.appNpub,
@@ -692,7 +693,7 @@ async function updateFlightDeckPgTaskStateWithLease(
 ): Promise<JsonObject> {
   const pg = getFlightDeckPgPublishContext(context);
   const taskResult = await fetchFlightDeckPgTask({
-    backendBaseUrl: pg.backendBaseUrl,
+    backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
     workspaceId: pg.workspaceId,
     taskId,
     appNpub: pg.appNpub,
@@ -703,7 +704,7 @@ async function updateFlightDeckPgTaskStateWithLease(
     throw new Error(`Flight Deck PG task ${taskId} did not include a valid row_version.`);
   }
   const leaseResult = await acquireFlightDeckPgEditLease({
-    backendBaseUrl: pg.backendBaseUrl,
+    backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
     workspaceId: pg.workspaceId,
     appNpub: pg.appNpub,
     botIdentity: pg.botIdentity,
@@ -716,7 +717,7 @@ async function updateFlightDeckPgTaskStateWithLease(
     throw new Error(`Flight Deck PG task ${taskId} edit lease did not include a token.`);
   }
   return await updateFlightDeckPgTaskState({
-    backendBaseUrl: pg.backendBaseUrl,
+    backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
     workspaceId: pg.workspaceId,
     taskId,
     appNpub: pg.appNpub,
@@ -893,7 +894,7 @@ export async function acknowledgeChatDispatchMessage(
     if (isFlightDeckPgPublisherContext(context)) {
       const pg = getFlightDeckPgPublishContext(context);
       const result = await createFlightDeckPgReaction({
-        backendBaseUrl: pg.backendBaseUrl,
+        backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
         workspaceId: pg.workspaceId,
         appNpub: pg.appNpub,
         botIdentity: pg.botIdentity,
@@ -1149,7 +1150,7 @@ export function createDispatchDocumentInvocationContextPreparer(
     try {
       const [documentResult, commentsResult] = await Promise.all([
         fetchFlightDeckPgDocument({
-          backendBaseUrl: pg.backendBaseUrl,
+          backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
           workspaceId: pg.workspaceId,
           documentId,
           appNpub: pg.appNpub,
@@ -1157,7 +1158,7 @@ export function createDispatchDocumentInvocationContextPreparer(
           includeBody: true,
         }),
         fetchFlightDeckPgDocumentComments({
-          backendBaseUrl: pg.backendBaseUrl,
+          backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
           workspaceId: pg.workspaceId,
           documentId,
           appNpub: pg.appNpub,
@@ -1199,7 +1200,7 @@ export function createDispatchDocumentInvocationContextPreparer(
           workspaceId: pg.workspaceId,
           workspaceOwnerNpub: getText(objectValue(input.workspace).workspaceOwnerNpub),
           humanWorkspaceOwnerNpub: getText(objectValue(input.workspace).humanWorkspaceOwnerNpub),
-          backendBaseUrl: pg.backendBaseUrl,
+          backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
           appNpub: pg.appNpub,
         },
         location: {
@@ -1392,14 +1393,14 @@ export function createDispatchTaskInvocationContextPreparer(
     try {
       const [taskResult, commentsResult] = await Promise.all([
         fetchFlightDeckPgTask({
-          backendBaseUrl: pg.backendBaseUrl,
+          backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
           workspaceId: pg.workspaceId,
           taskId,
           appNpub: pg.appNpub,
           botIdentity: pg.botIdentity,
         }),
         fetchFlightDeckPgTaskComments({
-          backendBaseUrl: pg.backendBaseUrl,
+          backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
           workspaceId: pg.workspaceId,
           taskId,
           appNpub: pg.appNpub,
@@ -1443,7 +1444,7 @@ export function createDispatchTaskInvocationContextPreparer(
           workspaceId: pg.workspaceId,
           workspaceOwnerNpub: getText(objectValue(input.workspace).workspaceOwnerNpub),
           humanWorkspaceOwnerNpub: getText(objectValue(input.workspace).humanWorkspaceOwnerNpub),
-          backendBaseUrl: pg.backendBaseUrl,
+          backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
           appNpub: pg.appNpub,
         },
         location: {
@@ -1750,7 +1751,7 @@ async function hydrateChatThreadWithFallback(
     try {
       const pg = getFlightDeckPgPublishContext(context);
       const result = await fetchFlightDeckPgChannelMessages({
-        backendBaseUrl: pg.backendBaseUrl,
+        backendConnectionId: pg.backendConnectionId, backendBaseUrl: pg.backendBaseUrl,
         workspaceId: pg.workspaceId,
         channelId,
         appNpub: pg.appNpub,
@@ -2793,7 +2794,7 @@ async function hydrateImplementationDesignDocument(
   }
   try {
     const result = await fetchFlightDeckPgDocument({
-      backendBaseUrl: context.eventInput.subscription.backendBaseUrl,
+      backendConnectionId: context.eventInput.subscription.backendConnectionId, backendBaseUrl: context.eventInput.subscription.backendBaseUrl,
       workspaceId: context.eventInput.subscription.workspaceId!,
       documentId,
       appNpub: context.eventInput.subscription.sourceAppNpub,

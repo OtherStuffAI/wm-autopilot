@@ -20,6 +20,15 @@ export async function resolveNativeFipsDestination(endpoint: string, signal: Abo
     const status = await inspectNativeFipsRuntime({
       fipsctlPath: Bun.env.FIPSCTL_PATH,
       controlSocketPath: Bun.env.FIPS_CONTROL_SOCKET,
+      run: async (argv) => {
+        signal.throwIfAborted();
+        const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe", signal });
+        const [stdout, stderr, exitCode] = await Promise.all([
+          new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited,
+        ]);
+        signal.throwIfAborted();
+        return { stdout, stderr, exitCode };
+      },
     });
     if (!status.ready) throw new Error(status.error ?? "Native FIPS is unavailable");
   } else {

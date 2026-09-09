@@ -416,7 +416,7 @@ export class DocumentDirectRuntime {
   }
 
   private async hydrate(input: DocumentRuntimeInput, documentId: string): Promise<{ document: Record<string, unknown>; bodyText: string; bodyVersion: string | null; comments: unknown[]; commentsTruncated: boolean; linkedContext: unknown; compactDiff: string; previousBody: string | null }> {
-    const base = { backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
+    const base = { backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
       appNpub: input.subscription.sourceAppNpub, botIdentity: input.botIdentity };
     const documentResult = await (this.deps.fetchDocument ?? fetchFlightDeckPgDocument)({ ...base, documentId, includeBody: true });
     const document = object(documentResult.doc);

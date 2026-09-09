@@ -1,3 +1,4 @@
+import { flightDeckSessionTransportBinding } from "./agent-chat/flightdeck-session-transport";
 import { createActivityProfileRecovery, createReconciledActivityPublisher } from './agent-chat/agent-activity-lifecycle-recovery';
 import { AgentActivityRecovery } from './agent-chat/agent-activity-recovery';
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -1662,11 +1663,7 @@ const duplicateCallbackPublicationFilter = new DuplicateCallbackPublicationFilte
 );
 const flightDeckSessionTurnBridge = new FlightDeckSessionTurnBridge({
   manager,
-  resolveDelivery: (session) => workspaceSubscriptionManager.resolveFlightDeckTurnDelivery({
-    towerServiceNpub: session.metadata?.flightdeckTowerServiceNpub ?? '',
-    workspaceId: session.metadata?.flightdeckWorkspaceId ?? '',
-    agentNpub: session.metadata?.flightdeckAgentNpub ?? '',
-  }),
+  resolveDelivery: (session) => workspaceSubscriptionManager.resolveFlightDeckTurnDelivery(flightDeckSessionTransportBinding(session)),
   resolveTriggerMessageId: createFlightDeckTriggerResolver(chatInterceptStateStore),
   publicationFilter: duplicateCallbackPublicationFilter,
   log: console,

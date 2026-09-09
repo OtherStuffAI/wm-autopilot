@@ -17,6 +17,7 @@ export interface TowerTransportDependencies {
   resolveMesh?: typeof resolveNativeFipsDestination;
   requestMesh?: typeof requestNativeFips;
   timeoutMs?: number;
+  streamIdleTimeoutMs?: number;
 }
 
 export class TowerTransport {
@@ -77,11 +78,13 @@ export class TowerTransport {
   }
 
   async verify(signal?: AbortSignal | null): Promise<string> {
+    this.generation.signal.throwIfAborted();
+    signal?.throwIfAborted();
     if (this.verified && this.verified.expires > Date.now()) return this.verified.address;
-    if (this.verification) return this.verification;
+    if (this.verification) return waitForVerification(this.verification, signal);
     const check = async () => {
       this.diagnostics.reconnectState = "connecting";
-      const bounded = this.signal(signal);
+      const bounded = this.signal();
       try {
         const endpoint = effectiveTowerEndpoint(this.config);
         const address = await (this.dependencies.resolveMesh ?? resolveNativeFipsDestination)(endpoint, bounded);
@@ -103,7 +106,9 @@ export class TowerTransport {
       }
     };
     this.verification = check();
-    try { return await this.verification; } finally { this.verification = null; }
+    const pending = this.verification;
+    void pending.finally(() => { if (this.verification === pending) this.verification = null; }).catch(() => {});
+    return waitForVerification(pending, signal);
   }
 
   async fetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
@@ -111,7 +116,7 @@ export class TowerTransport {
     const stream = new Headers(init.headers).get("accept")?.includes("text/event-stream");
     // SSE has a bounded header wait; the caller owns its ongoing lifetime.
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error("Tower request timed out")), this.dependencies.timeoutMs ?? 30_000);
+    let timeout = setTimeout(() => controller.abort(new Error("Tower request timed out")), this.dependencies.timeoutMs ?? 30_000);
     const signal = AbortSignal.any([this.generation.signal, controller.signal, ...(init.signal ? [init.signal] : [])]);
     this.diagnostics.counters[this.config.mode].requests += 1;
     try {
@@ -129,7 +134,12 @@ export class TowerTransport {
         this.diagnostics.lastError = null;
         this.diagnostics.reconnectState = "connected";
       }
-      if (stream || !response.body) clearTimeout(timeout);
+      const refreshStreamDeadline = () => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => controller.abort(new Error("Tower event stream heartbeat timed out")), this.dependencies.streamIdleTimeoutMs ?? 45_000);
+      };
+      if (stream) refreshStreamDeadline();
+      if (!response.body) clearTimeout(timeout);
       if (!response.body) return response;
       const reader = response.body.getReader();
       const body = new ReadableStream<Uint8Array>({
@@ -137,7 +147,7 @@ export class TowerTransport {
           try {
             const chunk = await reader.read();
             if (chunk.done) { clearTimeout(timeout); output.close(); }
-            else output.enqueue(chunk.value);
+            else { if (stream) refreshStreamDeadline(); output.enqueue(chunk.value); }
           } catch (error) { clearTimeout(timeout); this.failure(error); output.error(error); }
         },
         cancel: async (reason) => { clearTimeout(timeout); controller.abort(reason); await reader.cancel(reason); },
@@ -149,4 +159,14 @@ export class TowerTransport {
       throw error;
     }
   }
+}
+
+function waitForVerification(pending: Promise<string>, signal?: AbortSignal | null): Promise<string> {
+  if (!signal) return pending;
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    void pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
 }
