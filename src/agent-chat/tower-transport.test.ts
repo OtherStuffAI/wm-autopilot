@@ -126,3 +126,27 @@ test("a silent SSE socket times out so the consumer can recover by polling", asy
   expect(transport.diagnostics.reconnectState).toBe("error");
   transport.close(); original.close();
 });
+
+test("verification deadline releases shared callers when cancelled native I/O never settles", async () => {
+  let resolutions = 0;
+  const endpoint = `http://${nodeNpub}.fips:43100`;
+  const transport = new TowerTransport(endpoint, { mode: "fips", httpsEndpoint: null, fipsEndpoint: endpoint, expectedServiceNpub: serviceNpub }, {
+    timeoutMs: 25,
+    resolveMesh: async () => ++resolutions === 1 ? await new Promise<string>(() => {}) : "::1",
+    requestMesh: async () => Response.json({ service_npub: serviceNpub }),
+  });
+  const initial = transport.prepare(endpoint);
+  const shared = transport.prepare(endpoint);
+  const rejected = await Promise.allSettled([initial, shared]);
+  for (const result of rejected) {
+    expect(result.status).toBe("rejected");
+    if (result.status === "rejected") {
+      expect(result.reason.message).toBe("Tower mesh verification timed out");
+      expect(result.reason.name).toBe("TimeoutError");
+    }
+  }
+  expect((await transport.prepare(endpoint)).origin).toBe(endpoint);
+  expect(resolutions).toBe(2);
+  expect(transport.diagnostics.counters.https.requests).toBe(0);
+  transport.close();
+});

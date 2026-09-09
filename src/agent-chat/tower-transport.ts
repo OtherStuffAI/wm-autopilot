@@ -65,10 +65,6 @@ export class TowerTransport {
     this.diagnostics.reconnectState = "connected";
   }
 
-  private signal(signal?: AbortSignal | null): AbortSignal {
-    return AbortSignal.any([this.generation.signal, AbortSignal.timeout(this.dependencies.timeoutMs ?? 30_000), ...(signal ? [signal] : [])]);
-  }
-
   private failure(error: unknown): void {
     this.diagnostics.counters[this.config.mode].errors += 1;
     this.diagnostics.effectiveTransport = null;
@@ -82,32 +78,37 @@ export class TowerTransport {
     signal?.throwIfAborted();
     if (this.verified && this.verified.expires > Date.now()) return this.verified.address;
     if (this.verification) return waitForVerification(this.verification, signal);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new DOMException("Tower mesh verification timed out", "TimeoutError")), this.dependencies.timeoutMs ?? 30_000);
+    const bounded = AbortSignal.any([this.generation.signal, controller.signal]);
     const check = async () => {
       this.diagnostics.reconnectState = "connecting";
-      const bounded = this.signal();
-      try {
-        const endpoint = effectiveTowerEndpoint(this.config);
-        const address = await (this.dependencies.resolveMesh ?? resolveNativeFipsDestination)(endpoint, bounded);
-        bounded.throwIfAborted();
-        this.diagnostics.counters.fips.requests += 1;
-        const response = await (this.dependencies.requestMesh ?? requestNativeFips)(new URL("/health", endpoint), address, { signal: bounded });
-        if (!response.ok) throw new Error(`Tower mesh health failed (${response.status})`);
-        const health = await response.json() as { service_npub?: string };
-        if (health.service_npub !== this.config.expectedServiceNpub) throw new Error("Tower service identity mismatch on approved mesh endpoint");
-        bounded.throwIfAborted();
-        this.verified = { address, expires: Date.now() + 30_000 };
-        this.diagnostics.verifiedServiceNpub = health.service_npub;
-        return address;
-      } catch (error) {
-        this.verified = null;
-        this.diagnostics.verifiedServiceNpub = null;
-        this.failure(error);
-        throw error;
-      }
+      const endpoint = effectiveTowerEndpoint(this.config);
+      const address = await (this.dependencies.resolveMesh ?? resolveNativeFipsDestination)(endpoint, bounded);
+      bounded.throwIfAborted();
+      this.diagnostics.counters.fips.requests += 1;
+      const response = await (this.dependencies.requestMesh ?? requestNativeFips)(new URL("/health", endpoint), address, { signal: bounded });
+      if (!response.ok) throw new Error(`Tower mesh health failed (${response.status})`);
+      const health = await response.json() as { service_npub?: string };
+      if (health.service_npub !== this.config.expectedServiceNpub) throw new Error("Tower service identity mismatch on approved mesh endpoint");
+      bounded.throwIfAborted();
+      this.verified = { address, expires: Date.now() + 30_000 };
+      this.diagnostics.verifiedServiceNpub = health.service_npub;
+      return address;
     };
-    this.verification = check();
-    const pending = this.verification;
-    void pending.finally(() => { if (this.verification === pending) this.verification = null; }).catch(() => {});
+    // Deadline owns promise settlement as well as cancelling native I/O. A
+    // cancelled subprocess/socket must not leave every later caller awaiting it.
+    const pending = waitForVerification(check(), bounded).catch((error) => {
+      this.verified = null;
+      this.diagnostics.verifiedServiceNpub = null;
+      this.failure(error);
+      throw error;
+    });
+    this.verification = pending;
+    void pending.finally(() => {
+      clearTimeout(timeout);
+      if (this.verification === pending) this.verification = null;
+    }).catch(() => {});
     return waitForVerification(pending, signal);
   }
 
