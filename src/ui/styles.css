@@ -5,6 +5,10 @@
   --accent-secondary: color-mix(in srgb, var(--accent-primary) 82%, black);
   --accent-tertiary: color-mix(in srgb, var(--accent-primary) 58%, black);
   --accent-highlight: color-mix(in srgb, var(--accent-primary) 72%, white);
+  /* Brand fills and readable accents have separate roles on dark surfaces. */
+  --accent-foreground: color-mix(in srgb, var(--accent-primary) 25%, white);
+  --accent-foreground-hover: color-mix(in srgb, var(--accent-primary) 12%, white);
+  --accent-border: color-mix(in srgb, var(--accent-primary) 25%, #a8a29e);
   --bg-gradient-start: #0a0a0a;
   --bg-gradient-end: #1c1917;
   --bg-primary: #1c1917;
@@ -39,6 +43,9 @@
 
 body[data-theme="light"] {
   color-scheme: light;
+  --accent-foreground: var(--accent-primary);
+  --accent-foreground-hover: var(--accent-secondary);
+  --accent-border: var(--accent-primary);
   --bg-gradient-start: #f9f9f9;
   --bg-gradient-end: #f5f5f0;
   --bg-primary: #ffffff;
@@ -168,7 +175,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-header 
 }
 
 .wm-brand:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 0.35rem;
   border-radius: 0.5rem;
 }
@@ -406,7 +413,7 @@ body[data-theme="light"] .wm-logo.light {
 
 .wm-menu-nav a.active {
   background: rgb(from var(--accent-primary) r g b / 0.3);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-menu-footer {
@@ -436,7 +443,7 @@ body[data-theme="light"] .wm-logo.light {
   border-radius: 999px;
   border: 1px solid rgb(from var(--accent-primary) r g b / 0.35);
   background: rgb(from var(--accent-primary) r g b / 0.12);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   padding: 0.4rem 0.9rem;
   cursor: pointer;
   transition: background 200ms ease, color 200ms ease, transform 200ms ease;
@@ -470,7 +477,7 @@ body[data-theme="dark"] .wm-theme-toggle .moon {
   border-radius: 999px;
   border: 1px solid rgb(from var(--accent-primary) r g b / 0.35);
   background: rgb(from var(--accent-primary) r g b / 0.12);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   padding: 0.4rem 0.9rem;
   cursor: pointer;
   transition: background 200ms ease, color 200ms ease, transform 200ms ease;
@@ -773,15 +780,15 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 
 .wm-home-tabs__tab:hover,
 .wm-home-tabs__tab:focus-visible {
-  border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--border-primary));
+  border-color: var(--accent-border);
   color: var(--text-primary);
   outline: none;
 }
 
 .wm-home-tabs__tab.is-active {
-  border-color: color-mix(in srgb, var(--accent-primary) 50%, var(--border-primary));
+  border-color: var(--accent-border);
   background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary));
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-home-tabs__panel {
@@ -814,7 +821,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 }
 
 .wm-home-quadrant__header:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 0.35rem;
   border-radius: 0.35rem;
 }
@@ -940,7 +947,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
   padding: 0.35rem 0.65rem;
   border-radius: 999px;
   background: rgba(79, 70, 229, 0.12);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -1390,7 +1397,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
   height: 2.1rem;
   border-radius: 999px;
   background: rgb(from var(--accent-primary) r g b / 0.12);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -1725,7 +1732,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 
 .wm-apps-view-toggle button[aria-pressed="true"] {
   background: rgb(from var(--accent-primary) r g b / 0.16);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-apps-filter {
@@ -1757,7 +1764,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 }
 
 .wm-apps-filter__input:focus {
-  outline: 2px solid rgb(from var(--accent-primary) r g b / 0.35);
+  outline: 2px solid rgb(from var(--accent-foreground) r g b / 0.35);
   border-color: var(--accent-primary);
 }
 
@@ -1815,7 +1822,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 
 .wm-apps-group__summary:focus-visible {
   border-radius: 0.5rem;
-  outline: 2px solid rgb(from var(--accent-primary) r g b / 0.45);
+  outline: 2px solid rgb(from var(--accent-foreground) r g b / 0.45);
   outline-offset: 2px;
 }
 
@@ -1897,7 +1904,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 
 .wm-apps-table__sort:hover,
 .wm-apps-table__sort:focus-visible {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   outline: none;
 }
 
@@ -1999,7 +2006,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 }
 
 .wm-app-card--highlight {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 3px;
   box-shadow: 0 10px 35px rgb(from var(--accent-primary) r g b / 0.35);
 }
@@ -2163,7 +2170,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 
 .wm-running-apps-list__main:hover .wm-running-apps-list__name,
 .wm-running-apps-list__main:focus-visible .wm-running-apps-list__name {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-running-apps-list__name {
@@ -2190,7 +2197,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 }
 
 .wm-running-apps-modal__open-link {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-size: 0.88rem;
   font-weight: 700;
   text-decoration: none;
@@ -2479,7 +2486,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 
 .wm-app-status[data-state="running"] {
   background: rgb(from var(--accent-primary) r g b / 0.18);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-app-status[data-state="stopping"] {
@@ -2556,14 +2563,14 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 }
 
 .wm-app-links a {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   text-decoration: none;
   font-weight: 600;
 }
 
 .wm-app-links a:hover,
 .wm-app-links a:focus-visible {
-  color: var(--accent-secondary);
+  color: var(--accent-foreground-hover);
   text-decoration: underline;
 }
 
@@ -4017,7 +4024,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 
 .wm-home-running-pipelines__main:hover strong,
 .wm-home-running-pipelines__main:focus-visible strong {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   text-decoration: underline;
 }
 
@@ -4102,7 +4109,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 .wm-home-todo__star,
 .wm-home-todo__priority {
   font-weight: 600;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-home-todo__title {
@@ -4214,7 +4221,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 }
 
 .wm-project-field input:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 2px;
 }
 
@@ -4311,7 +4318,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 }
 
 .wm-project-app__status[data-state="running"] {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-project-app__status[data-state="missing"] {
@@ -4613,7 +4620,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .wm-live-drawer__textarea:focus-visible {
-  outline: 2px solid rgb(from var(--accent-primary) r g b / 0.28);
+  outline: 2px solid rgb(from var(--accent-foreground) r g b / 0.28);
   outline-offset: 1px;
   border-color: rgb(from var(--accent-highlight) r g b / 0.42);
 }
@@ -5213,7 +5220,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .wm-message-working-notes summary:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 3px;
   border-radius: 0.25rem;
 }
@@ -5238,11 +5245,11 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .wm-message-working-notes__close:hover {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-message-working-notes__close:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 3px;
   border-radius: 0.25rem;
 }
@@ -5297,7 +5304,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   border: 1px solid rgb(from var(--accent-primary) r g b / 0.3);
   border-radius: 0.45rem;
   background: rgb(from var(--accent-primary) r g b / 0.12);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   cursor: pointer;
   padding: 0;
   transition: background 150ms ease, transform 150ms ease, border-color 150ms ease;
@@ -5311,7 +5318,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 
 .wm-message-copy:focus-visible,
 .wm-message-speech-play:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 2px;
 }
 
@@ -5364,7 +5371,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   align-items: center;
   justify-content: center;
   gap: 0.18rem;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-speech-playback-modal__status span {
@@ -5486,7 +5493,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .chat-status-bar .status-dot.connected {
-  background: var(--accent-primary);
+  background: var(--accent-foreground);
   box-shadow: 0 0 6px rgb(from var(--accent-primary) r g b / 0.5);
 }
 
@@ -5497,7 +5504,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 
 .chat-status-bar .busy-indicator {
   margin-left: auto;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-weight: 500;
 }
 
@@ -5773,12 +5780,12 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .session-table-sort-button:focus-visible {
-  outline: 2px solid rgb(from var(--accent-primary) r g b / 0.55);
+  outline: 2px solid rgb(from var(--accent-foreground) r g b / 0.55);
   outline-offset: -2px;
 }
 
 .session-table-sort-button[data-active="true"] {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .session-table-sort-label {
@@ -5904,7 +5911,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .wm-flightdeck-dispatch__table-wrap:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: -2px;
 }
 
@@ -5994,7 +6001,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 .wm-flightdeck-dispatch__badge[data-state="session"],
 .wm-flightdeck-dispatch__badge[data-state="pipeline"] {
   background: rgb(from var(--accent-primary) r g b / 0.16);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-flightdeck-dispatch__badge[data-state="suppressed"] {
@@ -6010,7 +6017,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 .wm-flightdeck-dispatch__target a {
   display: block;
   overflow: hidden;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6018,7 +6025,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 
 .wm-flightdeck-dispatch__target a:focus-visible {
   border-radius: 0.2rem;
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 0.2rem;
 }
 
@@ -6177,20 +6184,20 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .wm-home-session-group:hover {
-  border-color: rgb(from var(--accent-primary) r g b / 0.35);
+  border-color: var(--accent-border);
   color: var(--text-primary);
   transform: translateY(-1px);
 }
 
 .wm-home-session-group:focus-visible {
-  outline: 2px solid rgb(from var(--accent-primary) r g b / 0.55);
+  outline: 2px solid rgb(from var(--accent-foreground) r g b / 0.55);
   outline-offset: 2px;
 }
 
 .wm-home-session-group.is-active {
-  border-color: rgb(from var(--accent-primary) r g b / 0.48);
+  border-color: var(--accent-border);
   background: rgb(from var(--accent-primary) r g b / 0.14);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-home-session-group__label {
@@ -6210,7 +6217,7 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 
 .wm-home-session-group.is-active .wm-home-session-group__count {
   background: rgb(from var(--accent-primary) r g b / 0.2);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-actions {
@@ -6220,13 +6227,21 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .wm-session-filter {
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   margin-right: auto;
 }
 
+.wm-session-filter select {
+  min-width: 0;
+  flex: 1;
+}
+
 .wm-session-filter label {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -6252,14 +6267,14 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   background: none;
   padding: 0;
   font: inherit;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   cursor: pointer;
   text-decoration: none;
 }
 
 .wm-link-button:hover,
 .wm-link-button:focus-visible {
-  color: var(--accent-secondary);
+  color: var(--accent-foreground-hover);
   text-decoration: underline;
 }
 
@@ -6270,8 +6285,8 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 
 .wm-button.secondary {
   background: rgb(from var(--accent-primary) r g b / 0.15);
-  color: var(--accent-primary);
-  border: 1px solid rgb(from var(--accent-primary) r g b / 0.4);
+  color: var(--accent-foreground);
+  border: 1px solid var(--accent-border);
 }
 
 body[data-theme="light"] .wm-button.secondary {
@@ -6340,7 +6355,7 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 
 .wm-button.secondary[data-state="loading"] {
   background: rgb(from var(--accent-primary) r g b / 0.12);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-button[data-state="loading"]::after {
@@ -6363,8 +6378,8 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 
 .wm-button.secondary[data-state="success"] {
   background: rgb(from var(--accent-primary) r g b / 0.18);
-  color: var(--accent-primary);
-  border-color: rgb(from var(--accent-primary) r g b / 0.4);
+  color: var(--accent-foreground);
+  border-color: var(--accent-border);
 }
 
 .wm-button[data-state="success"]::after {
@@ -6463,7 +6478,7 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
   border-bottom: 0;
   border-radius: 0.5rem 0.5rem 0 0;
   background: rgb(from var(--accent-primary) r g b / 0.08);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   cursor: pointer;
   transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
 }
@@ -6476,7 +6491,7 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 }
 
 .wm-live-header-toggle:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: -2px;
 }
 
@@ -6585,7 +6600,7 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 .wm-tab__button:focus-visible,
 .wm-tab__close:focus-visible,
 .wm-tab.new:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: -2px;
 }
 
@@ -7149,7 +7164,7 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 .wm-composer-upload-status {
   display: block;
   margin-top: 0.15rem;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-size: 0.8rem;
   line-height: 1.2;
 }
@@ -8397,7 +8412,7 @@ dialog textarea {
 
 .wm-icon-button[data-state="success"] {
   border-color: var(--accent-primary);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-icon-button[data-state="error"] {
@@ -8406,7 +8421,7 @@ dialog textarea {
 }
 
 .wm-identity-copy-feedback[data-state="success"] {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-identity-copy-feedback[data-state="error"] {
@@ -8849,7 +8864,7 @@ dialog textarea {
 }
 
 .wm-voice-note-dialog__status[data-state="success"] {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-voice-note-dialog__status[data-state="warning"] {
@@ -9251,7 +9266,7 @@ dialog textarea {
 
 .wm-password-dialog-reset:hover,
 .wm-password-dialog-reset:focus {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   outline: none;
 }
 
@@ -9403,7 +9418,7 @@ dialog textarea {
 }
 
 .wm-session-favourite-picker__select:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent-primary) 60%, white);
+  outline: 2px solid color-mix(in srgb, var(--accent-foreground) 60%, white);
   outline-offset: 2px;
 }
 
@@ -9577,7 +9592,7 @@ dialog textarea {
 }
 
 .wm-collapsible__title:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 4px;
 }
 
@@ -9687,7 +9702,7 @@ dialog textarea {
 }
 
 .wm-admin-users__tool-status[data-state="success"] {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-admin-users__tool-status[data-state="error"] {
@@ -9740,7 +9755,7 @@ dialog textarea {
 
 .wm-admin-users__filter-actions .wm-link-button:hover,
 .wm-admin-users__filter-actions .wm-link-button:focus-visible {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-admin-users__bulk-actions {
@@ -10221,7 +10236,7 @@ dialog textarea {
 }
 
 .directory-browser__folder:hover {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .directory-browser__choose {
@@ -10273,7 +10288,7 @@ dialog textarea {
 }
 
 .wm-dialog-selected {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-weight: 600;
 }
 
@@ -10300,7 +10315,7 @@ dialog button[value="confirm"] {
 
 dialog button[value="cancel"] {
   background: rgb(from var(--accent-primary) r g b / 0.18);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 @media (max-width: 768px) {
@@ -10378,7 +10393,7 @@ dialog button[value="cancel"] {
   border-radius: 999px;
   background: rgb(from var(--accent-primary) r g b / 0.16);
   border: 1px solid rgb(from var(--accent-primary) r g b / 0.35);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-weight: 600;
   font-size: 0.9rem;
   box-shadow: var(--shadow-sm);
@@ -10471,13 +10486,13 @@ dialog button[value="cancel"] {
 }
 
 .wm-files-mobile-tab:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 2px;
 }
 
 .wm-files-mobile-tab.active {
   background: rgb(from var(--accent-primary) r g b / 0.18);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-files-mobile-tab:disabled {
@@ -10579,7 +10594,7 @@ dialog button[value="cancel"] {
 }
 
 .wm-files-browser__shelve:hover {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   border-color: var(--accent-primary);
   background: rgb(from var(--accent-primary) r g b / 0.08);
 }
@@ -10615,7 +10630,7 @@ dialog button[value="cancel"] {
 }
 
 .wm-files-browser__info:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 2px;
 }
 
@@ -10644,7 +10659,7 @@ dialog button[value="cancel"] {
 }
 
 .wm-select:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 2px;
 }
 
@@ -10723,12 +10738,12 @@ dialog button[value="cancel"] {
 .wm-files-browser__item[data-dragover="true"] button:not(.wm-files-browser__star):not(.wm-files-browser__delete) {
   border-color: var(--accent-primary);
   background: rgb(from var(--accent-primary) r g b / 0.22);
-  outline: 2px dashed var(--accent-primary);
+  outline: 2px dashed var(--accent-foreground);
   outline-offset: -2px;
 }
 
 .wm-button[data-dragover="true"] {
-  outline: 2px dashed var(--accent-primary);
+  outline: 2px dashed var(--accent-foreground);
   outline-offset: -2px;
 }
 
@@ -10813,12 +10828,12 @@ dialog button[value="cancel"] {
 }
 
 .wm-files-browser__star:hover {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   background: rgb(from var(--accent-primary) r g b / 0.1);
 }
 
 .wm-files-browser__star--active {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 /* ── Delete button (hover-reveal) ─────────────────────────── */
@@ -10901,7 +10916,7 @@ dialog button[value="cancel"] {
 .wm-files-favourites__star {
   width: 12px;
   height: 12px;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   flex-shrink: 0;
 }
 
@@ -10930,7 +10945,7 @@ dialog button[value="cancel"] {
 }
 
 .wm-files-favourites__unstar:hover {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-files-preview__header {
@@ -10956,7 +10971,7 @@ dialog button[value="cancel"] {
   justify-content: center;
   border-radius: 999px;
   border: 1px solid rgb(from var(--accent-primary) r g b / 0.4);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   padding: 0.05rem 0.5rem;
   font-size: 0.7rem;
   font-weight: 600;
@@ -10996,7 +11011,7 @@ dialog button[value="cancel"] {
 .wm-files-toolbar-btn:hover {
   border-color: rgb(from var(--accent-primary) r g b / 0.3);
   background: rgb(from var(--accent-primary) r g b / 0.08);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-files-toolbar-btn:active {
@@ -11004,12 +11019,12 @@ dialog button[value="cancel"] {
 }
 
 .wm-files-toolbar-btn:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 2px;
 }
 
 .wm-files-toolbar-btn[data-copied="true"] {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   background: rgb(from var(--accent-primary) r g b / 0.18);
   border-color: rgb(from var(--accent-primary) r g b / 0.4);
 }
@@ -11114,7 +11129,7 @@ dialog button[value="cancel"] {
 }
 
 .wm-json-preview__key {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-weight: 600;
 }
 
@@ -11318,7 +11333,7 @@ dialog button[value="cancel"] {
 }
 
 .wm-files-preview-content a {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   text-decoration: underline;
 }
 
@@ -11524,7 +11539,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
 
 .wm-file-editor__status {
   font-size: 0.85rem;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   min-height: 1.2rem;
 }
 
@@ -11666,8 +11681,8 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
 
 .wm-agent-status-indicator.wm-agent-status-pill.status-running {
   background-color: rgb(from var(--accent-primary) r g b / 0.18);
-  border-color: rgb(from var(--accent-highlight) r g b / 0.55);
-  color: var(--accent-primary);
+  border-color: var(--accent-border);
+  color: var(--accent-foreground);
   animation: none;
 }
 
@@ -11943,7 +11958,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
   padding: 0.1rem 0.4rem;
   border-radius: 0.25rem;
   background: rgb(from var(--accent-primary) r g b / 0.15);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-tree-registered {
@@ -11961,7 +11976,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
   border: 1px solid rgb(from var(--accent-primary) r g b / 0.4);
   border-radius: 0.35rem;
   background: rgb(from var(--accent-primary) r g b / 0.12);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   cursor: pointer;
   transition: background 100ms ease;
 }
@@ -12123,7 +12138,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
 }
 
 .wm-home-archive-item:focus {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 2px;
 }
 
@@ -12444,7 +12459,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.025em;
-  color: var(--accent-primary, #3b82f6);
+  color: var(--accent-foreground);
   background: rgba(59, 130, 246, 0.15);
   border: 1px solid rgba(59, 130, 246, 0.3);
   border-radius: 0.25rem;
@@ -12491,7 +12506,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
 
 .wm-npub-project-board-link {
   font-size: 0.75rem;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -12908,7 +12923,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
 }
 
 .wm-deploy-status a {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   word-break: break-all;
 }
 
@@ -12917,7 +12932,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
 }
 
 .wm-deploy-success {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-deploy-error {
@@ -13014,13 +13029,13 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
 }
 
 .wm-webview-icon:hover {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   border-color: var(--accent-primary);
   background: var(--bg-tertiary);
 }
 
 .wm-webview-icon.active {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   border-color: var(--accent-primary);
 }
 
@@ -13133,7 +13148,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
 .wm-live-chat-rail:hover,
 .wm-live-chat-rail:focus-visible {
   border-color: var(--accent-primary);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   outline: none;
 }
 
@@ -13259,12 +13274,12 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
 .wm-webview-mode-btn:hover,
 .wm-webview-refresh-btn:hover,
 .wm-webview-close-btn:hover {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   background: var(--bg-tertiary);
 }
 
 .wm-webview-mode-btn.active {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   border-color: var(--accent-primary);
   background: var(--bg-tertiary);
 }
@@ -13323,7 +13338,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
   }
 
   .wm-writer-mobile-tab.active {
-    color: var(--accent-primary);
+    color: var(--accent-foreground);
     border-bottom-color: var(--accent-primary);
   }
 
@@ -14315,7 +14330,7 @@ body[data-theme="light"] .wm-writer-code-file .token.comment {
 }
 
 .wm-artifact-file-selector__entry--dir .wm-artifact-file-selector__icon {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-artifact-file-selector__label {
@@ -14487,7 +14502,7 @@ body[data-theme="light"] .wm-writer-code-file .token.comment {
 }
 
 .wm-nightwatch-prompt-textarea:focus {
-  outline: 2px solid var(--accent-primary, #10b981);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: -1px;
 }
 
@@ -14542,7 +14557,7 @@ body[data-theme="light"] .wm-writer-code-file .token.comment {
 
 .wm-file-picker-crumb {
   cursor: pointer;
-  color: var(--accent-primary, #10b981);
+  color: var(--accent-foreground);
 }
 
 .wm-file-picker-crumb:hover {
@@ -14838,7 +14853,7 @@ body[data-theme="light"] .wm-writer-code-file .token.comment {
 }
 
 .wm-command-file-browser__status[data-state="success"] {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 @media (max-width: 720px) {
@@ -15105,7 +15120,7 @@ body[data-theme="light"] .wm-writer-code-file .token.comment {
 }
 
 .wm-input:focus {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--accent-foreground);
   outline-offset: 1px;
 }
 
@@ -15433,7 +15448,7 @@ textarea.wm-input {
 
 .wm-running-pipelines-list__main:hover .wm-running-pipelines-list__name,
 .wm-running-pipelines-list__main:focus-visible .wm-running-pipelines-list__name {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-running-pipelines-list__name {
@@ -15658,7 +15673,7 @@ textarea.wm-input {
 .wm-pipeline-segmented button[aria-pressed="true"],
 .wm-pipeline-detail-tabs button[aria-selected="true"] {
   border-color: var(--accent-primary);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-tertiary));
 }
 
@@ -15870,7 +15885,7 @@ textarea.wm-input {
 }
 
 .wm-code-token-string {
-  color: var(--accent-secondary);
+  color: var(--accent-foreground-hover);
 }
 
 .wm-code-token-number {
@@ -16099,7 +16114,7 @@ textarea.wm-input {
 
 .wm-pipeline-value-preview:hover,
 .wm-pipeline-value-preview:focus-visible {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   outline: none;
 }
 
@@ -16116,7 +16131,7 @@ textarea.wm-input {
 
 .wm-pipeline-flow-more summary {
   width: fit-content;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   cursor: pointer;
   font-size: 0.78rem;
   text-decoration: underline;
@@ -16242,7 +16257,7 @@ textarea.wm-input {
 .wm-pipeline-status-chip[data-status="pending"],
 .wm-pipeline-status-chip[data-status="needs_input"] {
   border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-primary));
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-pipeline-status-chip[data-status="complete"],
@@ -16281,7 +16296,7 @@ textarea.wm-input {
   height: 1.6rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -16344,7 +16359,7 @@ textarea.wm-input {
   padding: 0.16rem 0.5rem;
   border: 1px solid color-mix(in srgb, var(--accent-primary) 50%, var(--border-primary));
   border-radius: 999px;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-primary));
   font-size: 0.82rem;
   font-weight: 700;
@@ -16575,7 +16590,7 @@ textarea.wm-input {
   border: 1px solid color-mix(in srgb, var(--accent-primary) 38%, var(--border-primary));
   border-radius: 999px;
   background: var(--bg-primary);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   padding: 0.16rem 0.55rem;
   font-size: 0.78rem;
   font-weight: 700;
@@ -16735,7 +16750,7 @@ textarea.wm-input {
 }
 
 .wm-pipeline-json-branch > summary:hover .wm-pipeline-json-key {
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-pipeline-json-children {
@@ -16755,7 +16770,7 @@ textarea.wm-input {
 
 .wm-pipeline-json-key {
   flex: 0 0 auto;
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
   font-weight: 700;
 }
 
@@ -16769,7 +16784,7 @@ textarea.wm-input {
 }
 
 .wm-pipeline-json-value-string {
-  color: var(--accent-secondary);
+  color: var(--accent-foreground-hover);
 }
 
 .wm-pipeline-json-value-number,
@@ -17024,7 +17039,7 @@ textarea.wm-input {
 
 .wm-terminal-status[data-state="ready"] {
   border-color: var(--accent-primary);
-  color: var(--accent-primary);
+  color: var(--accent-foreground);
 }
 
 .wm-terminal-status[data-state="error"] {
