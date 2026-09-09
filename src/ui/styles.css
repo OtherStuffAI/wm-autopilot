@@ -9,6 +9,8 @@
   --accent-foreground: color-mix(in srgb, var(--accent-primary) 25%, white);
   --accent-foreground-hover: color-mix(in srgb, var(--accent-primary) 12%, white);
   --accent-border: color-mix(in srgb, var(--accent-primary) 25%, #a8a29e);
+  --menu-backdrop: rgba(0, 0, 0, 0.12);
+  --menu-icon-opacity: 0.75;
   --bg-gradient-start: #0a0a0a;
   --bg-gradient-end: #1c1917;
   --bg-primary: #1c1917;
@@ -46,6 +48,8 @@ body[data-theme="light"] {
   --accent-foreground: var(--accent-primary);
   --accent-foreground-hover: var(--accent-secondary);
   --accent-border: var(--accent-primary);
+  --menu-backdrop: rgba(0, 0, 0, 0.35);
+  --menu-icon-opacity: 0.45;
   --bg-gradient-start: #f9f9f9;
   --bg-gradient-end: #f5f5f0;
   --bg-primary: #ffffff;
@@ -441,7 +445,7 @@ body[data-theme="light"] .wm-logo.light {
   justify-content: center;
   gap: 0.4rem;
   border-radius: 999px;
-  border: 1px solid rgb(from var(--accent-primary) r g b / 0.35);
+  border: 1px solid var(--accent-border);
   background: rgb(from var(--accent-primary) r g b / 0.12);
   color: var(--accent-foreground);
   padding: 0.4rem 0.9rem;
@@ -457,7 +461,7 @@ body[data-theme="light"] .wm-logo.light {
 .wm-theme-toggle .sun,
 .wm-theme-toggle .moon {
   font-size: 0.95rem;
-  opacity: 0.45;
+  opacity: var(--menu-icon-opacity);
   transition: opacity 200ms ease;
 }
 
@@ -475,7 +479,7 @@ body[data-theme="dark"] .wm-theme-toggle .moon {
   justify-content: center;
   gap: 0.4rem;
   border-radius: 999px;
-  border: 1px solid rgb(from var(--accent-primary) r g b / 0.35);
+  border: 1px solid var(--accent-border);
   background: rgb(from var(--accent-primary) r g b / 0.12);
   color: var(--accent-foreground);
   padding: 0.4rem 0.9rem;
@@ -494,7 +498,7 @@ body[data-theme="dark"] .wm-theme-toggle .moon {
 .wm-task-dispatch-tabs-toggle .dispatch-hide,
 .wm-raw-output-toggle .raw-output-icon {
   font-size: 0.95rem;
-  opacity: 0.45;
+  opacity: var(--menu-icon-opacity);
   transition: opacity 200ms ease;
 }
 body[data-tabs-visible="true"] .wm-tabs-toggle .tabs-show,
@@ -507,6 +511,14 @@ body[data-task-dispatch-tabs-visible="false"] .wm-task-dispatch-tabs-toggle .dis
 }
 body[data-raw-terminal-output-visible="true"] .wm-raw-output-toggle .raw-output-icon {
   opacity: 0.95;
+}
+
+.wm-theme-toggle:focus-visible,
+.wm-tabs-toggle:focus-visible,
+.wm-task-dispatch-tabs-toggle:focus-visible,
+.wm-raw-output-toggle:focus-visible {
+  outline: 2px solid var(--accent-foreground);
+  outline-offset: 3px;
 }
 
 body[data-tabs-visible="false"] .wm-tabs-bar {
@@ -593,7 +605,7 @@ body[data-menu-open="true"]::after {
   content: "";
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--menu-backdrop);
   z-index: 8;
 }
 
