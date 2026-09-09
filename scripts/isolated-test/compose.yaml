@@ -1,0 +1,25 @@
+services:
+  autopilot:
+    image: autopilot-two-user-runtime:${TEST_RUN_ID:?Set a unique TEST_RUN_ID}
+    build:
+      context: ../..
+      dockerfile: scripts/isolated-test/Dockerfile
+      args:
+        SOURCE_REVISION: ${SOURCE_REVISION:?Set the selected Autopilot commit}
+    environment:
+      WINGMAN_ISOLATED_TEST_RUNTIME: "1"
+      WAPP_TOWER_URL: ${TEST_TOWER_URL:?Set the isolated Tower URL}
+      CONNECT_RELAYS: ${TEST_RELAY_URL:?Set the isolated relay URL}
+      WINGMAN_BASE_URL: http://127.0.0.1:${TEST_AUTOPILOT_PORT:?Set an isolated port}
+    ports:
+      - "127.0.0.1:${TEST_AUTOPILOT_PORT}:3600"
+    volumes:
+      - runtime-data:/app/data
+    networks:
+      - test-stack
+volumes:
+  runtime-data:
+networks:
+  test-stack:
+    external: true
+    name: ${TEST_NETWORK:?Set the run-owned Docker network}

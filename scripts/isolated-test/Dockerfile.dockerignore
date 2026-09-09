@@ -1,0 +1,14 @@
+**
+!package.json
+!bun.lock
+!bunfig.toml
+!src/**
+!scripts/**
+!public/**
+!config/**
+!vendor/**
+**/.env*
+**/node_modules
+**/*.log
+**/*.db
+**/*.sqlite*
