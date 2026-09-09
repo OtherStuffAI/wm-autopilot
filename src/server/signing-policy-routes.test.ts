@@ -71,6 +71,31 @@ describe("signing policy admin routes", () => {
     expect(f.reissues).toBe(0);
   });
 
+  test("only administrators can save exact FIPS targets through the supported API", async () => {
+    const f = fixture();
+    const origin = "http://npub109684nue495hq240u3dqzyf2kltk23u3mqkk9l44ga6szed4jcysramf74.fips:43100";
+    const draft = {
+      id: "mesh-policy", name: "Mesh policy", description: "Exact mesh health read", enabled: true,
+      operations: ["nip98.sign"], eventKinds: [27_235], nostrKindRules: [],
+      nip98Targets: [{ origin, methods: ["GET"], exactPaths: ["/health"], pathPrefixes: [], requireBodyHash: false }],
+      assignments: { profileIds: ["profile-a"], workspaceIds: ["workspace-a"] },
+    };
+    for (const [auth, status] of [[anonymousAuth, 401], [memberAuth, 403]] as const) {
+      expect((await f.call("/api/admin/signing-policies", "POST", auth, draft)).status).toBe(status);
+      expect(f.registry.get(draft.id)).toBeNull();
+    }
+    const saved = await f.call("/api/admin/signing-policies", "POST", adminAuth, draft);
+    expect(saved.status).toBe(201);
+    expect((await saved.json()).policy.nip98Targets[0].origin).toBe(origin);
+    const rejected = await f.call("/api/admin/signing-policies/mesh-policy", "PUT", adminAuth, {
+      ...draft, nip98Targets: [{ ...draft.nip98Targets[0], origin: "http://localhost:43100" }],
+    });
+    expect(rejected.status).toBe(400);
+    expect((await rejected.json()).error).toContain("checksummed-npub");
+    expect(f.registry.get(draft.id)?.revision).toBe(1);
+    expect(f.reissues).toBe(0);
+  });
+
   test("allows an administrator to read policies and deliberately reissue without returning a bearer", async () => {
     const f = fixture();
     const list = await f.call("/api/admin/signing-policies", "GET", adminAuth);

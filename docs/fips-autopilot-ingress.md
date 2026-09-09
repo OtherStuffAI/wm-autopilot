@@ -103,3 +103,43 @@ host, but it cannot activate new routes or auth logic inside the running host.
 
 Discovery/allowlisting and Wingman-operated bootstrap infrastructure are deferred
 to separate work. This change does not alter the existing PoC discovery setup.
+
+## Agent mesh signing policy
+
+Mesh reachability does not grant a session signing authority. After the approved
+Autopilot restart loads the custom-origin validator, an administrator with
+`SystemManage` access must create the reviewed policy using
+`POST /api/admin/signing-policies` (or update its full draft with
+`PUT /api/admin/signing-policies/:policyId`). The settings signing-policy JSON
+editor can edit saved policies. Use an exact lowercase
+`http://<checksummed-npub>.fips:<port>` origin, without a trailing slash. Ports
+must be decimal 1–65535 with no leading zeros; `80` is excluded because URL origin
+serialization removes that explicit default port. Other plaintext HTTP origins
+are rejected; existing HTTPS entries remain supported.
+
+For this pickup, review `fips-manager-signing-policy.json` from the manager's
+notes: its Tower origin ends in `.fips:43100`, its paths constrain the named
+workspace plus health/key-mapping reads. Its `requireBodyHash: true` applies to
+**all** declared methods, including GET: the caller must supply the exact payload
+hash (SHA-256 of empty bytes for a bodyless request) even for reads. The manager's
+current PG helper only adds hashes when a body exists; adapt that caller before
+mesh reads. Do not relax the existing body-hash enforcement.
+Confirm the intended live session's actual profile and workspace IDs before
+saving the enabled assignment. When both assignment lists are populated, both
+must match. Do not broaden paths or add default origins to avoid a denial.
+
+Saving does not change existing capabilities. The administrator must explicitly
+`POST /api/admin/signing-policies/sessions/:sessionId/reissue` (settings action:
+**Revoke and reissue**) for each intended session. This revokes its old bearer.
+The existing broker client adopts the replacement through
+`/api/mcp/capabilities/reissue-adopt` on its next call; never copy bearer tokens
+or raw keys into notes or commands. Confirm the session reports current policy
+references, then test an allowed exact mesh URL and denied wrong-origin,
+wrong-workspace/path and disallowed-method requests. Ordinary capability refresh
+does not apply policy revisions. If reissue fails, the old bearer stays revoked;
+an operator must restart the affected session from outside its process to recover.
+
+A manager whose capability denies admin policy paths must hand these operations
+to an authorized administrator. This change performs no live grant, reissue,
+adoption, or restart; the pending coordinated restart activates this validator
+and the ingress change together. Tower authorization remains authoritative.

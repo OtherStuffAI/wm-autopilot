@@ -1,3 +1,5 @@
+import { nip19 } from "nostr-tools";
+
 import {
   DEFAULT_AGENT_NOSTR_EVENT_KINDS,
   type BrokerOperation,
@@ -27,6 +29,17 @@ function sortedUnique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
+function isCanonicalFipsOrigin(value: string): boolean {
+  const match = /^http:\/\/(npub1[023456789acdefghjklmnpqrstuvwxyz]{58})\.fips:([1-9][0-9]{0,4})$/.exec(value);
+  if (!match || Number(match[2]) > 65_535) return false;
+  try {
+    const decoded = nip19.decode(match[1]!);
+    return decoded.type === "npub" && nip19.npubEncode(decoded.data) === match[1];
+  } catch {
+    return false;
+  }
+}
+
 function normalizeOrigin(value: string): string {
   let parsed: URL;
   try {
@@ -34,8 +47,8 @@ function normalizeOrigin(value: string): string {
   } catch {
     throw new Error("NIP-98 origin must be a valid absolute URL");
   }
-  if (parsed.protocol !== "https:" || parsed.origin !== value || parsed.username || parsed.password || value.includes("*")) {
-    throw new Error("Custom NIP-98 origins must be exact HTTPS origins without wildcards, credentials, paths, queries, or fragments");
+  if ((parsed.protocol !== "https:" && !isCanonicalFipsOrigin(value)) || parsed.origin !== value || parsed.username || parsed.password || value.includes("*")) {
+    throw new Error("Custom NIP-98 origins must be exact HTTPS origins or canonical lowercase http://<checksummed-npub>.fips:<port> origins (port 1-65535 except 80, no leading zeros), without wildcards, credentials, paths, queries, or fragments");
   }
   return parsed.origin;
 }

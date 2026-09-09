@@ -20,6 +20,7 @@ export interface SigningPolicyAssignment {
 }
 
 export interface SigningPolicyNip98Target {
+  /** Exact HTTPS origin or checksummed lowercase HTTP npub.fips origin with an explicit non-default port. */
   origin: string;
   methods: string[];
   exactPaths: string[];
