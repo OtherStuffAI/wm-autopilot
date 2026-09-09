@@ -43,6 +43,7 @@ export interface AgentChatSseEventDiagnostic {
 }
 
 export interface BackendConnectionRecord {
+  transport?: import("./tower-transport-config").TowerTransportConfig;
   backendConnectionId: string;
   managedByNpub: string;
   backendBaseUrl: string;

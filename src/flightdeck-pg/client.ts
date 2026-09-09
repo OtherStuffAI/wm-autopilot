@@ -35,6 +35,7 @@ import {
   type FlightDeckPgDocumentResult,
 } from '../agent-chat/tower-client';
 import { callCapabilityBroker, type CapabilityClientContext } from '../mcp/capability-client';
+import { fetchTowerRequest, prepareTowerRequestUrl } from "../agent-chat/tower-transport-runtime";
 
 export interface FlightDeckPgClientConfig {
   towerUrl: string;
@@ -687,7 +688,7 @@ export class FlightDeckPgClient {
       method,
       body,
     });
-    const response = await this.fetchImpl(url.toString(), {
+    const response = await (this.config.fetchImpl ?? fetchTowerRequest)(url.toString(), {
       method,
       headers: {
         Accept: 'application/json',
@@ -771,6 +772,8 @@ export class FlightDeckPgClient {
         };
       }
       if (downloadUrl) {
+        const actual = new URL(await prepareTowerRequestUrl(this.config.towerUrl));
+        if (actual.hostname.endsWith(".fips")) return this.downloadStorageObjectContent(workspaceId, objectId);
         const downloaded = await this.fetchImpl(downloadUrl);
         if (!downloaded.ok) throw new Error(`Storage download URL failed (${downloaded.status}): ${downloaded.statusText}`);
         return {
@@ -811,7 +814,7 @@ export class FlightDeckPgClient {
       method,
       body,
     });
-    const response = await this.fetchImpl(url.toString(), {
+    const response = await (this.config.fetchImpl ?? fetchTowerRequest)(url.toString(), {
       method,
       headers: {
         Accept: '*/*',

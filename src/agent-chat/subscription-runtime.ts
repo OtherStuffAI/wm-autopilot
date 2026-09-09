@@ -1,3 +1,5 @@
+import { saveTowerConnectionTransport, ownedTowerConnection, createTowerConnection } from "./tower-connection-settings";
+import { transportForConnection } from "./tower-transport-runtime";
 import { prepareAgentProfileDirectory } from "./agent-profile-directory";
 import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
@@ -1434,6 +1436,36 @@ export class WorkspaceSubscriptionManager {
   listBackendConnectionsForManager(npub: string) {
     this.backfillLegacyBackendConnections();
     return this.backendStore.listAvailableForManagerNpub(npub);
+  }
+
+  async updateTowerTransportForManager(id: string, managerNpub: string, transport: unknown) {
+    return saveTowerConnectionTransport({
+      store: this.backendStore, id, managerNpub, transport,
+      subscriptions: this.store.listAll(),
+      reconnect: async (record) => {
+        this.stopRuntime(record.subscriptionId, false);
+        const identity = await this.resolveStoredBotIdentity(record.botNpub);
+        if (!identity) throw new Error("Tower subscription bot identity is unavailable");
+        await this.ensureFlightDeckPgConnected(record, identity, false);
+      },
+    });
+  }
+
+  createTowerConnectionForManager(managerNpub: string, input: Record<string, unknown>) {
+    return createTowerConnection(this.backendStore, managerNpub, input);
+  }
+
+  async testTowerTransportForManager(id: string, managerNpub: string) {
+    const backend = ownedTowerConnection(this.backendStore, id, managerNpub);
+    const transport = transportForConnection(backend);
+    const record = this.store.listAll().find((item) => item.backendConnectionId === id && item.workspaceId);
+    if (!record?.workspaceId) throw new Error("Test connection requires a linked workspace subscription");
+    const botIdentity = await this.resolveStoredBotIdentity(record.botNpub);
+    if (!botIdentity) throw new Error("Test connection requires the subscription bot identity");
+    await transport.prepare(backend.backendBaseUrl);
+    const result = await fetchFlightDeckPgWorkspaceMe({ backendBaseUrl: backend.backendBaseUrl,
+      workspaceId: record.workspaceId, appNpub: record.sourceAppNpub, botIdentity });
+    return { ok: true, identity: result.identity, diagnostics: transport.diagnostics };
   }
 
   listBackendConnectionGrantsForManager(backendConnectionId: string, npub: string) {
@@ -3733,7 +3765,11 @@ export class WorkspaceSubscriptionManager {
               at: new Date().toISOString(),
               payload: safeJsonParse(sseEvent.data) ?? { data: sseEvent.data },
             };
-            record.lastSseEvent = nextEvent;
+            if (record.backendConnectionId) {
+      const backend = this.backendStore.getById(record.backendConnectionId);
+      if (backend) transportForConnection(backend).event();
+    }
+    record.lastSseEvent = nextEvent;
             record.recentSseEvents = trimRecentEntries(
               [...(Array.isArray(record.recentSseEvents) ? record.recentSseEvents : []), nextEvent],
               MAX_RECENT_SSE_EVENTS,
@@ -3970,6 +4006,10 @@ export class WorkspaceSubscriptionManager {
       at: new Date().toISOString(),
       payload,
     };
+    if (record.backendConnectionId) {
+      const backend = this.backendStore.getById(record.backendConnectionId);
+      if (backend) transportForConnection(backend).event();
+    }
     record.lastSseEvent = nextEvent;
     record.recentSseEvents = trimRecentEntries(
       [...(Array.isArray(record.recentSseEvents) ? record.recentSseEvents : []), nextEvent],
@@ -4876,6 +4916,10 @@ export class WorkspaceSubscriptionManager {
       at: new Date().toISOString(),
       payload,
     };
+    if (record.backendConnectionId) {
+      const backend = this.backendStore.getById(record.backendConnectionId);
+      if (backend) transportForConnection(backend).event();
+    }
     record.lastSseEvent = nextEvent;
     record.recentSseEvents = trimRecentEntries(
       [...(Array.isArray(record.recentSseEvents) ? record.recentSseEvents : []), nextEvent],

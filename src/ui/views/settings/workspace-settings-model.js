@@ -25,6 +25,10 @@ export function buildWorkspaceSettingsModel(subscriptions, agentPayload, connect
       || subscription.workspaceName;
     if (!workspace) {
       workspace = { key, name: name || 'Workspace name unavailable', subscriptions: [], bots: [], activity: [] };
+      if (backend) workspace.towerConnection = {
+        backendConnectionId: backend.backendConnectionId, backendBaseUrl: backend.backendBaseUrl,
+        serviceNpub: backend.serviceNpub, transport: backend.transport, transportDiagnostics: backend.transportDiagnostics,
+      };
       server.workspaces.push(workspace);
     } else if (name && workspace.name === 'Workspace name unavailable') workspace.name = name;
     const health = getWorkspaceHealthLabel(subscription);

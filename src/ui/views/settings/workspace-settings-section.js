@@ -1,4 +1,5 @@
 import { randomId } from "../../core/random-id.js";
+import { createTowerTransportCard } from './tower-transport-card.js';
 import Alpine from '/vendor/alpinejs/module.esm.js';
 import {
   deleteAgentChatSubscription, importAgentConnectPackage, listAgentChatAgents,
@@ -97,6 +98,23 @@ export function createWorkspaceSettingsSection() {
     finally { busy = false; await renderCached(); }
   }
 
+  async function transportAction(id, action, transport) {
+    if (busy) return;
+    busy = true;
+    status.textContent = action === 'test' ? 'Testing Tower connection…' : 'Applying Tower transport…';
+    try {
+      const response = await fetch(`/api/agent-chat/backend-connections/${encodeURIComponent(id)}/transport${action === 'test' ? '/test' : ''}`, {
+        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ transport }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Tower transport operation failed');
+      await refresh();
+      status.textContent = action === 'test' ? 'Tower identity and workspace access verified.' : 'Tower transport applied.';
+    } catch (error) { showError(error); }
+    finally { busy = false; }
+  }
+
   function remove(subscription) {
     if (globalThis.confirm('Disconnect this local connection? Events for this connection will stop. Tower workspace membership and bot profiles will remain.')) {
       void runAction(subscription, 'remove');
@@ -159,6 +177,9 @@ export function createWorkspaceSettingsSection() {
     const openPanels = sameWorkspace ? [...body.querySelectorAll('details[open] > summary')].map((summary) => summary.dataset.testid) : [];
     const focusedId = body.contains(document.activeElement) ? document.activeElement.dataset.testid : null;
     body.replaceChildren(toolbar, intro, layout, access);
+    if (selected?.towerConnection) body.append(createTowerTransportCard(selected.towerConnection, {
+      canManage: snapshot.canManage && !busy, onAction: transportAction,
+    }));
     body.dataset.workspace = selected?.key || '';
     for (const summary of body.querySelectorAll('details > summary')) {
       if (openPanels.includes(summary.dataset.testid)) summary.parentElement.open = true;

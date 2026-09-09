@@ -7,6 +7,7 @@ import type { SQLQueryBindings } from 'bun:sqlite';
 
 import { databaseFile } from '../storage/message-store';
 import { normaliseBackendBaseUrl } from './tower-client';
+import { normalizeTowerTransport } from "./tower-transport-config";
 import type { BackendConnectionGrantRecord, BackendConnectionRecord, WorkspaceSubscriptionRecord } from './types';
 
 const DEFAULT_DB_PATH = databaseFile;
@@ -88,6 +89,10 @@ class BackendConnectionStore {
     return this.getWhere('backend_connection_id = ?1', [backendConnectionId]);
   }
 
+  listAll(): BackendConnectionRecord[] {
+    return this.listWhere("1 = 1", []);
+  }
+
   findReusable(input: {
     managedByNpub: string;
     backendBaseUrl: string;
@@ -167,6 +172,8 @@ class BackendConnectionStore {
   }
 
   save(record: BackendConnectionRecord): BackendConnectionRecord {
+    const transport = normalizeTowerTransport(record.transport, record.backendBaseUrl);
+    this.db.transaction(() => {
     this.db.query(
       `INSERT INTO backend_connections (
          backend_connection_id, managed_by_npub, backend_base_url, service_npub,
@@ -219,6 +226,10 @@ class BackendConnectionStore {
       record.createdAt,
       record.updatedAt,
     );
+      this.db.query(`INSERT INTO backend_connection_transports (backend_connection_id, config_json)
+        VALUES (?1, ?2) ON CONFLICT(backend_connection_id) DO UPDATE SET config_json = excluded.config_json`)
+        .run(record.backendConnectionId, JSON.stringify(transport));
+    })();
     return this.getById(record.backendConnectionId) ?? record;
   }
 
@@ -405,7 +416,10 @@ class BackendConnectionStore {
   }
 
   private mapRow(row: Record<string, string | null>): BackendConnectionRecord {
+    const transportRow = this.db.query("SELECT config_json FROM backend_connection_transports WHERE backend_connection_id = ?1")
+      .get(row.backend_connection_id!) as { config_json: string } | null;
     return {
+      transport: normalizeTowerTransport(transportRow ? JSON.parse(transportRow.config_json) : null, row.backend_base_url!),
       backendConnectionId: row.backend_connection_id!,
       managedByNpub: row.managed_by_npub!,
       backendBaseUrl: row.backend_base_url!,
@@ -441,6 +455,10 @@ class BackendConnectionStore {
 
   private initialise() {
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS backend_connection_transports (
+        backend_connection_id TEXT PRIMARY KEY,
+        config_json TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS backend_connections (
         backend_connection_id TEXT PRIMARY KEY,
         managed_by_npub TEXT NOT NULL,

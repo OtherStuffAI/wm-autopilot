@@ -1,3 +1,4 @@
+import { prepareTowerRequestUrl, fetchTowerRequest } from "./tower-transport-runtime";
 import { createHash } from 'node:crypto';
 
 import { finalizeEvent, nip19 } from 'nostr-tools';
@@ -470,9 +471,10 @@ export async function signFlightDeckPgBotRequest(params: {
   method: string;
   body?: unknown;
 }): Promise<string> {
+  const actualUrl = await prepareTowerRequestUrl(params.url);
   if ('signNip98' in params.botIdentity) {
     return await params.botIdentity.signNip98({
-      url: params.url,
+      url: actualUrl,
       method: params.method,
       body: params.body,
     });
@@ -481,7 +483,7 @@ export async function signFlightDeckPgBotRequest(params: {
   return helpers.signBotRequest({
     botSecret: params.botIdentity.botSecret,
     botNpub: params.botIdentity.botNpub,
-    url: params.url,
+    url: actualUrl,
     method: params.method,
     body: params.body ?? null,
   });
@@ -650,7 +652,7 @@ export async function fetchFlightDeckPgWorkspaceMe(params: {
     url,
     method: 'GET',
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -682,7 +684,7 @@ export async function reconcileFlightDeckPgEventSubscriptionAgents(params: {
     method: 'PUT',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'PUT',
     headers: {
       Accept: 'application/json',
@@ -745,7 +747,7 @@ export async function fetchFlightDeckPgScopeChannels(params: {
     url,
     method: 'GET',
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -788,7 +790,7 @@ export async function fetchFlightDeckPgEvents(params: {
     url: url.toString(),
     method: 'GET',
   });
-  const response = await fetch(url.toString(), {
+  const response = await fetchTowerRequest(url.toString(), {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -831,7 +833,7 @@ export async function connectFlightDeckPgEventStream(params: {
     url: url.toString(),
     method: 'GET',
   });
-  const response = await fetch(url.toString(), {
+  const response = await fetchTowerRequest(url.toString(), {
     headers: {
       Accept: 'text/event-stream',
       Authorization: authorization,
@@ -870,7 +872,7 @@ export async function fetchFlightDeckPgChannelMessages(params: {
     url,
     method: 'GET',
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -901,7 +903,7 @@ export async function fetchFlightDeckPgChannel(params: {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/channels/${encodeURIComponent(params.channelId)}`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
   const authorization = await signFlightDeckPgBotRequest({ botIdentity: params.botIdentity, url, method: 'GET' });
-  const response = await fetch(url, { headers: { Accept: 'application/json', Authorization: authorization, 'x-flightdeck-pg-app-npub': params.appNpub }, signal: params.signal });
+  const response = await fetchTowerRequest(url, { headers: { Accept: 'application/json', Authorization: authorization, 'x-flightdeck-pg-app-npub': params.appNpub }, signal: params.signal });
   if (!response.ok) {
     const error = await parseTowerError(response, 'flightdeck_pg_channel');
     throw Object.assign(new Error(error.message), error);
@@ -992,7 +994,7 @@ export async function fetchFlightDeckPgWorkroomContext(params: {
     actor_npub: params.actorNpub ?? null,
   });
   const authorization = await signFlightDeckPgBotRequest({ botIdentity: params.botIdentity, url, method: 'GET' });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1023,7 +1025,7 @@ export async function patchFlightDeckPgWorkroomParticipantMetadata(params: {
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
   const body = { metadata: params.metadata };
   const authorization = await signFlightDeckPgBotRequest({ botIdentity: params.botIdentity, url, method: 'PATCH', body });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'PATCH',
     headers: {
       Accept: 'application/json',
@@ -1077,7 +1079,7 @@ export async function createFlightDeckPgChannelMessage(params: {
     method: 'POST',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1134,7 +1136,7 @@ export async function upsertFlightDeckPgResponseActivity(params: {
     method: 'POST',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1190,7 +1192,7 @@ export async function upsertFlightDeckPgAgentActivity(params: {
     ...(params.expiresInSeconds ? { expires_in_seconds: params.expiresInSeconds } : {}),
   };
   const authorization = await signFlightDeckPgBotRequest({ botIdentity: params.botIdentity, url, method: 'PUT', body });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'PUT',
     headers: { Accept: 'application/json', Authorization: authorization, 'Content-Type': 'application/json',
       'x-flightdeck-pg-app-npub': params.appNpub },
@@ -1227,7 +1229,7 @@ export async function uploadFlightDeckPgStorageObject(params: {
     method: 'POST',
     body: prepareBody,
   });
-  const prepareResponse = await fetch(prepareUrl, {
+  const prepareResponse = await fetchTowerRequest(prepareUrl, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1256,7 +1258,7 @@ export async function uploadFlightDeckPgStorageObject(params: {
     method: 'PUT',
     body: uploadBody,
   });
-  const uploadResponse = await fetch(uploadUrl, {
+  const uploadResponse = await fetchTowerRequest(uploadUrl, {
     method: 'PUT',
     headers: {
       Accept: 'application/json',
@@ -1283,7 +1285,7 @@ export async function uploadFlightDeckPgStorageObject(params: {
     method: 'POST',
     body: completeBody,
   });
-  const completeResponse = await fetch(completeUrl, {
+  const completeResponse = await fetchTowerRequest(completeUrl, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1342,7 +1344,7 @@ export async function createFlightDeckPgChannelDocument(params: {
     method: 'POST',
     body: requestBody,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1378,7 +1380,7 @@ export async function listFlightDeckPgChannelDocs(params: {
     url,
     method: 'GET',
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1409,7 +1411,7 @@ export async function fetchFlightDeckPgDocument(params: {
     url,
     method: 'GET',
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1469,7 +1471,7 @@ export async function updateFlightDeckPgDocument(params: {
     method: 'PATCH',
     body: requestBody,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'PATCH',
     headers: {
       Accept: 'application/json',
@@ -1513,7 +1515,7 @@ export async function fetchFlightDeckPgDocumentComments(params: {
     url,
     method: 'GET',
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1557,7 +1559,7 @@ export async function createFlightDeckPgDocumentComment(params: {
     method: 'POST',
     body: requestBody,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1618,7 +1620,7 @@ export async function createFlightDeckPgAudioNote(params: {
     method: 'POST',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1661,7 +1663,7 @@ export async function createFlightDeckPgReaction(params: {
     method: 'POST',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1694,7 +1696,7 @@ export async function fetchFlightDeckPgTask(params: {
     url,
     method: 'GET',
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1743,7 +1745,7 @@ export async function fetchFlightDeckPgDailyScope(params: {
     url,
     method: 'GET',
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1796,7 +1798,7 @@ export async function upsertFlightDeckPgDailyScope(params: {
     method: 'POST',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1844,7 +1846,7 @@ export async function createFlightDeckPgChannelTask(params: {
     method: 'POST',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1888,7 +1890,7 @@ export async function createFlightDeckPgTaskComment(params: {
     method: 'POST',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1924,7 +1926,7 @@ export async function fetchFlightDeckPgTaskComments(params: {
     url,
     method: 'GET',
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -1967,7 +1969,7 @@ export async function acquireFlightDeckPgEditLease(params: {
     method: 'POST',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -2009,7 +2011,7 @@ export async function updateFlightDeckPgTaskState(params: {
     method: 'POST',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -2041,7 +2043,7 @@ export async function fetchFlightDeckPgWorkspaceMembers(params: {
     url,
     method: 'GET',
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     headers: {
       Accept: 'application/json',
       Authorization: authorization,
@@ -2079,7 +2081,7 @@ export async function assignFlightDeckPgTask(params: {
     method: 'POST',
     body,
   });
-  const response = await fetch(url, {
+  const response = await fetchTowerRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',

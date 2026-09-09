@@ -1,4 +1,6 @@
 import { isAbsolute } from 'node:path';
+import { handleTowerTransportRoute } from "./tower-transport-routes";
+import { transportForConnection } from "../agent-chat/tower-transport-runtime";
 
 import type { RequestAuthContext } from '../auth/request-context';
 import type { WorkspaceSubscriptionManager } from '../agent-chat/subscription-runtime';
@@ -139,6 +141,7 @@ function serialiseBackendConnection(
 ) {
   return {
     ...record,
+    transportDiagnostics: transportForConnection(record).diagnostics,
     availabilityGrants: grants,
     operator: {
       relayCount: record.relayUrls.length,
@@ -628,6 +631,9 @@ export async function handleAgentChatApi(
   if (!scope) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
+
+  const transportResponse = await handleTowerTransportRoute(request, url, ctx.manager, scope);
+  if (transportResponse) return transportResponse;
 
   if (url.pathname === '/api/agent-chat/dispatch-outcomes' && method === 'GET') {
     const limitValue = Number(url.searchParams.get('limit') ?? 25);
