@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { generateSecretKey, finalizeEvent, getPublicKey, nip19 } from "nostr-tools";
 import { callCapabilityBroker } from "../../src/mcp/capability-client";
 import { FlightDeckPgClient, resolveFlightDeckPgConfig } from "../../src/flightdeck-pg/client";
-import { signFlightDeckPgBotRequest, acquireFlightDeckPgEditLease, updateFlightDeckPgDocument } from "../../src/agent-chat/tower-client";
+import { signFlightDeckPgBotRequest, acquireFlightDeckPgEditLease, updateFlightDeckPgDocument, uploadFlightDeckPgStorageObject } from "../../src/agent-chat/tower-client";
 import { flightDeckDocumentBase } from "../../src/agent-chat/flightdeck-document-base";
 import { TowerTransport } from "../../src/agent-chat/tower-transport";
 
@@ -126,7 +126,9 @@ for (const suffix of ["", "/content"]) {
 }
 results.ingress = await probeMeshIngress(target, config.towerUrl, outsiderKey);
 outsiderKey.fill(0); results.storageAclRejected = true;
-results.attachment = { fileId: file.id, objectId: file.storage_object_id, sha256: createHash("sha256").update(bytes).digest("hex") };
+const browserObject = await uploadFlightDeckPgStorageObject({ backendBaseUrl: config.towerUrl, workspaceId: workspace,
+  appNpub: config.appNpub, botIdentity: config.botIdentity, fileName: "browser-mesh-attachment.txt", contentType: "text/plain", content: new TextEncoder().encode(bytes) });
+results.attachment = { fileId: file.id, fileObjectId: file.storage_object_id, objectId: browserObject.object_id, sha256: createHash("sha256").update(bytes).digest("hex") };
 const docBody = `Attachment: storage://${file.storage_object_id}`;
 const createdDoc = await client.createDoc(workspace, context.chat.channelId, "FIPS acceptance document", docBody);
 const docId = String(createdDoc.doc?.id || "");

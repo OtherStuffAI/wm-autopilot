@@ -32,6 +32,15 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       await Bun.write("/app/data/isolated-test/fips-probe-complete", "completed");
       probed = true;
     }
+    const hold = "/app/data/isolated-test/hold-model-response";
+    if (await Bun.file(hold).exists()) {
+      await Bun.write("/app/data/isolated-test/model-response-waiting.json", JSON.stringify({ sessionId: Bun.env.SESSION_ID, acceptedAt: Date.now() }));
+      const deadline = Date.now() + 30000;
+      while (await Bun.file(hold).exists()) {
+        if (Date.now() >= deadline) { send({ jsonrpc: "2.0", id, error: { code: -32000, message: "Isolated model hold was not released" } }); return; }
+        await Bun.sleep(50);
+      }
+    }
     const digest = createHash("sha256").update(text).digest("hex");
     // Fingerprint the authoritative prompt without echoing its private content.
     // The real turn bridge publishes this completed response with its signer.
