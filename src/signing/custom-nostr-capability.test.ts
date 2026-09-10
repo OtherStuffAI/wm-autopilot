@@ -51,9 +51,10 @@ function customDraft(): SigningPolicyDraft {
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "wingman-custom-nostr-policy-"));
   roots.push(root);
-  const registry = new SigningPolicyRegistry(new FileSigningPolicyStore(join(root, "policies.json")), {
+  const loadRegistry = () => new SigningPolicyRegistry(new FileSigningPolicyStore(join(root, "policies.json")), {
     forgejoCompletionUrl: "https://tower.example/api/v4/git/oidc/authorize/complete",
   });
+  let registry = loadRegistry();
   const baseline = buildDefaultAgentCapabilityPolicy({
     towerUrl: "https://tower.example",
     autopilotUrl: "https://autopilot.example",
@@ -84,11 +85,159 @@ function fixture() {
     });
     return broker.handle(request, url, "POST") as Promise<Response>;
   };
-  return { broker, registry, issue, call };
+  return { broker, registry, issue, call, reload: () => { registry = loadRegistry(); return registry; } };
 }
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+const relay = "ws://relay.example:41007/";
+const clone = "http://relay.example:41007/publisher/synthetic.git";
+
+function syntheticDraft(): SigningPolicyDraft {
+  return {
+    ...customDraft(),
+    eventKinds: [22242, 30617, 30618],
+    nostrKindRules: [
+      { kind: 22242, maxContentBytes: 0, maxTags: 2, maxTagBytes: 4096,
+        allowedTagNames: ["relay", "challenge"], exactTags: [["relay", relay]] },
+      { kind: 30617, maxContentBytes: 0, maxTags: 16, maxTagBytes: 4096,
+        allowedTagNames: ["d", "name", "description", "clone", "relays", "web", "r", "maintainers", "t", "!"],
+        exactTags: [["d", "synthetic"], ["clone", clone], ["relays", relay]] },
+      { kind: 30618, maxContentBytes: 0, maxTags: 16, maxTagBytes: 4096,
+        allowedTagNames: ["d", "HEAD", "refs/heads/main", "!", "r"], exactTags: [["d", "synthetic"]] },
+    ],
+  };
+}
+
+function syntheticTags(kind: number): string[][] {
+  return kind === 30617
+    ? [["d", "synthetic"], ["name", "Synthetic"], ["description", "Test repository"],
+      ["clone", clone], ["relays", relay], ["r", "a".repeat(40), "euc"]]
+    : [["d", "synthetic"], ["HEAD", "ref: refs/heads/main"], ["refs/heads/main", "b".repeat(40)]];
+}
+
+describe("exact Nostr tag capabilities through persisted policy compilation", () => {
+  test.each([30617, 30618])("accepts synthetic kind %i and denies identifier bypasses after reload", async (kind) => {
+    const f = fixture();
+    const draft = syntheticDraft();
+    f.registry.create(draft, "npub1admin");
+    const reloaded = f.reload();
+    expect(reloaded.get(draft.id)!.nostrKindRules.map((rule) => rule.exactTags))
+      .toEqual(draft.nostrKindRules.map((rule) => rule.exactTags));
+    expect(reloaded.getHistory(draft.id)[0]!.snapshot.nostrKindRules).toEqual(reloaded.get(draft.id)!.nostrKindRules);
+    const token = f.issue().token;
+    const valid = syntheticTags(kind);
+    const response = await f.call(token, kind, "", valid);
+    expect(response.status).toBe(200);
+    expect((await response.json()).event.tags).toEqual(valid);
+    const others = valid.filter((tag) => tag[0] !== "d");
+    for (const identifiers of [
+      [], [["d", "other"]], [["d"]], [["d", "synthetic", "other"]],
+      [["d", "synthetic"], ["d", "other"]], [["d", "other"], ["d", "synthetic"]],
+      [["d", "synthetic"], ["d", "synthetic"]],
+    ]) {
+      expect((await f.call(token, kind, "", [...identifiers, ...others])).status).toBe(403);
+    }
+    if (kind === 30618) {
+      for (const name of ["clone", "relays"]) {
+        expect((await f.call(token, kind, "", [...valid, [name, "https://public.example/"]])).status).toBe(403);
+      }
+    }
+  });
+
+  test.each(["clone", "relays"])("rejects missing, changed, extra and duplicate %s destinations", async (name) => {
+    const f = fixture();
+    f.registry.create(syntheticDraft(), "npub1admin");
+    f.reload();
+    const token = f.issue().token;
+    const valid = syntheticTags(30617);
+    const expected = valid.find((tag) => tag[0] === name)!;
+    const others = valid.filter((tag) => tag[0] !== name);
+    const publicTag = [name, name === "clone" ? "https://public.example/repo.git" : "wss://public.example/"];
+    for (const destinations of [
+      [], [publicTag], [[...expected, publicTag[1]!]], [[...expected, expected[1]!]],
+      [expected, publicTag], [publicTag, expected], [expected, expected],
+    ]) {
+      expect((await f.call(token, 30617, "", [...others, ...destinations])).status).toBe(403);
+    }
+  });
+
+  test("NIP-42 permits a changing challenge but requires one exact relay tag", async () => {
+    const f = fixture();
+    f.registry.create(syntheticDraft(), "npub1admin");
+    const token = f.issue().token;
+    for (const challenge of ["challenge-one", "challenge-two"]) {
+      expect((await f.call(token, 22242, "", [["relay", relay], ["challenge", challenge]])).status).toBe(200);
+    }
+    for (const tags of [
+      [["relay", relay.slice(0, -1)], ["challenge", "nonce"]],
+      [["relay", relay, "wss://public.example/"]],
+      [["relay", relay], ["relay", "wss://public.example/"]],
+      [["relay", "wss://public.example/"], ["relay", relay]],
+      [["relay", relay], ["relay", relay]],
+    ]) expect((await f.call(token, 22242, "", tags)).status).toBe(403);
+  });
+
+  test("compares multiple values in order and supports a name-only exact tag", async () => {
+    const f = fixture();
+    const draft = syntheticDraft();
+    const rule = draft.nostrKindRules[1]!;
+    rule.exactTags = [["d", "synthetic"], ["relays", relay, "wss://second.example/"], ["!"]];
+    rule.requiredTags = [["relays", relay]];
+    f.registry.create(draft, "npub1admin");
+    const token = f.issue().token;
+    const valid = [["d", "synthetic"], ["relays", relay, "wss://second.example/"], ["!"]];
+    expect((await f.call(token, 30617, "", valid)).status).toBe(200);
+    for (const relays of [["relays", relay], ["relays", "wss://second.example/", relay]]) {
+      expect((await f.call(token, 30617, "", [valid[0]!, relays, valid[2]!])).status).toBe(403);
+    }
+    expect((await f.call(token, 30617, "", [valid[0]!, valid[1]!, ["!", "extra"]])).status).toBe(403);
+  });
+
+  test("legacy requiredTags still permits matching pairs with duplicates and extra values", async () => {
+    const f = fixture();
+    const draft = syntheticDraft();
+    for (const rule of draft.nostrKindRules) {
+      rule.requiredTags = rule.exactTags!.map((tag) => [tag[0], tag[1]!]);
+      delete rule.exactTags;
+    }
+    f.registry.create(draft, "npub1admin");
+    f.reload();
+    const token = f.issue().token;
+    expect((await f.call(token, 30617, "", [
+      ["d", "other"], ...syntheticTags(30617), ["clone", "https://public.example/repo.git"],
+      ["relays", relay, "wss://public.example/"],
+    ])).status).toBe(200);
+  });
+
+  test("new exact-tag revisions restrict newly issued snapshots without rewriting old ones", async () => {
+    const f = fixture();
+    const legacy = syntheticDraft();
+    delete legacy.nostrKindRules[2]!.exactTags;
+    legacy.nostrKindRules[2]!.requiredTags = [["d", "synthetic"]];
+    f.registry.create(legacy, "npub1admin");
+    const old = f.issue();
+    f.registry.update(legacy.id, syntheticDraft(), "npub1admin");
+    f.reload();
+    const updated = f.issue();
+    const tags = [["d", "other"], ...syntheticTags(30618)];
+    expect((await f.call(old.token, 30618, "", tags)).status).toBe(200);
+    expect((await f.call(updated.token, 30618, "", tags)).status).toBe(403);
+  });
+
+  test("broker rejects malformed exact rules even when issued outside the registry", async () => {
+    const f = fixture();
+    const policy = buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example", autopilotUrl: "https://autopilot.example", ownerNpub,
+    });
+    policy.nostr!.kinds.push(30618);
+    policy.nostr!.kindRules = [syntheticDraft().nostrKindRules[2]!];
+    policy.nostr!.kindRules[0]!.exactTags!.push(["d", "other"]);
+    const issued = f.broker.issueSessionCapability({ sessionId: session.id, ownerNpub, profileId, botNpub, policy });
+    expect((await f.call(issued.token, 30618, "", syntheticTags(30618))).status).toBe(403);
+  });
 });
 
 describe("custom Nostr kind capabilities", () => {

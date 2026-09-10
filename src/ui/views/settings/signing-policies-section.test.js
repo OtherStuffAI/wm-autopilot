@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
 import { describeNip98Target, describeNostrKindRule, draftFromPolicy } from './signing-policies-section.js';
+import { saveSigningPolicy } from '../../services/signing-policies.js';
+import { validateSigningPolicyDraft } from '../../../signing/signing-policy-validation.ts';
 
 const source = readFileSync(new URL('./signing-policies-section.js', import.meta.url), 'utf8');
 
@@ -54,6 +56,32 @@ describe('Signing Policies settings section', () => {
       exactPaths: [{ path: '/api/v4/messages', methods: ['GET'] }],
       requireBodyHashMethods: [],
     })).toBe('https://tower.example · GET · exact /api/v4/messages · prefixes none · payload hash optional');
+  });
+
+  test('shows full exact tags and preserves them through JSON editor save and validation', async () => {
+    const exactTags = [['d', 'synthetic'], ['relays', 'wss://one.example/', 'wss://two.example/']];
+    const policy = {
+      id: 'synthetic-only', name: 'Synthetic', description: 'Exact tags', enabled: false,
+      operations: ['nostr.sign'], eventKinds: [30617], nip98Targets: [],
+      assignments: { profileIds: [], workspaceIds: [] },
+      nostrKindRules: [{ kind: 30617, maxContentBytes: 0, maxTags: 16, maxTagBytes: 4096,
+        allowedTagNames: ['d', 'relays'], exactTags }],
+    };
+    expect(describeNostrKindRule(policy.nostrKindRules[0])).toContain(
+      'exactly once (full tag) ["d","synthetic"], ["relays","wss://one.example/","wss://two.example/"]',
+    );
+    const originalFetch = globalThis.fetch;
+    try {
+      let saved;
+      globalThis.fetch = async (_url, options) => {
+        saved = validateSigningPolicyDraft(JSON.parse(options.body));
+        return Response.json({ policy: saved });
+      };
+      await saveSigningPolicy(policy.id, JSON.parse(JSON.stringify(draftFromPolicy(policy))));
+      expect(saved.nostrKindRules[0].exactTags).toEqual(exactTags);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test('shows guided Tower Forgejo setup and falls back to the full active session inventory', () => {

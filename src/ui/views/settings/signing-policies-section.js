@@ -31,7 +31,10 @@ export function describeNostrKindRule(rule) {
   const required = rule.requiredTags?.length
     ? rule.requiredTags.map(([name, value]) => `${name}=${JSON.stringify(value)}`).join(', ')
     : 'none';
-  return `Kind ${rule.kind}: content ≤ ${rule.maxContentBytes} bytes; tags ≤ ${rule.maxTags} / ${rule.maxTagBytes} bytes; names ${rule.allowedTagNames.join(', ') || 'none'}; required ${required}`;
+  const exact = rule.exactTags?.length
+    ? `; exactly once (full tag) ${rule.exactTags.map((tag) => JSON.stringify(tag)).join(', ')}`
+    : '';
+  return `Kind ${rule.kind}: content ≤ ${rule.maxContentBytes} bytes; tags ≤ ${rule.maxTags} / ${rule.maxTagBytes} bytes; names ${rule.allowedTagNames.join(', ') || 'none'}; required ${required}${exact}`;
 }
 
 export function describeNip98Target(target = {}) {

@@ -11,6 +11,50 @@ export interface NostrKindConstraint {
   maxTagBytes: number;
   allowedTagNames: string[];
   requiredTags?: Array<[string, string]>;
+  /** Each named tag must occur once, with exactly this full ordered array. */
+  exactTags?: Array<[string, ...string[]]>;
+}
+
+export function matchesExactNostrTags(tags: string[][], expectedTags: NostrKindConstraint["exactTags"]): boolean {
+  return (expectedTags ?? []).every((expected) => {
+    const matches = tags.filter((tag) => tag[0] === expected[0]);
+    return matches.length === 1 && matches[0]!.length === expected.length
+      && expected.every((value, index) => matches[0]![index] === value);
+  });
+}
+
+function normalizeExactTags(
+  value: unknown,
+  allowedTagNames: string[],
+  requiredTags: Array<[string, string]>,
+  maxTags: number,
+  maxTagBytes: number,
+): NostrKindConstraint["exactTags"] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("Custom Nostr exactTags must be an array when provided");
+  if (value.length === 0) return [];
+  const names = new Set<string>();
+  const exactTags = value.map((tag) => {
+    if (!Array.isArray(tag) || tag.length < 1 || tag.some((item) => typeof item !== "string")) {
+      throw new Error("Custom Nostr exactTags must contain full [name, ...values] string arrays");
+    }
+    const name = tag[0] as string;
+    if (!allowedTagNames.includes(name)) throw new Error("Custom Nostr exact tag names must also be allowed");
+    if (names.has(name)) throw new Error("Custom Nostr exactTags cannot repeat a tag name");
+    names.add(name);
+    if (requiredTags.some(([requiredName, requiredValue]) => requiredName === name && tag[1] !== requiredValue)) {
+      throw new Error("Custom Nostr exactTags conflict with requiredTags");
+    }
+    return [...tag] as [string, ...string[]];
+  });
+  const remainingRequired = requiredTags.filter(([name]) => !names.has(name));
+  if (exactTags.length + remainingRequired.length > maxTags) {
+    throw new Error("Custom Nostr exactTags and requiredTags exceed maxTags");
+  }
+  const minimumBytes = [...exactTags, ...remainingRequired]
+    .reduce((total, tag) => total + tag.reduce((size, item) => size + Buffer.byteLength(item), 0), 0);
+  if (minimumBytes > maxTagBytes) throw new Error("Custom Nostr exactTags and requiredTags exceed maxTagBytes");
+  return exactTags;
 }
 
 export function normalizeNostrKindRules(value: unknown, customKinds: number[]): NostrKindConstraint[] {
@@ -61,6 +105,7 @@ export function normalizeNostrKindRules(value: unknown, customKinds: number[]): 
     if (requiredTags.length > rule.maxTags!) throw new Error("Custom Nostr requiredTags exceed maxTags");
     const pairKeys = requiredTags.map((pair) => JSON.stringify(pair));
     if (new Set(pairKeys).size !== pairKeys.length) throw new Error("Custom Nostr requiredTags cannot contain duplicates");
+    const exactTags = normalizeExactTags(rule.exactTags, allowedTagNames, requiredTags, rule.maxTags!, rule.maxTagBytes!);
     return {
       kind: rule.kind!,
       maxContentBytes: rule.maxContentBytes!,
@@ -68,6 +113,7 @@ export function normalizeNostrKindRules(value: unknown, customKinds: number[]): 
       maxTagBytes: rule.maxTagBytes!,
       allowedTagNames,
       requiredTags,
+      ...(exactTags === undefined ? {} : { exactTags }),
     };
   });
   const ruleKinds = rules.map((rule) => rule.kind);

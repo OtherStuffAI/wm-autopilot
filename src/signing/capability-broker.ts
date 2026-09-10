@@ -7,7 +7,7 @@ import type { BotKeyRecord, BotKeyStore } from "../identity/bot-key-store";
 import { BrokerKeyNotProvisionedError, type BrokerKeyVaultBackend } from "./broker-key-vault";
 import { nip44Decrypt, nip44Encrypt } from "../nostr/nip44-crypto";
 import { jsonError, parseBody } from "../utils/request-utils";
-import { normalizeNostrKindRules, type NostrKindConstraint } from "./nostr-kind-policy";
+import { matchesExactNostrTags, normalizeNostrKindRules, type NostrKindConstraint } from "./nostr-kind-policy";
 import { canonicalizeGitCredentialRequest } from "../git/wingman-credential-protocol";
 import { fetchWappLoginChallenge, type WappLoginRequest } from "./wapp-login";
 
@@ -1038,7 +1038,8 @@ export class CapabilityBroker {
     } catch {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event kind constraints are invalid");
     }
-    const effectiveConstraint = kindRules.find((rule) => rule.kind === kind) ?? constraint;
+    const kindRule = kindRules.find((rule) => rule.kind === kind);
+    const effectiveConstraint = kindRule ?? constraint;
     if (typeof content !== "string" || Buffer.byteLength(content) > effectiveConstraint.maxContentBytes) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event content exceeds policy", 400);
     }
@@ -1055,6 +1056,9 @@ export class CapabilityBroker {
     }
     if (effectiveConstraint.requiredTags?.some(([name, value]) => !stringTags.some((tag) => tag[0] === name && tag[1] === value))) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event is missing a required tag");
+    }
+    if (!matchesExactNostrTags(stringTags, kindRule?.exactTags)) {
+      return this.denied(authorized.capability, "nostr.sign", "Nostr event violates an exact tag constraint");
     }
     const signed = await this.withAuthorizedKey(authorized, (secretKey) => finalizeEvent({
       kind: kind as number,
