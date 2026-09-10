@@ -8,6 +8,7 @@ import { createWingmanMcpApiHandler, type WingmanMcpApiDependencies } from "./wi
 import type { SessionSnapshot } from "../agents/process-manager";
 import type { AgentType } from "../config";
 import { PipelineStore } from "../pipelines/pipeline-store";
+import { inheritWorkerContext } from "../session-dispatch/worker-context";
 
 function buildSession(input: Partial<SessionSnapshot> & { id: string }): SessionSnapshot {
   return {
@@ -293,6 +294,47 @@ describe("wingman-api pinned artifacts", () => {
 });
 
 describe("wingman-api Flight Deck helpers", () => {
+  test("inherited worker context resolves stable bot and default task reads with AGENT false", async () => {
+    const botSecret = generateSecretKey();
+    const botNpub = nip19.npubEncode(getPublicKey(botSecret));
+    const parent = buildSession({ id: "parent", npub: "owner", metadata: {
+      AGENT: true, billingMode: "subscription", flightdeckTowerServiceNpub: "tower",
+      flightdeckWorkspaceId: "workspace", agentChatBotNpub: botNpub,
+    } });
+    const worker = buildSession({ id: "worker", npub: "owner", metadata: {
+      ...inheritWorkerContext(parent, { taskId: "task" }, () => true),
+      AGENT: false, billingMode: "subscription", role: "dispatched-worker",
+    } });
+    const handler = createWingmanMcpApiHandler(makeDeps(new Map([["worker", worker]]), {
+      resolveFlightDeckDirectContext: (binding) => binding.managerNpub === "owner" && binding.agentNpub === botNpub
+        ? { subscriptionId: "sub", backendBaseUrl: "http://tower.test", appNpub: "app",
+          botIdentity: { botNpub, botPubkeyHex: getPublicKey(botSecret), botSecret } } : null,
+    }));
+    const call = (action: string) => {
+      const request = new Request("http://localhost/api/mcp/wingman/flightdeck", {
+        method: "POST", body: JSON.stringify({ sessionId: "worker", action }),
+      });
+      return handler(request, new URL(request.url), "POST");
+    };
+    const context = await call("context");
+    expect(await context!.json()).toMatchObject({ bot: { npub: botNpub, available: true },
+      routing: { bindingType: "task", bindingId: "task" }, record: { recordFamily: "task", recordId: "task" } });
+    const originalFetch = globalThis.fetch;
+    const requests: Request[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push(input instanceof Request ? input : new Request(input, init));
+      return Response.json({ comments: [] });
+    }) as typeof fetch;
+    try {
+      expect((await call("task_comments"))?.status).toBe(200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(requests[0]?.url).toContain("/workspaces/workspace/tasks/task/comments");
+    const auth = JSON.parse(Buffer.from(requests[0]!.headers.get("authorization")!.slice(6), "base64").toString());
+    expect(auth.pubkey).toBe(getPublicKey(botSecret));
+  });
+
   test("resolves Agent Direct session metadata without pipeline context", async () => {
     const sessions = new Map<string, SessionSnapshot>();
     const botSecret = generateSecretKey();

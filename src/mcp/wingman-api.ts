@@ -1246,13 +1246,15 @@ function resolveFlightDeckMcpContext(
       threadId: asString(metadata.flightdeckThreadId),
     },
     routing: {
-      bindingType: 'thread',
-      bindingId: asString(metadata.flightdeckThreadId),
+      bindingType: metadata.bindingType === "task" ? "task" : "thread",
+      bindingId: metadata.bindingType === "task" ? asString(metadata.bindingId) : asString(metadata.flightdeckThreadId),
       routingKey: asString(metadata.flightdeckRoutingKey),
       channelId: asString(metadata.flightdeckChannelId),
       threadId: asString(metadata.flightdeckThreadId),
     },
-    record: { recordFamily: 'chat_thread', recordId: asString(metadata.flightdeckThreadId) },
+    record: metadata.bindingType === "task"
+      ? { recordFamily: "task", recordId: asString(metadata.bindingId) }
+      : { recordFamily: 'chat_thread', recordId: asString(metadata.flightdeckThreadId) },
     runtime: { mode: 'direct_chat' },
     agent: { botNpub: directAgentNpub, agentId: asString(metadata.agentChatAgentId) },
   } : null;

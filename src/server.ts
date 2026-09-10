@@ -1,4 +1,5 @@
 import { flightDeckSessionTransportBinding } from "./agent-chat/flightdeck-session-transport";
+import { createWorkerContextValidator } from "./session-dispatch/worker-context";
 import { createActivityProfileRecovery, createReconciledActivityPublisher } from './agent-chat/agent-activity-lifecycle-recovery';
 import { AgentActivityRecovery } from './agent-chat/agent-activity-recovery';
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -2568,6 +2569,7 @@ const sessionDispatchService = new SessionDispatchService(
   ),
   sessionDispatchInbox,
   (sessionId) => maybeAutoDispatchQueuedPrompt(manager.getSession(sessionId) ?? null),
+  createWorkerContextValidator(workspaceSubscriptionManager),
 );
 sessionDispatchService.start();
 const dispatchPipelineRuntime = new DispatchPipelineRuntime({

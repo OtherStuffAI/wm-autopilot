@@ -15,10 +15,12 @@ export async function handleSessionDispatchApi(request: Request, url: URL, metho
       const body = await request.json() as Record<string, unknown>;
       const callback = (body.callback ?? {}) as Record<string, unknown>;
       const enabled = callback.enabled !== false;
+      if (enabled && !callerSessionId) return Response.json({ error: "SESSION_ID is required" }, { status: 400 });
       const callbackSessionId = typeof callback.sessionId === "string" ? callback.sessionId : callerSessionId;
       const record = await service.create({ agent: body.agent as AgentType, directory: body.directory as string | undefined,
         name: body.name as string | undefined, prompt: String(body.prompt ?? ""), callbackEnabled: enabled,
         callbackSessionId: enabled ? callbackSessionId : null,
+        callerSessionId,
         reportingContext: body.reportingContext as Record<string, unknown> | undefined });
       return Response.json(record, { status: 201 });
     }

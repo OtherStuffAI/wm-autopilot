@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { inheritWorkerContext } from "./worker-context";
 import type { AgentType } from "../agent-types";
 import { resolveAuthoritativeSessionMessages } from "../agents/authoritative-session-messages";
 import type { SessionOrigin, SessionSnapshot } from "../agents/process-manager";
@@ -15,6 +16,7 @@ export interface CreateDispatchInput {
   callbackSessionId: string | null;
   callbackEnabled: boolean;
   reportingContext?: Record<string, unknown>;
+  callerSessionId?: string | null;
 }
 
 export interface DispatchManager {
@@ -52,6 +54,7 @@ export class SessionDispatchService {
     private closeWorker: (sessionId: string) => void | Promise<void> = () => {},
     private inbox?: SessionDispatchInboxCoordinator,
     private requestNextTurn: (sessionId: string) => void | Promise<void> = () => {},
+    private validateWorkerContext?: (session: SessionSnapshot) => boolean,
   ) {}
 
   start(intervalMs = 1000): void {
@@ -74,11 +77,18 @@ export class SessionDispatchService {
     }
     const callback = input.callbackSessionId ? this.requireSession(input.callbackSessionId) : null;
     const ownerNpub = callback ? resolveSessionOwnerNpub(callback.npub, callback.metadata) : null;
+    if (callback && input.callerSessionId) {
+      const caller = this.requireSession(input.callerSessionId);
+      if (!ownerNpub || resolveSessionOwnerNpub(caller.npub, caller.metadata) !== ownerNpub) {
+        throw new Error("Caller and callback session must have the same owner");
+      }
+    }
     const reportingContext = input.reportingContext ?? (callback ? this.inheritReportingContext(callback) : {});
+    const workerContext = inheritWorkerContext(callback, reportingContext, this.validateWorkerContext);
     const worker = await this.manager.createSession(
       input.agent, input.directory, input.name, { type: "session-dispatch", id: input.callbackSessionId ?? "unmonitored" },
       undefined, ownerNpub ?? undefined,
-      { role: "dispatched-worker", callbackSessionId: input.callbackSessionId ?? undefined },
+      { ...workerContext, role: "dispatched-worker", callbackSessionId: input.callbackSessionId ?? undefined },
     );
     const workerOwner = resolveSessionOwnerNpub(worker.npub, worker.metadata);
     if (callback && workerOwner !== ownerNpub) {

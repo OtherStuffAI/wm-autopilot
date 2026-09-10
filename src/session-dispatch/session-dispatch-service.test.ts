@@ -15,7 +15,7 @@ function session(id: string, owner = "npub1owner", runtimeStatus: "running" | "s
     status: "running", agent: "claude-code", port: 3700, agentRuntimeStatus: runtimeStatus } as any;
 }
 
-function fixture(options: { supervisorRuntime?: "running" | "stable" } = {}) {
+function fixture(options: { supervisorRuntime?: "running" | "stable"; validateContext?: (session: any) => boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "dispatch-service-")); roots.push(root);
   const store = new SessionDispatchStore(join(root, "dispatch.db"));
   const queue = new PromptQueueStore(join(root, "queue.db"));
@@ -40,11 +40,41 @@ function fixture(options: { supervisorRuntime?: "running" | "stable" } = {}) {
   const requested = mock(async () => {});
   const closedWorkers: string[] = [];
   const service = new SessionDispatchService(store, manager, queue, () => {}, {},
-    (id) => { closedWorkers.push(id); }, inbox, requested);
+    (id) => { closedWorkers.push(id); }, inbox, requested, options.validateContext);
   return { store, queue, inbox, sessions, adapters, service, requested, closedWorkers, createSession };
 }
 
 describe("SessionDispatchService callback inbox", () => {
+  test("validates inherited context before worker creation and preserves exact callback", async () => {
+    const f = fixture({ validateContext: (parent) => parent.metadata.flightdeckSubscriptionId === "trusted" });
+    Object.assign(f.sessions.get("supervisor").metadata, {
+      flightdeckTowerServiceNpub: "tower", flightdeckWorkspaceId: "workspace",
+      flightdeckSubscriptionId: "trusted", agentChatBotNpub: "bot", agentChatAgentId: "profile",
+    });
+    const record = await f.service.create({ agent: "codex", prompt: "Work", callbackEnabled: true,
+      callbackSessionId: "supervisor", callerSessionId: "supervisor",
+      reportingContext: { taskId: "task", ownerNpub: "forged", agentChatBotNpub: "forged" } });
+    expect(f.createSession.mock.calls[0]?.[6]).toMatchObject({ role: "dispatched-worker",
+      callbackSessionId: "supervisor", agentChatBotNpub: "bot", agentChatAgentId: "profile",
+      flightdeckWorkspaceId: "workspace", bindingType: "task", bindingId: "task" });
+    expect(record.callbackSessionId).toBe("supervisor");
+    f.sessions.set("intruder", session("intruder", "other"));
+    await expect(f.service.create({ agent: "codex", prompt: "Work", callbackEnabled: true,
+      callbackSessionId: "supervisor", callerSessionId: "intruder" })).rejects.toThrow("same owner");
+    f.sessions.get("supervisor").metadata.flightdeckSubscriptionId = "forged";
+    await expect(f.service.create({ agent: "codex", prompt: "Work", callbackEnabled: true,
+      callbackSessionId: "supervisor" })).rejects.toThrow("active owner subscription");
+    expect(f.createSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("unmonitored dispatch ignores forged Flight Deck authority without requiring a resolver", async () => {
+    const f = fixture();
+    const record = await f.service.create({ agent: "codex", prompt: "Work", callbackEnabled: false,
+      callbackSessionId: null, reportingContext: { flightdeckWorkspaceId: "forged", agentChatBotNpub: "evil" } });
+    expect(record.callbackSessionId).toBeNull();
+    expect(f.createSession.mock.calls[0]?.[6]).toEqual({ role: "dispatched-worker", callbackSessionId: undefined });
+  });
+
   test("creates an owned dispatched-worker session through the manager issuance path", async () => {
     const f = fixture();
 
