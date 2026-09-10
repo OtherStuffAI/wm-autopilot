@@ -1,3 +1,4 @@
+import { historyMessages, historyPage } from "../flightdeck-pg/__tests__/history-fixture.ts";
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -387,7 +388,7 @@ describe("wingman-api Flight Deck helpers", () => {
       requests.push(request);
       return request.method === "POST"
         ? Response.json({ message: { id: "reply-1" } })
-        : Response.json({ messages: [{ id: "message-1", body: "Hello" }], next_cursor: null });
+        : Response.json(historyPage(new URL(request.url)));
     }) as typeof fetch;
     try {
       for (const [action, extra] of [["thread_read", {}], ["chat_reply", { body: "Reply" }]] as const) {
@@ -400,14 +401,22 @@ describe("wingman-api Flight Deck helpers", () => {
           "POST",
         );
         expect(helperResponse?.status).toBe(200);
+        if (action === "thread_read") {
+          expect(await helperResponse!.json()).toMatchObject({
+            messages: historyMessages, complete: true, effective_transcript: true,
+            next_cursor: null, page_size: 200, pages_read: 2,
+            cursor_semantics: { version: 1, order: "created_at ASC, id ASC" },
+          });
+        }
       }
     } finally {
       globalThis.fetch = originalFetch;
     }
-    expect(requests).toHaveLength(2);
-    expect(requests[0]!.url).toContain("/channels/channel-1/messages?thread_id=thread-1");
-    expect(requests[1]!.method).toBe("POST");
-    expect(await requests[1]!.clone().json()).toMatchObject({ thread_id: "thread-1", body: "Reply" });
+    expect(requests).toHaveLength(3);
+    expect(requests[0]!.url).toContain("effective_transcript=true");
+    expect(requests[1]!.url).toContain("cursor=200");
+    expect(requests[2]!.method).toBe("POST");
+    expect(await requests[2]!.clone().json()).toMatchObject({ thread_id: "thread-1", body: "Reply" });
   });
 
   test("flightdeck_context resolves pipeline workspace and thread context", async () => {

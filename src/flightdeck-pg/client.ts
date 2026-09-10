@@ -1,3 +1,4 @@
+import { readFlightDeckHistory } from "./thread-history.ts";
 import { flightDeckDocumentBase } from "../agent-chat/flightdeck-document-base";
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -319,7 +320,7 @@ export class FlightDeckPgClient {
   }
 
   async readThread(workspaceId: string, channelId: string, threadId?: string | null, limit?: number) {
-    return await fetchFlightDeckPgChannelMessages({ ...this.base({ workspaceId }), channelId, threadId, limit });
+    return await readFlightDeckHistory({ ...this.base({ workspaceId }), channelId, threadId, limit });
   }
 
   async listChannelMessages(workspaceId: string, channelId: string, input: { cursor?: string | null; limit?: number } = {}) {

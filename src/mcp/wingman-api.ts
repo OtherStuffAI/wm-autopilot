@@ -1,3 +1,4 @@
+import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
 import { flightDeckDocumentBase } from "../agent-chat/flightdeck-document-base";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
@@ -23,7 +24,6 @@ import {
   createFlightDeckPgTaskComment,
   decodeFlightDeckPgDocumentBody,
   fetchFlightDeckPgDailyScope,
-  fetchFlightDeckPgChannelMessages,
   fetchFlightDeckPgDocument,
   fetchFlightDeckPgDocumentComments,
   fetchFlightDeckPgTask,
@@ -1575,11 +1575,11 @@ async function handleFlightDeckHelper(
   if (action === "thread_read") {
     const channelId = resolveChannelId(resolved, body);
     if (!channelId) return jsonError("channelId is required", 400);
-    const result = await fetchFlightDeckPgChannelMessages({
+    const result = await readFlightDeckHistory({
       ...pg,
       channelId,
       threadId: resolveThreadId(resolved, body),
-      limit: Number(body.limit) > 0 ? Number(body.limit) : 200,
+      limit: body.limit === undefined ? undefined : Number(body.limit),
     });
     return jsonOk({ ok: true, ...result });
   }

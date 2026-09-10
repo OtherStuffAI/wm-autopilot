@@ -273,6 +273,8 @@ export interface FlightDeckPgEditLease {
 }
 
 export interface FlightDeckPgMessagesResult {
+  effective_transcript?: boolean;
+  cursor_semantics?: Record<string, unknown>;
   identity?: Record<string, unknown>;
   channel_id?: string;
   thread_id?: string | null;
@@ -876,6 +878,7 @@ export async function fetchFlightDeckPgChannelMessages(params: {
   botIdentity: RuntimeBotIdentity;
   threadId?: string | null;
   effectiveTranscript?: boolean;
+  strictPagination?: boolean;
   cursor?: string | null;
   limit?: number;
   signal?: AbortSignal;
@@ -905,6 +908,12 @@ export async function fetchFlightDeckPgChannelMessages(params: {
     throw Object.assign(new Error(error.message), error);
   }
   const payload = await response.json() as Partial<FlightDeckPgMessagesResult>;
+  if (params.strictPagination && (
+    !payload || !Array.isArray(payload.messages)
+    || !(payload.next_cursor === null || (typeof payload.next_cursor === "string" && payload.next_cursor.trim().length > 0))
+  )) {
+    throw new Error("Invalid Flight Deck history page: messages and an explicit next_cursor are required");
+  }
   return {
     ...payload,
     messages: Array.isArray(payload.messages) ? payload.messages : [],

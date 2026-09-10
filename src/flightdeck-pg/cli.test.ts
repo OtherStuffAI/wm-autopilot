@@ -1,3 +1,4 @@
+import { historyMessages, historyPage } from "./__tests__/history-fixture.ts";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
@@ -426,10 +427,16 @@ describe('flightdeck pg cli', () => {
       'http://tower.test',
     ];
 
-    expect((await runFlightDeckPgCli(['thread', 'read', 'thread-1', ...common], { fetchImpl: router as typeof fetch })).exitCode).toBe(0);
+    const recovered = await runFlightDeckPgCli(['thread', 'read', 'thread-1', ...common], { fetchImpl: router as typeof fetch });
+    expect(recovered.exitCode).toBe(0);
+    expect(JSON.parse(recovered.stdout!)).toMatchObject({
+      messages: historyMessages, complete: true, effective_transcript: true,
+      next_cursor: null, page_size: 200, pages_read: 2,
+      cursor_semantics: { version: 1, order: "created_at ASC, id ASC" },
+    });
     expect((await runFlightDeckPgCli(['chat', 'reply', '--thread', 'thread-1', '--body', 'Reply', ...common], { fetchImpl: router as typeof fetch })).exitCode).toBe(0);
 
-    expect(requests.some((request) => request.url === 'http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/channels/channel-1/messages?thread_id=thread-1&limit=200' && request.method === 'GET')).toBe(true);
+    expect(requests.some((request) => request.url === 'http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/channels/channel-1/messages?thread_id=thread-1&effective_transcript=true&limit=200' && request.method === 'GET')).toBe(true);
     expect(requests.some((request) => request.url === 'http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/channels/channel-1/messages' && request.method === 'POST')).toBe(true);
   });
 
@@ -766,7 +773,7 @@ function makeFlightDeckRouter(): {
       return Response.json({ task: { id: 'task-1', state: 'in_progress' } });
     }
     if (url.pathname === '/api/v4/flightdeck-pg/workspaces/workspace-1/channels/channel-1/messages' && method === 'GET') {
-      return Response.json({ messages: [{ id: 'message-1' }], next_cursor: null });
+      return Response.json(historyPage(url));
     }
     if (url.pathname === '/api/v4/flightdeck-pg/workspaces/workspace-1/channels/channel-1/messages' && method === 'POST') {
       return Response.json({ message: { id: 'message-2' } });

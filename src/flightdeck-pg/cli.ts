@@ -431,7 +431,8 @@ Usage:
   bun clis/wingman.ts flightdeck task comment <task-id> --workspace <workspace-id> --body "..." --json
   bun clis/wingman.ts flightdeck task state <task-id> --workspace <workspace-id> --state in_progress --json
   bun clis/wingman.ts flightdeck task move <task-id> --workspace <workspace-id> --destination-channel <channel-id> [--destination-scope <scope-id>] --json
-  bun clis/wingman.ts flightdeck thread read <thread-id> --workspace <workspace-id> --channel <channel-id> --json
+  bun clis/wingman.ts flightdeck thread read <thread-id> --workspace <workspace-id> --channel <channel-id> [--limit <page-size>] --json
+    Reads all effective transcript pages; --limit is page size (1–500, default 200), not a total cap.
   bun clis/wingman.ts flightdeck chat reply --workspace <workspace-id> --channel <channel-id> --thread <thread-id> --body "..." --json
   bun clis/wingman.ts flightdeck doc create --workspace <workspace-id> --channel <channel-id> --title "..." --body-file file.md --json
   bun clis/wingman.ts flightdeck doc download <doc-ref> --workspace <workspace-id> --out ./tmp/design.md --json

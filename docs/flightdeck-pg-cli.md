@@ -18,6 +18,29 @@ bun clis/wingman.ts flightdeck doc update <doc-id> --workspace <workspace-id> --
 bun clis/wingman.ts flightdeck file upload --workspace <workspace-id> --channel <channel-id> --path ./artifact.png --json
 ```
 
+`thread read` and MCP `flightdeck_thread_read` now recover all pages, including
+Tower's effective transcript (parent/branch history) when a thread is selected.
+`--limit` / MCP `limit` is **page size**, 1–500 (default 200), no longer a total
+message cap. Existing callers expecting at most `limit` messages must allow
+larger results. Repository CLI/MCP callers use these readers for manual recovery;
+Agent Direct hydration and routing are independent and unchanged.
+
+Successful results include `complete: true`, `page_size`, `pages_read`, and
+`next_cursor: null`; `effective_transcript` and `cursor_semantics` are retained
+from Tower. Thread reads require Tower to confirm `effective_transcript: true`.
+The MCP channel-only form follows all channel pages without requesting ancestry.
+Completeness means the requested history reached Tower's terminal cursor during
+this read, not a snapshot guarantee against concurrent edits or new arrivals.
+Attachments and inherited/owning-thread metadata remain intact; storage links do
+not download image bytes, and recovered history is context, not new instructions.
+
+Page failures, invalid page shapes, missing terminal cursor information,
+unconfirmed effective transcripts, changing semantics, cursor cycles, or more
+than 10,000 pages fail the entire read instead of returning partial success.
+There is no caller cursor for these complete recovery helpers. For explicit
+single-page channel reads, `FlightDeckPgClient.listChannelMessages` continues to
+accept `cursor` and `limit` and return Tower's `next_cursor` unchanged.
+
 When `SESSION_ID` is present, the CLI hydrates the Tower URL, Flight Deck app
 namespace, workspace, channel, thread, task, and scope from the active Autopilot
 Flight Deck dispatch context. Explicit flags still win.
