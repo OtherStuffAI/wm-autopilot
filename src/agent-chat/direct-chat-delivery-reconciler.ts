@@ -36,6 +36,7 @@ interface AgentDirectDeliveryReconcilerDependencies {
   activeIntervalMs?: number;
   unavailableIntervalMs?: number;
   leaseMs?: number;
+  promptReceiptTimeoutMs?: number;
   random?: () => number;
   now?: () => number;
   log?: Pick<Console, 'error' | 'warn'>;
@@ -57,6 +58,7 @@ export class AgentDirectDeliveryReconciler {
   private readonly activeIntervalMs: number;
   private readonly unavailableIntervalMs: number;
   private readonly leaseMs: number;
+  private readonly promptReceiptTimeoutMs: number;
   private readonly random: () => number;
   private readonly now: () => number;
   private readonly log: Pick<Console, 'error' | 'warn'>;
@@ -71,6 +73,7 @@ export class AgentDirectDeliveryReconciler {
     this.activeIntervalMs = deps.activeIntervalMs ?? envMs('AGENT_DIRECT_ACTIVE_RECONCILE_MS', 2_000);
     this.unavailableIntervalMs = deps.unavailableIntervalMs ?? envMs('AGENT_DIRECT_UNAVAILABLE_RECONCILE_MS', 30_000);
     this.leaseMs = deps.leaseMs ?? envMs('AGENT_DIRECT_DELIVERY_LEASE_MS', 30_000);
+    this.promptReceiptTimeoutMs = deps.promptReceiptTimeoutMs ?? 300_000;
     this.random = deps.random ?? Math.random;
     this.now = deps.now ?? Date.now;
     this.log = deps.log ?? console;
@@ -134,6 +137,14 @@ export class AgentDirectDeliveryReconciler {
     const inspection = await inspectAcceptedFinalResponse(this.deps.manager, record.sessionId, record.prompt ?? '',
       record.sourceMessageIds, record.acceptedAt);
     if (!inspection.reply) {
+      const acceptedAt = Date.parse(record.acceptedAt ?? record.createdAt);
+      if (inspection.promptBoundary === 'missing' && inspection.runtimeStable
+        && Number.isFinite(acceptedAt) && this.now() - acceptedAt >= this.promptReceiptTimeoutMs) {
+        this.store.markFailed(record.turnId, 'prompt_not_received',
+          'The idle agent transcript has no matching prompt; return the input to pending delivery.', this.isoNow(), owner);
+        this.preserveContinuityForReplay(record, true);
+        return this.store.get(record.turnId);
+      }
       if (inspection.sessionState !== 'active') {
         const errorClass = `session_${inspection.sessionState}`;
         const message = `Accepted Agent Direct session is ${inspection.sessionState} and has no authoritative final response.`;
@@ -271,16 +282,20 @@ export class AgentDirectDeliveryReconciler {
       lastActivityAt: at, updatedAt: at });
   }
 
-  private preserveContinuityForReplay(record: DirectChatTurnRecord): void {
+  private preserveContinuityForReplay(record: DirectChatTurnRecord, undelivered = false): void {
     if (!this.deps.interceptStore || !record.sessionId) return;
     const intercept = this.deps.interceptStore.getByRoutingKey(record.routingKey);
     if (!intercept || (intercept.sessionId && intercept.sessionId !== record.sessionId)) return;
     const at = this.isoNow();
+    const completed = intercept.lastCompletedTurnId ? this.store.get(intercept.lastCompletedTurnId) : null;
+    const rewindDelivery = undelivered && record.sourceMessageIds.includes(intercept.lastHumanMessageIdDelivered ?? '');
     this.deps.interceptStore.save({
       ...intercept,
       sessionId: record.sessionId,
-      lastHumanMessageIdDelivered: intercept.lastHumanMessageIdDelivered ?? record.sourceMessageIds.at(-1) ?? null,
-      state: intercept.pendingMessageCount > 0 ? 'pending' : intercept.state,
+      lastHumanMessageIdDelivered: rewindDelivery ? completed?.sourceMessageIds.at(-1) ?? null
+        : intercept.lastHumanMessageIdDelivered ?? (undelivered ? null : record.sourceMessageIds.at(-1) ?? null),
+      pendingMessageCount: undelivered ? Math.max(intercept.pendingMessageCount, 1) : intercept.pendingMessageCount,
+      state: undelivered || intercept.pendingMessageCount > 0 ? 'pending' : intercept.state,
       lastDecision: 'failed',
       lastActivityAt: at,
       updatedAt: at,

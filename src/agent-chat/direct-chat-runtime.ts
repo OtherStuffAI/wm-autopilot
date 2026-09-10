@@ -1,3 +1,4 @@
+import { DIRECT_CHAT_SUBMISSION_LEASE_MS } from './direct-chat-response';
 import type { AgentType } from '../config';
 import { isAgentType } from '../agent-types';
 import type { ProcessManager, SessionSnapshot } from '../agents/process-manager';
@@ -423,7 +424,9 @@ export class AgentDirectChatRuntime {
           sourceAppNpub: input.subscription.sourceAppNpub, channelId: intercept.channelId, threadId: intercept.threadId,
           agentId: agent.agentId, agentNpub: intercept.botNpub, sessionId: null, prompt: null, promptType: 'direct_chat',
           triggerMessageId: sourceMessageIds.at(-1) ?? null, receivedAt: delta[0]?.createdAt ?? now,
-          acceptedAt: now, nextAttemptAt: now });
+          acceptedAt: now, nextAttemptAt: now,
+          leaseOwner: this.deps.deliveryReconciler?.runtimeLeaseOwner ?? null,
+          leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS).toISOString() : null });
         let sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null);
         let session = sessionResolution.session;
         for (const recordId of sourceMessageIds) {
@@ -453,6 +456,11 @@ export class AgentDirectChatRuntime {
               lastHumanMessageIdDelivered: sourceMessageIds.at(-1) ?? null, pendingMessageCount: 0,
               updatedAt: new Date().toISOString() });
           };
+        // Persist the intended prompt before transport so restart recovery can
+        // inspect receipt without assuming that submission reached the agent.
+        this.turnStore.save({ ...this.turnStore.get(turnId)!, sessionId: session.id, prompt,
+          leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS).toISOString() : null,
+          updatedAt: new Date().toISOString() });
         let reply;
         try {
           reply = await this.sendFinalResponse(this.deps.processManager, session.id, prompt, {
@@ -480,6 +488,9 @@ export class AgentDirectChatRuntime {
             scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery });
           activity.bindSession(session.id);
           await activity.publish('working');
+          this.turnStore.save({ ...this.turnStore.get(turnId)!, sessionId: session.id, prompt,
+            leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS).toISOString() : null,
+            updatedAt: new Date().toISOString() });
           reply = await this.sendFinalResponse(this.deps.processManager, session.id, prompt, {
             onAccepted, onPoll: () => activity?.publishLatestCommentary(this.deps.processManager),
           });
@@ -494,7 +505,7 @@ export class AgentDirectChatRuntime {
         if (published) await activity.publish('completed');
       } catch (error) {
         const awaiting = activeTurnId ? this.turnStore.get(activeTurnId) : null;
-        if (awaiting && isSessionWaitTimeout(error)) {
+        if (awaiting?.state === 'awaiting_reply' && isSessionWaitTimeout(error)) {
           if (this.deps.deliveryReconciler && awaiting.leaseOwner === this.deps.deliveryReconciler.runtimeLeaseOwner) {
             this.turnStore.releaseAwaiting(awaiting.turnId, this.deps.deliveryReconciler.runtimeLeaseOwner, new Date().toISOString());
             this.deps.deliveryReconciler.notify(awaiting.turnId);
@@ -541,7 +552,7 @@ export class AgentDirectChatRuntime {
             }),
             details: { routing_key: routingKey },
           };
-          if (intercept.sessionId && isSessionWaitTimeout(error)) {
+          if (intercept.sessionId && awaiting?.state === 'awaiting_reply' && isSessionWaitTimeout(error)) {
             this.dispatchOutcomeStore.recordSessionWaitTimeout({ ...shared, sessionId: intercept.sessionId, error: errorMessage });
           } else {
             this.dispatchOutcomeStore.recordSessionFailure({ ...shared, error: errorMessage,

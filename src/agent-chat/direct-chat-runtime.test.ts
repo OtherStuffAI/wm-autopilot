@@ -34,10 +34,12 @@ function fixture(options: {
   failCreate?: boolean;
   failCreateErrorCode?: string;
   timeoutFirstResponse?: boolean;
+  timeoutWithoutReceipt?: boolean;
   createGate?: Promise<void>;
   botNpub?: string;
   addBuilder?: boolean;
   useDeliveryReconciler?: boolean;
+  reconcileNow?: () => number;
 } = {}) {
   const db = join(tmpdir(), `agent-direct-${randomUUID()}.sqlite`);
   const agentStore = new AgentDefinitionStore(db);
@@ -93,6 +95,9 @@ function fixture(options: {
   let finalResponseCalls = 0;
   const sendFinalResponse = async (...args: Parameters<typeof sendPromptAndAwaitFinalResponse>) => {
     finalResponseCalls += 1;
+    if (options.timeoutWithoutReceipt) {
+      throw new Error(`Timed out waiting for session ${args[1]} to produce a final response.`);
+    }
     if (options.timeoutFirstResponse && finalResponseCalls === 1) {
       await args[3]?.onAccepted?.();
       throw new Error(`Timed out waiting for session ${args[1]} to produce a final response.`);
@@ -104,7 +109,7 @@ function fixture(options: {
     return await sendPromptAndAwaitFinalResponse(...args);
   };
   const deliveryReconciler = options.useDeliveryReconciler
-    ? new AgentDirectDeliveryReconciler({ manager, store: turnStore, interceptStore, instanceId: 'runtime-test',
+    ? new AgentDirectDeliveryReconciler({ manager, store: turnStore, interceptStore, instanceId: 'runtime-test', now: options.reconcileNow,
         resolveTransport: (record) => ({ backendBaseUrl: record.backendBaseUrl!, workspaceId: record.workspaceId!, appNpub: record.sourceAppNpub! }),
         withProfileIdentity: async (record, operation) => operation({ botNpub: record.agentNpub!, botPubkeyHex: '00', botSecret: new Uint8Array([1]) }),
         publish: publish as never, dispatchOutcomeStore, activeIntervalMs: 10, unavailableIntervalMs: 10 })
@@ -394,6 +399,20 @@ describe('Agent Direct Chat runtime', () => {
     const outcome = f.dispatchOutcomeStore.listPage(['sub1'], { limit: 10, offset: 0 }).rows[0];
     expect(outcome).toMatchObject({ outcome: 'failed', reasonCode: 'broker_key_not_provisioned' });
     expect(outcome?.details?.error).toContain('authenticated browser unlock once');
+  });
+
+  test('does not hand an unreceived prompt timeout to reply reconciliation', async () => {
+    const f = fixture({ timeoutWithoutReceipt: true, useDeliveryReconciler: true });
+    const message = f.message('m1', '@Example Agent answer this', true);
+    await f.handle([message], 'm1');
+    await f.runtime.waitForIdle();
+    const intercept = f.interceptStore.listAll()[0]!;
+    expect(intercept.lastHumanMessageIdDelivered).toBeNull();
+    expect(intercept.pendingMessageCount).toBe(1);
+    expect(intercept.state).toBe('pending');
+    expect(f.turnStore.getPending(intercept.routingKey)).toBeNull();
+    expect(f.turnStore.get(buildDirectChatTurnId(intercept.routingKey, ['m1']))?.state).toBe('failed');
+    expect(f.published).toHaveLength(0);
   });
 
   test('recreates an orphaned pre-session turn after broker provisioning succeeds', async () => {
@@ -763,6 +782,28 @@ describe('Agent Direct Chat runtime', () => {
       sessionGeneration: 2,
       previousSessionIds: ['dead-session'],
       pendingMessageCount: 0,
+    });
+  });
+
+  test('replays a missing resumed prompt and later chat together without replacing the live session', async () => {
+    const f = fixture({ useDeliveryReconciler: true, reconcileNow: () => Date.now() + 600_000 });
+    const seeded = seedPendingOrphan(f, 'stopped');
+    const session = f.sessions.get('dead-session');
+    session.status = 'running';
+    session.messages = [{ role: 'user', content: 'Continue the existing goal', createdAt: new Date().toISOString() }];
+    const intercept = f.interceptStore.getByRoutingKey(seeded.routingKey)!;
+    f.interceptStore.save({ ...intercept, sessionId: session.id });
+
+    await f.handle([seeded.oldMessage, seeded.newerMessage], 'm2');
+    await f.runtime.waitForIdle();
+
+    expect(f.turnStore.get(seeded.turnId)).toMatchObject({ state: 'failed', lastErrorClass: 'prompt_not_received' });
+    expect(f.creates).toHaveLength(0);
+    expect(f.stops).toHaveLength(0);
+    expect(f.published).toHaveLength(1);
+    expect(f.published[0].metadata.source_message_ids).toEqual(['m1', 'm2']);
+    expect(f.interceptStore.getByRoutingKey(seeded.routingKey)).toMatchObject({
+      sessionId: 'dead-session', lastHumanMessageIdDelivered: 'm2', pendingMessageCount: 0,
     });
   });
 

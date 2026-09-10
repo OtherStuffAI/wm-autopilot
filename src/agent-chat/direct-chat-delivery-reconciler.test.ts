@@ -18,7 +18,7 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 function fixture(options: { publish?: (input: any, attempt: number) => Promise<any>; auth?: boolean;
-  resolvedNpub?: string; identityError?: Error; reconcileActivity?: () => Promise<void> } = {}) {
+  runtimeStatus?: 'stable' | 'running'; resolvedNpub?: string; identityError?: Error; reconcileActivity?: () => Promise<void> } = {}) {
   const routingKey = buildDirectChatRoutingKey({ towerServiceNpub: 'npub1tower', workspaceId: 'workspace-1',
     channelId: 'channel-1', threadId: 'thread-1', agentNpub: 'npub1agent' });
   const root = mkdtempSync(join(tmpdir(), 'agent-direct-delivery-'));
@@ -39,7 +39,7 @@ function fixture(options: { publish?: (input: any, attempt: number) => Promise<a
   ] } as any;
   const sessions = new Map([[session.id, session]]);
   const manager = { getSession: (id: string) => sessions.get(id), getAdapter: (id: string) => sessions.has(id) ? ({
-    deliversPromptsDirectly: () => true, fetchMessages: async () => [...sessions.get(id)!.messages], fetchStatus: async () => 'stable',
+    deliversPromptsDirectly: () => true, fetchMessages: async () => [...sessions.get(id)!.messages], fetchStatus: async () => options.runtimeStatus ?? 'stable',
   }) : undefined, captureAgentapiCodexSessionIdFromPrompt: mock(async () => false) } as unknown as ProcessManager;
   const calls: any[] = [];
   const publish = mock(async (input: any) => {
@@ -93,6 +93,49 @@ describe('Agent Direct durable delivery reconciler', () => {
     expect(f.store.get('turn-2')).toMatchObject({ state: 'failed', lastErrorClass: 'session_missing' });
     expect(f.store.get('turn-1')).toMatchObject({ state: 'awaiting_reply', lastErrorClass: null });
     expect(f.store.getPending(f.routingKey)?.turnId).toBe('turn-1');
+    expect(f.calls).toHaveLength(0);
+  });
+
+  test('requeues an old transport acceptance with no prompt in the idle transcript', async () => {
+    const f = fixture();
+    f.seed();
+    const intercept = f.interceptStore.upsertMessage({ routingKey: f.routingKey, subscriptionId: 'sub-1',
+      agentId: 'exampleAgent', workspaceOwnerNpub: 'npub1owner', sourceAppNpub: 'npub1app',
+      towerServiceNpub: 'npub1tower', workspaceId: 'workspace-1', channelId: 'channel-1', threadId: 'thread-1',
+      botNpub: 'npub1agent', messageId: 'm2', at: '2026-07-29T00:00:01.000Z' }).record;
+    f.interceptStore.save({ ...intercept, sessionId: 'session-1', lastHumanMessageIdDelivered: 'm1',
+      state: 'active', pendingMessageCount: 1 });
+    f.session.messages = [{ role: 'user', content: 'Continue the existing goal', createdAt: '2026-07-29T00:00:01.000Z' }];
+    const reconciler = f.make('resume');
+    await reconciler.processTurnNow('turn-1');
+    expect(f.store.get('turn-1')?.state).toBe('awaiting_reply');
+    f.advance(300_000);
+    await reconciler.processTurnNow('turn-1');
+    expect(f.store.get('turn-1')).toMatchObject({ state: 'failed', lastErrorClass: 'prompt_not_received' });
+    expect(f.interceptStore.getByRoutingKey(f.routingKey)).toMatchObject({ sessionId: 'session-1',
+      state: 'pending', lastHumanMessageIdDelivered: null, pendingMessageCount: 1 });
+    expect(f.calls).toHaveLength(0);
+  });
+
+  test('does not infer missing input from an empty transcript or a long-running received turn', async () => {
+    for (const empty of [true, false]) {
+      const f = fixture();
+      f.seed();
+      if (empty) f.session.messages = [];
+      f.advance(600_000);
+      await f.make('wait').processTurnNow('turn-1');
+      expect(f.store.get('turn-1')?.state).toBe('awaiting_reply');
+      expect(f.calls).toHaveLength(0);
+    }
+  });
+
+  test('does not replay unconfirmed input while the agent is still busy', async () => {
+    const f = fixture({ runtimeStatus: 'running' });
+    f.seed();
+    f.session.messages = [{ role: 'user', content: 'Continue the existing goal', createdAt: '2026-07-29T00:00:01.000Z' }];
+    f.advance(600_000);
+    await f.make('busy').processTurnNow('turn-1');
+    expect(f.store.get('turn-1')?.state).toBe('awaiting_reply');
     expect(f.calls).toHaveLength(0);
   });
 
