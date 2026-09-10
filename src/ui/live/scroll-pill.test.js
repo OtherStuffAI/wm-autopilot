@@ -10,7 +10,7 @@ import {
 } from "./scroll-pill.js";
 
 const source = readFileSync(new URL("./scroll-pill.js", import.meta.url), "utf8");
-const liveViewSource = readFileSync(new URL("../views/live-view.js", import.meta.url), "utf8");
+const composerControlsSource = readFileSync(new URL("./composer-scroll-controls.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 describe("last prompt pill visibility helpers", () => {
@@ -117,10 +117,10 @@ describe("last prompt pill visibility helpers", () => {
   });
 
   test("passes the conversation element to all pill attachments in display order", () => {
-    expect(liveViewSource).toContain("scrollPill.attachLastPromptPill(composerEl, scrollTarget, conversationEl);\n      scrollPill.attachNextPromptPill(composerEl, scrollTarget, conversationEl);\n      scrollPill.attachScrollPill(composerEl, scrollTarget, conversationEl);");
-    expect(liveViewSource).toContain("scrollPill.attachNextPromptPill(composerEl, scrollTarget, conversationEl);");
-    expect(liveViewSource).toContain("scrollPill.attachScrollPill(composerEl, scrollTarget, conversationEl);");
-    expect(liveViewSource).toContain("scrollPill.attachLastPromptPill(composerEl, scrollTarget, conversationEl);");
+    expect(composerControlsSource).toContain("scrollPill.attachLastPromptPill(composerEl, scrollTarget, conversationEl);\n      scrollPill.attachNextPromptPill(composerEl, scrollTarget, conversationEl);\n      scrollPill.attachScrollPill(composerEl, scrollTarget, conversationEl);");
+    expect(composerControlsSource).toContain("scrollPill.attachNextPromptPill(composerEl, scrollTarget, conversationEl);");
+    expect(composerControlsSource).toContain("scrollPill.attachScrollPill(composerEl, scrollTarget, conversationEl);");
+    expect(composerControlsSource).toContain("scrollPill.attachLastPromptPill(composerEl, scrollTarget, conversationEl);");
   });
 
   test("reveals scroll pills for three seconds after scroll activity", () => {

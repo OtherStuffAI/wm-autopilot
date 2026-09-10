@@ -45,6 +45,12 @@ function applyViewportState() {
     return;
   }
 
+  // Pinch zoom pans the existing layout; it must not reflow it at every scale.
+  if (window.visualViewport && Math.abs(window.visualViewport.scale - 1) > 0.01) {
+    return;
+  }
+  root.style.setProperty("--wm-viewport-offset-top", `${window.visualViewport?.offsetTop ?? 0}px`);
+
   const keyboardOpen = detectKeyboardOpen();
   body.dataset.keyboardOpen = keyboardOpen ? "true" : "false";
 
@@ -86,8 +92,8 @@ export function initLiveMobileRuntime() {
   window.addEventListener("resize", scheduleViewportStateSync, { passive: true });
   window.addEventListener("orientationchange", scheduleViewportStateSync, { passive: true });
   if (visualViewport) {
-    visualViewport.addEventListener("resize", debouncedViewportSync, { passive: true });
-    visualViewport.addEventListener("scroll", debouncedViewportSync, { passive: true });
+    visualViewport.addEventListener("resize", scheduleViewportStateSync, { passive: true });
+    visualViewport.addEventListener("scroll", scheduleViewportStateSync, { passive: true });
   }
   document.addEventListener("focusin", debouncedViewportSync, true);
   document.addEventListener("focusout", debouncedViewportSync, true);

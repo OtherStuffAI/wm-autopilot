@@ -64,6 +64,7 @@ import { buildFilesPreviewRoutePath } from "../files/route-url.js";
 import { npubProjectsState } from "../npub-projects/index.js";
 import { state, TERMINAL_CONTROL_ACTIONS } from "../state/index.js";
 import * as scrollPill from "../live/scroll-pill.js";
+import { attachComposerScrollControls, getConversationScrollTarget } from "../live/composer-scroll-controls.js";
 import { resolveTerminalControlKeyAction } from "../live/terminal-controls.js";
 import {
   createConversationElement,
@@ -788,19 +789,6 @@ export function initLiveView(deps) {
     return placeholder;
   };
 
-  const attachComposerScrollControls = (composerEl) => {
-    requestAnimationFrame(() => {
-      if (!composerEl) return;
-      const splitScroll = composerEl.closest(".wm-live-chat-col")?.querySelector(".wm-live-scroll") || null;
-      const docScroll = document.scrollingElement || document.documentElement || document.body;
-      const scrollTarget = splitScroll || docScroll;
-      const conversationEl = scrollTarget?.querySelector?.(".wm-live-conversation") || document.querySelector(".wm-live-conversation");
-      scrollPill.attachLastPromptPill(composerEl, scrollTarget, conversationEl);
-      scrollPill.attachNextPromptPill(composerEl, scrollTarget, conversationEl);
-      scrollPill.attachScrollPill(composerEl, scrollTarget, conversationEl);
-    });
-  };
-
   // ── Composer ────────────────────────────────────────────────────
 
   function resolveSessionAgentLabel(session) {
@@ -872,6 +860,8 @@ export function initLiveView(deps) {
     textarea.placeholder = "Ask the agent something...";
     textarea.value = initialDraft;
     textarea.setAttribute("rows", "1");
+    textarea.setAttribute("aria-label", "Message");
+    textarea.dataset.testid = "live-composer-input";
     textarea.dataset.focusKey = `live-composer-${sessionId}`;
 
     const fileInput = document.createElement("input");
@@ -1038,6 +1028,7 @@ export function initLiveView(deps) {
     commandButton.type = "button";
     commandButton.className = "wm-button secondary wm-command-button";
     commandButton.innerHTML = '<span class="button-icon" aria-hidden="true">$></span><span class="button-text">Menu</span>';
+    commandButton.setAttribute("aria-label", "Message menu");
     commandButton.setAttribute("aria-haspopup", "true");
     commandButton.setAttribute("aria-expanded", "false");
 
@@ -1237,8 +1228,7 @@ export function initLiveView(deps) {
         showToast("No user messages found", { type: "info" });
         return;
       }
-      const scrollTarget = document.querySelector(".wm-live-chat-col .wm-live-scroll")
-        || (document.scrollingElement || document.documentElement || document.body);
+      const scrollTarget = getConversationScrollTarget();
       scrollPill.scrollLastMessageToTop(scrollTarget, conversationContainer);
     };
 
@@ -1978,7 +1968,7 @@ export function initLiveView(deps) {
       main.append(scrollRegion);
       const composerEl = renderComposer(sessionId);
       wrapper.append(main, composerEl);
-      // Attach scroll pill to the composer — scrollTarget is the document for non-split
+      // Resolve the active scroll container after layout is mounted.
       requestAnimationFrame(() => {
         attachComposerScrollControls(composerEl);
       });

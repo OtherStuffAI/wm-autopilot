@@ -78,6 +78,7 @@ describe("createStaticRouteHandler", () => {
       "/live/composer-upload-state.js",
       "/live/conversation-queue.js",
       "/live/permission-actions.js",
+      "/live/composer-scroll-controls.js",
       "/live/session-ui-reconciliation.js",
       "/live/working-notes-display.js",
       "/scheduler/form-support.js",
