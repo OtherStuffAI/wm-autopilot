@@ -89,6 +89,7 @@ describe("createStaticRouteHandler", () => {
       "/sessions/session-tab-state.js",
       "/views/settings/restart-settings-section.js",
       "/views/settings/signing-policies-section.js",
+      "/views/settings/signing-policy-import.js",
       "/services/signing-policies.js",
       "/views/settings/agent-profile-media-picker.js",
       "/views/settings/agent-profile-card.js",

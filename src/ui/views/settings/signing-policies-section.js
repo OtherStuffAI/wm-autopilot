@@ -5,6 +5,7 @@ import {
   saveSigningPolicy,
   setSigningPolicyEnabled,
 } from '../../services/signing-policies.js';
+import { createSigningPolicyImport } from './signing-policy-import.js';
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -115,12 +116,19 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
   let inventory = { policies: [], sessions: [] };
   let selectedId = null;
   let detail = null;
+  const importer = createSigningPolicyImport({
+    getExistingIds: () => inventory.policies.map((policy) => policy.id),
+    onCreated: (id) => refresh(id),
+  });
+  importer.hidden = true;
+  root.append(importer);
 
   async function refresh(preferredId = selectedId) {
     status.textContent = 'Loading signing policies…';
     status.dataset.state = 'loading';
     try {
       inventory = await loadSigningPolicies();
+      importer.hidden = false;
       selectedId = inventory.policies.some((policy) => policy.id === preferredId)
         ? preferredId
         : inventory.policies[0]?.id || null;
