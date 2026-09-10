@@ -44,10 +44,16 @@ The other worker `626307d9-4e8a-476a-b631-b1987b0dd825` was not modified.
 Server-side `flightdeck_task_comments` successfully read the execution contract.
 `flightdeck_task_comment` created progress comment
 `652583ce-de2b-495d-9cc6-863a0f3279a0`, with audit actor equal to the stable bot.
-Direct `wingman.ts flightdeck task show/comments` was denied by the broker with
-`NIP-98 origin is not allowed`. That existing grant restriction remains intact;
-use the available server-side MCP task helpers. This is evidence of successful
-task-comment reads/writes, not a claim that the direct CLI task-show path works.
+The original implementation worker’s direct `wingman.ts flightdeck task
+show/comments` attempt was denied by the broker with `NIP-98 origin is not
+allowed`. That result applies to that invocation and its resolved origin.
+The independent reviewer subsequently read the task and comments successfully
+using explicit `--tower-url <tower-url>`, `--app-npub <app-npub>`,
+`--workspace <workspace-id>` and `--bot-crypto` options. The reviewer’s success
+validates those explicit task/comments reads; it does not establish that the
+worker’s original invocation or implicit context resolution works. No keys or
+broker grants were changed. The server-side MCP results separately establish
+successful task-comment reads/writes.
 
 Manager-to-worker metadata mutation requires execution delegation; owner-space
 mutation requires active owner delegation. Self-session PATCH is expressly
@@ -107,7 +113,9 @@ Do not treat these source tests as a live new-dispatch smoke test.
 Read the architecture v5 draft scene: Flight Deck coordinates human/agent work,
 Autopilot executes it, and Tower authorizes shared records. No pipeline or UI
 changes are involved. The repository-referenced `docs/architecture.md` is absent.
-The pre-existing manager brief is preserved in the companion handoff file.
+The companion handoff file preserves the reusable diagnosis, scope and
+acceptance criteria with generic placeholders. The full original operational
+brief is preserved on the Flight Deck task and in the manager’s local brief.
 
 ## Validation
 
@@ -116,9 +124,14 @@ The pre-existing manager brief is preserved in the companion handoff file.
   The final focused run also covers the last caller-header and task-hint cases.
 - `bun run typecheck` — passed against `tsconfig.release.json`.
 - `git diff --check` — passed.
-- `bun run quality:public-source` — failed on existing operator-specific
-  repository material and the preserved, previously untracked manager brief.
-  No implementation files or this validation document were reported. Cleaning
-  unrelated historical material is outside this change.
+- `bun run quality:public-source` — still fails on historical repository
+  violations. After documentation cleanup, neither this validation document nor
+  `docs/grasp-dispatch-context-handoff-2026-09-10.md` has scoped findings; these
+  two documents add no public-source violations. Cleaning unrelated historical
+  material is outside this change.
 
-Independent review and operator-approved activation remain outstanding.
+Independent review of implementation `39a86fd` found no substantive code issue;
+the reviewer confirmed 51 focused tests and typecheck passed. The review’s P2
+documentation cleanup is recorded above. No tests were rerun for this docs-only
+correction. Operator-approved activation and the live new-dispatch smoke test
+remain outstanding.
