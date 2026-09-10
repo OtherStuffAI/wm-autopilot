@@ -1,18 +1,12 @@
 import {
-  loadSigningPolicies,
-  loadSigningPolicy,
   reissueSigningCapability,
   saveSigningPolicy,
   setSigningPolicyEnabled,
 } from '../../services/signing-policies.js';
+import { element, overview, disclosure, policyStatus, identifier } from './signing-policy-presentation.js';
+import { towerForgejoSetup, summaryList } from './signing-policy-details.js';
+export { describeNip98Target, describeNostrKindRule } from './signing-policy-presentation.js';
 import { createSigningPolicyImport } from './signing-policy-import.js';
-
-function element(tag, text, className) {
-  const node = document.createElement(tag);
-  if (text !== undefined) node.textContent = text;
-  if (className) node.className = className;
-  return node;
-}
 
 export function draftFromPolicy(policy) {
   return {
@@ -28,90 +22,26 @@ export function draftFromPolicy(policy) {
   };
 }
 
-export function describeNostrKindRule(rule) {
-  const required = rule.requiredTags?.length
-    ? rule.requiredTags.map(([name, value]) => `${name}=${JSON.stringify(value)}`).join(', ')
-    : 'none';
-  const exact = rule.exactTags?.length
-    ? `; exactly once (full tag) ${rule.exactTags.map((tag) => JSON.stringify(tag)).join(', ')}`
-    : '';
-  return `Kind ${rule.kind}: content ≤ ${rule.maxContentBytes} bytes; tags ≤ ${rule.maxTags} / ${rule.maxTagBytes} bytes; names ${rule.allowedTagNames.join(', ') || 'none'}; required ${required}${exact}`;
-}
-
-export function describeNip98Target(target = {}) {
-  const exactPaths = (target.exactPaths || [])
-    .map((entry) => typeof entry === 'string' ? entry : entry?.path)
-    .filter(Boolean);
-  const pathPrefixes = (target.pathPrefixes || []).filter(Boolean);
-  const methods = [...new Set([
-    ...(target.methods || []),
-    ...(target.exactPaths || []).flatMap((entry) => typeof entry === 'object' ? entry?.methods || [] : []),
-  ])];
-  const requireBodyHash = target.requireBodyHash === true || (target.requireBodyHashMethods || []).length > 0;
-  return `${target.origin || 'origin not configured'} · ${methods.join('/') || 'no methods'} · exact ${exactPaths.join(', ') || 'none'} · prefixes ${pathPrefixes.join(', ') || 'none'} · payload hash ${requireBodyHash ? 'required' : 'optional'}`;
-}
-
-function towerForgejoSetup(policy) {
-  if (policy.id !== 'tower-forgejo-login') return null;
-  const target = policy.nip98Targets?.[0];
-  const assigned = (policy.assignments?.profileIds?.length || 0) + (policy.assignments?.workspaceIds?.length || 0) > 0;
-  const configured = Boolean(target?.origin && !target.origin.endsWith('.invalid'));
-  const section = element('section', undefined, 'wm-signing-policy-setup');
-  section.dataset.testid = 'tower-forgejo-policy-setup';
-  section.append(element('h3', configured && assigned && policy.enabled ? 'Setup complete' : 'Setup required'));
-  const steps = element('ol');
-  steps.append(
-    element('li', 'Set the NIP-98 target origin to the public Tower API origin and keep the exact /api/v4/git/oidc/authorize/complete path.'),
-    element('li', 'Assign the policy to the intended agent profile and/or workspace. Active session profile and workspace IDs are listed below.'),
-    element('li', 'Save the new revision, enable the policy, then explicitly revoke and reissue each session that should adopt it.'),
-  );
-  section.append(
-    element('p', 'The shipped template is intentionally disabled and unassigned so installing Autopilot never grants signing authority by itself.'),
-    steps,
-  );
-  return section;
-}
-
-function summaryList(policy) {
-  const list = element('dl', undefined, 'wm-signing-policy-summary');
-  const rows = [
-    ['Operations', (policy.operations || []).join(', ') || 'None'],
-    ['Nostr kinds', (policy.eventKinds || []).join(', ') || 'None'],
-    ['Profiles', policy.assignments?.profileIds?.join(', ') || (policy.assignments?.allSessions ? 'All sessions' : 'Unassigned')],
-    ['Workspaces', policy.assignments?.workspaceIds?.join(', ') || (policy.assignments?.allSessions ? 'All sessions' : 'Unassigned')],
-    ['Revision', String(policy.revision)],
-  ];
-  for (const [label, value] of rows) list.append(element('dt', label), element('dd', value));
-  for (const rule of policy.nostrKindRules || []) {
-    list.append(element('dt', 'Custom kind constraint'), element('dd', describeNostrKindRule(rule)));
-  }
-  for (const target of policy.nip98Targets || []) {
-    const challenge = target.challenge;
-    list.append(
-      element('dt', 'NIP-98 target'),
-      element('dd', describeNip98Target(target)),
-      element('dt', 'Challenge tags'),
-      element('dd', challenge
-        ? `required ${(challenge.requiredTags || []).join(', ') || 'none'}; expiry ≤ ${(challenge.allowedTags || []).find((rule) => rule.name === 'expiration')?.maxFutureSeconds || '?'} seconds`
-        : 'No caller-supplied tags'),
-    );
-  }
-  return list;
-}
-
-export function createSigningPoliciesSection({ confirmAction = (message) => window.confirm(message) } = {}) {
+export function createSigningPoliciesSection({ confirmAction = (message) => window.confirm(message), createState } = {}) {
   const root = element('section', undefined, 'wm-card wm-signing-policies');
   root.dataset.testid = 'signing-policies-settings-section';
-  root.setAttribute('aria-labelledby', 'signing-policies-title');
-  const title = element('h2', 'Signing Policies');
-  title.id = 'signing-policies-title';
-  const intro = element('p', 'Review narrowly scoped signing authority. Saved revisions affect only new or deliberately reissued session capabilities.');
+  root.setAttribute('aria-label', 'Manage signing policies');
+  const intro = element('p', 'Choose which signing permissions matching sessions receive. New sessions receive enabled policies; existing sessions keep their issued permissions until you apply updates.');
+  const add = element('button', 'Add policy', 'wm-button primary');
+  add.type = 'button';
+  add.disabled = true;
+  add.dataset.testid = 'signing-policy-add';
+  add.setAttribute('aria-label', 'Add signing policy');
+  add.setAttribute('aria-expanded', 'false');
+  add.setAttribute('aria-controls', 'signing-policy-import-panel');
+  const toolbar = element('div', undefined, 'wm-signing-policies__toolbar');
+  toolbar.append(intro, add);
   const status = element('p', 'Loading signing policies…', 'wm-signing-policies__status');
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
   status.dataset.testid = 'signing-policies-status';
   const content = element('div', undefined, 'wm-signing-policies__content');
-  root.append(title, intro, status, content);
+  root.append(toolbar, status);
 
   let inventory = { policies: [], sessions: [] };
   let selectedId = null;
@@ -121,37 +51,61 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
     onCreated: (id) => refresh(id),
   });
   importer.hidden = true;
-  root.append(importer);
+  importer.id = 'signing-policy-import-panel';
+  add.addEventListener('click', () => {
+    importer.hidden = !importer.hidden;
+    add.setAttribute('aria-expanded', String(!importer.hidden));
+    if (!importer.hidden) importer.querySelector('textarea')?.focus();
+  });
+  root.append(importer, content);
 
-  async function refresh(preferredId = selectedId) {
+  function reportError(error) {
+    status.textContent = error instanceof Error ? error.message : "Signing policies could not be loaded.";
+    status.dataset.state = 'error';
+    add.disabled = true;
+    content.replaceChildren();
+  }
+
+  function receiveSnapshot(snapshot) {
+    ({ inventory, selectedId, detail } = snapshot);
+    add.disabled = false;
+    status.textContent = snapshot.notice || "Signing policies loaded.";
+    status.dataset.state = "ready";
+    renderContent();
+  }
+
+  const state = (async () => {
+    const factory = createState || (await import("./signing-policy-state.js")).createSigningPolicyState;
+    return factory(receiveSnapshot, reportError);
+  })();
+
+  async function refresh(preferredId = selectedId, notice) {
     status.textContent = 'Loading signing policies…';
     status.dataset.state = 'loading';
     try {
-      inventory = await loadSigningPolicies();
-      importer.hidden = false;
-      selectedId = inventory.policies.some((policy) => policy.id === preferredId)
-        ? preferredId
-        : inventory.policies[0]?.id || null;
-      detail = selectedId ? await loadSigningPolicy(selectedId) : null;
-      status.textContent = 'Signing policies loaded.';
-      status.dataset.state = 'ready';
-      renderContent();
+      await (await state).refresh(preferredId, notice);
     } catch (error) {
-      status.textContent = error instanceof Error ? error.message : 'Signing policies could not be loaded.';
-      status.dataset.state = 'error';
-      content.replaceChildren();
+      reportError(error);
     }
   }
 
+  // Settings replaces the section when navigating away; release the liveQuery.
+  if (!createState) {
+    const observer = new MutationObserver(() => {
+      if (root.isConnected) return;
+      observer.disconnect();
+      void state.then((store) => store.destroy()).catch(reportError);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
   function renderHistory(history) {
-    const section = element('section');
-    section.dataset.testid = 'signing-policy-history';
-    section.append(element('h3', 'Revision history'));
+    const section = disclosure('Revision history', 'signing-policy-history');
     const list = element('ol');
     for (const entry of history || []) {
       list.append(element('li', `Revision ${entry.revision} · ${entry.action} · ${entry.actorNpub} · ${entry.at}`));
     }
-    if (!list.children.length) list.append(element('li', 'Built-in baseline; no editable history.'));
+    if (!list.children.length) list.append(element('li', 'No recorded revisions.'));
     section.append(list);
     return section;
   }
@@ -159,27 +113,28 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
   function renderSessions(sessions) {
     const section = element('section');
     section.dataset.testid = 'signing-policy-sessions';
-    section.append(element('h3', 'Active session capabilities'));
-    const note = element('p', 'Stale means the issued snapshot differs from current assignment revisions. Reissue immediately revokes the old bearer.');
-    section.append(note);
+    section.append(element('h3', `Affected sessions (${sessions.length})`));
+    const note = element('p', 'These sessions have this policy in their issued or currently assigned permissions. Current means the complete issued policy set matches current assignments and revisions; stale means it differs. Applying updated permissions replaces the entire session permission snapshot, including other policies, and revokes the old capability immediately.');
+    if (sessions.length) section.append(note);
     const list = element('ul', undefined, 'wm-signing-policy-sessions');
     for (const session of sessions || []) {
       const item = element('li');
-      const state = element('strong', `${session.sessionId} · ${session.policyState}`);
+      const state = element('strong', `Session ${identifier(session.sessionId)} · ${session.policyState}`);
       state.dataset.testid = `signing-policy-session-${session.policyState}`;
-      const scope = element('span', `Profile ${session.profileId || 'none'} · workspace ${session.workspaceId || 'none'}`);
-      const button = element('button', 'Revoke and reissue', 'wm-button danger');
+      const scope = disclosure('Session identifiers', 'signing-policy-session-identifiers');
+      scope.append(element('p', `Session ID: ${session.sessionId}`), element('p', `Profile ID: ${session.profileId || 'none'}`), element('p', `Workspace ID: ${session.workspaceId || 'none'}`));
+      const button = element('button', 'Apply updated permissions', 'wm-button secondary');
       button.type = 'button';
       button.dataset.testid = 'signing-policy-reissue';
-      button.setAttribute('aria-label', `Revoke and reissue signing capability for session ${session.sessionId}`);
+      button.setAttribute('aria-label', `Apply updated permissions to session ${session.sessionId}`);
       button.addEventListener('click', async () => {
-        if (!confirmAction(`Revoke the current capability for ${session.sessionId} and issue current policy revisions? A failed reissue leaves it revoked.`)) return;
+        if (!confirmAction(`Revoke the current capability for ${session.sessionId} and replace its entire permission snapshot with current assignments and policy revisions? A failed reissue leaves it revoked.`)) return;
         button.disabled = true;
-        status.textContent = `Reissuing ${session.sessionId}…`;
+        status.textContent = `Applying updated permissions…`;
+        status.dataset.state = 'loading';
         try {
           await reissueSigningCapability(session.sessionId);
-          status.textContent = `Capability for ${session.sessionId} was revoked and reissued. The live broker client will explicitly adopt it on its next call.`;
-          await refresh(selectedId);
+          await refresh(selectedId, 'Updated permissions issued. The old capability was revoked; the live broker client adopts the replacement on its next call.');
         } catch (error) {
           status.textContent = `${error instanceof Error ? error.message : 'Reissue failed'} The old capability remains revoked; restart that session to recover.`;
           status.dataset.state = 'error';
@@ -189,16 +144,18 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
       item.append(state, scope, button);
       list.append(item);
     }
-    if (!list.children.length) list.append(element('li', 'No active capabilities are affected.'));
+    if (!list.children.length) list.append(element('li', 'No active sessions are affected by this policy.'));
     section.append(list);
     return section;
   }
 
   function renderEditor(policy) {
-    const section = element('section');
-    section.dataset.testid = 'signing-policy-editor';
-    section.append(element('h3', 'Policy definition'), summaryList(policy));
-    if (policy.editable === false || policy.builtIn === 'baseline') return section;
+    const section = disclosure('Advanced: restrictions and policy JSON', 'signing-policy-editor');
+    section.append(summaryList(policy));
+    if (policy.editable === false || policy.builtIn === 'baseline') {
+      section.append(element('pre', JSON.stringify(policy, null, 2)));
+      return section;
+    }
     const label = element('label');
     label.append(element('span', 'Advanced structured policy JSON'));
     const textarea = element('textarea');
@@ -209,40 +166,58 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
     label.append(textarea);
     const save = element('button', 'Save new revision', 'wm-button primary');
     save.type = 'button';
+    save.setAttribute('aria-label', 'Save new policy revision');
     save.dataset.testid = 'signing-policy-save';
     save.addEventListener('click', async () => {
       save.disabled = true;
       status.textContent = `Saving ${policy.name}…`;
+      status.dataset.state = 'loading';
       try {
         const draft = JSON.parse(textarea.value);
+        if (draft.enabled !== policy.enabled) throw new Error('Use the Enable / Disable button to change policy status.');
         await saveSigningPolicy(policy.id, draft);
-        status.textContent = `${policy.name} saved as a new revision. Existing capabilities were not changed.`;
-        await refresh(policy.id);
+        await refresh(policy.id, `${policy.name} saved as a new revision. Existing session permissions were not changed.`);
       } catch (error) {
         status.textContent = error instanceof Error ? error.message : 'Policy save failed.';
         status.dataset.state = 'error';
         save.disabled = false;
       }
     });
+    const actions = element('div', undefined, 'wm-settings-page__actions');
+    actions.append(save);
+    section.append(label, actions);
+    return section;
+  }
+
+  function renderPolicyHeader(policy) {
+    const header = element('header', undefined, 'wm-signing-policies__policy-header');
+    header.append(element('h2', policy.name));
+    const actions = element('div', undefined, 'wm-signing-policies__actions');
+    const badge = element('strong', policyStatus(policy), 'wm-signing-policy-badge');
+    badge.dataset.testid = 'signing-policy-status';
+    actions.append(badge);
+    header.append(actions);
+    if (policy.editable === false || policy.builtIn === 'baseline') return header;
     const enabled = element('button', policy.enabled ? 'Disable policy' : 'Enable policy', 'wm-button secondary');
     enabled.type = 'button';
     enabled.dataset.testid = 'signing-policy-enable-toggle';
     enabled.setAttribute('aria-pressed', String(policy.enabled));
     enabled.addEventListener('click', async () => {
       enabled.disabled = true;
+      status.dataset.state = 'loading';
+      status.textContent = 'Updating policy status…';
       try {
         await setSigningPolicyEnabled(policy.id, !policy.enabled);
-        await refresh(policy.id);
+        await refresh(policy.id, `${policy.name} ${policy.enabled ? 'disabled' : 'enabled'}. Existing sessions keep their issued permissions until you apply updates.`);
       } catch (error) {
         status.textContent = error instanceof Error ? error.message : 'Policy state update failed.';
         status.dataset.state = 'error';
         enabled.disabled = false;
       }
     });
-    const actions = element('div', undefined, 'wm-settings-page__actions');
-    actions.append(save, enabled);
-    section.append(label, actions);
-    return section;
+    enabled.setAttribute('aria-label', enabled.textContent);
+    actions.append(enabled);
+    return header;
   }
 
   function renderContent() {
@@ -250,28 +225,29 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
     nav.setAttribute('aria-label', 'Signing policy inventory');
     nav.dataset.testid = 'signing-policy-inventory';
     for (const policy of inventory.policies) {
-      const button = element('button', `${policy.name} · r${policy.revision}${policy.enabled ? '' : ' · disabled'}`);
+      const button = element('button', policy.name);
+      button.append(element('small', policyStatus(policy)));
       button.type = 'button';
+      button.setAttribute('aria-label', `${policy.name}: ${policyStatus(policy)}`);
       button.dataset.testid = 'signing-policy-select';
       button.setAttribute('aria-current', String(policy.id === selectedId));
       button.addEventListener('click', async () => {
-        selectedId = policy.id;
-        detail = await loadSigningPolicy(policy.id);
-        renderContent();
+        await refresh(policy.id);
       });
       nav.append(button);
     }
-    const policy = detail?.policy || inventory.policies.find((item) => item.id === selectedId);
+    const policy = detail?.policy;
     const body = element('div', undefined, 'wm-signing-policies__detail');
     if (policy) {
       const setup = towerForgejoSetup(policy);
       body.append(
-        element('h2', policy.name),
+        renderPolicyHeader(policy),
         element('p', policy.description),
+        overview(policy),
         ...(setup ? [setup] : []),
         renderEditor(policy),
         renderHistory(detail?.history),
-        renderSessions(detail?.sessions?.length ? detail.sessions : inventory.sessions),
+        renderSessions(detail.sessions),
       );
     }
     content.replaceChildren(nav, body);

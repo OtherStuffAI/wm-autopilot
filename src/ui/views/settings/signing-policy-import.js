@@ -115,6 +115,9 @@ export function createSigningPolicyImport({ getExistingIds, onCreated }) {
     }
     if (createdId) await onCreated(createdId);
   });
-  root.append(node("h3", "Import reviewed policy"), node("p", "Open a downloaded JSON draft and paste its contents here. Review each draft separately, then explicitly create it disabled."), input, review, preview, create, status);
+  const actions = node("div");
+  actions.className = "wm-signing-policy-import-actions";
+  actions.append(review, create);
+  root.append(node("h3", "Add a policy from JSON"), node("p", "Open a downloaded JSON draft and paste its contents here. Review each draft separately, then explicitly create it disabled."), input, actions, preview, status);
   return root;
 }

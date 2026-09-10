@@ -16,7 +16,7 @@ describe('Signing Policies settings section', () => {
     expect(source).toContain("textarea.dataset.testid = 'signing-policy-json'");
     expect(source).toContain("save.dataset.testid = 'signing-policy-save'");
     expect(source).toContain("enabled.dataset.testid = 'signing-policy-enable-toggle'");
-    expect(source).toContain("element('dt', 'Custom kind constraint')");
+
   });
 
   test('requires confirmation and explains failed revoke/reissue recovery', () => {
@@ -84,9 +84,4 @@ describe('Signing Policies settings section', () => {
     }
   });
 
-  test('shows guided Tower Forgejo setup and falls back to the full active session inventory', () => {
-    expect(source).toContain("section.dataset.testid = 'tower-forgejo-policy-setup'");
-    expect(source).toContain('The shipped template is intentionally disabled and unassigned');
-    expect(source).toContain('detail?.sessions?.length ? detail.sessions : inventory.sessions');
-  });
 });

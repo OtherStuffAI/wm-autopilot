@@ -17,6 +17,7 @@ class Element {
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
   setAttribute(key, value) { this.attributes[key] = value; }
+  querySelector() { return { focus() {} }; }
   addEventListener(type, callback) { this.listeners[type] = callback; }
   async click() { if (!this.disabled) await this.listeners.click?.(); }
 }
@@ -53,8 +54,17 @@ async function setup({ policies = [], error, failLoad = false } = {}) {
     return Response.json(url === "/api/admin/signing-policies"
       ? { policies, sessions: [] } : { policy: policies.find((item) => url.endsWith(item.id)), history: [], sessions: [] });
   };
-  const root = createSigningPoliciesSection();
+  const root = createSigningPoliciesSection({ createState: (receive) => ({
+    async refresh(preferredId) {
+      const { loadSigningPolicies, loadSigningPolicy } = await import("../../services/signing-policies.js");
+      const inventory = await loadSigningPolicies();
+      const selectedId = inventory.policies.some((p) => p.id === preferredId) ? preferredId : inventory.policies[0]?.id;
+      const detail = selectedId ? await loadSigningPolicy(selectedId) : null;
+      receive({ inventory, selectedId, detail });
+    },
+  }) });
   await new Promise((resolve) => setTimeout(resolve, 0));
+  if (!failLoad) await find(root, "signing-policy-add").click();
   const get = (suffix) => find(root, `signing-policy-import-${suffix}`);
   const paste = (value) => { get("json").value = value; get("json").listeners.input(); };
   return { root, get, paste, calls, policies, posts: () => calls.filter((call) => call.method === "POST") };
