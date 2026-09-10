@@ -1,0 +1,254 @@
+/* Shared page density. Live conversation geometry remains in live/phone-layout.css. */
+@media (max-width: 600px) and (pointer: coarse) {
+  #app:is([data-route="home"], [data-route="settings"], [data-route="apps"],
+    [data-route="projects"], [data-route="files"], [data-route="scheduler"],
+    [data-route="pipelines"], [data-route="nightwatch"], [data-route="terminal"]) {
+    width: 100%;
+    max-width: none;
+    padding: 0.75rem 0.75rem calc(1rem + env(safe-area-inset-bottom, 0px));
+    font-size: 0.9375rem;
+    line-height: 1.45;
+  }
+
+  #app[data-route="home"] .wm-home {
+    padding-inline: 0;
+  }
+
+  #app :is(.wm-home, .wm-settings-page, .wm-apps, .wm-projects-page, .wm-files,
+    .wm-scheduler-page, .wm-pipelines-page, .wm-nightwatch-page, .wm-terminal-page) h1 {
+    font-size: 1.25rem;
+  }
+
+  #app :is(.wm-home, .wm-settings-page, .wm-apps, .wm-projects-page, .wm-files,
+    .wm-scheduler-page, .wm-pipelines-page, .wm-nightwatch-page, .wm-terminal-page) h2 {
+    font-size: 1.125rem;
+  }
+
+  #app:is([data-route="home"], [data-route="settings"], [data-route="apps"],
+    [data-route="projects"], [data-route="files"]) .wm-card {
+    padding: 0.75rem;
+  }
+
+  /* Scope form sizing to page surfaces, leaving chat and dialog layout alone. */
+  #app :is(.wm-home, .wm-settings-page, .wm-apps, .wm-projects-page,
+    .wm-files, .wm-scheduler-page, .wm-pipelines-page, .wm-nightwatch-page,
+    .wm-terminal-page) :is(button, .wm-button, summary) {
+    min-height: 44px;
+    font-size: 0.875rem;
+  }
+
+  #app :is(.wm-home, .wm-settings-page, .wm-settings-mobile-nav, .wm-apps,
+    .wm-projects-page, .wm-files, .wm-scheduler-page, .wm-pipelines-page,
+    .wm-nightwatch-page, .wm-terminal-page) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]), select, textarea) {
+    /* Several legacy settings inputs set smaller fonts inline. */
+    font-size: max(16px, 1rem) !important;
+    min-height: 44px;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  #app[data-route="home"] .session-card {
+    padding: 0.75rem;
+    gap: 0.5rem;
+  }
+
+  #app[data-route="home"] .session-card-header {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  #app[data-route="home"] .session-card-header h3 {
+    flex-basis: 100%;
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+  }
+
+  #app[data-route="home"] .session-card-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  #app[data-route="home"] .session-card-detail-value {
+    font-size: 0.875rem;
+  }
+
+  #app[data-route="home"] :is(.wm-actions, .session-card-actions) .wm-button,
+  #app :is(.wm-settings-page__actions, .wm-settings__ports-admin-actions, .wm-app-actions) .wm-button {
+    width: auto;
+    flex: 1 1 auto;
+    padding: 0.375rem 0.625rem;
+  }
+
+  #app[data-route="home"] .wm-home-session-groups__list {
+    gap: 0.375rem;
+  }
+
+  #app[data-route="home"] .wm-home-live-content {
+    min-width: 0;
+  }
+
+  #app[data-route="home"] .wm-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  #app[data-route="home"] .wm-session-filter {
+    width: 100%;
+  }
+
+  #app[data-route="home"] .wm-home-quadrant__header {
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  #app[data-route="settings"] .wm-feature-flags select,
+  #app[data-route="pipelines"] select {
+    /* Native WebKit popup styling locks either the font or the control height. */
+    appearance: none;
+    font-family: inherit;
+    padding: 0.5rem 1.75rem 0.5rem 0.5rem;
+    border: 1px solid var(--border-primary);
+    border-radius: 0.375rem;
+    color: var(--text-primary);
+    background-color: var(--bg-secondary);
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+      linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 50%, calc(100% - 10px) 50%;
+    background-size: 4px 4px;
+    background-repeat: no-repeat;
+  }
+
+  #app[data-route="settings"] .wm-feature-flags__cell--state {
+    flex-direction: column;
+  }
+
+  #app[data-route="settings"] .wm-feature-flags__cell--state::before {
+    flex-basis: auto;
+  }
+
+  #app[data-route="settings"] .wm-settings-page {
+    gap: 0.75rem;
+    overflow-wrap: anywhere;
+  }
+
+  #app[data-route="settings"] .wm-settings-page__header p {
+    margin-top: 0.375rem;
+  }
+
+  #app[data-route="settings"] .wm-settings__key-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    margin-block: 0.5rem;
+  }
+
+  #app[data-route="settings"] .wm-settings__key-row:has(input:not([type="checkbox"]), select) > :is(label, span) {
+    flex-basis: 100%;
+  }
+
+  #app[data-route="settings"] .wm-settings__key-row > :is(input:not([type="checkbox"]), select) {
+    /* Legacy inline flex: 1 otherwise squeezes fields beside Save/Clear. */
+    flex-basis: 100% !important;
+    width: 100%;
+  }
+
+  #app[data-route="settings"] :is(.wm-settings__key-row, .wm-agent-profile__actions) > .wm-button {
+    width: auto;
+    flex: 1 1 auto;
+    padding: 0.375rem 0.625rem;
+  }
+
+  #app[data-route="settings"] :is(.wm-settings-card, .wm-settings__speech) h3 {
+    font-size: 1.0625rem;
+    margin-top: 0;
+  }
+
+  #app[data-route="settings"] .wm-settings__speech {
+    margin-top: 0 !important;
+  }
+
+  #app[data-route="settings"] .wm-model-settings__row input {
+    grid-column: 2 / -1;
+    width: 100%;
+  }
+
+  #app[data-route="settings"] .wm-settings-identity__advanced-card.wm-identity-advanced {
+    padding: 0;
+  }
+
+  #app :is(.wm-apps-header-actions, .wm-admin-users__filter-actions) {
+    flex-wrap: wrap;
+  }
+
+  #app .wm-apps-header-actions .wm-session-filter {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  #app .wm-admin-users__filter-actions button {
+    width: auto;
+    min-width: 44px;
+    flex: 1 1 auto;
+    overflow-wrap: normal;
+  }
+
+  #app[data-route="apps"] .wm-app-card__header h3,
+  #app[data-route="home"] .wm-app-card__header h3 {
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+  }
+
+  #app[data-route="files"] .wm-files-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  #app[data-route="files"] .wm-files-browser {
+    min-width: 0;
+  }
+
+  #app[data-route="files"] .wm-files-preview__toolbar {
+    flex-wrap: wrap;
+    flex-shrink: 1;
+    width: 100%;
+    min-width: 0;
+  }
+
+  #app[data-route="files"] :is(.wm-files-toolbar-btn, .wm-files-browser__controls button) {
+    min-width: 44px;
+  }
+
+  #app[data-route="files"] .wm-files-browser__controls {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  #app[data-route="scheduler"] .wm-scheduler-job-info {
+    flex: 1 1 calc(100% - 4rem);
+    overflow-wrap: anywhere;
+  }
+
+  #app[data-route="scheduler"] .wm-scheduler-job-info > div:first-child {
+    flex-wrap: wrap;
+  }
+
+  #app[data-route="scheduler"] .wm-scheduler-job-info strong {
+    flex-basis: 100%;
+  }
+
+  #app[data-route="scheduler"] .wm-scheduler-job-row {
+    gap: 0.5rem;
+  }
+
+  #app[data-route="pipelines"] .wm-pipelines-page {
+    padding: 0;
+  }
+
+  #app[data-route="pipelines"] .wm-pipeline-tabs {
+    flex-wrap: wrap;
+  }
+}
