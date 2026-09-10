@@ -60,8 +60,7 @@ export function overview(policy) {
   section.append(element("h3", "What it permits"), actions);
   if (policy.eventKinds?.length) section.append(element("p", `Event kinds: ${policy.eventKinds.join(", ")}. Exact event and tag restrictions are available in Advanced.`));
   const origins = [...new Set((policy.nip98Targets || []).map((target) => target.origin))];
-  section.append(element("p", origins.length ? `HTTP destinations: ${origins.join(", ")}. Only the methods and paths listed in Advanced are allowed.` : "No HTTP destinations granted by this policy."));
-  section.append(element("p", policy.builtIn === "baseline" ? "This is the starting permission set for every session. Enabled assigned policies can add permissions." : "This policy adds permissions to the built-in baseline and other assigned policies. Event tags constrain signed content; they do not control where it is published."));
+  if (origins.length) section.append(element("p", `HTTP destinations: ${origins.join(", ")}. Only the methods and paths listed in Advanced are allowed.`));
   section.append(element("h3", "Who receives permission"));
   const { profileIds = [], workspaceIds = [], allSessions } = policy.assignments || {};
   const scope = allSessions ? "Every session receives the built-in baseline."

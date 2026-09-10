@@ -81,6 +81,7 @@ try {
   assert.equal(await get("signing-policy-enable-toggle").count(), 0);
   assert.equal(await get("signing-policy-json").count(), 0);
   assert.equal(await get("signing-policy-editor").getAttribute("open"), null);
+  assert((await get("signing-policy-overview").innerText()).includes("HTTP destinations: https://tower.example"));
   const navHeight = await get("signing-policy-select").first().evaluate((el) => el.getBoundingClientRect().height);
   assert(navHeight < 120, `Inventory button height ${navHeight}`);
   await page.screenshot({ path: `${output}/desktop-baseline.png`, fullPage: true });
@@ -91,9 +92,18 @@ try {
   assert((await get("signing-policy-sessions").innerText()).includes("Affected sessions (0)"));
   assert.equal(await get("signing-policy-reissue").count(), 0);
   assert((await get("signing-policy-overview").innerText()).includes("AND"));
+  assert.equal(await get("signing-policy-sessions").getAttribute("open"), null);
+  assert(!(await get("signing-policy-overview").innerText()).includes("No HTTP destinations"));
+  assert(!(await get("signing-policy-overview").innerText()).includes("other assigned policies"));
+  await get("signing-policy-sessions").locator("summary").focus();
+  await page.keyboard.press("Enter");
+  assert((await get("signing-policy-sessions").innerText()).includes("No active sessions"));
+  await page.keyboard.press("Enter");
   await page.screenshot({ path: `${output}/desktop-policy.png`, fullPage: true });
   await get("signing-policy-editor").locator("summary").click();
   assert((await get("signing-policy-editor").innerText()).includes('["relays","wss://one.example/","wss://two.example/"]'));
+  const advancedText = await get("signing-policy-editor").innerText();
+  for (const text of ["other assigned policies", "do not control where it is published", "No HTTP destinations", "content ≤ 0 bytes", "tags ≤ 16 / 4096 bytes"]) assert(advancedText.includes(text), text);
   await get("signing-policy-json").fill(JSON.stringify({ ...synthetic, enabled: true }));
   await get("signing-policy-save").click();
   assert.equal(writes.length, 0);
@@ -126,6 +136,7 @@ try {
   await page.waitForFunction(() => document.querySelector('[data-testid="signing-policy-import-status"]').textContent.includes("Created second-synthetic disabled"));
   await ready();
   assert.equal(policies.at(-1).enabled, false);
+  assert.notEqual(policies.at(-1).name, synthetic.name);
   assert.deepEqual(policies.at(-1).nostrKindRules[0].exactTags, draft.nostrKindRules[0].exactTags);
   await get("signing-policy-add").click();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -139,6 +150,12 @@ try {
   affected = sessions;
   await get("signing-policy-select").nth(1).click();
   await ready();
+  assert.equal(await get("signing-policy-sessions").getAttribute("open"), null);
+  assert.equal(await get("signing-policy-sessions").locator("summary").first().innerText(), "Affected sessions (1)");
+  assert(!(await get("signing-policy-reissue").isVisible()));
+  await get("signing-policy-sessions").locator("summary").first().focus();
+  await page.keyboard.press("Enter");
+  assert((await get("signing-policy-sessions").innerText()).includes("revokes the old capability immediately"));
   page.once("dialog", (dialog) => dialog.dismiss());
   const beforeCancel = writes.length;
   await get("signing-policy-reissue").click();

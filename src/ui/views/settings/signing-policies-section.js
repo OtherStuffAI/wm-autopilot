@@ -111,9 +111,7 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
   }
 
   function renderSessions(sessions) {
-    const section = element('section');
-    section.dataset.testid = 'signing-policy-sessions';
-    section.append(element('h3', `Affected sessions (${sessions.length})`));
+    const section = disclosure(`Affected sessions (${sessions.length})`, 'signing-policy-sessions');
     const note = element('p', 'These sessions have this policy in their issued or currently assigned permissions. Current means the complete issued policy set matches current assignments and revisions; stale means it differs. Applying updated permissions replaces the entire session permission snapshot, including other policies, and revokes the old capability immediately.');
     if (sessions.length) section.append(note);
     const list = element('ul', undefined, 'wm-signing-policy-sessions');
@@ -151,6 +149,8 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
 
   function renderEditor(policy) {
     const section = disclosure('Advanced: restrictions and policy JSON', 'signing-policy-editor');
+    section.append(element('p', policy.builtIn === 'baseline' ? 'This is the starting permission set for every session. Enabled assigned policies can add permissions.' : 'This policy adds permissions to the built-in baseline and other assigned policies. Event tags constrain signed content; they do not control where it is published.'));
+    if (!policy.nip98Targets?.length) section.append(element('p', 'No HTTP destinations granted by this policy.'));
     section.append(summaryList(policy));
     if (policy.editable === false || policy.builtIn === 'baseline') {
       section.append(element('pre', JSON.stringify(policy, null, 2)));
