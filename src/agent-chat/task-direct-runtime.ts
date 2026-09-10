@@ -3,8 +3,8 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import type { AgentType } from '../config';
-import { isAgentType } from '../agent-types';
-import type { ProcessManager, SessionSnapshot } from '../agents/process-manager';
+import { resolveTaskDirectSession } from './task-direct-session';
+import type { ProcessManager } from '../agents/process-manager';
 import { databaseFile } from '../storage/message-store';
 import type { AgentDefinitionStore } from './agent-definition-store';
 import { sendPromptAndAwaitFinalResponse } from './session-runtime-session-ops';
@@ -25,7 +25,7 @@ import {
   type TaskDirectTrigger,
 } from './task-direct-contract';
 
-interface TaskDirectState {
+export interface TaskDirectState {
   routingKey: string;
   subscriptionId: string;
   agentId: string;
@@ -260,7 +260,10 @@ export class TaskDirectRuntime {
         const hydrated = await this.hydrate(latest.input, latest.trigger.taskId);
         // The typed task read is the authorization gate. Do not create or reuse a
         // session until Tower confirms this bot can still see the current task.
-        const session = await this.resolveSession(state, agent, latest.input.subscription);
+        const resolution = await resolveTaskDirectSession({ state, agent, subscription: latest.input.subscription,
+          task: object(hydrated.task), manager: this.deps.processManager, defaultAgent: this.deps.defaultAgent });
+        const { session, generation, previousSessionIds } = resolution;
+        this.store.save({ ...state, sessionId: session.id, generation, previousSessionIds });
         const prompt = this.buildPrompt({ state: this.store.get(routingKey)!, hydrated, queued });
         const reply = await (this.deps.sendFinalResponse ?? sendPromptAndAwaitFinalResponse)(
           this.deps.processManager, session.id, prompt,
@@ -287,46 +290,6 @@ export class TaskDirectRuntime {
         throw error;
       }
     }
-  }
-
-  private async resolveSession(
-    state: TaskDirectState,
-    agent: AgentDefinitionRecord,
-    subscription: WorkspaceSubscriptionRecord,
-  ): Promise<SessionSnapshot> {
-    const existing = state.sessionId ? this.deps.processManager.getSession(state.sessionId) : null;
-    const compatible = existing?.metadata?.agentChatAgentId === agent.agentId
-      && existing?.metadata?.agentChatBotNpub === agent.botNpub
-      && existing.agent === (agent.directChat?.sessionAgent || this.deps.defaultAgent)
-      && existing.workingDirectory === (agent.directChat?.directory || agent.workingDirectory);
-    if (compatible && (existing?.status === 'running' || existing?.status === 'starting')) return existing;
-    const previousSessionIds = state.sessionId
-      ? [...new Set([...state.previousSessionIds, state.sessionId])]
-      : state.previousSessionIds;
-    const generation = state.generation + 1;
-    const configuredAgent = agent.directChat?.sessionAgent;
-    const sessionAgent = configuredAgent && isAgentType(configuredAgent)
-      ? configuredAgent
-      : this.deps.defaultAgent;
-    const directory = agent.directChat?.directory || agent.workingDirectory;
-    const session = await this.deps.processManager.createSession(
-      sessionAgent,
-      directory,
-      `${agent.label || agent.agentId} Task ${state.taskId}`.slice(0, 120),
-      { type: 'agent-work', id: state.taskId, label: routingKeyLabel(state.routingKey, generation) },
-      undefined,
-      subscription.managedByNpub ?? undefined,
-      {
-        AGENT: true, role: 'agent-work', bindingType: 'task', bindingId: state.taskId,
-        taskIds: [state.taskId], nextAction: 'reflect', createdByNpub: subscription.managedByNpub ?? undefined,
-        agentChatAgentId: agent.agentId, agentChatBotNpub: agent.botNpub,
-        flightdeckWorkspaceId: subscription.workspaceId!, flightdeckAgentNpub: agent.botNpub,
-        flightdeckRoutingKey: state.routingKey, sessionGeneration: generation,
-      },
-      agent.directChat?.model ?? undefined,
-    );
-    this.store.save({ ...state, sessionId: session.id, generation, previousSessionIds });
-    return session;
   }
 
   private async hydrate(input: TaskDirectRuntimeInput, taskId: string): Promise<Record<string, unknown>> {
@@ -380,8 +343,4 @@ export class TaskDirectRuntime {
       json(input.hydrated),
     ].join('\n');
   }
-}
-
-function routingKeyLabel(routingKey: string, generation: number): string {
-  return `${routingKey}:generation:${generation}`;
 }

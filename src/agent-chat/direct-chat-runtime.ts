@@ -1,3 +1,4 @@
+import { buildFlightDeckSessionMetadata } from './flightdeck-session-metadata';
 import { DIRECT_CHAT_SUBMISSION_LEASE_MS } from './direct-chat-response';
 import type { AgentType } from '../config';
 import { isAgentType } from '../agent-types';
@@ -738,9 +739,8 @@ export class AgentDirectChatRuntime {
     const session = await this.deps.processManager.createSession(sessionAgent, profile.directory, `${agent.label} Direct Chat`,
       { type: 'agent-chat', id: intercept.routingKey, label: `${agent.label} Flight Deck chat` }, undefined,
       subscription.managedByNpub ?? undefined, { AGENT: true, sessionClass: 'flightdeck_chat',
-        flightdeckSubscriptionId: subscription.subscriptionId, flightdeckBackendConnectionId: subscription.backendConnectionId ?? undefined,
-        flightdeckTowerServiceNpub: intercept.towerServiceNpub, flightdeckWorkspaceId: intercept.workspaceId,
-        flightdeckScopeId: scopeId ?? undefined, flightdeckChannelId: intercept.channelId, flightdeckThreadId: intercept.threadId,
+        ...buildFlightDeckSessionMetadata(subscription, intercept.botNpub, {
+          scopeId, channelId: intercept.channelId, threadId: intercept.threadId }),
         agentChatAgentId: agent.agentId, agentChatBotNpub: agent.botNpub,
         flightdeckAgentNpub: intercept.botNpub, flightdeckRoutingKey: intercept.routingKey, sessionGeneration: generation }, profile.model ?? undefined);
     return { session, bootstrap: true, generation, previousSessionIds,

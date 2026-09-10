@@ -3,6 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
+import { createWingmanMcpApiHandler } from '../mcp/wingman-api';
+import { backendConnectionStore } from './backend-connection-store';
+import { selectFlightDeckTransportSubscription } from './flightdeck-session-transport';
 import { TaskDirectRuntime, TaskDirectStore } from './task-direct-runtime';
 
 const rickInstanceNpub = 'npub1s4658awhcachmhzk5jhsg256gzdl7e4gh5a9zq8skjyt7g3k2axql224qz';
@@ -22,9 +26,15 @@ function fixture() {
   let creates = 0;
   const processManager = {
     getSession: (id: string) => sessions.get(id) ?? null,
+    updateSessionMetadata: (id: string, metadata: any) => {
+      const session = sessions.get(id);
+      if (!session) return null;
+      session.metadata = { ...session.metadata, ...metadata };
+      return session;
+    },
     createSession: async (...args: any[]) => {
       creates += 1;
-      const session = { id: `session-${creates}`, agent: args[0], status: 'running', workingDirectory: args[1], metadata: args[6] };
+      const session = { id: `session-${creates}`, agent: args[0], status: 'running', workingDirectory: args[1], metadata: args[6], npub: args[5] };
       sessions.set(session.id, session);
       return session;
     },
@@ -39,7 +49,7 @@ function fixture() {
       }],
     } as any,
     store: new TaskDirectStore(join(dir, 'state.sqlite')),
-    fetchTask: async () => ({ task: { id: 'task-1', title: 'Build it', description: 'Latest', channel_id: 'channel-2', thread_id: 'thread-1' } }) as any,
+    fetchTask: async () => ({ task: { id: 'task-1', workspace_id: 'workspace-1', scope_id: 'scope-1', title: 'Build it', description: 'Latest', channel_id: 'channel-2', thread_id: 'thread-1' } }) as any,
     fetchComments: async () => ({ comments: [{ id: 'comment-1', body: 'Do it' }], next_cursor: null }) as any,
     fetchChannel: async () => ({ id: 'channel-2', scope_id: 'scope-1' }) as any,
     fetchMessages: async () => ({ messages: [{ id: 'message-1', body: 'Originating thread' }], next_cursor: null }) as any,
@@ -54,7 +64,7 @@ function fixture() {
     },
   });
   const subscription = {
-    subscriptionId: 'sub-1', workspaceServiceNpub: 'npub-workspace', workspaceOwnerNpub: 'npub-human',
+    subscriptionId: 'sub-1', backendConnectionId: 'backend-1', workspaceServiceNpub: 'npub-workspace', workspaceOwnerNpub: 'npub-human',
     backendBaseUrl: 'http://tower', towerServiceNpub: 'npub-tower', workspaceId: 'workspace-1',
     sourceAppNpub: 'npub-app', botNpub: 'npub-exampleAgent', wsKeyNpub: 'npub-workspace-key', managedByNpub: 'npub-human',
   } as any;
@@ -95,6 +105,90 @@ describe('TaskDirectRuntime', () => {
     expect(f.prompts[0]).toContain('description_mention_added');
     expect(f.prompts[1]).toContain('agent_assigned');
     expect(f.publications[0].metadata.source).toBe('autopilot_task_session');
+  });
+
+  test('new and repaired task sessions resolve MCP context and read/post task comments', async () => {
+    const f = fixture();
+    const botSecret = generateSecretKey();
+    const botNpub = nip19.npubEncode(getPublicKey(botSecret));
+    f.subscription.botNpub = botNpub;
+    f.botIdentity.botNpub = botNpub;
+    const agent = (f.runtime as any).deps.agentStore.listByWorkspaceAndBot()[0];
+    agent.botNpub = botNpub;
+    (f.runtime as any).deps.agentStore.listByWorkspaceAndBot = () => [agent];
+    const handler = createWingmanMcpApiHandler({
+      getSession: f.processManager.getSession,
+      resolveFlightDeckDirectContext: (binding: any) => {
+        const selected = selectFlightDeckTransportSubscription([f.subscription], binding);
+        return selected ? { subscriptionId: selected.subscriptionId, backendConnectionId: selected.backendConnectionId,
+          backendBaseUrl: selected.backendBaseUrl, appNpub: selected.sourceAppNpub,
+          botIdentity: { ...f.botIdentity, botSecret, botPubkeyHex: getPublicKey(botSecret) } } : null;
+      },
+    } as any);
+    const call = async (action: string, body = {}) => {
+      const request = new Request('http://localhost/api/mcp/wingman/flightdeck', {
+        method: 'POST', body: JSON.stringify({ sessionId: 'session-1', action, ...body }),
+      });
+      return handler(request, new URL(request.url), 'POST');
+    };
+    for (const eventId of ['initial', 'repair']) {
+      if (eventId === 'repair') {
+        const metadata = f.sessions.get('session-1').metadata;
+        for (const key of ['flightdeckTowerServiceNpub', 'flightdeckSubscriptionId', 'flightdeckBackendConnectionId',
+          'flightdeckScopeId', 'flightdeckChannelId', 'flightdeckThreadId']) delete metadata[key];
+      }
+      await f.runtime.handle({ subscription: f.subscription, botIdentity: f.botIdentity,
+        event: f.taskEvent(eventId, { newly_assigned_agents: [{ agent_npub: botNpub }] }) });
+      await f.runtime.waitForIdle();
+      expect(f.sessions.get('session-1').metadata).toMatchObject({ flightdeckSubscriptionId: 'sub-1',
+        flightdeckBackendConnectionId: 'backend-1', flightdeckTowerServiceNpub: 'npub-tower',
+        flightdeckScopeId: 'scope-1', flightdeckChannelId: 'channel-2', flightdeckThreadId: 'thread-1' });
+      expect(await (await call('context'))!.json()).toMatchObject({ workspace: {
+        workspaceId: 'workspace-1', backendBaseUrl: 'http://tower', sourceAppNpub: 'npub-app' },
+        routing: { bindingType: 'task', bindingId: 'task-1' }, bot: { available: true } });
+      const originalFetch = globalThis.fetch;
+      const originalConnection = backendConnectionStore.getById;
+      backendConnectionStore.getById = (id) => id === 'backend-1'
+        ? { backendConnectionId: id, backendBaseUrl: 'http://tower' } as any
+        : originalConnection.call(backendConnectionStore, id);
+      const requests: Request[] = [];
+      globalThis.fetch = (async (input: any, init: any) => {
+        requests.push(new Request(input, init));
+        return Response.json({ comments: [], comment: { id: 'comment' } });
+      }) as typeof fetch;
+      try {
+        expect((await call('task_comments'))!.status).toBe(200);
+        expect((await call('task_comment', { body: 'Progress' }))!.status).toBe(200);
+      } finally { globalThis.fetch = originalFetch; backendConnectionStore.getById = originalConnection; }
+      expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+        '/api/v4/flightdeck-pg/workspaces/workspace-1/tasks/task-1/comments',
+        '/api/v4/flightdeck-pg/workspaces/workspace-1/tasks/task-1/comments',
+      ]);
+    }
+    expect(f.creates).toBe(1);
+  });
+
+  test('rejects missing transport context before launching or sending work', async () => {
+    const f = fixture();
+    delete f.subscription.towerServiceNpub;
+    await f.runtime.handle({ subscription: f.subscription, botIdentity: f.botIdentity,
+      event: f.taskEvent('missing', { newly_assigned_agents: [{ agent_npub: 'npub-exampleAgent' }] }) });
+    await expect(f.runtime.waitForIdle()).rejects.toThrow('Tower service identity');
+    expect(f.creates).toBe(0);
+    expect(f.prompts).toHaveLength(0);
+  });
+
+  test('rejects conflicting reused workspace context instead of overwriting it', async () => {
+    const f = fixture();
+    await f.runtime.handle({ subscription: f.subscription, botIdentity: f.botIdentity,
+      event: f.taskEvent('first', { newly_assigned_agents: [{ agent_npub: 'npub-exampleAgent' }] }) });
+    await f.runtime.waitForIdle();
+    f.sessions.get('session-1').metadata.flightdeckWorkspaceId = 'another-workspace';
+    await f.runtime.handle({ subscription: f.subscription, botIdentity: f.botIdentity,
+      event: f.taskEvent('conflict', { newly_assigned_agents: [{ agent_npub: 'npub-exampleAgent' }] }) });
+    await expect(f.runtime.waitForIdle()).rejects.toThrow('conflicting flightdeckWorkspaceId');
+    expect(f.prompts).toHaveLength(1);
+    expect(f.creates).toBe(1);
   });
 
   test('starts a new generation after the bound session stops', async () => {
@@ -150,7 +244,7 @@ describe('TaskDirectRuntime', () => {
     (f.runtime as any).deps.fetchTask = async () => {
       attempts += 1;
       if (attempts === 1) throw Object.assign(new Error('forbidden'), { status: 403 });
-      return { task: { id: 'task-1', title: 'Build it', channel_id: 'channel-2', thread_id: 'thread-1' } };
+      return { task: { id: 'task-1', workspace_id: 'workspace-1', scope_id: 'scope-1', title: 'Build it', channel_id: 'channel-2', thread_id: 'thread-1' } };
     };
     const event = f.taskEvent('event-auth', { newly_assigned_agents: [{ agent_npub: 'npub-exampleAgent' }] });
     await f.runtime.handle({ subscription: f.subscription, botIdentity: f.botIdentity, event });
@@ -200,7 +294,7 @@ describe('TaskDirectRuntime', () => {
       { agentId: 'other-agent', label: 'Other Agent', botNpub: 'npub-other-agent', workspaceOwnerNpub: 'npub-workspace', workingDirectory: '/other', enabled: true, capabilities: [] },
     ];
     (f.runtime as any).deps.fetchTask = async () => ({ task: {
-      id: 'task-1', assigned_to_npub: stableBotNpub, channel_id: 'channel-2', thread_id: 'thread-1',
+      id: 'task-1', workspace_id: 'workspace-1', scope_id: 'scope-1', assigned_to_npub: stableBotNpub, channel_id: 'channel-2', thread_id: 'thread-1',
       assignments: [{ actor_npub: stableBotNpub }, { actor_npub: 'npub-other-agent' }],
     } });
     const result = await f.runtime.handle({
@@ -259,7 +353,7 @@ describe('TaskDirectRuntime', () => {
       workspaceOwnerNpub: 'npub-workspace', workingDirectory: '/repo', enabled: true, capabilities: [],
     }];
     (f.runtime as any).deps.fetchTask = async () => ({ task: {
-      id: 'task-1', assigned_to_npub: stableBotNpub, channel_id: 'channel-2', thread_id: 'thread-1',
+      id: 'task-1', workspace_id: 'workspace-1', scope_id: 'scope-1', assigned_to_npub: stableBotNpub, channel_id: 'channel-2', thread_id: 'thread-1',
     } });
     const event = f.taskCommentEvent('deduped-alias', rickInstanceNpub);
     await f.runtime.handle({ subscription: f.subscription, botIdentity: f.botIdentity, instanceNpub: rickInstanceNpub, event });
