@@ -104,7 +104,12 @@ const DEFAULT_MODEL_OPTION = "default";
 const OPENROUTER_KIMI_K3_MODEL = "openrouter/moonshotai/kimi-k3";
 const CODEX_MODEL_OPTIONS = [
   DEFAULT_MODEL_OPTION,
+  "gpt-6-astra",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
   "gpt-5.5",
+  "gpt-5.3-codex-spark",
   "gpt-5.4-mini",
 ];
 const CLAUDE_MODEL_OPTIONS = [
