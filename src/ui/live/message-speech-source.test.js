@@ -96,7 +96,7 @@ describe("live message speech controls", () => {
 
   test("styles message actions as bottom-right icon controls", () => {
     expect(styles).toContain(".wm-message-actions");
-    expect(styles).toContain(".wm-message-copy,\n.wm-message-speech-play");
+    expect(styles).toContain(".wm-message-copy,\n.wm-message-speech-play,\n.wm-message-edit,\n.wm-message-delete");
     expect(styles).toContain(".wm-message-speech-summary");
     expect(styles).toContain(".wm-speech-playback-modal");
     expect(styles).toContain(".wm-speech-playback-modal__stop");

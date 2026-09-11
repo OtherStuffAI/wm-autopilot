@@ -29,6 +29,7 @@ export function mergeConversationWithQueuedPrompts(messages, prompts) {
     .map((prompt) => ({
       id: `queued:${prompt.id}`,
       messageId: `queued:${prompt.id}`,
+      promptId: prompt.id,
       sessionId: prompt.sessionId,
       role: "user",
       content: String(prompt.content ?? ""),

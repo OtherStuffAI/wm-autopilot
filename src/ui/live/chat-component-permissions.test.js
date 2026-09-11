@@ -35,4 +35,11 @@ describe("live ACP permission and queue surface", () => {
     expect(source).toContain('data-testid="queued-prompt-state">Queued');
     expect(source).toContain("mergeConversationWithQueuedPrompts(this.messages, this.queuedPrompts)");
   });
+
+  test("exposes queued prompt edit and delete actions in the chat timeline", () => {
+    expect(source).toContain("requestQueuedPromptEdit(message)");
+    expect(source).toContain("deleteQueuedPrompt(message.sessionId, message.promptId)");
+    expect(source).toContain('data-testid="queued-prompt-edit"');
+    expect(source).toContain('data-testid="queued-prompt-delete"');
+  });
 });

@@ -78,7 +78,17 @@ describe("live-view composition", () => {
     expect(source).toContain("createComposerUploadState");
     expect(source).toContain("uploadState.blockSubmissionIfUploading()");
     expect(source).toContain('uploadStatus.dataset.testid = "composer-upload-status"');
-    expect(source).toContain('submitLabel.textContent = uploading ? "Uploading\\u2026" : "Send"');
+    expect(source).toContain('getQueuedEditState()?.promptId');
+    expect(source).toContain('? "Save"');
+    expect(source).toContain(': "Send"');
+  });
+
+  test("edits queued prompts through the composer send box", () => {
+    expect(source).toContain("QUEUED_PROMPT_EDIT_EVENT");
+    expect(source).toContain("saveQueuedPromptEdit(sessionId, edit.promptId, content)");
+    expect(source).toContain('submit.setAttribute("aria-label", editing ? "Save queued prompt" : "Send")');
+    expect(source).toContain('cancelQueuedEditButton.dataset.testid = "queued-prompt-edit-cancel"');
+    expect(source).toContain('queuedEditStatus.dataset.testid = "queued-prompt-edit-status"');
   });
 
   test("does not auto-open persisted pinned docs when switching tabs", () => {

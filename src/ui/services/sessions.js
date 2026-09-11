@@ -341,7 +341,7 @@ export async function removeFromSessionQueueApi(sessionId, promptId) {
  */
 export async function updateSessionQueuePromptApi(sessionId, promptId, content) {
   const response = await fetch(`/api/sessions/${sessionId}/queue/${encodeURIComponent(promptId)}`, {
-    method: "PATCH",
+    method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ content }),
   });

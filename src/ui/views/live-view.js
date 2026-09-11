@@ -87,6 +87,10 @@ import {
 import { createLiveHeaderFullscreenToggle } from "../live/header-fullscreen-toggle.js";
 import { createComposerUploadState } from "../live/composer-upload-state.js";
 import { resolveLiveSessionUiReconciliation } from "../live/session-ui-reconciliation.js";
+import {
+  QUEUED_PROMPT_EDIT_EVENT,
+  saveQueuedPromptEdit,
+} from "../live/queued-prompt-actions.js";
 import { canResumeNativeAgentSession } from "../home/native-session-resume.js";
 import { filterTaskDispatchSessionsForTabs } from "../sessions/session-classification.js";
 import { getSessionTabState, sortSessionsForTabState } from "../sessions/session-tab-state.js";
@@ -889,7 +893,102 @@ export function initLiveView(deps) {
     let submit;
     let submitLabel;
     let commandButton;
+    let cancelQueuedEditButton;
+    let queuedEditStatus;
+    let queuedEditState = state.queuedPromptEdits.get(sessionId) ?? null;
     const defaultPlaceholder = "Ask the agent something...";
+
+    function getQueuedEditState() {
+      return state.queuedPromptEdits.get(sessionId) ?? null;
+    }
+
+    function setTextareaValue(nextValue) {
+      textarea.value = nextValue;
+      state.messageDrafts.set(sessionId, nextValue);
+      resizeTextarea();
+      cleanupOrphanedMarkers(sessionId, nextValue);
+      mentionAutocomplete?.handleInput();
+    }
+
+    function applyQueuedEditMode() {
+      queuedEditState = getQueuedEditState();
+      const editing = Boolean(queuedEditState?.promptId);
+      composer.dataset.queuedEdit = editing ? "true" : "false";
+      textarea.placeholder = editing ? "Edit queued prompt..." : defaultPlaceholder;
+      if (submitLabel) {
+        submitLabel.textContent = editing ? "Save" : "Send";
+      }
+      if (submit) {
+        submit.setAttribute("aria-label", editing ? "Save queued prompt" : "Send");
+      }
+      if (cancelQueuedEditButton) {
+        cancelQueuedEditButton.hidden = !editing;
+      }
+      if (queuedEditStatus) {
+        queuedEditStatus.hidden = !editing;
+        queuedEditStatus.textContent = editing ? "Editing queued prompt" : "";
+      }
+    }
+
+    function clearQueuedEditMode({ restoreDraft = false } = {}) {
+      const previousDraft = queuedEditState?.previousDraft ?? "";
+      state.queuedPromptEdits.delete(sessionId);
+      queuedEditState = null;
+      setTextareaValue(restoreDraft ? previousDraft : "");
+      applyQueuedEditMode();
+    }
+
+    async function saveQueuedEdit(content) {
+      const edit = getQueuedEditState();
+      if (!edit?.promptId) {
+        return false;
+      }
+      if (!content.trim()) {
+        showToast("Queued prompt cannot be empty", { type: "warning" });
+        return true;
+      }
+      try {
+        await saveQueuedPromptEdit(sessionId, edit.promptId, content);
+        showToast("Queued prompt updated", { type: "success" });
+        clearQueuedEditMode({ restoreDraft: true });
+      } catch (error) {
+        console.error("Failed to update queued prompt:", error);
+        showToast(error instanceof Error ? error.message : "Failed to update queued prompt", { type: "error" });
+      }
+      return true;
+    }
+
+    const editEventController = new AbortController();
+    window.addEventListener(QUEUED_PROMPT_EDIT_EVENT, (event) => {
+      const detail = event.detail ?? {};
+      if (detail.sessionId !== sessionId || !detail.promptId) {
+        return;
+      }
+      const previousDraft = getQueuedEditState()?.previousDraft ?? textarea.value;
+      state.queuedPromptEdits.set(sessionId, {
+        promptId: detail.promptId,
+        previousDraft,
+      });
+      setTextareaValue(String(detail.content ?? ""));
+      applyQueuedEditMode();
+      focusComposerTextarea(textarea, "send");
+    }, { signal: editEventController.signal });
+
+    const editEventCleanup = new MutationObserver(() => {
+      if (document.contains(composerShell)) {
+        return;
+      }
+      editEventController.abort();
+      editEventCleanup.disconnect();
+    });
+    requestAnimationFrame(() => {
+      if (!document.contains(composerShell)) {
+        editEventController.abort();
+        return;
+      }
+      editEventCleanup.observe(document.body, { childList: true, subtree: true });
+    });
+
     const uploadState = createComposerUploadState({
       showToast,
       onChange: ({ uploading }) => {
@@ -902,7 +1001,7 @@ export function initLiveView(deps) {
         } else {
           delete composer.dataset.uploading;
           composer.removeAttribute("aria-busy");
-          textarea.placeholder = defaultPlaceholder;
+          textarea.placeholder = getQueuedEditState()?.promptId ? "Edit queued prompt..." : defaultPlaceholder;
           uploadStatus.textContent = "";
           uploadStatus.hidden = true;
         }
@@ -913,7 +1012,11 @@ export function initLiveView(deps) {
           commandButton.disabled = uploading;
         }
         if (submitLabel) {
-          submitLabel.textContent = uploading ? "Uploading\u2026" : "Send";
+          submitLabel.textContent = uploading
+            ? "Uploading\u2026"
+            : getQueuedEditState()?.promptId
+              ? "Save"
+              : "Send";
         }
       },
     });
@@ -1007,6 +1110,17 @@ export function initLiveView(deps) {
       }
       const draft = textarea.value;
       state.messageDrafts.set(sessionId, draft);
+      if (getQueuedEditState()?.promptId) {
+        void saveQueuedEdit(draft).finally(() => {
+          requestAnimationFrame(() => {
+            const newTextarea = document.querySelector('.wm-composer textarea');
+            if (newTextarea) {
+              focusComposerTextarea(newTextarea, "send");
+            }
+          });
+        });
+        return;
+      }
       const result = sendMessage(sessionId, draft);
       if (result?.finally) {
         result.then((sendResult) => {
@@ -1293,13 +1407,25 @@ export function initLiveView(deps) {
     submit.setAttribute("aria-label", "Send");
     submitLabel = submit.querySelector(".button-text");
 
+    cancelQueuedEditButton = document.createElement("button");
+    cancelQueuedEditButton.type = "button";
+    cancelQueuedEditButton.className = "wm-button secondary wm-queued-edit-cancel";
+    cancelQueuedEditButton.textContent = "Cancel";
+    cancelQueuedEditButton.hidden = true;
+    cancelQueuedEditButton.dataset.testid = "queued-prompt-edit-cancel";
+    cancelQueuedEditButton.setAttribute("aria-label", "Cancel queued prompt edit");
+    cancelQueuedEditButton.addEventListener("click", () => {
+      clearQueuedEditMode({ restoreDraft: true });
+      focusComposerTextarea(textarea, "send");
+    });
+
     const buttonGroup = document.createElement("div");
     buttonGroup.className = "wm-button-group";
     const commandWrapper = document.createElement("div");
     commandWrapper.className = "wm-command-wrapper";
     commandWrapper.append(commandButton, commandMenu);
 
-    buttonGroup.append(commandWrapper, submit);
+    buttonGroup.append(commandWrapper, cancelQueuedEditButton, submit);
 
     const textareaWrapper = document.createElement("div");
     textareaWrapper.className = "wm-textarea-wrapper";
@@ -1324,7 +1450,13 @@ export function initLiveView(deps) {
 
     const inputColumn = document.createElement("div");
     inputColumn.className = "wm-composer-input-column";
-    inputColumn.append(renderComposerContext(sessionId), uploadStatus, textareaWrapper);
+    queuedEditStatus = document.createElement("span");
+    queuedEditStatus.className = "wm-composer-edit-status";
+    queuedEditStatus.dataset.testid = "queued-prompt-edit-status";
+    queuedEditStatus.setAttribute("role", "status");
+    queuedEditStatus.setAttribute("aria-live", "polite");
+    queuedEditStatus.hidden = true;
+    inputColumn.append(renderComposerContext(sessionId), queuedEditStatus, uploadStatus, textareaWrapper);
 
     composer.append(fileInput, attachmentInput, inputColumn, buttonGroup);
 
@@ -1335,6 +1467,7 @@ export function initLiveView(deps) {
     composerShell.append(imagePreviewContainer, composer);
 
     resizeTextarea();
+    applyQueuedEditMode();
     prepareImagePreviewsForComposer(sessionId);
 
     requestAnimationFrame(() => {

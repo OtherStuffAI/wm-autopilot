@@ -14,10 +14,10 @@ describe("agent status indicator presentation", () => {
     });
   });
 
-  test("shows queued prompt count without hiding runtime readiness", () => {
+  test("keeps queue count out of the runtime status pill", () => {
     expect(getAgentStatusIndicatorPresentation("running", 2)).toEqual({
-      ariaLabel: "Agent status: running, 2 queued",
-      pillLabel: "Running · 2 queued",
+      ariaLabel: "Agent status: running",
+      pillLabel: "Running",
     });
   });
 });

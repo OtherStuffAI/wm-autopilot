@@ -5307,7 +5307,9 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .wm-message-copy,
-.wm-message-speech-play {
+.wm-message-speech-play,
+.wm-message-edit,
+.wm-message-delete {
   width: 30px;
   height: 30px;
   display: inline-flex;
@@ -5323,13 +5325,17 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .wm-message-copy:hover,
-.wm-message-speech-play:hover {
+.wm-message-speech-play:hover,
+.wm-message-edit:hover,
+.wm-message-delete:hover {
   background: rgb(from var(--accent-primary) r g b / 0.22);
   transform: translateY(-1px);
 }
 
 .wm-message-copy:focus-visible,
-.wm-message-speech-play:focus-visible {
+.wm-message-speech-play:focus-visible,
+.wm-message-edit:focus-visible,
+.wm-message-delete:focus-visible {
   outline: 2px solid var(--accent-foreground);
   outline-offset: 2px;
 }
@@ -5343,6 +5349,12 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 .wm-message-speech-play:disabled {
   cursor: wait;
   opacity: 0.7;
+}
+
+.wm-message-delete {
+  border-color: rgb(220 38 38 / 0.3);
+  background: rgb(220 38 38 / 0.1);
+  color: #dc2626;
 }
 
 .wm-message-speech-play[data-loading="true"] {

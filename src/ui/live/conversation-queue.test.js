@@ -17,6 +17,7 @@ describe("queued prompt conversation projection", () => {
       ["First", true],
       ["Second", true],
     ]);
+    expect(projected[1]).toMatchObject({ id: "queued:first", promptId: "first" });
   });
 
   test("does not mistake an earlier identical user turn for a released queued prompt", () => {

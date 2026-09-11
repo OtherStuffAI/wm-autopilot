@@ -33,6 +33,11 @@ import {
   fetchSessionQueueApi,
   respondToSessionPermissionApi,
 } from "../services/sessions.js";
+import { showToast } from "../utils/toast.js";
+import {
+  deleteQueuedPrompt,
+  requestQueuedPromptEdit,
+} from "./queued-prompt-actions.js";
 import {
   LIVE_MESSAGE_WINDOW_DEFAULT,
   LIVE_MESSAGE_PAGE_SIZE,
@@ -338,6 +343,24 @@ export function registerChatComponent() {
       } catch (error) {
         await PermissionStore.setResponding(sessionId, permission.permissionId, false);
         this.error = error instanceof Error ? error.message : String(error);
+      }
+    },
+
+    editQueuedPrompt(message) {
+      requestQueuedPromptEdit(message);
+    },
+
+    async deleteQueuedPrompt(message) {
+      if (!message?.sessionId || !message?.promptId || message.deleting) return;
+      message.deleting = true;
+      try {
+        await deleteQueuedPrompt(message.sessionId, message.promptId);
+        showToast("Queued prompt deleted", { type: "success" });
+      } catch (error) {
+        console.error("[chat] Failed to delete queued prompt:", error);
+        showToast(error instanceof Error ? error.message : "Failed to delete queued prompt", { type: "error" });
+      } finally {
+        message.deleting = false;
       }
     },
 
@@ -762,6 +785,27 @@ export function getChatTemplate(sessionId) {
               <template x-if="$store.chat.isMessageSpeechPlaying(message)">
                 <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h12v12H6z"/></svg>
               </template>
+            </button>
+          </template>
+          <template x-if="message.queued">
+            <button type="button"
+                    class="wm-message-edit"
+                    data-testid="queued-prompt-edit"
+                    aria-label="Edit queued prompt"
+                    title="Edit queued prompt"
+                    @click.stop="$store.chat.editQueuedPrompt(message)">
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M4 17.25V21h3.75L18.81 9.94l-3.75-3.75L4 17.25zm16.71-10.04a1 1 0 0 0 0-1.42l-2.5-2.5a1 1 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z"/></svg>
+            </button>
+          </template>
+          <template x-if="message.queued">
+            <button type="button"
+                    class="wm-message-delete"
+                    data-testid="queued-prompt-delete"
+                    aria-label="Delete queued prompt"
+                    title="Delete queued prompt"
+                    :disabled="message.deleting"
+                    @click.stop="$store.chat.deleteQueuedPrompt(message)">
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM8 4l1-1h6l1 1h4v2H4V4h4z"/></svg>
             </button>
           </template>
           <button type="button" class="wm-message-copy" data-testid="message-copy" aria-label="Copy message"

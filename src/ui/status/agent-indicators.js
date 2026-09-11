@@ -20,7 +20,6 @@ export function initAgentIndicators(deps) {
     getCurrentRoute,
     getQueueCount,
     isSessionBusy,
-    openPromptQueueModal,
   } = deps;
 
   let debounceTimer = null;
@@ -77,8 +76,7 @@ export function initAgentIndicators(deps) {
     }
 
     indicator.className = Array.from(baseClasses).join(" ");
-    const queueCount = getQueueCount(sessionId);
-    const presentation = getAgentStatusIndicatorPresentation(status, queueCount);
+    const presentation = getAgentStatusIndicatorPresentation(status);
     indicator.setAttribute("aria-label", presentation.ariaLabel);
 
     indicator.textContent =
@@ -89,7 +87,7 @@ export function initAgentIndicators(deps) {
 
   const createAgentStatusIndicator = (sessionId, options = {}) => {
     const variant = typeof options.variant === "string" ? options.variant : "bar";
-    const indicator = document.createElement(variant === "pill" ? "button" : "div");
+    const indicator = document.createElement("div");
     indicator.className = "wm-agent-status-indicator";
     indicator.setAttribute("data-session-id", sessionId);
     indicator.setAttribute("role", "status");
@@ -98,13 +96,7 @@ export function initAgentIndicators(deps) {
 
     if (variant === "pill") {
       indicator.classList.add("wm-agent-status-pill");
-      indicator.type = "button";
     }
-
-    indicator.style.cursor = "pointer";
-    indicator.addEventListener("click", () => {
-      openPromptQueueModal(sessionId);
-    });
 
     applyAgentStatusIndicatorState(indicator, sessionId);
     return indicator;
