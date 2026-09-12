@@ -61,6 +61,11 @@ function withoutToken(issued: IssuedSessionCapability): Omit<IssuedSessionCapabi
   return safe;
 }
 
+function sessionsReferencingPolicy(ctx: SigningPolicyRoutesContext, policyId: string) {
+  return sessionViews(ctx).filter((session) =>
+    session.policyRefs.some((ref) => ref.id === policyId) || session.currentPolicyRefs.some((ref) => ref.id === policyId));
+}
+
 export async function handleSigningPolicyApi(
   request: Request,
   url: URL,
@@ -124,9 +129,7 @@ export async function handleSigningPolicyApi(
   if (parts.length === 1 && method === "GET") {
     const policy = ctx.registry.get(policyId);
     if (!policy) return Response.json({ error: "Signing policy not found" }, { status: 404 });
-    const sessions = sessionViews(ctx).filter((session) =>
-      session.policyRefs.some((ref) => ref.id === policyId) || session.currentPolicyRefs.some((ref) => ref.id === policyId));
-    return Response.json({ policy, history: ctx.registry.getHistory(policyId), sessions });
+    return Response.json({ policy, history: ctx.registry.getHistory(policyId), sessions: sessionsReferencingPolicy(ctx, policyId) });
   }
 
   if (parts.length === 1 && (method === "PUT" || method === "PATCH")) {
@@ -136,6 +139,20 @@ export async function handleSigningPolicyApi(
       return Response.json({ policy: ctx.registry.update(policyId, payload as unknown as SigningPolicyDraft, actorNpub) });
     } catch (error) {
       return errorResponse(error);
+    }
+  }
+
+  if (parts.length === 1 && method === "DELETE") {
+    try {
+      const deleted = ctx.registry.delete(policyId, actorNpub);
+      return Response.json({
+        deleted: { id: deleted.id, revision: deleted.revision, name: deleted.name },
+        history: ctx.registry.getHistory(policyId),
+        sessions: sessionsReferencingPolicy(ctx, policyId),
+        consequence: "New and reissued sessions will not receive this policy. Existing issued capabilities are not mutated here and may keep their prior permissions until reissued, restarted, revoked, or expired.",
+      });
+    } catch (error) {
+      return errorResponse(error, error instanceof Error && error.message === "Signing policy not found" ? 404 : 400);
     }
   }
 
@@ -151,8 +168,9 @@ export async function handleSigningPolicyApi(
   }
 
   if (parts.length === 2 && parts[1] === "history" && method === "GET") {
-    if (!ctx.registry.get(policyId)) return Response.json({ error: "Signing policy not found" }, { status: 404 });
-    return Response.json({ history: ctx.registry.getHistory(policyId) });
+    const history = ctx.registry.getHistory(policyId);
+    if (!ctx.registry.get(policyId) && history.length === 0) return Response.json({ error: "Signing policy not found" }, { status: 404 });
+    return Response.json({ history });
   }
 
   if (parts.length === 2 && parts[1] === "sessions" && method === "GET") {

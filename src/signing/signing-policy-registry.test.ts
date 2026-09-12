@@ -94,6 +94,23 @@ describe("SigningPolicyRegistry", () => {
     ]);
   });
 
+  test("deletes custom policies from active resolution while keeping deletion history", () => {
+    const { path, registry: first } = registry();
+    first.create(narrowDraft(), "npub1admin");
+    const deleted = first.delete("custom-nip98", "npub1pete");
+    expect(deleted).toMatchObject({ id: "custom-nip98", revision: 1, builtIn: false });
+    expect(first.get("custom-nip98")).toBeNull();
+    expect(first.resolveReferences({ profileId: "profile-a" })).toEqual([{ id: DEFAULT_AGENT_POLICY_ID, revision: 1 }]);
+    const second = new SigningPolicyRegistry(new FileSigningPolicyStore(path), { forgejoCompletionUrl: completionUrl });
+    expect(second.get("custom-nip98")).toBeNull();
+    expect(second.getHistory("custom-nip98").map((entry) => [entry.action, entry.actorNpub, entry.snapshot.id])).toEqual([
+      ["deleted", "npub1pete", "custom-nip98"],
+      ["created", "npub1admin", "custom-nip98"],
+    ]);
+    expect(() => second.delete(TOWER_FORGEJO_POLICY_ID, "npub1pete")).toThrow(/Built-in/);
+    expect(() => second.delete(DEFAULT_AGENT_POLICY_ID, "npub1pete")).toThrow(/not found/);
+  });
+
   test("resolves profile and workspace assignments with deterministic AND scoping and ID order", () => {
     const { registry: policies } = registry();
     policies.create({ ...narrowDraft("z-policy"), assignments: { profileIds: ["profile-a"], workspaceIds: ["workspace-a"] } }, "npub1admin");

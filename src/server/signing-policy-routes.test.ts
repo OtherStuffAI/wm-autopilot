@@ -45,7 +45,7 @@ function fixture() {
     },
     AccessActions: { SystemManage: "system:manage" },
   };
-  const call = (path: string, method: "GET" | "POST" | "PUT", auth: RequestAuthContext, body?: unknown) => {
+  const call = (path: string, method: "GET" | "POST" | "PUT" | "DELETE", auth: RequestAuthContext, body?: unknown) => {
     const url = new URL(`http://localhost${path}`);
     const request = new Request(url, {
       method,
@@ -138,5 +138,48 @@ describe("signing policy admin routes", () => {
     });
     const history = await f.call("/api/admin/signing-policies/tower-forgejo-login/history", "GET", adminAuth);
     expect((await history.json() as { history: unknown[] }).history).toHaveLength(2);
+  });
+
+  test("deletes only custom policies as admin, preserves history, and leaves existing bearers stale", async () => {
+    const f = fixture();
+    const draft = {
+      id: "obsolete-policy", name: "Obsolete policy", description: "Temporary custom signer", enabled: true,
+      operations: ["nostr.sign"], eventKinds: [31_337], nip98Targets: [],
+      assignments: { profileIds: ["profile-a"], workspaceIds: [] },
+      nostrKindRules: [{
+        kind: 31_337, maxContentBytes: 64, maxTags: 4, maxTagBytes: 512,
+        allowedTagNames: ["scope"], requiredTags: [["scope", "obsolete"]],
+      }],
+    };
+    expect((await f.call("/api/admin/signing-policies", "POST", adminAuth, draft)).status).toBe(201);
+    f.capabilities.push({
+      capabilityId: "cap-old", sessionId: "session-a", ownerNpub: "npub1owner", botNpub: "npub1bot",
+      profileId: "profile-a", workspaceId: null, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      policyRefs: [{ id: "builtin-default-agent", revision: 1 }, { id: draft.id, revision: 1 }],
+    });
+
+    expect((await f.call(`/api/admin/signing-policies/${draft.id}`, "DELETE", memberAuth)).status).toBe(403);
+    expect(f.registry.get(draft.id)).not.toBeNull();
+
+    const deleted = await f.call(`/api/admin/signing-policies/${draft.id}`, "DELETE", adminAuth);
+    expect(deleted.status).toBe(200);
+    const payload = await deleted.json() as {
+      consequence: string;
+      history: Array<{ action: string }>;
+      sessions: Array<{ policyState: string; policyRefs: Array<{ id: string }>; currentPolicyRefs: Array<{ id: string }> }>;
+    };
+    expect(payload.consequence).toContain("Existing issued capabilities are not mutated");
+    expect(payload.history.map((entry) => entry.action)).toEqual(["deleted", "created"]);
+    expect(payload.sessions[0].policyState).toBe("stale");
+    expect(payload.sessions[0].policyRefs).toContainEqual({ id: draft.id, revision: 1 });
+    expect(payload.sessions[0].currentPolicyRefs).not.toContainEqual({ id: draft.id, revision: 1 });
+    expect(f.registry.get(draft.id)).toBeNull();
+    expect(f.registry.resolveReferences({ profileId: "profile-a" })).toEqual([{ id: "builtin-default-agent", revision: 1 }]);
+
+    const history = await f.call(`/api/admin/signing-policies/${draft.id}/history`, "GET", adminAuth);
+    expect(history.status).toBe(200);
+    expect((await history.json() as { history: unknown[] }).history).toHaveLength(2);
+    expect((await f.call("/api/admin/signing-policies/builtin-default-agent", "DELETE", adminAuth)).status).toBe(400);
+    expect((await f.call("/api/admin/signing-policies/tower-forgejo-login", "DELETE", adminAuth)).status).toBe(400);
   });
 });

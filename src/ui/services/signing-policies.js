@@ -21,6 +21,13 @@ export function saveSigningPolicy(policyId, draft, { create = false } = {}) {
   });
 }
 
+export function deleteSigningPolicy(policyId) {
+  return request(`/api/admin/signing-policies/${encodeURIComponent(policyId)}`, {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 export function setSigningPolicyEnabled(policyId, enabled) {
   return request(`/api/admin/signing-policies/${encodeURIComponent(policyId)}/enabled`, {
     method: 'POST',

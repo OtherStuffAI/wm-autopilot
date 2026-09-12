@@ -14,8 +14,12 @@ describe('Signing Policies settings section', () => {
     expect(source).toContain("status.dataset.state = 'loading'");
     expect(source).toContain("status.dataset.state = 'error'");
     expect(source).toContain("textarea.dataset.testid = 'signing-policy-json'");
+    expect(source).toContain("edit.dataset.testid = 'signing-policy-edit-json'");
+    expect(source).toContain("review.dataset.testid = 'signing-policy-review-json'");
     expect(source).toContain("save.dataset.testid = 'signing-policy-save'");
+    expect(source).toContain("cancel.dataset.testid = 'signing-policy-cancel-json'");
     expect(source).toContain("enabled.dataset.testid = 'signing-policy-enable-toggle'");
+    expect(source).toContain("remove.dataset.testid = 'signing-policy-delete'");
 
   });
 

@@ -59,7 +59,7 @@ export type SigningPolicyDraft = Pick<
 export interface SigningPolicyHistoryEntry {
   policyId: string;
   revision: number;
-  action: "created" | "updated" | "enabled" | "disabled";
+  action: "created" | "updated" | "enabled" | "disabled" | "deleted";
   actorNpub: string;
   at: string;
   snapshot: SigningPolicyDocument;
@@ -197,6 +197,18 @@ export class SigningPolicyRegistry {
     if (!existing) throw new Error("Signing policy not found");
     if (existing.enabled === enabled) return clone(existing);
     return this.saveRevision({ ...existing, enabled }, existing, actorNpub, enabled ? "enabled" : "disabled", existing.builtIn);
+  }
+
+  delete(id: string, actorNpub: string): SigningPolicyDocument {
+    const existing = this.policies.get(id);
+    if (!existing) throw new Error("Signing policy not found");
+    if (existing.builtIn !== false) throw new Error("Built-in signing policies cannot be deleted");
+    const at = new Date(this.now()).toISOString();
+    const snapshot = clone(existing);
+    this.policies.delete(id);
+    this.history.push({ policyId: id, revision: existing.revision + 1, action: "deleted", actorNpub, at, snapshot });
+    this.persist();
+    return snapshot;
   }
 
   resolve(scope: { profileId?: string | null; workspaceId?: string | null }, baseline: SessionCapabilityPolicy): ResolvedSigningPolicy {
