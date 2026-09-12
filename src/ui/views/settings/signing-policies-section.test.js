@@ -5,7 +5,7 @@ import { describeNip98Target, describeNostrKindRule, draftFromPolicy } from './s
 import { saveSigningPolicy } from '../../services/signing-policies.js';
 import { validateSigningPolicyDraft } from '../../../signing/signing-policy-validation.ts';
 
-const source = readFileSync(new URL('./signing-policies-section.js', import.meta.url), 'utf8');
+const source = readFileSync(new URL('./signing-policies-section.js', import.meta.url), 'utf8') + readFileSync(new URL('./signing-policy-editor.js', import.meta.url), 'utf8');
 
 describe('Signing Policies settings section', () => {
   test('covers accessible inventory, load/error/status, save and enable controls', () => {

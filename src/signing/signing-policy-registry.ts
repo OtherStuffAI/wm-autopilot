@@ -285,7 +285,7 @@ export class SigningPolicyRegistry {
   ): SigningPolicyDocument {
     const at = new Date(this.now()).toISOString();
     const policy: SigningPolicyDocument = {
-      ...clone(draft), revision: (existing?.revision ?? 0) + 1, builtIn,
+      ...clone(draft), revision: Math.max(existing?.revision ?? 0, ...this.getHistory(draft.id).map((entry) => entry.revision)) + 1, builtIn,
       createdAt: existing?.createdAt ?? at, createdBy: existing?.createdBy ?? actorNpub,
       updatedAt: at, updatedBy: actorNpub,
     };

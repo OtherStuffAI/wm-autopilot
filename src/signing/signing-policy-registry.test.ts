@@ -201,3 +201,14 @@ function draftFrom(policy: SigningPolicyDocument): SigningPolicyDraft {
     assignments: structuredClone(policy.assignments),
   };
 }
+
+ test("recreated policy IDs keep monotonic revisions across reload", () => {
+  const { registry: policies, path } = registry();
+  const first = policies.create(narrowDraft(), "npub1admin");
+  policies.delete(first.id, "npub1admin");
+  const restored = new SigningPolicyRegistry(new FileSigningPolicyStore(path), { forgejoCompletionUrl: completionUrl });
+  const recreated = restored.create(narrowDraft(), "npub1admin");
+  expect(recreated.revision).toBe(3);
+  expect(restored.getHistory(first.id).map(entry => entry.revision)).toEqual([3, 2, 1]);
+  expect(restored.resolveReferences({ profileId: "profile-a" })).not.toContainEqual({ id: first.id, revision: first.revision });
+});

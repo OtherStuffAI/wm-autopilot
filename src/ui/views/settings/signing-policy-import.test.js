@@ -236,3 +236,18 @@ test("delete custom policy requires confirmation and removes it through the admi
   expect(cancelled.calls.some((call) => call.method === "DELETE")).toBe(false);
   expect(cancelled.policies).toHaveLength(1);
 });
+
+test("header edit action opens the collapsed editor and previews status changes", async () => {
+  const ui = await setup({ policies: [{ ...draft(), builtIn: false, revision: 1 }] });
+  const edit = find(ui.root, "signing-policy-edit-json");
+  const editor = find(ui.root, "signing-policy-editor");
+  expect(find(editor, "signing-policy-edit-json")).toBeUndefined();
+  await edit.click();
+  expect(editor.open).toBe(true);
+  const input = find(ui.root, "signing-policy-json");
+  input.value = JSON.stringify({ ...draft(), enabled: false });
+  input.listeners.input();
+  await find(ui.root, "signing-policy-review-json").click();
+  await find(ui.root, "signing-policy-save").click();
+  expect(ui.policies[0].enabled).toBe(false);
+});
