@@ -124,7 +124,6 @@ export function initLiveView(deps) {
     scheduleLiveScroll,
     scrollConversationAreaToBottom,
     // Stubs (late-bound)
-    createAgentStatusIndicator,
     extractImageFiles,
     extractAttachmentFiles,
     handleImageUploads,
@@ -893,7 +892,6 @@ export function initLiveView(deps) {
     let submit;
     let submitLabel;
     let commandButton;
-    let cancelQueuedEditButton;
     let queuedEditStatus;
     let queuedEditState = state.queuedPromptEdits.get(sessionId) ?? null;
     const defaultPlaceholder = "Ask the agent something...";
@@ -920,9 +918,6 @@ export function initLiveView(deps) {
       }
       if (submit) {
         submit.setAttribute("aria-label", editing ? "Save queued prompt" : "Send");
-      }
-      if (cancelQueuedEditButton) {
-        cancelQueuedEditButton.hidden = !editing;
       }
       if (queuedEditStatus) {
         queuedEditStatus.hidden = !editing;
@@ -1407,25 +1402,13 @@ export function initLiveView(deps) {
     submit.setAttribute("aria-label", "Send");
     submitLabel = submit.querySelector(".button-text");
 
-    cancelQueuedEditButton = document.createElement("button");
-    cancelQueuedEditButton.type = "button";
-    cancelQueuedEditButton.className = "wm-button secondary wm-queued-edit-cancel";
-    cancelQueuedEditButton.textContent = "Cancel";
-    cancelQueuedEditButton.hidden = true;
-    cancelQueuedEditButton.dataset.testid = "queued-prompt-edit-cancel";
-    cancelQueuedEditButton.setAttribute("aria-label", "Cancel queued prompt edit");
-    cancelQueuedEditButton.addEventListener("click", () => {
-      clearQueuedEditMode({ restoreDraft: true });
-      focusComposerTextarea(textarea, "send");
-    });
-
     const buttonGroup = document.createElement("div");
     buttonGroup.className = "wm-button-group";
     const commandWrapper = document.createElement("div");
     commandWrapper.className = "wm-command-wrapper";
     commandWrapper.append(commandButton, commandMenu);
 
-    buttonGroup.append(commandWrapper, cancelQueuedEditButton, submit);
+    buttonGroup.append(commandWrapper, submit);
 
     const textareaWrapper = document.createElement("div");
     textareaWrapper.className = "wm-textarea-wrapper";
@@ -1459,10 +1442,6 @@ export function initLiveView(deps) {
     inputColumn.append(renderComposerContext(sessionId), queuedEditStatus, uploadStatus, textareaWrapper);
 
     composer.append(fileInput, attachmentInput, inputColumn, buttonGroup);
-
-    const statusIndicator = createAgentStatusIndicator(sessionId, { variant: "pill" });
-    statusIndicator.classList.add("wm-agent-status-pill-button");
-    buttonGroup.prepend(statusIndicator);
 
     composerShell.append(imagePreviewContainer, composer);
 

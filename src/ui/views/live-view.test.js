@@ -87,8 +87,9 @@ describe("live-view composition", () => {
     expect(source).toContain("QUEUED_PROMPT_EDIT_EVENT");
     expect(source).toContain("saveQueuedPromptEdit(sessionId, edit.promptId, content)");
     expect(source).toContain('submit.setAttribute("aria-label", editing ? "Save queued prompt" : "Send")');
-    expect(source).toContain('cancelQueuedEditButton.dataset.testid = "queued-prompt-edit-cancel"');
     expect(source).toContain('queuedEditStatus.dataset.testid = "queued-prompt-edit-status"');
+    expect(source).not.toContain('queued-prompt-edit-cancel');
+    expect(source).not.toContain('createAgentStatusIndicator(sessionId, { variant: "pill" })');
   });
 
   test("does not auto-open persisted pinned docs when switching tabs", () => {
