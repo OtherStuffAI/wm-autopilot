@@ -49,6 +49,7 @@ function makeContext(
 ): PipelineApiContext {
   return {
     store,
+    defaultAgent: "codex",
     sessionApiContext: {
       manager: {
         async stopSession(sessionId: string) {

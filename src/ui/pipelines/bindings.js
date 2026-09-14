@@ -52,6 +52,11 @@ function bindRunActions(root, page, actions) {
       await actions.cancelRun(page, button.dataset.id ?? "");
     });
   });
+  root.querySelectorAll('[data-action="analyse-run"]').forEach((button) => {
+    button.addEventListener("click", async () => {
+      await actions.analyseRun(page, button.dataset.id ?? "");
+    });
+  });
   root.querySelectorAll('[data-action="open-run"]').forEach((button) => {
     button.addEventListener("click", async () => {
       await actions.openRun(page, button.dataset.id ?? "");

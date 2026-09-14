@@ -82,6 +82,20 @@ export async function cancelPipelineRun(id, reason = "Pipeline run stopped by us
   return payload;
 }
 
+export async function startPipelineAnalysisSession(id) {
+  const res = await fetch(`/api/pipelines/runs/${encodeURIComponent(id)}/analysis-sessions`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(payload.error || `Failed to start pipeline analysis: ${res.status}`);
+  }
+  return payload;
+}
+
 export async function startPipelineWizard(prompt) {
   const res = await fetch("/api/pipelines/wizard", {
     method: "POST",

@@ -34,12 +34,14 @@ import {
 import type { FunctionRegistry } from "./declarative";
 import { type JsonObject, PipelineStore, type PipelineRunRecord, type PipelineRunSummary } from "./pipeline-store";
 import { startPipelineWizardSession } from "./pipeline-wizard";
+import { startPipelineAnalysisSession } from "./pipeline-analysis";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
 export interface PipelineApiContext {
   store: PipelineStore;
   sessionApiContext: SessionApiContext;
+  defaultAgent: string;
   callbackOrigin?: string;
   sharedInstanceAccess?: boolean;
   loadRegistryForRun?: (input: {
@@ -370,6 +372,30 @@ export async function handlePipelineApi(
       run: summary ? serializeRunSummary(summary, definitions) : cancelled,
       steps: ctx.store.listStepSummaries(id),
     });
+  }
+
+  const runAnalysisMatch = pathname.match(/^\/api\/pipelines\/runs\/([^/]+)\/analysis-sessions$/);
+  if (runAnalysisMatch && method === "POST") {
+    const id = decodeURIComponent(runAnalysisMatch[1]!);
+    const run = ctx.store.getRun(id);
+    if (!run || !canAccessPipelineRun(run, ownerNpub, ctx)) {
+      return Response.json({ error: "Pipeline run not found" }, { status: 404 });
+    }
+    const agent = ctx.defaultAgent;
+    if (!ctx.sessionApiContext.isAgentType(agent)) {
+      return Response.json({ error: `Default agent is not configured for pipeline analysis: ${agent}` }, { status: 500 });
+    }
+    const definition = await getPipelineDefinition(run.definitionId, ownerAlias);
+    const result = await startPipelineAnalysisSession({
+      sessionApiContext: ctx.sessionApiContext,
+      agent,
+      ownerNpub,
+      run,
+      definition,
+      steps: ctx.store.listStepSummaries(run.id),
+      callbackOrigin: ctx.callbackOrigin ?? url.origin,
+    });
+    return Response.json(result, { status: 201 });
   }
 
   const runStepsMatch = pathname.match(/^\/api\/pipelines\/runs\/([^/]+)\/steps$/);

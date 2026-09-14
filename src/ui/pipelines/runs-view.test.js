@@ -129,6 +129,18 @@ describe("pipeline run detail rendering", () => {
     expect(runningHtml).toContain("Stop Run");
   });
 
+  test("offers pipeline analysis from run detail", () => {
+    const html = renderRunsWorkspace(makeState());
+    const busyState = makeState();
+    busyState.analysingRunId = "run-1";
+    const busyHtml = renderRunsWorkspace(busyState);
+
+    expect(html).toContain('data-action="analyse-run"');
+    expect(html).toContain('data-testid="pipeline-analyse-run-action"');
+    expect(html).toContain("Analyse Pipeline");
+    expect(busyHtml).toContain("Starting...");
+  });
+
   test("formats agent transform text only when the flag is enabled", () => {
     const state = makeState();
     state.selectedStep.step.kind = "agent";

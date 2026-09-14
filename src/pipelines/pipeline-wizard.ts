@@ -70,7 +70,7 @@ export async function startPipelineWizardSession(input: PipelineWizardInput): Pr
   };
 }
 
-async function recordLiveSession(ctx: SessionApiContext, session: SessionSnapshot): Promise<void> {
+export async function recordLiveSession(ctx: SessionApiContext, session: SessionSnapshot): Promise<void> {
   ctx.messageStore.recordSession({
     id: session.id,
     agent: session.agent,

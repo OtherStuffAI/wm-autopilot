@@ -125,6 +125,7 @@ function renderRunDetail(state) {
   const isResuming = state.resumingRunId === run.id;
   const isActive = ACTIVE_RUN_STATUSES.has(String(run.status ?? ""));
   const isCancelling = state.cancellingRunId === run.id;
+  const isAnalysing = state.analysingRunId === run.id;
   return `
     <article class="wm-pipeline-run-detail" data-testid="pipeline-run-detail">
       <header class="wm-pipeline-detail-header">
@@ -134,6 +135,16 @@ function renderRunDetail(state) {
           ${renderTagPills(run.tags)}
         </div>
         <div class="wm-pipeline-run-actions">
+          <button
+            type="button"
+            data-action="analyse-run"
+            data-id="${escapeAttribute(run.id)}"
+            data-testid="pipeline-analyse-run-action"
+            aria-label="Analyse pipeline run ${escapeAttribute(run.name ?? run.id)}"
+            ${isAnalysing ? "disabled" : ""}
+          >
+            ${isAnalysing ? "Starting..." : "Analyse Pipeline"}
+          </button>
           ${isActive ? `
             <button
               type="button"

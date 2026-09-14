@@ -13,6 +13,7 @@ import {
   resumePipelineRunFromFailure,
   runPipelineDefinition,
   saveManualPipelineEdit,
+  startPipelineAnalysisSession,
   startPipelineFunctionWizard,
   startPipelineWizard,
 } from "./api.js";
@@ -310,6 +311,7 @@ export function initPipelinesPage({ showToast, isFeatureEnabledForViewer = () =>
       ensureSelectedRunPayload,
       showToast,
       cancelRun,
+      analyseRun,
       resumeRunFromFailure,
       startCreateWizard,
       startEditWizard,
@@ -384,6 +386,28 @@ export function initPipelinesPage({ showToast, isFeatureEnabledForViewer = () =>
       showToast(state.error, { type: "error" });
     } finally {
       state.cancellingRunId = null;
+      updatePage(page);
+    }
+  }
+
+  async function analyseRun(page, id) {
+    if (!id) return;
+    state.analysingRunId = id;
+    state.error = null;
+    updatePage(page);
+    try {
+      const payload = await startPipelineAnalysisSession(id);
+      const sessionId = payload?.session?.id;
+      if (!sessionId) {
+        throw new Error("Pipeline analysis session did not return a session id.");
+      }
+      showToast("Pipeline analysis session started", { type: "success" });
+      state.analysingRunId = null;
+      window.location.href = `/live/${encodeURIComponent(sessionId)}`;
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+      showToast(state.error, { type: "error" });
+      state.analysingRunId = null;
       updatePage(page);
     }
   }

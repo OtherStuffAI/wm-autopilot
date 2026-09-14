@@ -49,6 +49,7 @@ export function createPipelinesState() {
     runningId: null,
     resumingRunId: null,
     cancellingRunId: null,
+    analysingRunId: null,
     loading: false,
     error: null,
   };
