@@ -6,6 +6,7 @@ import {
   createDispatchTable,
   createFlightDeckDispatchView,
   flightDeckDispatchActionHref,
+  formatFlightDeckDispatchDiagnostic,
   formatFlightDeckDispatchReason,
   formatFlightDeckDispatchSource,
   formatFlightDeckDispatchSourceDisplay,
@@ -144,12 +145,18 @@ describe('FD Dispatch view', () => {
         receivedAt: '2026-07-28T02:02:00.000Z', workspaceName: 'Example Operator', agentId: 'exampleAgent', trigger: 'chat', outcome: 'queued',
         reasonLabel: 'Waiting for durable session', action: null, actionId: null,
       },
+      {
+        receivedAt: '2026-07-28T02:03:00.000Z', workspaceName: 'Example Operator', agentId: 'exampleAgent', trigger: 'chat', outcome: 'failed',
+        reasonLabel: 'Genuine dispatch failure', action: 'session', actionId: 'session-2',
+        details: { error: 'Timed out waiting for session session-2 to become prompt-ready. last readiness: busy (agentapi-status-running)' },
+      },
     ]);
     const table = findByTag(wrapper, 'table');
     const body = table.children.find((child) => child.tagName === 'tbody');
     const firstRow = body.children[0].children;
     const secondRow = body.children[1].children;
     const queuedRow = body.children[2].children;
+    const failedRow = body.children[3];
 
     expect(firstRow[0].textContent).toBe('—');
     expect(firstRow[3].textContent).toBe('exampleAgent');
@@ -166,8 +173,12 @@ describe('FD Dispatch view', () => {
     expect(queuedRow[6].children[0].textContent).toBe('queued');
     expect(queuedRow[7].children[0].textContent).toBe('Waiting for durable session');
     expect(queuedRow[8].textContent).toBe('—');
+    expect(failedRow.dataset.outcome).toBe('failed');
+    expect(failedRow.attributes['aria-label']).toContain('Timed out waiting for session session-2');
+    expect(failedRow.children[7].children[0].textContent).toContain('Genuine dispatch failure: Timed out waiting for session session-2');
     expect(formatFlightDeckDispatchReason({ outcome: 'suppressed' })).toBe('Reason not recorded');
     expect(formatFlightDeckDispatchReason({ outcome: 'failed' })).toBe('—');
+    expect(formatFlightDeckDispatchDiagnostic({ outcome: 'failed', details: { error: 'adapter missing' } })).toBe('adapter missing');
     expect(formatFlightDeckDispatchSource({})).toBe('Source label not recorded');
     expect(formatFlightDeckDispatchSourceDisplay({ sourceLabel: rawSource })).toBe('Example Agent Review the full-width layout');
   });
@@ -181,7 +192,8 @@ describe('FD Dispatch view', () => {
         return {
           rows: Array.from({ length: offset === 0 ? 25 : 5 }, (_, index) => ({
             receivedAt: '2026-07-28T02:00:00.000Z', workspaceName: 'Example Operator', sourceLabel: `Row ${offset + index + 1}`,
-            trigger: 'task', outcome: 'launched', action: 'pipeline', actionId: `run-${offset + index + 1}`,
+            trigger: 'task', outcome: offset === 25 && index === 0 ? 'failed' : 'launched',
+            action: 'pipeline', actionId: `run-${offset + index + 1}`,
           })),
           total: 30,
         };
@@ -199,6 +211,8 @@ describe('FD Dispatch view', () => {
       { limit: 25, offset: 25 },
     ]);
     expect(findByTestId(view, 'flightdeck-dispatch-page').textContent).toBe('Page 2 of 2');
+    expect(findByTestId(view, 'flightdeck-dispatch-panel').children[1].children[0].textContent)
+      .toContain('1 failed on this page.');
   });
 
   test('hides ignored and suppressed outcomes by default and reloads from page one when enabled', async () => {
@@ -248,6 +262,7 @@ describe('FD Dispatch view', () => {
     expect(styles).toContain('.wm-flightdeck-dispatch__clamped-value {');
     expect(styles).toContain('-webkit-line-clamp: 2;');
     expect(styles).toContain('.wm-flightdeck-dispatch__table-wrap:focus-visible');
+    expect(styles).toContain('.wm-flightdeck-dispatch__table tbody tr[data-outcome="failed"]');
     expect(styles).toContain('.wm-flightdeck-dispatch__target a:focus-visible');
   });
 });

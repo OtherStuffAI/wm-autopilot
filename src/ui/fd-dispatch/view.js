@@ -31,6 +31,19 @@ export function formatFlightDeckDispatchReason(row) {
   return row?.outcome === 'suppressed' ? 'Reason not recorded' : '—';
 }
 
+function dispatchDetailText(row, key) {
+  const value = row?.details?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+export function formatFlightDeckDispatchDiagnostic(row) {
+  const reason = formatFlightDeckDispatchReason(row);
+  const error = dispatchDetailText(row, 'error');
+  if (!error) return reason;
+  if (!reason || reason === '—' || reason === error) return error;
+  return `${reason}: ${error}`;
+}
+
 export function formatFlightDeckDispatchSource(row) {
   return row?.sourceLabel?.trim() || 'Source label not recorded';
 }
@@ -107,7 +120,11 @@ export function createDispatchTable(rows) {
   for (const row of rows) {
     const tableRow = document.createElement('tr');
     const source = formatFlightDeckDispatchSource(row);
-    const reason = formatFlightDeckDispatchReason(row);
+    const reason = formatFlightDeckDispatchDiagnostic(row);
+    tableRow.dataset.outcome = row.outcome || 'unknown';
+    if (row.outcome === 'failed') {
+      tableRow.setAttribute('aria-label', `Failed dispatch: ${reason}`);
+    }
     const linkCell = document.createElement('td');
     linkCell.className = 'wm-flightdeck-dispatch__target';
     const href = flightDeckDispatchActionHref(row);
@@ -230,7 +247,12 @@ export function createFlightDeckDispatchView({ loadPage = listFlightDeckDispatch
         status.textContent = offset > 0 ? 'No dispatch outcomes on this page.' : 'No Flight Deck dispatch outcomes recorded yet.';
         content.append(status);
       } else {
+        const failedCount = page.rows.filter((row) => row?.outcome === 'failed').length;
+        status.dataset.state = failedCount > 0 ? 'warning' : 'ready';
         status.textContent = `Showing ${offset + 1}–${offset + page.rows.length} of ${page.total} dispatch outcomes.`;
+        if (failedCount > 0) {
+          status.textContent += ` ${failedCount} failed on this page.`;
+        }
         content.append(status, createDispatchTable(page.rows));
       }
       const pageNumber = Math.floor(offset / FLIGHT_DECK_DISPATCH_PAGE_SIZE) + 1;

@@ -35,6 +35,7 @@ import { isSessionWaitTimeout } from './flightdeck-dispatch-lifecycle';
 import { sourceLabelForFlightDeckChat } from './flightdeck-dispatch-metadata';
 import type { DuplicateCallbackPublicationFilter } from './duplicate-callback-publication-filter';
 import { BROKER_KEY_NOT_PROVISIONED } from '../signing/broker-key-vault';
+import { directChatSessionReplacementDecision } from './direct-chat-session-recovery';
 
 export interface DirectChatRuntimeInput {
   subscription: WorkspaceSubscriptionRecord;
@@ -468,7 +469,12 @@ export class AgentDirectChatRuntime {
             onAccepted, onPoll: () => activity?.publishLatestCommentary(this.deps.processManager),
           });
         } catch (error) {
-          if (!(error instanceof PromptBoundaryNotObservedError) || sessionResolution.bootstrap) throw error;
+          const failedTurn = this.turnStore.get(turnId);
+          const replacePromptBoundary = error instanceof PromptBoundaryNotObservedError && !sessionResolution.bootstrap;
+          const replacement = replacePromptBoundary
+            ? { reason: 'previous session did not accept the submitted prompt', detail: error.message }
+            : directChatSessionReplacementDecision(error);
+          if (!replacement || (!replacePromptBoundary && failedTurn?.state === 'awaiting_reply')) throw error;
           const rejectedSessionId = session.id;
           await this.deps.processManager.stopSession(rejectedSessionId).catch((stopError) => {
             this.log.warn('[agent-chat] failed to retire non-accepting direct chat session', {
@@ -477,7 +483,7 @@ export class AgentDirectChatRuntime {
             });
           });
           sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null,
-            { forceReplacementReason: 'previous session did not accept the submitted prompt' });
+            { forceReplacementReason: replacement.reason });
           session = sessionResolution.session;
           for (const recordId of sourceMessageIds) {
             this.recordSessionOutcome(input, agent, recordId, session.id, routingKey);
@@ -488,7 +494,7 @@ export class AgentDirectChatRuntime {
           prompt = buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
             scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery });
           activity.bindSession(session.id);
-          await activity.publish('working');
+          await activity.publish('working', `Retired ${rejectedSessionId}: ${replacement.detail}`);
           this.turnStore.save({ ...this.turnStore.get(turnId)!, sessionId: session.id, prompt,
             leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS).toISOString() : null,
             updatedAt: new Date().toISOString() });
@@ -526,8 +532,8 @@ export class AgentDirectChatRuntime {
           continue;
         }
         await activity?.publishLatestCommentary(this.deps.processManager);
-        await activity?.publish('failed');
         const errorMessage = error instanceof Error ? error.message : String(error);
+        await activity?.publish('failed', `Dispatch failed: ${errorMessage}`);
         const errorCode = (error as { code?: unknown })?.code === BROKER_KEY_NOT_PROVISIONED
           || errorMessage.startsWith(`${BROKER_KEY_NOT_PROVISIONED}:`)
           ? BROKER_KEY_NOT_PROVISIONED

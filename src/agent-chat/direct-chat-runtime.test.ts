@@ -35,6 +35,7 @@ function fixture(options: {
   failCreateErrorCode?: string;
   timeoutFirstResponse?: boolean;
   timeoutWithoutReceipt?: boolean;
+  promptReadinessTimeouts?: number;
   createGate?: Promise<void>;
   botNpub?: string;
   addBuilder?: boolean;
@@ -95,6 +96,9 @@ function fixture(options: {
   let finalResponseCalls = 0;
   const sendFinalResponse = async (...args: Parameters<typeof sendPromptAndAwaitFinalResponse>) => {
     finalResponseCalls += 1;
+    if ((options.promptReadinessTimeouts ?? 0) >= finalResponseCalls) {
+      throw new Error(`Timed out waiting for session ${args[1]} to become prompt-ready. last readiness: busy (agentapi-status-running)`);
+    }
     if (options.timeoutWithoutReceipt) {
       throw new Error(`Timed out waiting for session ${args[1]} to produce a final response.`);
     }
@@ -721,6 +725,37 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.published).toHaveLength(2);
     expect(f.published[1].metadata.session_id).toBe('session-2');
     expect(f.published[1].metadata.source_message_ids).toEqual(['m2']);
+  });
+
+  test('retires a busy direct chat session and continues dispatch on a replacement', async () => {
+    const options = { promptReadinessTimeouts: 0 };
+    const f = fixture(options);
+    const m1 = f.message('m1', '@Example Agent start', true);
+    await f.handle([m1], 'm1');
+    await f.runtime.waitForIdle();
+
+    options.promptReadinessTimeouts = 2;
+    const m2 = f.message('m2', '@Example Agent update please', true);
+    await f.handle([m1, m2], 'm2');
+    await f.runtime.waitForIdle();
+
+    const state = f.interceptStore.listAll()[0]!;
+    expect(f.stops).toEqual(['session-1']);
+    expect(f.creates).toHaveLength(2);
+    expect(state.sessionId).toBe('session-2');
+    expect(state.sessionGeneration).toBe(2);
+    expect(state.previousSessionIds).toEqual(['session-1']);
+    expect(f.published).toHaveLength(2);
+    expect(f.published[1].metadata.source_message_ids).toEqual(['m2']);
+    expect(f.dispatchOutcomeStore.listPage(['sub1'], { limit: 25, offset: 0 }).rows[0]).toMatchObject({
+      outcome: 'launched',
+      action: 'session',
+      actionId: 'session-2',
+      recordId: 'm2',
+    });
+    expect(f.activities.map((activity) => activity.state)).toContain('working');
+    expect(f.activities.map((activity) => activity.body).filter(Boolean).join('\n'))
+      .toContain('Retired session-1: Timed out waiting for session session-1 to become prompt-ready');
   });
 
   test('replays multiple pending messages once from an archived production-shaped binding', async () => {

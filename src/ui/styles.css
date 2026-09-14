@@ -5943,6 +5943,10 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   color: #f87171;
 }
 
+.wm-flightdeck-dispatch__status[data-state="warning"] {
+  color: #d97706;
+}
+
 .wm-flightdeck-dispatch__table-wrap {
   overflow-x: auto;
   overscroll-behavior-inline: contain;
@@ -6017,6 +6021,14 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 
 .wm-flightdeck-dispatch__table tbody tr:hover {
   background: rgb(from var(--accent-primary) r g b / 0.06);
+}
+
+.wm-flightdeck-dispatch__table tbody tr[data-outcome="failed"] {
+  background: rgba(248, 113, 113, 0.05);
+}
+
+.wm-flightdeck-dispatch__table tbody tr[data-outcome="failed"]:hover {
+  background: rgba(248, 113, 113, 0.1);
 }
 
 .wm-flightdeck-dispatch__received,
