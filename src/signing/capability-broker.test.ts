@@ -387,6 +387,7 @@ describe("CapabilityBroker", () => {
       towerUrl: "https://tower.example",
       autopilotUrl: "http://localhost:3600",
       ownerNpub: ownerA,
+      workspaceId: "workspace-a",
     }));
     expect((await call("/api/mcp/capabilities/nip98", issued.token, {
       sessionId: "session-a", url: `http://localhost:3600/api/owners/${ownerA}/apps`, method: "GET",
@@ -440,6 +441,45 @@ describe("CapabilityBroker", () => {
     })).status).toBe(403);
     expect((await call("/api/mcp/capabilities/nip98", issued.token, {
       sessionId: "session-a", url: "http://localhost:3600/api/v4/records", method: "GET",
+    })).status).toBe(403);
+    expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a",
+      url: "https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-a/channels/channel-a/messages",
+      method: "GET",
+    })).status).toBe(200);
+    expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a",
+      url: "https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-a/channels/channel-a/messages",
+      method: "POST",
+      bodyHash: "ab".repeat(32),
+    })).status).toBe(200);
+    expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a",
+      url: "https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-a/storage/prepare",
+      method: "POST",
+      bodyHash: "ab".repeat(32),
+    })).status).toBe(200);
+    expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a",
+      url: "https://tower.example/api/v4/storage/object-a",
+      method: "PUT",
+      bodyHash: "ab".repeat(32),
+    })).status).toBe(200);
+    expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a",
+      url: "https://tower.example/api/v4/storage/object-a/complete",
+      method: "POST",
+      bodyHash: "ab".repeat(32),
+    })).status).toBe(200);
+    expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a",
+      url: "https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-b/channels/channel-a/messages",
+      method: "GET",
+    })).status).toBe(403);
+    expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a",
+      url: "https://tower.example/api/v4/records",
+      method: "GET",
     })).status).toBe(403);
 
     const flightDeckInstruction = await call("/api/mcp/capabilities/nostr-event", issued.token, {
@@ -592,11 +632,12 @@ describe("CapabilityBroker", () => {
       towerUrls: ["https://tower-public.example", "http://127.0.0.1:3100/duplicate"],
       autopilotUrl: "http://localhost:3600",
       ownerNpub: ownerA,
+      workspaceId: "workspace-a",
     }));
 
     for (const url of [
-      "http://127.0.0.1:3100/api/v4/flightdeck-pg/workspaces",
-      "https://tower-public.example/api/v4/flightdeck-pg/workspaces",
+      "http://127.0.0.1:3100/api/v4/flightdeck-pg/workspaces/workspace-a/me",
+      "https://tower-public.example/api/v4/flightdeck-pg/workspaces/workspace-a/me",
     ]) {
       expect((await call("/api/mcp/capabilities/nip98", issued.token, {
         sessionId: "session-a",
@@ -606,9 +647,86 @@ describe("CapabilityBroker", () => {
     }
     expect((await call("/api/mcp/capabilities/nip98", issued.token, {
       sessionId: "session-a",
-      url: "https://unrelated.example/api/v4/flightdeck-pg/workspaces",
+      url: "https://unrelated.example/api/v4/flightdeck-pg/workspaces/workspace-a/me",
       method: "GET",
     })).status).toBe(403);
+  });
+
+  test("applies the simplified signing modes without owner impersonation or raw keys", async () => {
+    const noSigning = issue("session-a", ownerA, buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example",
+      autopilotUrl: "http://localhost:3600",
+      ownerNpub: ownerA,
+      workspaceId: "workspace-a",
+      mode: "none",
+    }));
+    expect((await call("/api/mcp/capabilities/nostr-event", noSigning.token, {
+      sessionId: "session-a",
+      event: { kind: 1, content: "nope", tags: [] },
+    })).status).toBe(403);
+
+    const fullNostr = issue("session-a", ownerA, buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example",
+      autopilotUrl: "http://localhost:3600",
+      ownerNpub: ownerA,
+      workspaceId: "workspace-a",
+      mode: "full-nostr",
+    }));
+    expect((await call("/api/mcp/capabilities/nostr-event", fullNostr.token, {
+      sessionId: "session-a",
+      event: { kind: 65_535, content: "arbitrary event", tags: [["x", "y"]] },
+    })).status).toBe(200);
+    expect((await call("/api/mcp/capabilities/nip98", fullNostr.token, {
+      sessionId: "session-a",
+      url: "https://other.example/api/v4/flightdeck-pg/workspaces/workspace-a/me",
+      method: "GET",
+    })).status).toBe(403);
+
+    const fullAgent = issue("session-a", ownerA, buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example",
+      autopilotUrl: "http://localhost:3600",
+      ownerNpub: ownerA,
+      workspaceId: "workspace-a",
+      mode: "full-agent",
+    }));
+    expect((await call("/api/mcp/capabilities/nostr-event", fullAgent.token, {
+      sessionId: "session-a",
+      event: { kind: 27_235, content: "", tags: [["u", "https://other.example/"], ["method", "GET"]] },
+    })).status).toBe(200);
+    expect((await call("/api/mcp/capabilities/nip98", fullAgent.token, {
+      sessionId: "session-a",
+      url: "https://other.example/admin/root",
+      method: "DELETE",
+    })).status).toBe(200);
+  });
+
+  test("returns NIP-98 denial diagnostics with method, URL, path, and mode", async () => {
+    const issued = issue("session-a", ownerA, buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example",
+      autopilotUrl: "http://localhost:3600",
+      ownerNpub: ownerA,
+      workspaceId: "workspace-a",
+    }));
+    const response = await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a",
+      url: "https://evil.example/api/v4/flightdeck-pg/workspaces/workspace-a/tasks",
+      method: "POST",
+      bodyHash: "ab".repeat(32),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      code: "nip98_policy_denied",
+      reason: "NIP-98 origin is not allowed",
+      operation: "nip98.sign",
+      sessionId: "session-a",
+      policyMode: "standard-agent",
+      target: {
+        method: "POST",
+        url: "https://evil.example/api/v4/flightdeck-pg/workspaces/workspace-a/tasks",
+        origin: "https://evil.example",
+        path: "/api/v4/flightdeck-pg/workspaces/workspace-a/tasks",
+      },
+    });
   });
 
   test("denies expired and mismatched authority for exact brokered restart control", async () => {

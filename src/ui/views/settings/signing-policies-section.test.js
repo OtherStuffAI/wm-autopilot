@@ -20,6 +20,8 @@ describe('Signing Policies settings section', () => {
     expect(source).toContain("cancel.dataset.testid = 'signing-policy-cancel-json'");
     expect(source).toContain("enabled.dataset.testid = 'signing-policy-enable-toggle'");
     expect(source).toContain("remove.dataset.testid = 'signing-policy-delete'");
+    expect(source).toContain("section.dataset.testid = 'signing-policy-modes'");
+    expect(source).toContain("mode.id === inventory.activeMode");
 
   });
 

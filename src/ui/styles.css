@@ -1636,6 +1636,41 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
   gap: 0.75rem;
 }
 
+.wm-signing-policy-modes {
+  grid-column: 1 / -1;
+}
+
+.wm-signing-policy-modes ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.wm-signing-policy-modes li {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-primary);
+  border-radius: 0.5rem;
+}
+
+.wm-signing-policy-modes li[data-active="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.wm-signing-policy-modes h2,
+.wm-signing-policy-modes p {
+  margin: 0;
+}
+
+.wm-signing-policy-modes span {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
 .wm-signing-policies__list button {
   padding: 0.7rem;
   border: 1px solid var(--border-primary);

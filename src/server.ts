@@ -120,7 +120,7 @@ import { createBotCryptoApiHandler } from "./identity/bot-crypto-api";
 import { signBotProfileEvent } from "./identity/bot-identity-publisher";
 import { publishBotProfileEvent } from "./identity/bot-profile-publisher";
 import { loadWingmanInstanceIdentity } from "./identity/wingman-instance-identity";
-import { CapabilityBroker, buildDefaultAgentCapabilityPolicy } from "./signing/capability-broker";
+import { CapabilityBroker, buildDefaultAgentCapabilityPolicy, normalizeAgentSigningMode } from "./signing/capability-broker";
 import { FileCapabilityBrokerStateStore } from "./signing/capability-state-store";
 import { FileSigningPolicyStore, SigningPolicyRegistry } from "./signing/signing-policy-registry";
 import { SessionCapabilityIssuer } from "./signing/session-capability-issuer";
@@ -475,6 +475,7 @@ const brokerKeyVault = createBrokerKeyVaultBackend();
 const capabilityStateStore = new FileCapabilityBrokerStateStore(
   Bun.env.WINGMAN_CAPABILITY_STATE_FILE?.trim() || new URL("../data/capability-broker-state.json", import.meta.url).pathname,
 );
+const agentSigningMode = normalizeAgentSigningMode(Bun.env.WINGMAN_AGENT_SIGNING_MODE);
 const signingPolicyRegistry = new SigningPolicyRegistry(
   new FileSigningPolicyStore(
     Bun.env.WINGMAN_SIGNING_POLICY_FILE?.trim() || new URL("../data/signing-policies.json", import.meta.url).pathname,
@@ -809,6 +810,7 @@ const sessionCapabilityIssuer = new SessionCapabilityIssuer({
   adminNpub,
   towerUrl: defaultTowerUrl,
   autopilotUrl: config.baseUrl,
+  signingMode: agentSigningMode,
   listProfiles: (managerNpub) => agentDefinitionStore.listForManagerNpub(managerNpub),
   getDefaultProfile: (managerNpub) => agentDefinitionStore.getDefaultForManagerNpub(managerNpub),
   getActiveByBotNpub: (botNpub, profileManagerNpub) => (
@@ -2913,6 +2915,7 @@ const handleApi = createApiRouteHandler({
         .map((subscription) => subscription.backendBaseUrl),
       autopilotUrl: config.baseUrl,
       ownerNpub,
+      mode: agentSigningMode,
     }),
     reissueSessionCapability: (sessionId) => sessionCapabilityIssuer.reissue(sessionId),
     ensureApiAccess,

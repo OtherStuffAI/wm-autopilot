@@ -10,8 +10,20 @@ import { jsonError, parseBody } from "../utils/request-utils";
 import { matchesExactNostrTags, normalizeNostrKindRules, type NostrKindConstraint } from "./nostr-kind-policy";
 import { canonicalizeGitCredentialRequest } from "../git/wingman-credential-protocol";
 import { fetchWappLoginChallenge, type WappLoginRequest } from "./wapp-login";
+import {
+  DEFAULT_AGENT_NOSTR_EVENT_KINDS,
+  type AgentSigningMode,
+} from "./agent-signing-policy";
 
 export type { NostrKindConstraint } from "./nostr-kind-policy";
+export {
+  AGENT_SIGNING_MODE_PRESETS,
+  DEFAULT_AGENT_NOSTR_EVENT_KINDS,
+  DEFAULT_AGENT_SIGNING_MODE,
+  buildDefaultAgentCapabilityPolicy,
+  normalizeAgentSigningMode,
+  type AgentSigningMode,
+} from "./agent-signing-policy";
 
 const TOKEN_PREFIX = "wmcap_v1";
 export const SESSION_CAPABILITY_TTL_MS = 2 * 60 * 60_000;
@@ -20,25 +32,7 @@ const DEFAULT_MAX_CALLS_PER_MINUTE = 120;
 const MAX_CHALLENGES_PER_CAPABILITY = 2_048;
 const NIP98_KIND = 27_235;
 const BLOSSOM_AUTH_KIND = 24_242;
-const FLIGHTDECK_PG_MESSAGE_INSTRUCTION_KIND = 33_358;
 const SESSION_BINDING_TAG = "wm-session-capability";
-const DEFAULT_NIP44_MAX_PLAINTEXT_BYTES = 1_048_576;
-const DEFAULT_NIP44_MAX_CIPHERTEXT_BYTES = 1_500_000;
-
-// Keep this list explicit: ordinary agent work needs a small, reviewable set
-// of social/profile, relay-discovery, app-data, release, and Flight Deck kinds.
-// Blossom kind 24242 is included for compatible clients that request generic
-// event signing; the dedicated blossom.authorize operation remains preferred.
-export const DEFAULT_AGENT_NOSTR_EVENT_KINDS = Object.freeze([
-  0, 1, 3, 4, 7,
-  3_063,
-  10_002,
-  BLOSSOM_AUTH_KIND,
-  30_063,
-  30_078,
-  32_267,
-  FLIGHTDECK_PG_MESSAGE_INSTRUCTION_KIND,
-]);
 
 export type BrokerOperation =
   | "identity.read"
@@ -57,6 +51,7 @@ export interface Nip98Constraint {
   pathPrefixes: string[];
   bodyHashes?: string[];
   requireBodyHashMethods?: string[];
+  allowAnyTarget?: boolean;
   targets?: Array<{
     origin: string;
     methods: string[];
@@ -89,6 +84,8 @@ export interface NostrConstraint {
   maxContentBytes: number;
   maxTags: number;
   maxTagBytes?: number;
+  allowAnyKind?: boolean;
+  allowNip98Kind?: boolean;
   allowedTagNames?: string[];
   requiredTags?: Array<[string, string]>;
   kindRules?: NostrKindConstraint[];
@@ -116,6 +113,7 @@ export interface WalletConstraint {
 }
 
 export interface SessionCapabilityPolicy {
+  mode?: AgentSigningMode;
   operations: BrokerOperation[];
   nip98?: Nip98Constraint;
   nostr?: NostrConstraint;
@@ -787,16 +785,17 @@ export class CapabilityBroker {
     try {
       parsed = new URL(targetUrl);
     } catch {
-      return this.denied(authorized.capability, "nip98.sign", "url must be an absolute URL", 400);
+      return this.deniedNip98(authorized.capability, "url must be an absolute URL", { url: targetUrl, method }, 400);
     }
     if (bodyHash && !isHex64(bodyHash)) {
-      return this.denied(authorized.capability, "nip98.sign", "bodyHash must be a SHA-256 hex digest", 400);
+      return this.deniedNip98(authorized.capability, "bodyHash must be a SHA-256 hex digest", { parsed, method }, 400);
     }
     if (!extraTags) {
-      return this.denied(authorized.capability, "nip98.sign", "tags must be an array of two-string tuples", 400);
+      return this.deniedNip98(authorized.capability, "tags must be an array of two-string tuples", { parsed, method }, 400);
     }
     const constraint = authorized.capability.policy.nip98;
-    if (!constraint) return this.denied(authorized.capability, "nip98.sign", "NIP-98 policy is missing");
+    if (!constraint) return this.deniedNip98(authorized.capability, "NIP-98 policy is missing", { parsed, method });
+    const allowAnyTarget = constraint.allowAnyTarget === true;
     const originTargets = constraint.targets?.filter((candidate) => candidate.origin === parsed.origin) ?? [];
     const exactMatches = originTargets.flatMap((candidate) => (candidate.exactPaths ?? [])
       .filter((exactPath) => exactPath.path === parsed.pathname)
@@ -809,25 +808,34 @@ export class CapabilityBroker {
     const allowedOrigins = constraint.targets?.map((candidate) => candidate.origin) ?? constraint.origins;
     const allowedMethods = exactPath?.methods ?? target?.methods ?? constraint.methods;
     const requireBodyHashMethods = target?.requireBodyHashMethods ?? constraint.requireBodyHashMethods;
-    if (!allowedOrigins.includes(parsed.origin)) return this.denied(authorized.capability, "nip98.sign", "NIP-98 origin is not allowed");
-    if (!allowedMethods.map(normalizeMethod).includes(method)) {
-      return this.denied(authorized.capability, "nip98.sign", "NIP-98 method is not allowed");
+    if (!method) return this.deniedNip98(authorized.capability, "NIP-98 method is required", { parsed, method }, 400);
+    if (!allowAnyTarget && !allowedOrigins.includes(parsed.origin)) {
+      return this.deniedNip98(authorized.capability, "NIP-98 origin is not allowed", { parsed, method, allowedOrigins });
     }
-    if (!exactPath && prefixTargets.length === 0 && !(legacyOriginAllowed && constraint.pathPrefixes.some((prefix) => pathMatchesPrefix(parsed.pathname, prefix)))) {
-      return this.denied(authorized.capability, "nip98.sign", "NIP-98 path is not allowed");
+    if (!allowAnyTarget && !allowedMethods.map(normalizeMethod).includes(method)) {
+      return this.deniedNip98(authorized.capability, "NIP-98 method is not allowed", { parsed, method, allowedOrigins, allowedMethods });
     }
-    if (constraint.bodyHashes?.length && (!bodyHash || !constraint.bodyHashes.map(normalizeHex).includes(bodyHash))) {
-      return this.denied(authorized.capability, "nip98.sign", "NIP-98 body hash is not allowed");
+    if (!allowAnyTarget && !exactPath && prefixTargets.length === 0 && !(legacyOriginAllowed && constraint.pathPrefixes.some((prefix) => pathMatchesPrefix(parsed.pathname, prefix)))) {
+      return this.deniedNip98(authorized.capability, "NIP-98 path is not allowed", {
+        parsed,
+        method,
+        allowedOrigins,
+        allowedMethods,
+        allowedPathPrefixes: originTargets.flatMap((candidate) => candidate.pathPrefixes),
+      });
+    }
+    if (!allowAnyTarget && constraint.bodyHashes?.length && (!bodyHash || !constraint.bodyHashes.map(normalizeHex).includes(bodyHash))) {
+      return this.deniedNip98(authorized.capability, "NIP-98 body hash is not allowed", { parsed, method }, 403);
     }
     const bodyHashRequired = exactPath
       ? exactPath.requireBodyHash === true
       : requireBodyHashMethods?.map(normalizeMethod).includes(method) === true;
-    if (bodyHashRequired && !bodyHash) {
-      return this.denied(authorized.capability, "nip98.sign", "NIP-98 body hash is required for this method", 400);
+    if (!allowAnyTarget && bodyHashRequired && !bodyHash) {
+      return this.deniedNip98(authorized.capability, "NIP-98 body hash is required for this method", { parsed, method, allowedMethods }, 400);
     }
     const createdAt = Math.floor(this.now() / 1000);
-    const tagError = validateNip98ExtraTags(extraTags, exactPath?.extraTags, createdAt);
-    if (tagError) return this.denied(authorized.capability, "nip98.sign", tagError, 400);
+    const tagError = allowAnyTarget ? null : validateNip98ExtraTags(extraTags, exactPath?.extraTags, createdAt);
+    if (tagError) return this.deniedNip98(authorized.capability, tagError, { parsed, method }, 400);
     const challengeTagOrder = new Map(exactPath?.extraTags?.allowed.map((rule, index) => [rule.name, index]) ?? []);
     const canonicalExtraTags = exactPath?.extraTags
       ? [...extraTags].sort((left, right) => (challengeTagOrder.get(left[0] as Nip98ExtraTagRule["name"]) ?? Number.MAX_SAFE_INTEGER)
@@ -837,14 +845,14 @@ export class CapabilityBroker {
       const requestId = canonicalExtraTags.find((tag) => tag[0] === "nonce")?.[1] ?? "";
       const expectedBodyHash = createHash("sha256").update(JSON.stringify({ request_id: requestId })).digest("hex");
       if (bodyHash !== expectedBodyHash) {
-        return this.denied(authorized.capability, "nip98.sign", "NIP-98 challenge payload hash does not match the exact request body", 400);
+        return this.deniedNip98(authorized.capability, "NIP-98 challenge payload hash does not match the exact request body", { parsed, method }, 400);
       }
     }
     const challengeFingerprint = canonicalExtraTags.length > 0
       ? createHash("sha256").update(JSON.stringify([parsed.toString(), method, bodyHash ?? null, canonicalExtraTags])).digest("hex")
       : null;
     if (challengeFingerprint && authorized.capability.usedChallenges.has(challengeFingerprint)) {
-      return this.denied(authorized.capability, "nip98.sign", "NIP-98 challenge has already been signed");
+      return this.deniedNip98(authorized.capability, "NIP-98 challenge has already been signed", { parsed, method });
     }
     if (challengeFingerprint) {
       authorized.capability.usedChallenges.add(challengeFingerprint);
@@ -1026,7 +1034,7 @@ export class CapabilityBroker {
     const tags = template.tags;
     const constraint = authorized.capability.policy.nostr;
     if (!constraint) return this.denied(authorized.capability, "nostr.sign", "Nostr policy is missing");
-    if (!Number.isInteger(kind) || kind === NIP98_KIND || !constraint.kinds.includes(kind as number)) {
+    if (!Number.isInteger(kind) || (kind === NIP98_KIND && !constraint.allowNip98Kind) || (!constraint.allowAnyKind && !constraint.kinds.includes(kind as number))) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event kind is not allowed");
     }
     let kindRules: NostrKindConstraint[];
@@ -1214,6 +1222,43 @@ export class CapabilityBroker {
     return jsonError(reason, status);
   }
 
+  private deniedNip98(
+    capability: CapabilityRecord,
+    reason: string,
+    input: {
+      parsed?: URL;
+      url?: string;
+      method?: string;
+      allowedOrigins?: string[];
+      allowedMethods?: string[];
+      allowedPathPrefixes?: string[];
+    },
+    status = 403,
+  ): Response {
+    this.audit(capability, "nip98.sign", "denied", reason);
+    return Response.json({
+      error: reason,
+      code: "nip98_policy_denied",
+      operation: "nip98.sign",
+      reason,
+      capabilityId: capability.id,
+      sessionId: capability.sessionId,
+      policyMode: capability.policy.mode ?? "custom",
+      target: {
+        method: input.method || null,
+        url: input.parsed?.toString() ?? input.url ?? null,
+        origin: input.parsed?.origin ?? null,
+        path: input.parsed?.pathname ?? null,
+      },
+      policy: {
+        allowedOrigins: input.allowedOrigins ?? capability.policy.nip98?.targets?.map((target) => target.origin) ?? capability.policy.nip98?.origins ?? [],
+        allowedMethods: input.allowedMethods ?? capability.policy.nip98?.methods ?? [],
+        allowedPathPrefixes: input.allowedPathPrefixes ?? capability.policy.nip98?.targets?.flatMap((target) => target.pathPrefixes) ?? capability.policy.nip98?.pathPrefixes ?? [],
+        allowAnyTarget: capability.policy.nip98?.allowAnyTarget === true,
+      },
+    }, { status });
+  }
+
   private audit(
     capability: CapabilityRecord,
     operation: BrokerOperation,
@@ -1233,75 +1278,4 @@ export class CapabilityBroker {
       at: new Date(this.now()).toISOString(),
     });
   }
-}
-
-export function buildDefaultAgentCapabilityPolicy(input: {
-  towerUrl: string;
-  towerUrls?: string[];
-  autopilotUrl: string;
-  ownerNpub?: string;
-  blossomServers?: string[];
-}): SessionCapabilityPolicy {
-  const towerOrigins = [...new Set([input.towerUrl, ...(input.towerUrls ?? [])]
-    .map((towerUrl) => new URL(towerUrl).origin))];
-  const autopilotOrigin = new URL(input.autopilotUrl).origin;
-  const ownerPath = input.ownerNpub ? `/api/owners/${encodeURIComponent(input.ownerNpub)}` : null;
-  const mutatingMethods = ["POST", "PUT", "PATCH"];
-  return {
-    operations: ["identity.read", "capability.refresh", "nip98.sign", "nostr.sign", "nip44.encrypt", "nip44.decrypt", "blossom.authorize"],
-    nip98: {
-      origins: [...towerOrigins, autopilotOrigin],
-      methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-      pathPrefixes: [],
-      targets: [
-        ...towerOrigins.map((towerOrigin) => ({
-          origin: towerOrigin,
-          methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-          pathPrefixes: ["/api/v4"],
-          requireBodyHashMethods: mutatingMethods,
-        })),
-        {
-          origin: autopilotOrigin,
-          methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-          pathPrefixes: [
-            "/api/apps",
-            "/api/archive",
-            "/api/delegate-sessions",
-            "/api/nightwatch",
-            "/api/pipelines",
-            "/api/remote-instruct",
-            "/api/scheduler",
-            "/api/sessions",
-            "/api/wapps",
-            ...(ownerPath ? [ownerPath] : []),
-          ],
-          exactPaths: [
-            { path: "/api/admin/wapps/legacy-custody-migration", methods: ["POST"], requireBodyHash: true },
-            { path: "/api/system/restart", methods: ["POST"], requireBodyHash: false },
-            { path: "/api/system/restart-and-resume", methods: ["POST"], requireBodyHash: false },
-            { path: "/api/system/restart/status", methods: ["GET"] },
-          ],
-          requireBodyHashMethods: mutatingMethods,
-        },
-      ],
-    },
-    nostr: {
-      kinds: [...DEFAULT_AGENT_NOSTR_EVENT_KINDS],
-      maxContentBytes: 1_048_576,
-      maxTags: 256,
-      maxTagBytes: 65_536,
-    },
-    nip44: {
-      encryptPeers: ["*"],
-      decryptPeers: ["*"],
-      maxPlaintextBytes: DEFAULT_NIP44_MAX_PLAINTEXT_BYTES,
-      maxCiphertextBytes: DEFAULT_NIP44_MAX_CIPHERTEXT_BYTES,
-    },
-    blossom: {
-      servers: (input.blossomServers ?? towerOrigins).map((server) => new URL(server).origin),
-      methods: ["upload", "delete", "list"],
-      maxObjectBytes: 25 * 1_024 * 1_024,
-    },
-    maxCallsPerMinute: DEFAULT_MAX_CALLS_PER_MINUTE,
-  };
 }

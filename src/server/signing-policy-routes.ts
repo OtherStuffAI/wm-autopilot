@@ -1,6 +1,7 @@
 import type { AccessAction } from "../auth/access-control";
 import type { RequestAuthContext } from "../auth/request-context";
 import type { ActiveSessionCapability, IssuedSessionCapability, SessionCapabilityPolicy } from "../signing/capability-broker";
+import { AGENT_SIGNING_MODE_PRESETS } from "../signing/agent-signing-policy";
 import {
   DEFAULT_AGENT_POLICY_ID,
   buildDefaultPolicyInventory,
@@ -84,8 +85,11 @@ export async function handleSigningPolicyApi(
   const parts = suffix ? suffix.split("/").map(decodeURIComponent) : [];
 
   if (parts.length === 0 && method === "GET") {
+    const baseline = ctx.buildBaselinePolicy(actorNpub);
     return Response.json({
-      policies: [buildDefaultPolicyInventory(ctx.buildBaselinePolicy(actorNpub)), ...ctx.registry.list()],
+      modes: AGENT_SIGNING_MODE_PRESETS,
+      activeMode: baseline.mode ?? "standard-agent",
+      policies: [buildDefaultPolicyInventory(baseline), ...ctx.registry.list()],
       sessions: sessionViews(ctx),
     });
   }

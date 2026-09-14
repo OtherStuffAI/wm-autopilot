@@ -100,7 +100,10 @@ describe("signing policy admin routes", () => {
     const f = fixture();
     const list = await f.call("/api/admin/signing-policies", "GET", adminAuth);
     expect(list.status).toBe(200);
-    expect((await list.json() as { policies: unknown[] }).policies.length).toBe(2);
+    const listPayload = await list.json() as { activeMode: string; modes: Array<{ id: string }>; policies: unknown[] };
+    expect(listPayload.activeMode).toBe("standard-agent");
+    expect(listPayload.modes.map((mode) => mode.id)).toEqual(["none", "standard-agent", "full-nostr", "full-agent"]);
+    expect(listPayload.policies.length).toBe(2);
     const reissue = await f.call("/api/admin/signing-policies/sessions/session-a/reissue", "POST", adminAuth, {});
     expect(reissue.status).toBe(200);
     const payload = await reissue.json();

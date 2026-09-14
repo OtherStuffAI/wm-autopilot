@@ -6,6 +6,7 @@ import {
 } from "../agents/session-capability-binding";
 import type { SessionCapabilityBotRecord } from "../agents/session-capability-identity";
 import { CapabilityBroker, buildDefaultAgentCapabilityPolicy, type IssuedSessionCapability } from "./capability-broker";
+import type { AgentSigningMode } from "./agent-signing-policy";
 import type { SigningPolicyRegistry } from "./signing-policy-registry";
 
 interface ProfileSource {
@@ -28,6 +29,7 @@ export interface SessionCapabilityIssuerDependencies {
   adminNpub: string | null;
   towerUrl: string;
   autopilotUrl: string;
+  signingMode: AgentSigningMode;
   listProfiles: (managerNpub: string) => ProfileSource[];
   getDefaultProfile: (managerNpub: string) => ProfileSource | null;
   getActiveByBotNpub: (botNpub: string, profileManagerNpub: string) => SessionCapabilityBotRecord | null;
@@ -79,6 +81,8 @@ export class SessionCapabilityIssuer {
       towerUrls: this.deps.listTowerUrls(profileManagerNpub),
       autopilotUrl: this.deps.autopilotUrl,
       ownerNpub: input.ownerNpub,
+      workspaceId,
+      mode: this.deps.signingMode,
     });
     const resolved = this.deps.registry.resolve({ profileId, workspaceId }, baseline);
     return this.deps.broker.issueSessionCapability({

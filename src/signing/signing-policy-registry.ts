@@ -303,12 +303,13 @@ export class SigningPolicyRegistry {
 export function buildDefaultPolicyInventory(policy: SessionCapabilityPolicy): Record<string, unknown> {
   return {
     id: DEFAULT_AGENT_POLICY_ID,
-    name: "Default Agent Capability",
-    description: "Built-in baseline applied to every session capability.",
+    name: "Built-in Agent Signing Mode",
+    description: `Built-in ${policy.mode ?? "standard-agent"} capability baseline applied to every session capability.`,
     enabled: true,
     revision: DEFAULT_AGENT_POLICY_REVISION,
     builtIn: "baseline",
     editable: false,
+    mode: policy.mode ?? "standard-agent",
     operations: [...policy.operations],
     eventKinds: [...(policy.nostr?.kinds ?? [])],
     nostrKindRules: [],

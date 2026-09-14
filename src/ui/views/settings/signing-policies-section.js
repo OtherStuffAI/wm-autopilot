@@ -148,6 +148,28 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
     return section;
   }
 
+  function renderModeSummary() {
+    const modes = inventory.modes || [];
+    if (!modes.length) return null;
+    const section = element('section', undefined, 'wm-signing-policy-modes');
+    section.dataset.testid = 'signing-policy-modes';
+    section.setAttribute('aria-label', 'Agent signing modes');
+    section.append(element('h2', 'Agent Signing Mode'));
+    const list = element('ul');
+    for (const mode of modes) {
+      const item = element('li');
+      if (mode.id === inventory.activeMode) item.dataset.active = 'true';
+      item.append(
+        element('strong', `${mode.name}${mode.id === inventory.activeMode ? ' · active' : ''}`),
+        element('span', mode.trust),
+        element('p', mode.description),
+      );
+      list.append(item);
+    }
+    section.append(list);
+    return section;
+  }
+
   function renderPolicyHeader(policy, edit) {
     const header = element('header', undefined, 'wm-signing-policies__policy-header');
     header.append(element('h2', policy.name));
@@ -233,7 +255,8 @@ export function createSigningPoliciesSection({ confirmAction = (message) => wind
         renderSessions(detail.sessions),
       );
     }
-    content.replaceChildren(nav, body);
+    const modeSummary = renderModeSummary();
+    content.replaceChildren(...(modeSummary ? [modeSummary] : []), nav, body);
   }
 
   void refresh();
