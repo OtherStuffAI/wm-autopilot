@@ -36,10 +36,23 @@ describe("live ACP permission and queue surface", () => {
     expect(source).toContain("mergeConversationWithQueuedPrompts(this.messages, this.queuedPrompts)");
   });
 
-  test("exposes queued prompt edit and delete actions in the chat timeline", () => {
-    expect(source).toContain("requestQueuedPromptEdit(message)");
+  test("edits queued prompts inside the chat timeline bubble", () => {
+    expect(source).toContain("async saveQueuedPromptEdit(message)");
+    expect(source).toContain("await saveQueuedPromptEdit(message.sessionId, message.promptId, draft)");
+    expect(source).toContain('data-testid="queued-prompt-inline-editor"');
+    expect(source).toContain('data-testid="queued-prompt-edit-input"');
+    expect(source).toContain('data-testid="queued-prompt-edit-done"');
+    expect(source).toContain('data-testid="queued-prompt-edit-cancel"');
+    expect(source).toContain('data-testid="queued-prompt-edit-status"');
+    expect(source).toContain("error: messageText");
+    expect(source).toContain("editor?.focus?.()");
+    expect(source).not.toContain("requestQueuedPromptEdit(message)");
+  });
+
+  test("keeps queued prompt delete actions in display mode", () => {
     expect(source).toContain("deleteQueuedPrompt(message.sessionId, message.promptId)");
     expect(source).toContain('data-testid="queued-prompt-edit"');
     expect(source).toContain('data-testid="queued-prompt-delete"');
+    expect(source).toContain('message.queued && !$store.chat.isEditingQueuedPrompt(message)');
   });
 });

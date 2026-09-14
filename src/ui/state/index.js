@@ -81,7 +81,6 @@ export const state = {
   config: null,
   logs: new Map(),
   messageDrafts: new Map(),
-  queuedPromptEdits: new Map(),
   imageAttachmentDrafts: new Map(),
   logPanelOpen: new Map(),
   promptQueues: new Map(), // sessionId -> {prompts: [], maxSize: 21}

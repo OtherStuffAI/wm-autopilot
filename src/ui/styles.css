@@ -5606,6 +5606,42 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   opacity: 0.88;
 }
 
+.wm-queued-prompt-editor {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.wm-queued-prompt-editor__input {
+  width: 100%;
+  min-height: 7rem;
+  resize: vertical;
+  border: 1px solid rgb(from var(--accent-primary) r g b / 0.36);
+  border-radius: 0.45rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.5;
+  padding: 0.65rem 0.75rem;
+}
+
+.wm-queued-prompt-editor__input:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.wm-queued-prompt-editor__status {
+  margin: 0;
+  color: #dc2626;
+  font-size: 0.82rem;
+}
+
+.wm-queued-prompt-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
 .wm-message-queued-state {
   display: inline-flex;
   width: fit-content;

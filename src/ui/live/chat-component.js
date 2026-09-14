@@ -36,7 +36,7 @@ import {
 import { showToast } from "../utils/toast.js";
 import {
   deleteQueuedPrompt,
-  requestQueuedPromptEdit,
+  saveQueuedPromptEdit,
 } from "./queued-prompt-actions.js";
 import {
   LIVE_MESSAGE_WINDOW_DEFAULT,
@@ -96,6 +96,10 @@ function isErrorMessage(message) {
   return role === "agent-error";
 }
 
+function getQueuedPromptEditorId(promptId) {
+  return `queued-prompt-editor-${String(promptId ?? "").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
 /**
  * Check if Alpine chat is enabled via feature flag.
  * @returns {boolean}
@@ -143,6 +147,12 @@ export function registerChatComponent() {
     messages: [],
     permissions: [],
     queuedPrompts: [],
+    queuedPromptEdit: {
+      promptId: null,
+      draft: "",
+      saving: false,
+      error: "",
+    },
     messageWindow: createWindowRecord(0, LIVE_MESSAGE_WINDOW_DEFAULT),
     status: "disconnected",
     connectionState: "disconnected",
@@ -347,7 +357,75 @@ export function registerChatComponent() {
     },
 
     editQueuedPrompt(message) {
-      requestQueuedPromptEdit(message);
+      if (!message?.promptId) return;
+      this.queuedPromptEdit = {
+        promptId: message.promptId,
+        draft: String(message.content ?? ""),
+        saving: false,
+        error: "",
+      };
+      queueMicrotask(() => {
+        const editor = document.getElementById(getQueuedPromptEditorId(message.promptId));
+        editor?.focus?.();
+        editor?.select?.();
+      });
+    },
+
+    isEditingQueuedPrompt(message) {
+      return Boolean(message?.queued && message?.promptId && this.queuedPromptEdit.promptId === message.promptId);
+    },
+
+    getQueuedPromptEditorId(message) {
+      return getQueuedPromptEditorId(message?.promptId);
+    },
+
+    updateQueuedPromptDraft(value) {
+      this.queuedPromptEdit = {
+        ...this.queuedPromptEdit,
+        draft: String(value ?? ""),
+        error: "",
+      };
+    },
+
+    cancelQueuedPromptEdit() {
+      this.queuedPromptEdit = {
+        promptId: null,
+        draft: "",
+        saving: false,
+        error: "",
+      };
+    },
+
+    async saveQueuedPromptEdit(message) {
+      if (!message?.sessionId || !message?.promptId || !this.isEditingQueuedPrompt(message)) return;
+      const draft = this.queuedPromptEdit.draft;
+      if (!draft.trim()) {
+        this.queuedPromptEdit = {
+          ...this.queuedPromptEdit,
+          error: "Queued prompt cannot be empty.",
+        };
+        showToast("Queued prompt cannot be empty", { type: "warning" });
+        return;
+      }
+      this.queuedPromptEdit = {
+        ...this.queuedPromptEdit,
+        saving: true,
+        error: "",
+      };
+      try {
+        await saveQueuedPromptEdit(message.sessionId, message.promptId, draft);
+        this.cancelQueuedPromptEdit();
+        showToast("Queued prompt updated", { type: "success" });
+      } catch (error) {
+        console.error("[chat] Failed to update queued prompt:", error);
+        const messageText = error instanceof Error ? error.message : "Failed to update queued prompt";
+        this.queuedPromptEdit = {
+          ...this.queuedPromptEdit,
+          saving: false,
+          error: messageText,
+        };
+        showToast(messageText, { type: "error" });
+      }
     },
 
     async deleteQueuedPrompt(message) {
@@ -422,6 +500,7 @@ export function registerChatComponent() {
       this.messages = [];
       this.permissions = [];
       this.queuedPrompts = [];
+      this.cancelQueuedPromptEdit();
       this.messageWindow = createWindowRecord(0, LIVE_MESSAGE_WINDOW_DEFAULT);
       this.status = "disconnected";
       this.connectionState = "disconnected";
@@ -749,7 +828,46 @@ export function getChatTemplate(sessionId) {
                :aria-live="$store.chat.isErrorMessage(message) ? 'assertive' : null"
                :data-testid="$store.chat.isErrorMessage(message) ? 'agent-error-message' : null"
                :class="$store.chat.getMessageClass(message)">
-        <div class="wm-message-body" x-html="$store.chat.renderMessageContent(message)"></div>
+        <template x-if="!$store.chat.isEditingQueuedPrompt(message)">
+          <div class="wm-message-body" x-html="$store.chat.renderMessageContent(message)"></div>
+        </template>
+        <template x-if="$store.chat.isEditingQueuedPrompt(message)">
+          <form class="wm-queued-prompt-editor"
+                data-testid="queued-prompt-inline-editor"
+                @submit.prevent="$store.chat.saveQueuedPromptEdit(message)"
+                @click.stop>
+            <textarea
+              class="wm-queued-prompt-editor__input"
+              data-testid="queued-prompt-edit-input"
+              :id="$store.chat.getQueuedPromptEditorId(message)"
+              aria-label="Edit queued prompt"
+              rows="4"
+              :value="$store.chat.queuedPromptEdit.draft"
+              :disabled="$store.chat.queuedPromptEdit.saving"
+              @input="$store.chat.updateQueuedPromptDraft($event.target.value)"
+              @keydown.escape.prevent="$store.chat.cancelQueuedPromptEdit()"></textarea>
+            <p class="wm-queued-prompt-editor__status"
+               role="status"
+               aria-live="polite"
+               data-testid="queued-prompt-edit-status"
+               x-show="$store.chat.queuedPromptEdit.error"
+               x-text="$store.chat.queuedPromptEdit.error"></p>
+            <div class="wm-queued-prompt-editor__actions">
+              <button type="submit"
+                      class="wm-button small"
+                      data-testid="queued-prompt-edit-done"
+                      aria-label="Done editing queued prompt"
+                      :disabled="$store.chat.queuedPromptEdit.saving"
+                      x-text="$store.chat.queuedPromptEdit.saving ? 'Saving...' : 'Done'"></button>
+              <button type="button"
+                      class="wm-button small secondary"
+                      data-testid="queued-prompt-edit-cancel"
+                      aria-label="Cancel editing queued prompt"
+                      :disabled="$store.chat.queuedPromptEdit.saving"
+                      @click="$store.chat.cancelQueuedPromptEdit()">Cancel</button>
+            </div>
+          </form>
+        </template>
         <template x-if="$store.chat.isIntermediateAssistantMessage(message)">
           <span class="wm-message-intermediate-state" role="status" data-testid="intermediate-agent-output">Intermediate · agent loop still running</span>
         </template>
@@ -787,7 +905,7 @@ export function getChatTemplate(sessionId) {
               </template>
             </button>
           </template>
-          <template x-if="message.queued">
+          <template x-if="message.queued && !$store.chat.isEditingQueuedPrompt(message)">
             <button type="button"
                     class="wm-message-edit"
                     data-testid="queued-prompt-edit"
@@ -797,7 +915,7 @@ export function getChatTemplate(sessionId) {
               <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M4 17.25V21h3.75L18.81 9.94l-3.75-3.75L4 17.25zm16.71-10.04a1 1 0 0 0 0-1.42l-2.5-2.5a1 1 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z"/></svg>
             </button>
           </template>
-          <template x-if="message.queued">
+          <template x-if="message.queued && !$store.chat.isEditingQueuedPrompt(message)">
             <button type="button"
                     class="wm-message-delete"
                     data-testid="queued-prompt-delete"
