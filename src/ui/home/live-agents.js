@@ -13,6 +13,7 @@ import {
 import { createSessionGroupTabs } from "./session-group-tabs.js";
 import { canResumeNativeAgentSession } from "./native-session-resume.js";
 import { createBulkCloseAutoSessionsButton } from "./bulk-close-auto-sessions.js";
+import { getSessionModelDisplay } from "../sessions/session-model-display.js";
 export { canResumeNativeAgentSession };
 
 function shouldRenderSessionCards() {
@@ -187,6 +188,8 @@ function createSessionCards(orderedSessions, deps) {
     addDetail("Last updated", formatSessionStartedAt(session.lastUpdatedAt));
     addDetail("Directory", formatSessionDirectoryDisplay(directoryValue), directoryValue);
     addDetail("Agent", session.agent);
+    const model = getSessionModelDisplay(session);
+    addDetail(model.label, model.value, model.title);
     card.append(details);
 
     const actionRow = document.createElement("div");

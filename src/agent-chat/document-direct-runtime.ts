@@ -6,6 +6,7 @@ import { dirname } from 'node:path';
 import type { AgentType } from '../config';
 import { isAgentType } from '../agent-types';
 import type { ProcessManager, SessionSnapshot } from '../agents/process-manager';
+import { normalizeAgentModelOverride } from '../agents/process-manager';
 import { databaseFile } from '../storage/message-store';
 import type { AgentDefinitionStore } from './agent-definition-store';
 import { sendPromptAndAwaitFinalResponse } from './session-runtime-session-ops';
@@ -392,7 +393,8 @@ export class DocumentDirectRuntime {
     const compatible = existing?.metadata?.agentChatAgentId === agent.agentId
       && existing?.metadata?.agentChatBotNpub === agent.botNpub
       && existing.agent === (agent.directChat?.sessionAgent || this.deps.defaultAgent)
-      && existing.workingDirectory === (agent.directChat?.directory || agent.workingDirectory);
+      && existing.workingDirectory === (agent.directChat?.directory || agent.workingDirectory)
+      && normalizeAgentModelOverride(existing.model) === normalizeAgentModelOverride(agent.directChat?.model ?? undefined);
     if (compatible && (existing?.status === 'running' || existing?.status === 'starting')) return existing;
     const previousSessionIds = state.sessionId ? [...new Set([...state.previousSessionIds, state.sessionId])] : state.previousSessionIds;
     const generation = state.generation + 1;

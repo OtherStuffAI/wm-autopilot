@@ -62,7 +62,7 @@ import { cleanupStopNextActionSessions } from "./sessions/next-action-cleanup";
 import { isDirectChatSessionProtected } from "./agent-chat/direct-chat-lifecycle";
 import { chatInterceptStateStore } from "./agent-chat/chat-intercept-state-store";
 import { createFlightDeckTriggerResolver } from "./agent-chat/flightdeck-trigger-resolver";
-import { directChatTurnStore } from "./agent-chat/direct-chat-turn-store";
+import { getDirectChatTurnStore } from "./agent-chat/direct-chat-turn-store";
 import { flightDeckDispatchOutcomeStore } from "./agent-chat/flightdeck-dispatch-outcome-store";
 import { PromptQueueStore } from "./storage/prompt-queue-store";
 import { SessionDispatchStore } from "./session-dispatch/session-dispatch-store";
@@ -176,6 +176,7 @@ import {
   type RequestAuthContext,
 } from "./auth/request-context";
 import { getEffectiveOwnerAuthContext, getEffectiveOwnerNpub } from "./auth/effective-owner";
+import { isCapabilityBoundSelfSessionMetadataRead } from "./auth/session-capability-access";
 import { resolveNip98AuthContext } from "./auth/nip98-auth";
 import { Nip98ReplayCache, verifyNip98Request } from "./auth/nip98-verifier";
 import { deriveNpubSegment, isNpubInList, normaliseNpub, normaliseNpubList } from "./identity/npub-utils";
@@ -497,6 +498,7 @@ for (const record of botKeyStore.listActiveKeys()) {
 }
 const workspaceDelegationStore = new WorkspaceDelegationStore();
 const schedulerStore = new SchedulerStore();
+const directChatTurnStore = getDirectChatTurnStore();
 let accessGrantListener: AccessGrantListener | null = null;
 function onBotKeyUnlockedHook(npub: string, secretKey: Uint8Array, botPubkeyHex: string): void {
   const record = botKeyStore.getActiveKeyForUser(npub);
@@ -649,6 +651,7 @@ let sessionApiContextRef: SessionApiContext | null = null;
 
 const requireApprovedWorkAccess = (): AccessRule => {
   return (context) => {
+    if (isCapabilityBoundSelfSessionMetadataRead(context)) return allow();
     const ownerNpub = getEffectiveOwnerNpub(context.auth);
     return isUserApprovedForWork(ownerNpub)
       ? allow()
@@ -2607,6 +2610,7 @@ void resumeRunningPipelineRuns({
   store: pipelineStore,
   sessionApiContext,
   callbackOrigin: `http://127.0.0.1:${config.port}`,
+  defaultAgent: config.defaultAgent,
   loadRegistryForRun: ({ run, definition }) =>
     dispatchPipelineRuntime.loadRegistryForStoredRun({ run, definition, sessionApiContext }),
   ensureApiAccess,
@@ -2818,6 +2822,7 @@ const handleApi = createApiRouteHandler({
   },
   agentChatApiContext: {
     manager: workspaceSubscriptionManager,
+    directChatTurnStore,
     adminNpub,
     sharedAgentDispatch: sharedAgentDispatchEnabled,
     isAdminContext,

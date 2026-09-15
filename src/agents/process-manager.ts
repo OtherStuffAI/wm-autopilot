@@ -169,6 +169,8 @@ export interface SessionSnapshot {
   metadata?: SessionMetadata;
   /** Selected model for the session */
   model?: string;
+  /** Runtime-confirmed model for transports that can report it */
+  runningModel?: string;
 }
 
 type SessionEvent =
@@ -301,6 +303,8 @@ interface AgentSession {
   mcpCleanupFiles?: string[];
   /** Model selection for this session */
   model?: string;
+  /** Runtime-confirmed model for transports that can report it */
+  runningModel?: string;
   /**
    * Structured Codex `--config` overrides (MCP, billing) merged at launch and
    * handed to the native Codex SDK adapter, which spawns no CLI to receive
@@ -1759,6 +1763,7 @@ export class ProcessManager {
 
   private toSnapshot(session: AgentSession): SessionSnapshot {
     this.syncNativeAgentSessionMetadata(session);
+    session.runningModel = session.adapter?.getRunningModel?.() ?? session.runningModel;
     return {
       id: session.id,
       agent: session.agent,
@@ -1781,6 +1786,7 @@ export class ProcessManager {
       tmuxWindow: session.tmuxWindow,
       targetFile: session.targetFile,
       model: session.model,
+      runningModel: session.runningModel,
       pinnedFile: session.pinnedFile,
       tabOrder: session.tabOrder ?? null,
       metadata: session.metadata,

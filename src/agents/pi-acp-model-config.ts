@@ -24,7 +24,7 @@ export async function configureAdvertisedPiModel(
   sessionId: string,
   sessionResponse: AcpResponse,
   requestedModel: string | undefined,
-): Promise<void> {
+): Promise<AcpResponse | void> {
   const model = requestedModel?.trim();
   if (!model) return;
 
@@ -59,6 +59,7 @@ export async function configureAdvertisedPiModel(
       `Pi ACP did not confirm selected model "${model}" after session/set_config_option`,
     );
   }
+  return response;
 }
 
 function readPiModelOption(response: AcpResponse): PiModelOption | null {

@@ -34,6 +34,7 @@ import {
 import {
   buildAgentConnectImportResult,
   validateAgentConnectPackage,
+  type AgentConnectValidationResult,
 } from './agent-connect-import';
 import { backendConnectionStore, type BackendConnectionStore } from './backend-connection-store';
 import { AgentChatRoutingEvaluator } from './routing-evaluator';
@@ -2353,6 +2354,7 @@ export class WorkspaceSubscriptionManager {
   }): Promise<{
     backendConnection: BackendConnectionRecord;
     subscription: WorkspaceSubscriptionRecord;
+    subscriptions?: WorkspaceSubscriptionRecord[];
     ignoredLocally?: boolean;
     staleDiscoveryEvent?: boolean;
   }> {
@@ -2361,17 +2363,15 @@ export class WorkspaceSubscriptionManager {
       : null;
     const agentProfileId = input.agentProfileId?.trim()
       || (discoveredProfile?.managedByNpub === input.managedByNpub ? discoveredProfile.agentId : null);
-    const agentProfile = agentProfileId
-      ? this.resolveOwnedAgentProfile(agentProfileId, input.managedByNpub)
-      : null;
     const validation = validateAgentConnectPackage({
       managedByNpub: input.managedByNpub,
       packageJson: input.packageJson,
     });
-    const validationIdentity = await this.resolveCreateBotIdentity(input.managedByNpub, agentProfile);
-    if (validationIdentity.botSecret !== this.getInstanceIdentity()?.secretKey) {
-      validationIdentity.botSecret.fill(0);
-    }
+    const agentProfiles = await this.resolveAgentConnectImportProfiles({
+      managedByNpub: input.managedByNpub,
+      explicitAgentProfileId: agentProfileId,
+      validation,
+    });
     let backendConnection = await this.createOrReuseBackendConnection({
       managedByNpub: input.managedByNpub,
       backendBaseUrl: validation.service.directHttpsUrl,
@@ -2395,26 +2395,32 @@ export class WorkspaceSubscriptionManager {
       });
       backendConnection = this.backendStore.getById(backendConnection.backendConnectionId) ?? backendConnection;
     }
-    const importResult = buildAgentConnectImportResult(validation, backendConnection);
-    const subscription = await this.createOrUpdate({
-      ...importResult.subscriptionInput,
-      agentProfileId,
-      onboardingSource: input.onboardingSource ?? 'agent_connect_import',
-      discoveryEvent: input.discoveryEvent,
-    });
-    this.profilePolicyStore.ensureProfileWorkspaceForSubscription({
-      managedByNpub: input.managedByNpub,
-      agentProfileId: agentProfile?.agentId ?? agentProfileId,
-      agentLabel: agentProfile?.label ?? null,
-      agentNpub: subscription.botNpub,
-      subscription,
-      backendConnection,
-      relayOnboardingStatus: subscription.wsKeyStatus === 'active' ? 'ready' : 'verified',
-      workspaceTitle: validation.workspaceTitle,
-    });
+    const subscriptions: WorkspaceSubscriptionRecord[] = [];
+    for (const agentProfile of agentProfiles) {
+      const importResult = buildAgentConnectImportResult(validation, backendConnection);
+      const subscription = await this.createOrUpdate({
+        ...importResult.subscriptionInput,
+        agentProfileId: agentProfile?.agentId ?? null,
+        onboardingSource: input.onboardingSource ?? 'agent_connect_import',
+        discoveryEvent: input.discoveryEvent,
+      });
+      this.profilePolicyStore.ensureProfileWorkspaceForSubscription({
+        managedByNpub: input.managedByNpub,
+        agentProfileId: agentProfile?.agentId ?? null,
+        agentLabel: agentProfile?.label ?? null,
+        agentNpub: subscription.botNpub,
+        subscription,
+        backendConnection,
+        relayOnboardingStatus: subscription.wsKeyStatus === 'active' ? 'ready' : 'verified',
+        workspaceTitle: validation.workspaceTitle,
+      });
+      subscriptions.push(subscription);
+    }
+    const subscription = subscriptions[0]!;
     return {
       backendConnection,
       subscription,
+      subscriptions,
       ...(input.discoveryEvent && subscription.lifecycleStatus === 'locally_disconnected'
         ? { ignoredLocally: true }
         : {}),
@@ -2424,6 +2430,69 @@ export class WorkspaceSubscriptionManager {
         ? { staleDiscoveryEvent: true }
         : {}),
     };
+  }
+
+  private async resolveAgentConnectImportProfiles(input: {
+    managedByNpub: string;
+    explicitAgentProfileId: string | null;
+    validation: AgentConnectValidationResult;
+  }): Promise<Array<AgentDefinitionRecord | null>> {
+    if (input.explicitAgentProfileId) {
+      return [this.resolveOwnedAgentProfile(input.explicitAgentProfileId, input.managedByNpub)];
+    }
+
+    if (!input.validation.workspaceId) {
+      const identity = await this.resolveCreateBotIdentity(input.managedByNpub, null);
+      if (identity.botSecret !== this.getInstanceIdentity()?.secretKey) {
+        identity.botSecret.fill(0);
+      }
+      return [null];
+    }
+
+    const candidates = this.agentStore.listForManagerNpub(input.managedByNpub)
+      .filter((agent) => agent.enabled && agent.archived !== true);
+    if (!candidates.length) {
+      const identity = await this.resolveCreateBotIdentity(input.managedByNpub, null);
+      if (identity.botSecret !== this.getInstanceIdentity()?.secretKey) {
+        identity.botSecret.fill(0);
+      }
+      return [null];
+    }
+
+    const accepted: AgentDefinitionRecord[] = [];
+    for (const agent of candidates) {
+      const botIdentity = await this.resolveStoredBotIdentity(agent.botNpub).catch(() => null);
+      if (!botIdentity) continue;
+      try {
+        const me = await this.fetchFlightDeckPgWorkspaceMeImpl({
+          backendBaseUrl: input.validation.service.directHttpsUrl,
+          workspaceId: input.validation.workspaceId,
+          appNpub: input.validation.sourceAppNpub,
+          botIdentity,
+        });
+        if (me?.membership) accepted.push(agent);
+      } catch {
+        // Non-members are expected during discovery; keep probing other local bots.
+      } finally {
+        if (botIdentity.botSecret !== this.getInstanceIdentity()?.secretKey) {
+          botIdentity.botSecret.fill(0);
+        }
+      }
+    }
+
+    if (!accepted.length) {
+      throw Object.assign(
+        new Error('No enabled local bot profile is a member of this Flight Deck PG workspace. Add one of this Autopilot instance’s bot npubs to the workspace, then import AgentConnect again.'),
+        { statusCode: 403 },
+      );
+    }
+
+    const defaultAgent = this.getDefaultAgentForManager(input.managedByNpub);
+    return accepted.sort((left, right) => {
+      if (left.agentId === defaultAgent?.agentId) return -1;
+      if (right.agentId === defaultAgent?.agentId) return 1;
+      return left.agentId.localeCompare(right.agentId);
+    });
   }
 
   async createOrUpdate(input: CreateWorkspaceSubscriptionInput): Promise<WorkspaceSubscriptionRecord> {
@@ -2933,6 +3002,9 @@ export class WorkspaceSubscriptionManager {
     if (!record) {
       return null;
     }
+    if (isFlightDeckPgSubscription(record) && record.onboardingSource === 'agent_connect_import' && !record.agentProfileId) {
+      return this.reconnectUnboundFlightDeckPgImport(record);
+    }
     if (isRevokedWorkspaceSubscription(record)) {
       throw new Error('Subscription access was revoked by Tower verification and cannot be reconnected.');
     }
@@ -2945,6 +3017,76 @@ export class WorkspaceSubscriptionManager {
       allowRegisterWhenInactive: false,
       reason: 'operator_reconnect',
     });
+  }
+
+  private async reconnectUnboundFlightDeckPgImport(record: WorkspaceSubscriptionRecord): Promise<WorkspaceSubscriptionRecord> {
+    if (!record.workspaceId) {
+      throw new Error('Flight Deck PG workspace id is required to reconnect this AgentConnect subscription.');
+    }
+    const backendConnection = record.backendConnectionId
+      ? this.backendStore.getById(record.backendConnectionId)
+      : await this.createOrReuseBackendConnection({
+          managedByNpub: record.managedByNpub ?? '',
+          backendBaseUrl: record.backendBaseUrl,
+          serviceNpub: record.towerServiceNpub ?? null,
+          setupWorkspaceOwnerNpub: record.workspaceOwnerNpub,
+          setupSourceAppNpub: record.sourceAppNpub,
+          setupSourceAppSchemaNamespace: record.sourceAppSchemaNamespace,
+          setupConnectionTokenRef: record.connectionTokenRef,
+          setupCapabilityDefaults: record.capabilityDefaults ?? [],
+        });
+    if (!backendConnection) {
+      throw new Error('Backend connection not found for this AgentConnect subscription.');
+    }
+    const validation: AgentConnectValidationResult = {
+      managedByNpub: record.managedByNpub ?? '',
+      service: {
+        directHttpsUrl: backendConnection.backendBaseUrl || record.backendBaseUrl,
+        serviceNpub: record.towerServiceNpub ?? backendConnection.serviceNpub ?? null,
+        relayUrls: backendConnection.relayUrls ?? [],
+        openapiUrl: backendConnection.openapiUrl ?? null,
+        docsUrl: backendConnection.docsUrl ?? null,
+        healthUrl: backendConnection.healthUrl ?? null,
+      },
+      workspaceOwnerNpub: record.workspaceOwnerNpub,
+      workspaceId: record.workspaceId,
+      workspaceServiceNpub: record.workspaceServiceNpub ?? null,
+      workspaceTitle: null,
+      sourceAppNpub: record.sourceAppNpub,
+      sourceAppSchemaNamespace: record.sourceAppSchemaNamespace ?? null,
+      supportedVersion: backendConnection.supportedVersion ?? '6',
+      connectionTokenRef: record.connectionTokenRef ?? `agent-connect:${record.workspaceOwnerNpub}:${record.sourceAppNpub}:${Date.parse(record.createdAt)}`,
+      capabilityDefaults: record.capabilityDefaults ?? [],
+    };
+    const agentProfiles = await this.resolveAgentConnectImportProfiles({
+      managedByNpub: record.managedByNpub ?? '',
+      explicitAgentProfileId: null,
+      validation,
+    });
+    const subscriptions: WorkspaceSubscriptionRecord[] = [];
+    for (const agentProfile of agentProfiles) {
+      const importResult = buildAgentConnectImportResult(validation, backendConnection);
+      const subscription = await this.createOrUpdate({
+        ...importResult.subscriptionInput,
+        agentProfileId: agentProfile?.agentId ?? null,
+        onboardingSource: 'agent_connect_import',
+      });
+      this.profilePolicyStore.ensureProfileWorkspaceForSubscription({
+        managedByNpub: record.managedByNpub ?? '',
+        agentProfileId: agentProfile?.agentId ?? null,
+        agentLabel: agentProfile?.label ?? null,
+        agentNpub: subscription.botNpub,
+        subscription,
+        backendConnection,
+        relayOnboardingStatus: subscription.wsKeyStatus === 'active' ? 'ready' : 'verified',
+        workspaceTitle: validation.workspaceTitle,
+      });
+      subscriptions.push(subscription);
+    }
+    if (!subscriptions.some((subscription) => subscription.subscriptionId === record.subscriptionId)) {
+      this.removeForManager(record.subscriptionId, record.managedByNpub ?? '');
+    }
+    return subscriptions[0]!;
   }
 
   async refreshKeysForManager(subscriptionId: string, npub: string): Promise<WorkspaceSubscriptionRecord | null> {

@@ -950,7 +950,7 @@ export function getChatTemplate(sessionId) {
           <dl class="wm-session-information-details">
             <dt>Agent</dt><dd x-text="$store.chat.emptySessionInformation.agent"></dd>
             <dt>Directory</dt><dd x-text="$store.chat.emptySessionInformation.workingDirectory"></dd>
-            <dt>Model</dt><dd x-text="$store.chat.emptySessionInformation.model"></dd>
+            <dt x-text="$store.chat.emptySessionInformation.modelLabel || 'Selected model'"></dt><dd x-text="$store.chat.emptySessionInformation.model"></dd>
           </dl>
         </div>
       </article>

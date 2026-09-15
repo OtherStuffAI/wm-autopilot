@@ -1168,6 +1168,32 @@ describe('agent-chat routes', () => {
     expect(removed).toBe(true);
   });
 
+  test('removes a subscription through the action route used by workspace settings', async () => {
+    let removed: { subscriptionId: string; managerNpub: string } | null = null;
+    const manager = {
+      removeForManager: (subscriptionId: string, managerNpub: string) => {
+        removed = { subscriptionId, managerNpub };
+        return true;
+      },
+    } as unknown as WorkspaceSubscriptionManager;
+    const request = new Request('http://localhost/api/agent-chat/subscriptions/sub-bad/actions/remove', {
+      method: 'POST',
+    });
+
+    const response = await handleAgentChatApi(
+      request,
+      new URL(request.url),
+      'POST',
+      authContext,
+      { manager },
+    );
+    const body = await response!.json();
+
+    expect(response?.status).toBe(200);
+    expect(body).toEqual({ removed: true, subscriptionId: 'sub-bad' });
+    expect(removed).toEqual({ subscriptionId: 'sub-bad', managerNpub: 'npub1manager' });
+  });
+
   test('sets the explicit default profile used by ordinary Autopilot sessions', async () => {
     const rick = {
       agentId: 'rick', label: 'Rick', botNpub: 'npub1rick', workspaceOwnerNpub: 'npub1manager',

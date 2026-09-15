@@ -5813,7 +5813,11 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
 }
 
 .session-table .session-col-directory {
-  width: 40%;
+  width: 32%;
+}
+
+.session-table .session-col-model {
+  width: 14rem;
 }
 
 .session-table th,
@@ -5840,7 +5844,8 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   background-color: rgb(from var(--accent-primary) r g b / 0.12);
 }
 
-.session-table td.directory-cell {
+.session-table td.directory-cell,
+.session-table td.model-cell {
   font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
   white-space: nowrap;
   max-width: 36rem;
@@ -9983,6 +9988,20 @@ dialog textarea {
 .wm-dialog__input {
   width: 100%;
   box-sizing: border-box;
+}
+
+.wm-dialog__readonly {
+  display: block;
+  min-height: 2.5rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wm-dialog__status {

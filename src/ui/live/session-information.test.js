@@ -13,17 +13,28 @@ describe("empty session information", () => {
       title: "Session information",
       agent: "Goose (ACP)",
       workingDirectory: "/Users/example/wingmen/agent-workspace",
-      model: "default (provider default)",
+      modelLabel: "Selected model",
+      model: "default",
     });
   });
 
-  test("preserves an explicit model and describes Codex Agent API and ACP sessions", () => {
+  test("preserves model display details and describes Codex Agent API and ACP sessions", () => {
     expect(buildEmptySessionInformation({
       agent: "goose",
       workingDirectory: "/repo",
       model: "openrouter/anthropic/claude-opus-5-fast",
       metadata: { agentTransport: "goose-acp" },
     })?.model).toBe("openrouter/anthropic/claude-opus-5-fast");
+    expect(buildEmptySessionInformation({
+      agent: "codex",
+      workingDirectory: "/repo",
+      model: "gpt-5-codex",
+      runningModel: "gpt-5.1-codex",
+      metadata: { agentTransport: "codex-acp" },
+    })).toMatchObject({
+      modelLabel: "Running model",
+      model: "gpt-5.1-codex",
+    });
     expect(buildEmptySessionInformation({
       agent: "codex",
       workingDirectory: "/repo",
@@ -69,7 +80,7 @@ describe("empty session information", () => {
       expect(bubble.children[0]?.children[1]?.children.map((child) => child.textContent)).toEqual([
         "Agent", "Goose (ACP)",
         "Directory", "/repo",
-        "Model", "default (provider default)",
+        "Selected model", "default",
       ]);
     } finally {
       globalThis.document = originalDocument;

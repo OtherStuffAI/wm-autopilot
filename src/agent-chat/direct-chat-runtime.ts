@@ -3,6 +3,7 @@ import { DIRECT_CHAT_SUBMISSION_LEASE_MS } from './direct-chat-response';
 import type { AgentType } from '../config';
 import { isAgentType } from '../agent-types';
 import type { ProcessManager, SessionSnapshot } from '../agents/process-manager';
+import { normalizeAgentModelOverride } from '../agents/process-manager';
 import type { ArchivedSession } from '../storage/session-archive-store';
 import { resolveNativeResumeLaunch } from '../sessions/native-resume-launch';
 import type { AgentDefinitionStore } from './agent-definition-store';
@@ -21,7 +22,7 @@ import {
   orderDirectChatMessages,
   selectUndeliveredActionableMessages,
 } from './direct-chat-contract';
-import { directChatTurnStore, type DirectChatTurnStore } from './direct-chat-turn-store';
+import { getDirectChatTurnStore, type DirectChatTurnStore } from './direct-chat-turn-store';
 import { AgentActivityPublisher, type AgentActivityContext } from './agent-activity-publisher';
 import { awaitAcceptedFinalResponse, PromptBoundaryNotObservedError, sendPromptAndAwaitFinalResponse } from './session-runtime-session-ops';
 import { createFlightDeckPgChannelMessage, type FlightDeckPgChannel, type FlightDeckPgEvent, type FlightDeckPgMessage } from './tower-client';
@@ -122,7 +123,7 @@ export class AgentDirectChatRuntime {
   private readonly dispatchOutcomeStore: FlightDeckDispatchOutcomeStore;
 
   constructor(private readonly deps: DirectChatRuntimeDependencies) {
-    this.turnStore = deps.turnStore ?? directChatTurnStore;
+    this.turnStore = deps.turnStore ?? getDirectChatTurnStore();
     this.publish = deps.publish ?? createFlightDeckPgChannelMessage;
     this.createActivityPublisher = deps.createActivityPublisher ?? ((context) => new AgentActivityPublisher(context));
     this.log = deps.log ?? console;
@@ -718,11 +719,14 @@ export class AgentDirectChatRuntime {
   }> {
     const live = intercept.sessionId ? this.deps.processManager.getSession(intercept.sessionId) : null;
     const archived = !live && intercept.sessionId ? this.deps.getArchivedSession?.(intercept.sessionId) ?? null : null;
-    const liveCompatible = live?.metadata?.flightdeckAgentNpub === agent.botNpub
+    const liveBindingCompatible = live?.metadata?.flightdeckAgentNpub === agent.botNpub
       && live.agent === (agent.directChat?.sessionAgent || this.deps.defaultAgent)
       && live.workingDirectory === (agent.directChat?.directory || agent.workingDirectory);
+    const liveModelCompatible = normalizeAgentModelOverride(live?.model) === normalizeAgentModelOverride(agent.directChat?.model ?? undefined);
+    const liveCompatible = liveBindingCompatible && liveModelCompatible;
     if (!options?.forceReplacementReason && liveCompatible && (live?.status === 'running' || live?.status === 'starting')) return { session: live, bootstrap: false, generation: intercept.sessionGeneration ?? 1, previousSessionIds: intercept.previousSessionIds ?? [], recovery: null };
-    const resumeSource = live ?? (archived && isAgentType(archived.agent) ? { ...archived, agent: archived.agent } : null);
+    const modelReplacementReason = live && liveBindingCompatible && !liveModelCompatible ? 'profile model changed' : null;
+    const resumeSource = modelReplacementReason ? null : live ?? (archived && isAgentType(archived.agent) ? { ...archived, agent: archived.agent } : null);
     if (resumeSource && !options?.forceReplacementReason) {
       try {
         const launch = resolveNativeResumeLaunch(resumeSource, isAgentType, subscription.managedByNpub);
@@ -751,6 +755,6 @@ export class AgentDirectChatRuntime {
         flightdeckAgentNpub: intercept.botNpub, flightdeckRoutingKey: intercept.routingKey, sessionGeneration: generation }, profile.model ?? undefined);
     return { session, bootstrap: true, generation, previousSessionIds,
       recovery: previous ? { previousSessionId: previous,
-        reason: options?.forceReplacementReason ?? (resumeSource ? 'native resume unavailable' : 'session missing') } : null };
+        reason: options?.forceReplacementReason ?? (resumeSource ? 'native resume unavailable' : modelReplacementReason ?? 'session missing') } : null };
   }
 }

@@ -155,7 +155,7 @@ function fixture(options: {
     event: { entity_id: entityId, channel_id: 'channel-1', cursor: `cursor-${entityId}`, ...event },
     audienceAgentNpubs,
   });
-  return { runtime, makeRuntime, handle, message, prompts, captures, creates, stops, published, activities, interceptStore,
+  return { runtime, makeRuntime, handle, message, prompts, captures, creates, stops, published, activities, agentStore, interceptStore,
     turnStore, dispatchOutcomeStore, publicationDecisionStore, sessions, archivedSessions, subscription, channel, botIdentity,
     deliveryReconciler };
 }
@@ -637,6 +637,37 @@ describe('Agent Direct Chat runtime', () => {
     });
     const m2 = f.message('m2', 'follow up'); expect(await f.handle([m1, m2], 'm2')).toEqual({ handled: true, reason: 'direct_chat_queued' }); await f.runtime.waitForIdle();
     expect(f.creates).toHaveLength(1); expect(f.prompts).toHaveLength(2); expect(f.published).toHaveLength(2);
+  });
+
+  test('starts a replacement session when the configured direct chat model changes', async () => {
+    const f = fixture({
+      directChat: {
+        enabled: true,
+        sessionAgent: 'codex',
+        directory: '/Users/example/wingmen/agent-workspace',
+        model: 'gpt-old',
+        idleRetentionMinutes: 60,
+      },
+    });
+    const m1 = f.message('m1', '@Example Agent first', true);
+    expect(await f.handle([m1], 'm1')).toEqual({ handled: true, reason: 'direct_chat_queued' });
+    await f.runtime.waitForIdle();
+    expect(f.creates).toHaveLength(1);
+    expect(f.creates[0][7]).toBe('gpt-old');
+
+    const profile = f.agentStore.getByAgentId('exampleAgent')!;
+    f.agentStore.save({
+      ...profile,
+      directChat: { ...profile.directChat!, model: 'gpt-new' },
+      updatedAt: new Date().toISOString(),
+    });
+    const m2 = f.message('m2', '@Example Agent second', true);
+    expect(await f.handle([m1, m2], 'm2')).toEqual({ handled: true, reason: 'direct_chat_queued' });
+    await f.runtime.waitForIdle();
+
+    expect(f.creates).toHaveLength(2);
+    expect(f.creates[1][7]).toBe('gpt-new');
+    expect(f.prompts).toHaveLength(2);
   });
 
   test('intrinsically enables a live-shape strict DM and falls back to its legacy basePrompt', async () => {

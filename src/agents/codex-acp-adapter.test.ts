@@ -85,6 +85,7 @@ describe("CodexAcpAdapter", () => {
     expect(requests[3]?.params).toMatchObject({ configId: "reasoning_effort", value: "high" });
     expect(nativeIds).toEqual(["codex-thread-1"]);
     expect(adapter.getSessionId()).toBe("codex-thread-1");
+    expect(adapter.getRunningModel()).toBe("gpt-test");
   });
 
   test("streams separate thoughts/final output and stable tool updates until prompt completion", async () => {
@@ -254,7 +255,9 @@ lines.on("line", (line) => {
     return;
   }
   if (method === "session/set_config_option") {
-    send({ jsonrpc: "2.0", id, result: { configOptions: [] } });
+    send({ jsonrpc: "2.0", id, result: { configOptions: params.configId === "model"
+      ? [{ id: "model", currentValue: params.value, options: [{ value: params.value, name: params.value }] }]
+      : [] } });
     return;
   }
   if (method === "session/cancel") {

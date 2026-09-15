@@ -35,7 +35,7 @@ import {
   normaliseDuplicateCallbackMarker,
   normaliseDuplicateCallbackWindowSeconds,
 } from '../agent-chat/agent-profile-policy-store';
-import { directChatTurnStore } from '../agent-chat/direct-chat-turn-store';
+import type { DirectChatDeliveryHealth, DirectChatTurnStore } from '../agent-chat/direct-chat-turn-store';
 import type { SignedNostrEvent } from '../identity/bot-identity-publisher';
 import type { AgentProfileRotationResult } from '../agent-chat/agent-profile-key-rotation';
 import {
@@ -48,6 +48,7 @@ type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 export interface AgentChatApiContext extends AgentProfileMediaApiContext {
   manager: WorkspaceSubscriptionManager;
+  directChatTurnStore?: Pick<DirectChatTurnStore, 'getHealth'>;
   agentTypes?: Array<{ id: string; label: string; modelOptions?: string[] }>;
   adminNpub?: string | null;
   sharedAgentDispatch?: boolean;
@@ -270,16 +271,11 @@ function serialiseSubscription(
   candidateAgents: AgentDefinitionRecord[],
   backendConnection?: BackendConnectionRecord | null,
   profileWorkspace?: AgentProfileWorkspaceBundle | null,
-  options: { canManage?: boolean; shared?: boolean } = {},
+  options: { canManage?: boolean; shared?: boolean; directChatTurnStore?: Pick<DirectChatTurnStore, 'getHealth'> } = {},
 ) {
   const recommendations = buildOperatorRecommendations(record, intercepts);
   const { wrappedGroupKeysJson: _legacyWrappedGroupKeys, ...visibleRecord } = record;
-  const delivery = directChatTurnStore.getHealth(record.subscriptionId, Date.now(), {
-    awaitingDegradedMs: Number(Bun.env.AGENT_DIRECT_AWAITING_DEGRADED_MS) || undefined,
-    awaitingUnhealthyMs: Number(Bun.env.AGENT_DIRECT_AWAITING_UNHEALTHY_MS) || undefined,
-    replyDegradedMs: Number(Bun.env.AGENT_DIRECT_REPLY_DEGRADED_MS) || undefined,
-    replyUnhealthyMs: Number(Bun.env.AGENT_DIRECT_REPLY_UNHEALTHY_MS) || undefined,
-  });
+  const delivery = serialiseDeliveryHealth(record.subscriptionId, options.directChatTurnStore);
   const healthStatus = record.healthStatus === 'unhealthy' || delivery.healthStatus === 'unhealthy' ? 'unhealthy'
     : record.healthStatus === 'degraded' || delivery.healthStatus === 'degraded' ? 'degraded' : 'healthy';
   return {
@@ -355,6 +351,36 @@ function serialiseSubscription(
       },
     },
   };
+}
+
+function emptyDeliveryHealth(): DirectChatDeliveryHealth {
+  return {
+    counts: {},
+    oldestAwaitingReplyAt: null,
+    oldestAwaitingReplyAgeMs: null,
+    oldestReplyReadyAt: null,
+    oldestReplyReadyAgeMs: null,
+    retryCount: 0,
+    failedCount: 0,
+    attemptCount: 0,
+    publishedCount: 0,
+    averageReplyLatencyMs: null,
+    averagePublishLatencyMs: null,
+    healthStatus: 'healthy',
+  };
+}
+
+function serialiseDeliveryHealth(
+  subscriptionId: string,
+  store: Pick<DirectChatTurnStore, 'getHealth'> | undefined,
+): DirectChatDeliveryHealth {
+  if (!store) return emptyDeliveryHealth();
+  return store.getHealth(subscriptionId, Date.now(), {
+    awaitingDegradedMs: Number(Bun.env.AGENT_DIRECT_AWAITING_DEGRADED_MS) || undefined,
+    awaitingUnhealthyMs: Number(Bun.env.AGENT_DIRECT_AWAITING_UNHEALTHY_MS) || undefined,
+    replyDegradedMs: Number(Bun.env.AGENT_DIRECT_REPLY_DEGRADED_MS) || undefined,
+    replyUnhealthyMs: Number(Bun.env.AGENT_DIRECT_REPLY_UNHEALTHY_MS) || undefined,
+  });
 }
 
 function getAgentChatErrorStatus(error: unknown, fallback: number): number {
@@ -662,7 +688,7 @@ export async function handleAgentChatApi(
           ctx.manager.listAgentsForWorkspaceBot(getEffectiveWorkspaceNpub(record), record.botNpub, scope.managerNpub),
           backendConnection,
           getProfileWorkspaceForSubscription(ctx.manager, record.subscriptionId, scope.managerNpub),
-          { canManage: scope.canManage, shared: scope.shared },
+          { canManage: scope.canManage, shared: scope.shared, directChatTurnStore: ctx.directChatTurnStore },
         );
       }),
     });
@@ -861,8 +887,16 @@ export async function handleAgentChatApi(
           ctx.manager.listAgentsForWorkspaceBot(getEffectiveWorkspaceNpub(imported.subscription), imported.subscription.botNpub, scope.managerNpub),
           null,
           getProfileWorkspaceForSubscription(ctx.manager, imported.subscription.subscriptionId, scope.managerNpub),
-          { canManage: scope.canManage, shared: scope.shared },
+          { canManage: scope.canManage, shared: scope.shared, directChatTurnStore: ctx.directChatTurnStore },
         ),
+        subscriptions: imported.subscriptions?.map((subscription) => serialiseSubscription(
+          subscription,
+          ctx.manager.listInterceptsForSubscription(subscription.subscriptionId, scope.managerNpub),
+          ctx.manager.listAgentsForWorkspaceBot(getEffectiveWorkspaceNpub(subscription), subscription.botNpub, scope.managerNpub),
+          null,
+          getProfileWorkspaceForSubscription(ctx.manager, subscription.subscriptionId, scope.managerNpub),
+          { canManage: scope.canManage, shared: scope.shared, directChatTurnStore: ctx.directChatTurnStore },
+        )),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || 'Agent Connect import failed.');
@@ -947,7 +981,7 @@ export async function handleAgentChatApi(
           ctx.manager.listAgentsForWorkspaceBot(getEffectiveWorkspaceNpub(subscription), subscription.botNpub, scope.managerNpub),
           null,
           getProfileWorkspaceForSubscription(ctx.manager, subscription.subscriptionId, scope.managerNpub),
-          { canManage: scope.canManage, shared: scope.shared },
+          { canManage: scope.canManage, shared: scope.shared, directChatTurnStore: ctx.directChatTurnStore },
         ),
       });
     } catch (error) {
@@ -1368,6 +1402,10 @@ export async function handleAgentChatApi(
         subscription = await ctx.manager.setEnabledForManager(subscriptionId, scope.managerNpub, false);
       } else if (action === 'enable') {
         subscription = await ctx.manager.setEnabledForManager(subscriptionId, scope.managerNpub, true);
+      } else if (action === 'remove' || action === 'disconnect') {
+        const removed = ctx.manager.removeForManager(subscriptionId, scope.managerNpub);
+        if (!removed) return Response.json({ error: 'Subscription not found' }, { status: 404 });
+        return Response.json({ removed: true, subscriptionId });
       } else {
         return Response.json({ error: 'Unknown Agent Chat action' }, { status: 404 });
       }
@@ -1383,7 +1421,7 @@ export async function handleAgentChatApi(
           ctx.manager.listAgentsForWorkspaceBot(getEffectiveWorkspaceNpub(subscription), subscription.botNpub, scope.managerNpub),
           null,
           getProfileWorkspaceForSubscription(ctx.manager, subscription.subscriptionId, scope.managerNpub),
-          { canManage: scope.canManage, shared: scope.shared },
+          { canManage: scope.canManage, shared: scope.shared, directChatTurnStore: ctx.directChatTurnStore },
         ),
       });
     } catch (error) {
@@ -1422,7 +1460,7 @@ export async function handleAgentChatApi(
         ctx.manager.listAgentsForWorkspaceBot(getEffectiveWorkspaceNpub(subscription), subscription.botNpub, scope.managerNpub),
         null,
         getProfileWorkspaceForSubscription(ctx.manager, subscription.subscriptionId, scope.managerNpub),
-        { canManage: scope.canManage, shared: scope.shared },
+        { canManage: scope.canManage, shared: scope.shared, directChatTurnStore: ctx.directChatTurnStore },
       ),
     });
   }

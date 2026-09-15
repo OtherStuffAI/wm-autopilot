@@ -37,7 +37,7 @@ export interface AcpAdapterProfile {
   cancelIsNotification?: boolean;
   aggregateAutoApprovedPermissions?: boolean;
   rollIntermediateAgentMessages?: boolean;
-  configureSession?: (client: AcpProcessClient, sessionId: string, response: AcpResponse) => Promise<void>;
+  configureSession?: (client: AcpProcessClient, sessionId: string, response: AcpResponse) => Promise<AcpResponse | void>;
   formatStartupError?: (error: Error) => Error;
 }
 
@@ -53,6 +53,7 @@ export class AcpAdapter implements AgentAdapter {
   private readonly autoApprovedPermissionIds = new Set<string>();
   private readonly eventNormalizer: AcpEventNormalizer;
   private activePromptContent: string | null = null;
+  private runningModel: string | null = null;
 
   constructor(
     private readonly context: AdapterSessionContext,
@@ -188,6 +189,7 @@ export class AcpAdapter implements AgentAdapter {
   }
 
   getSessionId(): string | null { return this.sessionId; }
+  getRunningModel(): string | null { return this.runningModel; }
 
   private async ensureStarted(): Promise<void> {
     if (this.client) return;
@@ -245,7 +247,9 @@ export class AcpAdapter implements AgentAdapter {
       const returnedSessionId = readString(sessionResponse.result, "sessionId") ?? this.sessionId;
       if (!returnedSessionId) throw new Error(`${this.profile.agentName} ACP did not return a session ID`);
       this.sessionId = returnedSessionId;
-      await this.profile.configureSession?.(client, returnedSessionId, sessionResponse);
+      this.recordRunningModel(sessionResponse);
+      const configuredResponse = await this.profile.configureSession?.(client, returnedSessionId, sessionResponse);
+      if (configuredResponse) this.recordRunningModel(configuredResponse);
       this.context.onNativeSessionId?.(returnedSessionId);
       this.setState("ready");
     } catch (error) {
@@ -401,6 +405,16 @@ export class AcpAdapter implements AgentAdapter {
     if (this.state === nextState || this.state === "disposed" || this.state === "failed") return;
     this.state = nextState;
     this.emit({ type: "status", status: nextState === "busy" ? "running" : "stable" });
+  }
+
+  private recordRunningModel(response: AcpResponse): void {
+    const result = readRecord(response.result);
+    const configOptions = Array.isArray(result.configOptions) ? result.configOptions : [];
+    const modelOption = configOptions
+      .map(readRecord)
+      .find((option) => option.id === "model");
+    const currentValue = readString(modelOption, "currentValue");
+    if (currentValue) this.runningModel = currentValue;
   }
 }
 

@@ -13,6 +13,7 @@ import { parseCommonFlags, buildConfig, requestJson, requestJsonBotCrypto, resol
 import {
   buildSessionMetadataPath,
   buildSessionMetadataUpdateBody,
+  shouldResolveSessionMetadataTargetId,
 } from "./lib/session-metadata-cli";
 
 const USAGE = `Wingman session management CLI (NIP-98)
@@ -415,6 +416,14 @@ async function run() {
     return requestedId;
   }
 
+  async function resolveMetadataSessionId(requestedId: string): Promise<string> {
+    const currentSessionId = process.env.SESSION_ID ?? Bun.env.SESSION_ID;
+    if (!shouldResolveSessionMetadataTargetId(requestedId, currentSessionId)) {
+      return requestedId;
+    }
+    return await resolveActiveSessionId(requestedId);
+  }
+
   function resolveMetadataTargetId(rawId: string | undefined, commandName: string): string {
     const sessionId = rawId ?? process.env.SESSION_ID ?? Bun.env.SESSION_ID;
     if (!sessionId) {
@@ -487,7 +496,7 @@ async function run() {
 
     case "metadata": {
       const id = resolveMetadataTargetId(positional[1], "metadata");
-      const resolvedId = await resolveActiveSessionId(id);
+      const resolvedId = await resolveMetadataSessionId(id);
       const payload = await req<Record<string, unknown>>("GET", sessionMetadataPath(resolvedId));
       console.log(JSON.stringify(payload, null, 2));
       break;
@@ -495,7 +504,7 @@ async function run() {
 
     case "metadata-update": {
       const id = resolveMetadataTargetId(positional[1], "metadata-update");
-      const resolvedId = await resolveActiveSessionId(id);
+      const resolvedId = await resolveMetadataSessionId(id);
       const body = buildSessionMetadataUpdateBody({
         goal,
         nextAction,

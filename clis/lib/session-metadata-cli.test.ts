@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildSessionMetadataPath,
   buildSessionMetadataUpdateBody,
+  shouldResolveSessionMetadataTargetId,
 } from "./session-metadata-cli";
 
 describe("session metadata CLI helpers", () => {
@@ -32,5 +33,13 @@ describe("session metadata CLI helpers", () => {
       bindingId: "task-7",
     });
     expect(buildSessionMetadataUpdateBody({})).toBeUndefined();
+  });
+
+  test("skips broad session lookup for exact self or full metadata targets", () => {
+    const sessionId = "a2bd012f-c421-4fcc-9f63-4fed4538c0b7";
+
+    expect(shouldResolveSessionMetadataTargetId(sessionId, sessionId)).toBeFalse();
+    expect(shouldResolveSessionMetadataTargetId(sessionId)).toBeFalse();
+    expect(shouldResolveSessionMetadataTargetId("a2bd012f", sessionId)).toBeTrue();
   });
 });

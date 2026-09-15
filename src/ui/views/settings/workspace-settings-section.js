@@ -2,7 +2,7 @@ import { randomId } from "../../core/random-id.js";
 import { createTowerTransportCard } from './tower-transport-card.js';
 import Alpine from '/vendor/alpinejs/module.esm.js';
 import {
-  deleteAgentChatSubscription, importAgentConnectPackage, listAgentChatAgents,
+  importAgentConnectPackage, listAgentChatAgents,
   listAgentChatBackendConnections, listAgentChatSubscriptions, runAgentChatSubscriptionAction,
 } from '../../services/agent-chat.js';
 import { createAgentConnectImportModal } from './agent-chat-connect-import-card.js';
@@ -91,8 +91,7 @@ export function createWorkspaceSettingsSection() {
     await renderCached();
     status.textContent = 'Updating connection…';
     try {
-      if (action === 'remove') await deleteAgentChatSubscription(subscription.subscriptionId);
-      else await runAgentChatSubscriptionAction(subscription.subscriptionId, action);
+      await runAgentChatSubscriptionAction(subscription.subscriptionId, action);
       const refreshed = await refresh();
       if (refreshed) status.textContent = action === 'remove' ? 'Disconnected locally. Workspace membership and bot profiles are unchanged.' : 'Connection updated.';
     } catch (error) { showError(error); }
@@ -118,9 +117,7 @@ export function createWorkspaceSettingsSection() {
   }
 
   function remove(subscription) {
-    if (globalThis.confirm('Disconnect this local connection? Events for this connection will stop. Tower workspace membership and bot profiles will remain.')) {
-      void runAction(subscription, 'remove');
-    }
+    void runAction(subscription, 'remove');
   }
 
   async function renderCached() {

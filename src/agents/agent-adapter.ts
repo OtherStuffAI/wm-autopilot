@@ -98,6 +98,9 @@ export interface AgentAdapter {
   /** Return pending interactive permissions, when supported. */
   getPendingPermissions?(): AgentPermission[];
 
+  /** Return a runtime-confirmed model name when the transport can observe one. */
+  getRunningModel?(): string | null;
+
   /** Resolve a pending interactive permission, when supported. */
   respondToPermission?(permissionId: string, response: "once" | "always" | "reject"): Promise<boolean>;
 

@@ -1,6 +1,7 @@
 import type { AgentType } from '../config';
 import { isAgentType } from '../agent-types';
 import type { ProcessManager, SessionSnapshot } from '../agents/process-manager';
+import { normalizeAgentModelOverride } from '../agents/process-manager';
 import type { TaskDirectState } from './task-direct-runtime';
 import type { AgentDefinitionRecord, WorkspaceSubscriptionRecord } from './types';
 import { buildFlightDeckSessionMetadata } from './flightdeck-session-metadata';
@@ -30,7 +31,8 @@ export async function resolveTaskDirectSession(input: {
   const existing = state.sessionId ? manager.getSession(state.sessionId) : null;
   const compatible = existing?.metadata?.agentChatAgentId === agent.agentId
     && existing?.metadata?.agentChatBotNpub === agent.botNpub
-    && existing.agent === sessionAgent && existing.workingDirectory === directory;
+    && existing.agent === sessionAgent && existing.workingDirectory === directory
+    && normalizeAgentModelOverride(existing.model) === normalizeAgentModelOverride(agent.directChat?.model ?? undefined);
   if (compatible && (existing.status === 'running' || existing.status === 'starting')) {
     for (const key of ['flightdeckTowerServiceNpub', 'flightdeckWorkspaceId', 'flightdeckSubscriptionId',
       'flightdeckBackendConnectionId', 'flightdeckAgentNpub', 'bindingType', 'bindingId', 'flightdeckRoutingKey'] as const) {

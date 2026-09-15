@@ -1109,6 +1109,111 @@ describe('WorkspaceSubscriptionManager', () => {
     ]);
   });
 
+  test('imports AgentConnect for every local bot profile accepted by the PG workspace', async () => {
+    const dbPath = makeTempDb();
+    const rick = RICK_BOT_NPUB;
+    const mick = 'npub1n9ca7rz3rlaumhqukkvxpxh95d85kgar2gxrz526h89h4pav25aqm9m6mz';
+    const brick = 'npub1xp68fz33envp484t8gfrsscag4e92x3946nnevvsngkjxtdajrmqff20ga';
+    const memberBots = new Set([rick, mick]);
+    const probes: string[] = [];
+    const { manager, store, agentStore } = createTestManager(
+      dbPath,
+      new Map([
+        [rick, makeBotKeyRecord(rick)],
+        [mick, makeBotKeyRecord(mick)],
+        [brick, makeBotKeyRecord(brick)],
+      ]),
+      undefined,
+      null,
+      undefined,
+      {
+        fetchFlightDeckPgWorkspaceMe: async ({ botIdentity }) => {
+          probes.push(botIdentity.botNpub);
+          if (!memberBots.has(botIdentity.botNpub)) {
+            throw Object.assign(new Error('Actor is not a member of this Flight Deck PG workspace'), {
+              detailCode: 'workspace_membership_required',
+            });
+          }
+          return { actor: { actor_id: `actor-${botIdentity.botNpub}` }, membership: { role: 'agent' }, permissions: ['workspace.read'] };
+        },
+      },
+    );
+    saveAgent(agentStore, { agentId: 'rick', label: 'Rick', botNpub: rick, managedByNpub: 'npub1manager' });
+    saveAgent(agentStore, { agentId: 'mick', label: 'Mick', botNpub: mick, managedByNpub: 'npub1manager' });
+    saveAgent(agentStore, { agentId: 'brick', label: 'Brick', botNpub: brick, managedByNpub: 'npub1manager' });
+    agentStore.setDefaultForManagerNpub('npub1manager', 'rick');
+
+    const imported = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+      onboardingSource: 'agent_connect_import',
+    });
+
+    expect(imported.subscription.botNpub).toBe(rick);
+    expect(imported.subscriptions?.map((subscription) => subscription.botNpub).sort()).toEqual([mick, rick].sort());
+    expect(store.listAll().map((subscription) => subscription.botNpub).sort()).toEqual([mick, rick].sort());
+    expect(probes.filter((npub) => npub === brick)).toHaveLength(1);
+    expect(probes).toContain(rick);
+    expect(probes).toContain(mick);
+  });
+
+  test('reconnect replaces an unbound PG AgentConnect subscription with accepted local bot profiles', async () => {
+    const dbPath = makeTempDb();
+    const rick = RICK_BOT_NPUB;
+    const stale = 'npub1s4658awhcachmhzk5jhsg256gzdl7e4gh5a9zq8skjyt7g3k2axql224qz';
+    const probes: string[] = [];
+    const { manager, store, agentStore, backendStore } = createTestManager(
+      dbPath,
+      new Map([
+        [rick, makeBotKeyRecord(rick)],
+        [stale, makeBotKeyRecord(stale)],
+      ]),
+      undefined,
+      null,
+      undefined,
+      {
+        fetchFlightDeckPgWorkspaceMe: async ({ botIdentity }) => {
+          probes.push(botIdentity.botNpub);
+          if (botIdentity.botNpub !== rick) {
+            throw Object.assign(new Error('Actor is not a member of this Flight Deck PG workspace'), {
+              detailCode: 'workspace_membership_required',
+            });
+          }
+          return { actor: { actor_id: 'actor-rick' }, membership: { role: 'agent' }, permissions: ['workspace.read'] };
+        },
+      },
+    );
+    saveAgent(agentStore, { agentId: 'rick', label: 'Rick', botNpub: rick, managedByNpub: 'npub1manager' });
+    saveAgent(agentStore, { agentId: 'stale', label: 'Stale', botNpub: stale, managedByNpub: 'npub1manager' });
+    const backend = saveBackendConnection(backendStore, { managedByNpub: 'npub1manager' });
+    const staleRecord = store.save({
+      ...store.createDefault({
+        managedByNpub: 'npub1manager',
+        backendConnectionId: backend.backendConnectionId,
+        workspaceOwnerNpub: 'npub1workspace',
+        backendBaseUrl: backend.backendBaseUrl,
+        towerServiceNpub: backend.serviceNpub,
+        workspaceId: 'workspace-1',
+        workspaceServiceNpub: 'npub1workspaceservice',
+        botNpub: stale,
+        sourceAppNpub: 'npub1sourceapp',
+        onboardingSource: 'agent_connect_import',
+      }),
+      wsKeyStatus: 'failed',
+      sseStatus: 'disconnected',
+      healthStatus: 'unhealthy',
+    });
+
+    const repaired = await manager.reconnectForManager(staleRecord.subscriptionId, 'npub1manager');
+
+    expect(repaired?.botNpub).toBe(rick);
+    expect(repaired?.agentProfileId).toBe('rick');
+    expect(store.getBySubscriptionId(staleRecord.subscriptionId)).toBeNull();
+    expect(store.listAll().map((subscription) => subscription.botNpub)).toEqual([rick]);
+    expect(probes).toContain(rick);
+    expect(probes).toContain(stale);
+  });
+
   test('creates a 33357 Flight Deck workspace agent without v4 workspace key registration', async () => {
     const dbPath = makeTempDb();
     const routeStore = new DispatchRouteStore(dbPath);

@@ -25,6 +25,9 @@ export interface SessionMetadata {
   bindingId?: string;
   flowId?: string;
   flowRunId?: string;
+  pipelineRunId?: string;
+  pipelineDefinitionId?: string;
+  pipelineDefinitionPath?: string | null;
   retryAttempt?: number;
   taskIds?: string[];
   tags?: string[];
@@ -185,6 +188,9 @@ export const normaliseSessionMetadata = (
   const bindingId = typeof metadata?.bindingId === "string" ? metadata.bindingId.trim() : "";
   const flowId = typeof metadata?.flowId === "string" ? metadata.flowId.trim() : "";
   const flowRunId = typeof metadata?.flowRunId === "string" ? metadata.flowRunId.trim() : "";
+  const pipelineRunId = cleanString(metadata?.pipelineRunId);
+  const pipelineDefinitionId = cleanString(metadata?.pipelineDefinitionId);
+  const pipelineDefinitionPath = cleanString(metadata?.pipelineDefinitionPath);
   const routerRunId = typeof metadata?.routerRunId === "string" ? metadata.routerRunId.trim() : "";
   const routedBy = typeof metadata?.routedBy === "string" ? metadata.routedBy.trim() : "";
   const agentProfileId = typeof metadata?.agentProfileId === "string" ? metadata.agentProfileId.trim() : "";
@@ -243,6 +249,9 @@ export const normaliseSessionMetadata = (
     bindingId: bindingId || undefined,
     flowId: flowId || undefined,
     flowRunId: flowRunId || undefined,
+    pipelineRunId: pipelineRunId || undefined,
+    pipelineDefinitionId: pipelineDefinitionId || undefined,
+    pipelineDefinitionPath: pipelineDefinitionPath || (metadata?.pipelineDefinitionPath === null ? null : undefined),
     retryAttempt: Number.isFinite(retryAttempt) && retryAttempt > 0 ? Math.floor(retryAttempt) : undefined,
     taskIds: taskIds?.length ? taskIds : undefined,
     tags,

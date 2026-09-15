@@ -10,6 +10,21 @@ export interface SessionMetadataCliUpdateInput {
   tags?: string;
 }
 
+const FULL_SESSION_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function shouldResolveSessionMetadataTargetId(
+  requestedId: string,
+  currentSessionId?: string,
+): boolean {
+  const target = requestedId.trim();
+  if (!target) return true;
+  if (currentSessionId?.trim() && target === currentSessionId.trim()) {
+    return false;
+  }
+  return !FULL_SESSION_ID_RE.test(target);
+}
+
 export function buildSessionMetadataPath(
   sessionId: string,
   ownerNpub?: string,

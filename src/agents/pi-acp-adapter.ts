@@ -29,7 +29,7 @@ export class PiAcpAdapter extends AcpAdapter {
       sessionId: context.piSessionId,
       cancelIsNotification: true,
       configureSession: async (client, sessionId, response) => {
-        await configureAdvertisedPiModel(client, sessionId, response, context.model);
+        return await configureAdvertisedPiModel(client, sessionId, response, context.model);
       },
     });
   }

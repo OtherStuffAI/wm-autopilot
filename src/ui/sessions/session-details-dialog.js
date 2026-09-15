@@ -1,4 +1,5 @@
 import { getSessionPosition, sortSessionsForTabs } from "./session-order.js";
+import { getSessionModelDisplay } from "./session-model-display.js";
 
 function hasDialogSupport() {
   return typeof document !== "undefined" && typeof HTMLDialogElement !== "undefined";
@@ -53,6 +54,14 @@ function createCheckboxField({ label, description, control }) {
   }
 
   return field;
+}
+
+function createReadOnlyField({ label, value, title }) {
+  const control = document.createElement("span");
+  control.className = "wm-dialog__readonly";
+  control.textContent = value || "-";
+  if (title) control.title = title;
+  return createField({ label, control });
 }
 
 function createPositionSelect(session, sessions) {
@@ -122,6 +131,7 @@ export async function openSessionDetailsDialog({
     nameInput.dataset.testid = "session-details-name";
 
     const positionSelect = createPositionSelect(session, sessions);
+    const model = getSessionModelDisplay(session);
     const generateAudioInput = document.createElement("input");
     generateAudioInput.type = "checkbox";
     generateAudioInput.checked = Boolean(session?.metadata?.speechGenerateAudio);
@@ -141,6 +151,7 @@ export async function openSessionDetailsDialog({
     body.append(
       createField({ label: "Name", control: nameInput }),
       createField({ label: "Position", control: positionSelect }),
+      createReadOnlyField({ label: model.label, value: model.value, title: model.title }),
       createCheckboxField({
         label: "Generate audio responses",
         description: "Create spoken summary audio for new assistant responses in this session.",

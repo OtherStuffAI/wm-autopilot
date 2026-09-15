@@ -1,3 +1,5 @@
+import { getSessionModelDisplay } from "../sessions/session-model-display.js";
+
 function readText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -17,14 +19,13 @@ export function buildEmptySessionInformation(session) {
   }
 
   const workingDirectory = readText(session?.workingDirectory);
-  const selectedModel = readText(session?.model);
+  const model = getSessionModelDisplay(session);
   return {
     title: "Session information",
     agent: agentLabel,
     workingDirectory: workingDirectory || "Unavailable (session metadata missing)",
-    model: selectedModel && selectedModel.toLowerCase() !== "default"
-      ? selectedModel
-      : "default (provider default)",
+    modelLabel: model.label,
+    model: model.value,
   };
 }
 
@@ -43,7 +44,7 @@ export function createSessionInformationBubble(information) {
   for (const [label, value] of [
     ["Agent", information.agent],
     ["Directory", information.workingDirectory],
-    ["Model", information.model],
+    [information.modelLabel || "Selected model", information.model],
   ]) {
     const term = document.createElement("dt");
     term.textContent = label;

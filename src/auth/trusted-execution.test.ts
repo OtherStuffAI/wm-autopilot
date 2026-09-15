@@ -41,6 +41,18 @@ describe("trusted execution authorization", () => {
     expect(decision?.allowed).toBeTrue();
   });
 
+  test("does not allow capability-bound own-session metadata GET as a management operation", async () => {
+    const rule = createTrustedExecutionRule({ kind: "sessions", isAdminNpub: () => false });
+    const request = new Request("http://localhost/api/sessions/session-self/metadata", { method: "GET" });
+    const decision = await rule({
+      action: AccessActions.SessionsManage,
+      request,
+      url: new URL(request.url),
+      auth: auth({ authMethod: "nip98", capabilitySessionId: "session-self" }),
+    });
+    expect(decision?.allowed).toBeFalse();
+  });
+
   test.each([
     ["PATCH", "/api/sessions/session-other/metadata"],
     ["DELETE", "/api/sessions/session-other"],

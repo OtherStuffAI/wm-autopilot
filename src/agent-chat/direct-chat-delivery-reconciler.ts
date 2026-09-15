@@ -3,7 +3,7 @@ import type { ProcessManager } from '../agents/process-manager';
 import type { ChatInterceptStateStore } from './chat-intercept-state-store';
 import {
   buildDirectChatPublicationPayload,
-  directChatTurnStore,
+  getDirectChatTurnStore,
   type DirectChatTurnRecord,
   type DirectChatTurnStore,
 } from './direct-chat-turn-store';
@@ -66,7 +66,7 @@ export class AgentDirectDeliveryReconciler {
   private sweep: Promise<void> | null = null;
 
   constructor(private readonly deps: AgentDirectDeliveryReconcilerDependencies) {
-    this.store = deps.store ?? directChatTurnStore;
+    this.store = deps.store ?? getDirectChatTurnStore();
     this.instanceId = deps.instanceId ?? randomUUID();
     this.runtimeLeaseOwner = `${this.instanceId}:runtime`;
     this.intervalMs = deps.intervalMs ?? envMs('AGENT_DIRECT_RECONCILE_INTERVAL_MS', 2_000);

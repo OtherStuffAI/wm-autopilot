@@ -57,7 +57,7 @@ export class CodexAcpAdapter extends AcpAdapter {
       mcpServers: buildCodexAcpMcpServers(context.codexConfig),
       cancelIsNotification: true,
       configureSession: async (client, sessionId, response) => {
-        await configureCodexSession(client, sessionId, response, context);
+        return await configureCodexSession(client, sessionId, response, context);
       },
     });
   }
@@ -68,14 +68,16 @@ async function configureCodexSession(
   sessionId: string,
   _response: AcpResponse,
   context: AdapterSessionContext,
-): Promise<void> {
+): Promise<AcpResponse | void> {
   const model = context.model?.trim();
+  let modelResponse: AcpResponse | undefined;
   if (model) {
-    assertSuccess(await client.request("session/set_config_option", {
+    modelResponse = await client.request("session/set_config_option", {
       sessionId,
       configId: "model",
       value: model,
-    }), "model selection");
+    });
+    assertSuccess(modelResponse, "model selection");
   }
   const reasoningEffort = typeof context.codexConfig?.model_reasoning_effort === "string"
     ? context.codexConfig.model_reasoning_effort.trim()
@@ -87,6 +89,7 @@ async function configureCodexSession(
       value: reasoningEffort,
     }), "reasoning selection");
   }
+  return modelResponse;
 }
 
 function assertSuccess(response: AcpResponse, operation: string): void {

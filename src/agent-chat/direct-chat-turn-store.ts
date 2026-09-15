@@ -107,6 +107,7 @@ export class DirectChatTurnStore {
   constructor(filePath = databaseFile) {
     mkdirSync(dirname(filePath), { recursive: true });
     this.db = new Database(filePath);
+    this.db.exec('PRAGMA busy_timeout = 5000');
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec(`CREATE TABLE IF NOT EXISTS agent_direct_chat_turns (
       turn_id TEXT PRIMARY KEY, routing_key TEXT NOT NULL, source_message_ids_json TEXT NOT NULL,
@@ -122,6 +123,10 @@ export class DirectChatTurnStore {
       CREATE INDEX IF NOT EXISTS idx_agent_direct_delivery_subscription ON agent_direct_chat_turns(subscription_id, state, created_at);`);
     this.backfillBindings();
     this.requeueLegacySubscriptionSignerHalts();
+  }
+
+  close(): void {
+    this.db.close();
   }
 
   get(turnId: string): DirectChatTurnRecord | null {
@@ -356,4 +361,9 @@ export class DirectChatTurnStore {
 
 function oldest(left: string | null, right: string): string { return !left || right < left ? right : left; }
 
-export const directChatTurnStore = new DirectChatTurnStore();
+let defaultDirectChatTurnStore: DirectChatTurnStore | null = null;
+
+export function getDirectChatTurnStore(): DirectChatTurnStore {
+  defaultDirectChatTurnStore ??= new DirectChatTurnStore();
+  return defaultDirectChatTurnStore;
+}

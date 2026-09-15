@@ -1,3 +1,5 @@
+import { getSessionModelDisplay } from "../sessions/session-model-display.js";
+
 const SESSION_STATUS_ORDER = Object.freeze({
   starting: 0,
   running: 1,
@@ -14,6 +16,7 @@ const SESSION_TABLE_COLUMNS = Object.freeze([
   { key: "updated", label: "Last updated" },
   { key: "directory", label: "Directory" },
   { key: "agent", label: "Agent" },
+  { key: "model", label: "Model" },
   { key: "status", label: "Status" },
 ]);
 
@@ -119,6 +122,8 @@ function getSessionSortValue(session, key, deps) {
       return getSessionDisplayName(session);
     case "agent":
       return session?.agent ?? "";
+    case "model":
+      return getSessionModelDisplay(session).value;
     case "status":
       return getStatusSortValue(session);
     case "started":
@@ -291,6 +296,7 @@ export function createSessionTable(orderedSessions, deps) {
       <td title="${escapeHtml(session.lastUpdatedAt ?? "")}">${escapeHtml(formatSessionStartedAt(session.lastUpdatedAt))}</td>
       <td class="directory-cell"></td>
       <td>${escapeHtml(session.agent)}</td>
+      <td class="model-cell"></td>
       <td class="session-status-cell">
         <div class="wm-agent-status-indicator" data-session-id="${escapeHtml(session.id)}"></div>
         <span class="session-status-text">${escapeHtml(session.status)}</span>
@@ -306,6 +312,14 @@ export function createSessionTable(orderedSessions, deps) {
       } else {
         directoryCell.removeAttribute("title");
       }
+    }
+
+    const modelCell = row.querySelector(".model-cell");
+    if (modelCell) {
+      const model = getSessionModelDisplay(session);
+      modelCell.textContent = model.value;
+      modelCell.title = model.title;
+      modelCell.dataset.confirmed = model.confirmed ? "true" : "false";
     }
 
     const renameButton = row.querySelector('[data-action="rename-session"]');
