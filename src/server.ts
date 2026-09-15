@@ -59,6 +59,7 @@ import type { SessionMetadataInput } from "./sessions/session-metadata";
 import { scheduleSessionArchive, cancelPendingArchive } from "./storage/session-archiver";
 import { sessionArchiveStore } from "./storage/session-archive-store";
 import { cleanupStopNextActionSessions } from "./sessions/next-action-cleanup";
+import { shouldArchiveStoppedSession } from "./sessions/stopped-session-archive";
 import { isDirectChatSessionProtected } from "./agent-chat/direct-chat-lifecycle";
 import { chatInterceptStateStore } from "./agent-chat/chat-intercept-state-store";
 import { createFlightDeckTriggerResolver } from "./agent-chat/flightdeck-trigger-resolver";
@@ -1300,6 +1301,11 @@ manager.on((event) => {
       }
       if (event.type === "session-stopped") {
         clearPromptStartupReady(event.session.id);
+        if (shouldArchiveStoppedSession(event.session, {
+          isProtected: (sessionId) => isDirectChatSessionProtected(sessionId, chatInterceptStateStore, directChatTurnStore),
+        })) {
+          scheduleSessionArchive(event.session.id, manager);
+        }
       }
     }
     messageStore.recordSession({

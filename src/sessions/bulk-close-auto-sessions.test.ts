@@ -112,6 +112,21 @@ describe("closeStaleStableAutoSessions", () => {
     expect(result.skipped).toContainEqual({ id: "boundary", reason: "not-stale" });
   });
 
+  test("uses the session start time for stable auto sessions with no output", async () => {
+    const noOutput = session("no-output", {
+      startedAt: new Date(NOW - 22 * 60_000).toISOString(),
+    });
+    const testHarness = harness({
+      sessions: [noOutput],
+      updatedAt: { [noOutput.id]: null },
+    });
+
+    const result = await testHarness.run();
+
+    expect(result.closed).toEqual([noOutput.id]);
+    expect(testHarness.archived).toEqual([noOutput.id]);
+  });
+
   test("skips thinking sessions using runtime readiness", async () => {
     const testHarness = harness({ sessions: [session("thinking")], readiness: { thinking: "busy" } });
     const result = await testHarness.run();

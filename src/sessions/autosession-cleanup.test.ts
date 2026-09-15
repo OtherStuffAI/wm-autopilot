@@ -9,6 +9,7 @@ const nowMs = Date.parse("2026-07-24T10:30:00.000Z");
 const atMinutesAgo = (minutes: number) => new Date(nowMs - minutes * 60 * 1000).toISOString();
 const autoSession = (id: string, lastUpdatedAt: string | null) => ({
   id,
+  startedAt: atMinutesAgo(120),
   lastUpdatedAt,
   metadata: { AGENT: true },
 });
@@ -47,10 +48,27 @@ describe("autosession cleanup eligibility", () => {
   });
 
   test("protects automatically started sessions with a missing timestamp", () => {
-    expect(assessAutosessionCleanupCandidate(autoSession("missing", null), {
+    expect(assessAutosessionCleanupCandidate({
+      id: "missing",
+      metadata: { AGENT: true },
+    }, {
       currentSessionId: "cleanup",
       nowMs,
     })).toEqual({ eligible: false, reason: "missing-last-updated-at" });
+  });
+
+  test("uses startedAt when an automatically started session has no output timestamp", () => {
+    expect(assessAutosessionCleanupCandidate(autoSession("no-output", null), {
+      currentSessionId: "cleanup",
+      nowMs,
+    })).toEqual({ eligible: true, reason: "eligible" });
+  });
+
+  test("prefers recent output over an old session start time", () => {
+    expect(assessAutosessionCleanupCandidate(autoSession("recent-output", atMinutesAgo(5)), {
+      currentSessionId: "cleanup",
+      nowMs,
+    })).toEqual({ eligible: false, reason: "not-stale" });
   });
 
   test("protects the executing cleanup session", async () => {

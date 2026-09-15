@@ -15,6 +15,7 @@ const DISPATCHED_WORKER_ROLE = "dispatched-worker";
 
 export interface AutosessionCleanupCandidate {
   id?: string;
+  startedAt?: string | null;
   lastUpdatedAt?: string | null;
   npub?: string | null;
   ownerNpub?: string | null;
@@ -35,6 +36,18 @@ export interface AutosessionCleanupDecision {
 }
 
 const normaliseText = (value: unknown): string => typeof value === "string" ? value.trim() : "";
+
+function parseTimestampMs(value: unknown): number | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+  const timestampMs = Date.parse(value);
+  return Number.isFinite(timestampMs) ? timestampMs : null;
+}
+
+export function resolveAutosessionActivityAtMs(session: AutosessionCleanupCandidate): number | null {
+  return parseTimestampMs(session.lastUpdatedAt) ?? parseTimestampMs(session.startedAt);
+}
 
 export function isAutomaticallyStartedSession(session: AutosessionCleanupCandidate): boolean {
   const metadata = session.metadata ?? {};
@@ -73,11 +86,8 @@ export function assessAutosessionCleanupCandidate(
     return { eligible: false, reason: "user-started" };
   }
 
-  if (typeof session.lastUpdatedAt !== "string" || !session.lastUpdatedAt.trim()) {
-    return { eligible: false, reason: "missing-last-updated-at" };
-  }
-  const lastUpdatedAtMs = Date.parse(session.lastUpdatedAt);
-  if (!Number.isFinite(lastUpdatedAtMs)) {
+  const lastUpdatedAtMs = resolveAutosessionActivityAtMs(session);
+  if (lastUpdatedAtMs === null) {
     return { eligible: false, reason: "missing-last-updated-at" };
   }
 
