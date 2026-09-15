@@ -144,6 +144,7 @@ export interface ActiveSessionCapability {
   botNpub: string;
   profileId: string | null;
   workspaceId: string | null;
+  policyMode: AgentSigningMode;
   issuedAt: string;
   expiresAt: string;
   policyRefs: PolicyRevisionRef[];
@@ -479,6 +480,7 @@ export class CapabilityBroker {
         botNpub: record.botNpub,
         profileId: record.profileId ?? null,
         workspaceId: record.workspaceId ?? null,
+        policyMode: record.policy.mode ?? "standard-agent",
         issuedAt: new Date(record.issuedAtMs).toISOString(),
         expiresAt: new Date(record.expiresAtMs).toISOString(),
         policyRefs: structuredClone(record.policyRefs),

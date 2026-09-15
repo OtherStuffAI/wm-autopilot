@@ -9,6 +9,14 @@ export function loadSigningPolicies() {
   return request('/api/admin/signing-policies');
 }
 
+export function saveAgentSigningMode(mode) {
+  return request('/api/admin/signing-policies/mode', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+}
+
 export function loadSigningPolicy(policyId) {
   return request(`/api/admin/signing-policies/${encodeURIComponent(policyId)}`);
 }

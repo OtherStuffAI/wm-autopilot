@@ -29,7 +29,7 @@ export interface SessionCapabilityIssuerDependencies {
   adminNpub: string | null;
   towerUrl: string;
   autopilotUrl: string;
-  signingMode: AgentSigningMode;
+  getSigningMode: () => AgentSigningMode;
   listProfiles: (managerNpub: string) => ProfileSource[];
   getDefaultProfile: (managerNpub: string) => ProfileSource | null;
   getActiveByBotNpub: (botNpub: string, profileManagerNpub: string) => SessionCapabilityBotRecord | null;
@@ -82,7 +82,7 @@ export class SessionCapabilityIssuer {
       autopilotUrl: this.deps.autopilotUrl,
       ownerNpub: input.ownerNpub,
       workspaceId,
-      mode: this.deps.signingMode,
+      mode: this.deps.getSigningMode(),
     });
     const resolved = this.deps.registry.resolve({ profileId, workspaceId }, baseline);
     return this.deps.broker.issueSessionCapability({

@@ -219,14 +219,16 @@ export class SigningPolicyRegistry {
       policy.operations = sortedUnique([...policy.operations, ...fragment.operations]) as BrokerOperation[];
       if (fragment.operations.includes("nostr.sign")) {
         if (!policy.nostr) throw new Error(`Policy ${fragment.id} requires a baseline Nostr constraint`);
-        const duplicateRule = fragment.nostrKindRules.find((rule) =>
-          policy.nostr!.kindRules?.some((existing) => existing.kind === rule.kind));
-        if (duplicateRule) throw new Error(`Policy ${fragment.id} duplicates the constraint for custom Nostr kind ${duplicateRule.kind}`);
-        policy.nostr.kinds = [...new Set([...policy.nostr.kinds, ...fragment.eventKinds])].sort((left, right) => left - right);
-        policy.nostr.kindRules = [
-          ...(policy.nostr.kindRules ?? []),
-          ...clone(fragment.nostrKindRules),
-        ];
+        if (!policy.nostr.allowAnyKind) {
+          const duplicateRule = fragment.nostrKindRules.find((rule) =>
+            policy.nostr!.kindRules?.some((existing) => existing.kind === rule.kind));
+          if (duplicateRule) throw new Error(`Policy ${fragment.id} duplicates the constraint for custom Nostr kind ${duplicateRule.kind}`);
+          policy.nostr.kinds = [...new Set([...policy.nostr.kinds, ...fragment.eventKinds])].sort((left, right) => left - right);
+          policy.nostr.kindRules = [
+            ...(policy.nostr.kindRules ?? []),
+            ...clone(fragment.nostrKindRules),
+          ];
+        }
       }
       if (fragment.operations.includes("nip98.sign")) {
         if (!policy.nip98) throw new Error(`Policy ${fragment.id} requires a baseline NIP-98 constraint`);

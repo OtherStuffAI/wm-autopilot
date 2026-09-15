@@ -17409,6 +17409,42 @@ textarea.wm-input {
 .wm-signing-policies pre { white-space: pre-wrap; }
 .wm-signing-policies textarea { box-sizing: border-box; resize: vertical; }
 .wm-signing-policies .wm-button { min-height: 44px; }
+.wm-signing-mode-current {
+  margin: 0 0 0.75rem;
+  font-weight: 700;
+}
+.wm-signing-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem;
+}
+.wm-signing-mode-card {
+  display: grid;
+  gap: 0.35rem;
+  min-height: 9rem;
+  padding: 1rem;
+  text-align: left;
+  border: 1px solid var(--border-primary);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.wm-signing-mode-card[data-active="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 var(--accent);
+}
+.wm-signing-mode-card span {
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+.wm-signing-mode-card p,
+.wm-signing-mode-sessions ul {
+  margin: 0;
+}
+.wm-signing-mode-sessions {
+  margin-top: 1rem;
+}
 .wm-signing-policies [data-testid="signing-policy-import"] {
   padding: 1rem;
   margin: 1rem 0;

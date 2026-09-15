@@ -186,6 +186,20 @@ describe("SigningPolicyRegistry", () => {
       nostrKindRules: [{ ...customNostrDraft().nostrKindRules[0]!, requiredTags: [["other", "value"]] }],
     }, "npub1admin")).toThrow(/must also be allowed/);
   });
+
+  test("does not let legacy custom Nostr fragments narrow full signing modes", () => {
+    const { registry: policies } = registry();
+    policies.create(customNostrDraft(), "npub1admin");
+    const resolved = policies.resolve({ profileId: "profile-a" }, buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example",
+      autopilotUrl: "https://autopilot.example",
+      ownerNpub: "npub1owner",
+      mode: "full-agent",
+    }));
+    expect(resolved.policyRefs).toContainEqual({ id: "custom-nostr", revision: 1 });
+    expect(resolved.policy.nostr).toMatchObject({ allowAnyKind: true, allowNip98Kind: true });
+    expect(resolved.policy.nostr?.kindRules ?? []).toEqual([]);
+  });
 });
 
 function draftFrom(policy: SigningPolicyDocument): SigningPolicyDraft {

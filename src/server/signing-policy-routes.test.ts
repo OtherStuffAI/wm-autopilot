@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import type { RequestAuthContext } from "../auth/request-context";
-import { buildDefaultAgentCapabilityPolicy, type ActiveSessionCapability, type IssuedSessionCapability } from "../signing/capability-broker";
+import { buildDefaultAgentCapabilityPolicy, normalizeAgentSigningMode, type ActiveSessionCapability, type IssuedSessionCapability } from "../signing/capability-broker";
 import { FileSigningPolicyStore, SigningPolicyRegistry } from "../signing/signing-policy-registry";
 import { handleSigningPolicyApi, type SigningPolicyRoutesContext } from "./signing-policy-routes";
 
@@ -18,6 +18,7 @@ function fixture() {
   roots.push(root);
   let reissues = 0;
   let inventoryReads = 0;
+  let activeMode = "standard-agent";
   const capabilities: ActiveSessionCapability[] = [];
   const registry = new SigningPolicyRegistry(new FileSigningPolicyStore(join(root, "policies.json")), {
     forgejoCompletionUrl: "https://tower.example/api/v4/git/oidc/authorize/complete",
@@ -26,6 +27,11 @@ function fixture() {
   const ctx: SigningPolicyRoutesContext = {
     registry,
     listCapabilities: () => { inventoryReads += 1; return capabilities; },
+    getActiveMode: () => ({ mode: normalizeAgentSigningMode(activeMode), configured: activeMode !== "standard-agent", updatedAt: null, source: null }),
+    setActiveMode: (mode) => {
+      activeMode = normalizeAgentSigningMode(mode);
+      return { mode: normalizeAgentSigningMode(activeMode), configured: true, updatedAt: new Date().toISOString(), source: "app" };
+    },
     buildBaselinePolicy: () => baseline,
     reissueSessionCapability: () => {
       reissues += 1;
@@ -111,6 +117,36 @@ describe("signing policy admin routes", () => {
     expect(f.reissues).toBe(1);
   });
 
+  test("sets the active signing mode and reissues active sessions without returning bearers", async () => {
+    const f = fixture();
+    f.capabilities.push({
+      capabilityId: "cap-old", sessionId: "session-a", ownerNpub: "npub1owner", botNpub: "npub1bot",
+      profileId: "profile-a", workspaceId: null, policyMode: "standard-agent",
+      issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      policyRefs: [{ id: "builtin-default-agent", revision: 1 }],
+    });
+
+    const updated = await f.call("/api/admin/signing-policies/mode", "PUT", adminAuth, { mode: "full-agent" });
+    expect(updated.status).toBe(200);
+    const payload = await updated.json() as {
+      activeMode: string;
+      sessions: Array<{ sessionId: string; status: string; adoption: string }>;
+    };
+    expect(payload.activeMode).toBe("full-agent");
+    expect(payload.sessions).toEqual([expect.objectContaining({
+      sessionId: "session-a",
+      status: "replacement-issued",
+      adoption: "broker-client-adopts-on-next-signing-call",
+    })]);
+    expect(JSON.stringify(payload)).not.toContain("must-not-leave-route");
+    expect(f.reissues).toBe(1);
+
+    const list = await f.call("/api/admin/signing-policies", "GET", adminAuth);
+    const listed = await list.json() as { activeMode: string; sessions: Array<{ policyState: string; staleReasons: string[] }> };
+    expect(listed.activeMode).toBe("full-agent");
+    expect(listed.sessions[0]).toMatchObject({ policyState: "stale", staleReasons: ["signing-mode"] });
+  });
+
   test("mutates revisions and reports newly affected active capabilities as stale", async () => {
     const f = fixture();
     const template = f.registry.get("tower-forgejo-login")!;
@@ -127,7 +163,7 @@ describe("signing policy admin routes", () => {
     };
     f.capabilities.push({
       capabilityId: "cap-old", sessionId: "session-a", ownerNpub: "npub1owner", botNpub: "npub1bot",
-      profileId: "profile-a", workspaceId: null, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      profileId: "profile-a", workspaceId: null, policyMode: "standard-agent", issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
       policyRefs: [{ id: "builtin-default-agent", revision: 1 }],
     });
     const saved = await f.call("/api/admin/signing-policies/tower-forgejo-login", "PUT", adminAuth, update);
@@ -157,7 +193,7 @@ describe("signing policy admin routes", () => {
     expect((await f.call("/api/admin/signing-policies", "POST", adminAuth, draft)).status).toBe(201);
     f.capabilities.push({
       capabilityId: "cap-old", sessionId: "session-a", ownerNpub: "npub1owner", botNpub: "npub1bot",
-      profileId: "profile-a", workspaceId: null, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      profileId: "profile-a", workspaceId: null, policyMode: "standard-agent", issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
       policyRefs: [{ id: "builtin-default-agent", revision: 1 }, { id: draft.id, revision: 1 }],
     });
 

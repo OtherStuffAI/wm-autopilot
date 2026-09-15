@@ -1,6 +1,6 @@
 import Dexie from "/vendor/dexie/dexie.mjs";
 import Alpine from "/vendor/alpinejs/module.esm.js";
-import { loadSigningPolicies, loadSigningPolicy } from "../../services/signing-policies.js";
+import { loadSigningPolicies } from "../../services/signing-policies.js";
 
 const db = new Dexie("WingmanSigningPolicies");
 db.version(1).stores({ views: "id, syncedAt" });
@@ -25,13 +25,9 @@ export function createSigningPolicyState(onSnapshot, onError) {
       const request = ++generation;
       try {
         const inventory = await loadSigningPolicies();
-        if (!Array.isArray(inventory.policies)) throw new Error("Signing policy inventory is missing.");
-        const selectedId = inventory.policies.some((policy) => policy.id === preferredId)
-          ? preferredId : inventory.policies[0]?.id || null;
-        const detail = selectedId ? await loadSigningPolicy(selectedId) : null;
-        if (selectedId && (!detail?.policy || !Array.isArray(detail.sessions))) {
-          throw new Error("Selected policy details or affected sessions are missing.");
-        }
+        if (!Array.isArray(inventory.modes)) throw new Error("Signing mode inventory is missing.");
+        const selectedId = typeof preferredId === "string" ? preferredId : inventory.activeMode;
+        const detail = null;
         if (request !== generation) return;
         await db.views.put({ id, inventory, selectedId, detail, notice, syncedAt: Date.now() });
       } catch (error) {

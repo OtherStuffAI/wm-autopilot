@@ -1,7 +1,8 @@
 import type { AccessAction } from "../auth/access-control";
 import type { RequestAuthContext } from "../auth/request-context";
 import type { ActiveSessionCapability, IssuedSessionCapability, SessionCapabilityPolicy } from "../signing/capability-broker";
-import { AGENT_SIGNING_MODE_PRESETS } from "../signing/agent-signing-policy";
+import { AGENT_SIGNING_MODE_PRESETS, type AgentSigningMode } from "../signing/agent-signing-policy";
+import type { AgentSigningModeSnapshot } from "../signing/agent-signing-mode-settings";
 import {
   DEFAULT_AGENT_POLICY_ID,
   buildDefaultPolicyInventory,
@@ -14,6 +15,8 @@ type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEA
 export interface SigningPolicyRoutesContext {
   registry: SigningPolicyRegistry;
   listCapabilities: () => ActiveSessionCapability[];
+  getActiveMode: () => AgentSigningModeSnapshot;
+  setActiveMode: (mode: AgentSigningMode | string, actorNpub: string) => AgentSigningModeSnapshot;
   buildBaselinePolicy: (ownerNpub?: string) => SessionCapabilityPolicy;
   reissueSessionCapability: (sessionId: string) => IssuedSessionCapability;
   ensureApiAccess: (
@@ -30,15 +33,23 @@ function sameRefs(left: ActiveSessionCapability["policyRefs"], right: ActiveSess
 }
 
 function sessionViews(ctx: SigningPolicyRoutesContext) {
+  const activeMode = ctx.getActiveMode().mode;
   return ctx.listCapabilities().map((capability) => {
     const currentPolicyRefs = ctx.registry.resolveReferences({
       profileId: capability.profileId,
       workspaceId: capability.workspaceId,
     });
+    const refsCurrent = sameRefs(capability.policyRefs, currentPolicyRefs);
+    const modeCurrent = capability.policyMode === activeMode;
     return {
       ...capability,
       currentPolicyRefs,
-      policyState: sameRefs(capability.policyRefs, currentPolicyRefs) ? "current" : "stale",
+      currentMode: activeMode,
+      policyState: refsCurrent && modeCurrent ? "current" : "stale",
+      staleReasons: [
+        ...(refsCurrent ? [] : ["policy-revisions"]),
+        ...(modeCurrent ? [] : ["signing-mode"]),
+      ],
     };
   });
 }
@@ -60,6 +71,28 @@ function errorResponse(error: unknown, status = 400): Response {
 function withoutToken(issued: IssuedSessionCapability): Omit<IssuedSessionCapability, "token"> {
   const { token: _token, ...safe } = issued;
   return safe;
+}
+
+function reissueActiveSessions(ctx: SigningPolicyRoutesContext) {
+  const sessionIds = [...new Set(ctx.listCapabilities().map((capability) => capability.sessionId))].sort();
+  return sessionIds.map((sessionId) => {
+    try {
+      return {
+        sessionId,
+        status: "replacement-issued",
+        restartRequired: false,
+        adoption: "broker-client-adopts-on-next-signing-call",
+        capability: withoutToken(ctx.reissueSessionCapability(sessionId)),
+      };
+    } catch (error) {
+      return {
+        sessionId,
+        status: "restart-required",
+        restartRequired: true,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
 }
 
 function sessionsReferencingPolicy(ctx: SigningPolicyRoutesContext, policyId: string) {
@@ -86,12 +119,40 @@ export async function handleSigningPolicyApi(
 
   if (parts.length === 0 && method === "GET") {
     const baseline = ctx.buildBaselinePolicy(actorNpub);
+    const mode = ctx.getActiveMode();
     return Response.json({
       modes: AGENT_SIGNING_MODE_PRESETS,
-      activeMode: baseline.mode ?? "standard-agent",
+      mode,
+      activeMode: mode.mode,
       policies: [buildDefaultPolicyInventory(baseline), ...ctx.registry.list()],
       sessions: sessionViews(ctx),
     });
+  }
+
+  if (parts.length === 1 && parts[0] === "mode" && method === "GET") {
+    return Response.json({ modes: AGENT_SIGNING_MODE_PRESETS, mode: ctx.getActiveMode(), sessions: sessionViews(ctx) });
+  }
+
+  if (parts.length === 1 && parts[0] === "mode" && (method === "PUT" || method === "POST" || method === "PATCH")) {
+    const payload = await readObject(request);
+    if (payload instanceof Response) return payload;
+    if (typeof payload.mode !== "string") return Response.json({ error: "mode is required" }, { status: 400 });
+    try {
+      const mode = ctx.setActiveMode(payload.mode, actorNpub);
+      const sessions = reissueActiveSessions(ctx);
+      const restartRequired = sessions.filter((session) => session.restartRequired);
+      return Response.json({
+        success: restartRequired.length === 0,
+        mode,
+        activeMode: mode.mode,
+        sessions,
+        consequence: restartRequired.length
+          ? "The signing mode is active for new capabilities. Some live sessions need an external restart before they can sign with the selected mode."
+          : "The signing mode is active for new capabilities. Active sessions received explicit replacements; broker clients adopt them on the next signing call.",
+      });
+    } catch (error) {
+      return errorResponse(error);
+    }
   }
 
   if (parts.length === 0 && method === "POST") {
