@@ -9,8 +9,10 @@ Use these package scripts when validating Autopilot changes:
 
 `validate` keeps historical-noise checks visible without making the gate unusable:
 
-- Blocking: whitespace, typecheck, lint, tests, and security audit.
-- Report-only: public-source quality and maintainability reporting.
+- Blocking: whitespace, typecheck, lint, and tests.
+- Report-only: public-source quality, security audit, and maintainability reporting.
+
+`quality:public-source` and `security:audit` remain standalone scripts for focused cleanup. They are report-only in `validate` until their existing baselines are clean enough to block ordinary agent handoffs.
 
 `validate` stops at the first failed blocking check. Run later checks directly when collecting a full baseline after an earlier gate fails.
 
