@@ -44,6 +44,8 @@ describe("live ACP permission and queue surface", () => {
     expect(source).toContain('data-testid="queued-prompt-edit-done"');
     expect(source).toContain('data-testid="queued-prompt-edit-cancel"');
     expect(source).toContain('data-testid="queued-prompt-edit-status"');
+    expect(styles).toContain('.wm-message--queued:has(.wm-queued-prompt-editor)');
+    expect(styles).toContain('box-sizing: border-box;');
     expect(source).toContain("error: messageText");
     expect(source).toContain("editor?.focus?.()");
     expect(source).not.toContain("requestQueuedPromptEdit(message)");

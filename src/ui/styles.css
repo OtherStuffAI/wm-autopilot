@@ -5641,12 +5641,17 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   opacity: 0.88;
 }
 
+.wm-message--queued:has(.wm-queued-prompt-editor) {
+  width: 100%;
+}
+
 .wm-queued-prompt-editor {
   display: grid;
   gap: 0.55rem;
 }
 
 .wm-queued-prompt-editor__input {
+  box-sizing: border-box;
   width: 100%;
   min-height: 7rem;
   resize: vertical;
