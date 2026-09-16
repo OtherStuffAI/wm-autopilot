@@ -9,6 +9,12 @@
     "dev": "bun run src/index.ts",
     "test": "bun test",
     "typecheck": "tsc --project tsconfig.release.json",
+    "lint": "bun run lint:check",
+    "lint:check": "biome lint .",
+    "whitespace:check": "git diff --check && git diff --cached --check",
+    "maintainability:report": "bun run scripts/maintainability-report.ts",
+    "size:report": "bun run maintainability:report",
+    "validate": "bun run scripts/validate.ts",
     "appctl": "bun run scripts/wingman-appctl.ts",
     "cli:apps": "bun clis/appctl.ts",
     "cli:delegate-sessions": "bun clis/delegate-sessions.ts",
@@ -74,6 +80,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
     "@types/bun": "latest"
   },
   "peerDependencies": {
