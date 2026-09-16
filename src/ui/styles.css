@@ -6210,27 +6210,76 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.2rem 0.65rem;
+  gap: 0.45rem;
+  min-width: 6rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid transparent;
   border-radius: 999px;
-  text-transform: uppercase;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  background: rgb(from var(--accent-primary) r g b / 0.12);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  background: var(--surface-secondary);
   color: var(--text-primary);
+  white-space: nowrap;
 }
 
-.session-status.starting {
-  background: rgba(59, 130, 246, 0.18);
+.session-status::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55);
+  flex: 0 0 auto;
 }
 
-.session-status.running {
-  background: rgb(from var(--accent-primary) r g b / 0.18);
+.session-status[data-status="online"] {
+  background: rgba(34, 197, 94, 0.14);
+  border-color: rgba(34, 197, 94, 0.34);
+  color: #15803d;
 }
 
-.session-status.stopped,
-.session-status.completed {
-  background: rgba(248, 113, 113, 0.18);
+.session-status[data-status="active"] {
+  background: rgba(37, 99, 235, 0.16);
+  border-color: rgba(37, 99, 235, 0.42);
+  color: #1d4ed8;
+}
+
+.session-status[data-status="active"]::before {
+  animation: pulse-running 1.2s ease-in-out infinite;
+}
+
+.session-status[data-status="stopped"] {
+  background: rgba(100, 116, 139, 0.13);
+  border-color: rgba(100, 116, 139, 0.3);
+  color: #475569;
+}
+
+.session-status[data-status="error"] {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #b91c1c;
+}
+
+body[data-theme="dark"] .session-status[data-status="online"] {
+  color: #86efac;
+}
+
+body[data-theme="dark"] .session-status[data-status="active"] {
+  color: #93c5fd;
+}
+
+body[data-theme="dark"] .session-status[data-status="stopped"] {
+  color: #cbd5e1;
+}
+
+body[data-theme="dark"] .session-status::before {
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.62);
+}
+
+body[data-theme="dark"] .session-status[data-status="error"] {
+  color: #fca5a5;
 }
 
 .session-card-details {
@@ -11837,22 +11886,7 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
 
 /* Status indicator in session table */
 .session-status-cell {
-  position: relative;
-}
-
-.session-status-cell .wm-agent-status-indicator {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin: 0 8px 0 0;
-}
-
-.session-status-cell .session-status-text {
-  margin-left: 16px;
+  white-space: nowrap;
 }
 
 /* Status indicator in session cards */
@@ -11860,13 +11894,6 @@ body[data-theme="dark"] .wm-file-editor__editor .ace_cursor {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.wm-agent-status-indicator.status-small {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  margin-bottom: 0;
 }
 
 /* ============================================

@@ -14,6 +14,7 @@ import { createSessionGroupTabs } from "./session-group-tabs.js";
 import { canResumeNativeAgentSession } from "./native-session-resume.js";
 import { createBulkCloseAutoSessionsButton } from "./bulk-close-auto-sessions.js";
 import { getSessionModelDisplay } from "../sessions/session-model-display.js";
+import { resolveHomeSessionStatus } from "./session-status.js";
 export { canResumeNativeAgentSession };
 
 function shouldRenderSessionCards() {
@@ -105,7 +106,6 @@ function renderSessionActions(target, session, deps) {
 function createSessionCards(orderedSessions, deps) {
   const {
     state,
-    createAgentStatusIndicator,
     getSessionDisplayName,
     promptRenameSession,
     isSessionActionPending,
@@ -136,13 +136,14 @@ function createSessionCards(orderedSessions, deps) {
     const statusContainer = document.createElement("div");
     statusContainer.className = "session-status-container";
 
-    const statusIndicator = createAgentStatusIndicator(session.id);
-    statusIndicator.className += " status-small";
-
+    const statusPresentation = resolveHomeSessionStatus(session);
     const status = document.createElement("span");
-    status.className = `session-status ${session.status}`;
-    status.textContent = session.status;
-    statusContainer.append(statusIndicator, status);
+    status.className = "session-status";
+    status.dataset.status = statusPresentation.key;
+    status.textContent = statusPresentation.label;
+    status.title = statusPresentation.description;
+    status.setAttribute("aria-label", statusPresentation.description);
+    statusContainer.append(status);
 
     const headerActions = document.createElement("div");
     headerActions.className = "session-card-header-actions";

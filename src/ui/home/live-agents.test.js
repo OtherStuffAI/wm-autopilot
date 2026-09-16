@@ -87,6 +87,26 @@ describe("live agents helpers", () => {
     expect(ordered[0]?.id).toBe("session-1");
   });
 
+  test("sorts by resolved home status labels", () => {
+    const ordered = sortSessions(
+      [
+        { id: "online", name: "Online", status: "running", agentRuntimeStatus: "stable" },
+        { id: "stopped", name: "Stopped", status: "stopped", agentRuntimeStatus: "running" },
+        { id: "active", name: "Active", status: "running", agentRuntimeStatus: "running" },
+        { id: "error", name: "Error", status: "running", agentRuntimeStatus: null },
+      ],
+      { key: "status", direction: "asc" },
+      deps,
+    );
+
+    expect(ordered.map((session) => session.id)).toEqual([
+      "active",
+      "online",
+      "stopped",
+      "error",
+    ]);
+  });
+
   test("toggles sort direction for the active column", () => {
     expect(toggleSessionSort(DEFAULT_LIVE_SESSION_SORT, "started")).toEqual({
       key: "started",

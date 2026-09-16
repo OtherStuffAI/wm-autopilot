@@ -1,13 +1,8 @@
 import { getSessionModelDisplay } from "../sessions/session-model-display.js";
-
-const SESSION_STATUS_ORDER = Object.freeze({
-  starting: 0,
-  running: 1,
-  stopping: 2,
-  stopped: 3,
-  completed: 4,
-  failed: 5,
-});
+import {
+  HOME_SESSION_STATUS_ORDER,
+  resolveHomeSessionStatus,
+} from "./session-status.js";
 
 const SESSION_TABLE_COLUMNS = Object.freeze([
   { key: "actions", label: "Actions" },
@@ -95,21 +90,8 @@ export function formatSessionDirectoryDisplay(directory, maxLength = DIRECTORY_D
   return display;
 }
 
-function getSessionStatusValue(session) {
-  const runtimeStatus =
-    typeof session?.agentRuntimeStatus === "string" && session.agentRuntimeStatus.trim().length > 0
-      ? session.agentRuntimeStatus.trim().toLowerCase()
-      : null;
-  const status =
-    typeof session?.status === "string" && session.status.trim().length > 0
-      ? session.status.trim().toLowerCase()
-      : null;
-  return runtimeStatus ?? status ?? "unknown";
-}
-
 function getStatusSortValue(session) {
-  const status = getSessionStatusValue(session);
-  return SESSION_STATUS_ORDER[status] ?? Number.MAX_SAFE_INTEGER;
+  return HOME_SESSION_STATUS_ORDER[resolveHomeSessionStatus(session).key] ?? Number.MAX_SAFE_INTEGER;
 }
 
 function getSessionSortValue(session, key, deps) {
@@ -241,7 +223,6 @@ export function createSessionTable(orderedSessions, deps) {
     state,
     sessionSort,
     onSessionSortChange,
-    createAgentStatusIndicator,
     getSessionDisplayName,
     promptRenameSession,
     escapeHtml = defaultEscapeHtml,
@@ -285,6 +266,7 @@ export function createSessionTable(orderedSessions, deps) {
   orderedSessions.forEach((session) => {
     const row = document.createElement("tr");
     const displayName = getSessionDisplayName(session);
+    const statusPresentation = resolveHomeSessionStatus(session);
 
     row.innerHTML = `
       <td class="actions-cell"></td>
@@ -298,8 +280,9 @@ export function createSessionTable(orderedSessions, deps) {
       <td>${escapeHtml(session.agent)}</td>
       <td class="model-cell"></td>
       <td class="session-status-cell">
-        <div class="wm-agent-status-indicator" data-session-id="${escapeHtml(session.id)}"></div>
-        <span class="session-status-text">${escapeHtml(session.status)}</span>
+        <span class="session-status" data-status="${escapeHtml(statusPresentation.key)}" title="${escapeHtml(statusPresentation.description)}" aria-label="${escapeHtml(statusPresentation.description)}">
+          <span class="session-status__label">${escapeHtml(statusPresentation.label)}</span>
+        </span>
       </td>
     `;
 
@@ -334,11 +317,6 @@ export function createSessionTable(orderedSessions, deps) {
     const actionsCell = row.querySelector(".actions-cell");
     if (actionsCell) {
       renderSessionActions(actionsCell, session);
-    }
-
-    const statusIndicatorRoot = row.querySelector(".wm-agent-status-indicator");
-    if (statusIndicatorRoot) {
-      statusIndicatorRoot.replaceWith(createAgentStatusIndicator(session.id));
     }
 
     tbody.append(row);
