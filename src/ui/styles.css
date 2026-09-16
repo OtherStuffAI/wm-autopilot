@@ -6627,7 +6627,7 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
   overflow: hidden;
   flex: 0 0 auto;
   font-size: 0.95rem;
-  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+  transition: background 100ms ease, border-color 100ms ease, box-shadow 100ms ease, color 100ms ease;
 }
 
 .wm-tab:hover {
@@ -6655,25 +6655,28 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 }
 
 .wm-tab.active {
-  background: rgb(from var(--accent-primary) r g b / 0.08);
-  border-color: rgb(from var(--accent-primary) r g b / 0.22);
+  background: rgb(from var(--accent-primary) r g b / 0.18);
+  border-color: rgb(from var(--accent-primary) r g b / 0.5);
+  box-shadow: inset 0 -3px 0 rgb(from var(--accent-primary) r g b / 0.72);
   color: var(--text-primary);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .wm-tab.active[data-state="running"] {
-  animation: wm-tab-active-working-breathe 3.6s ease-in-out infinite;
+  animation: wm-tab-active-working-breathe 1.4s ease-in-out infinite;
 }
 
 @keyframes wm-tab-active-working-breathe {
   0%,
   100% {
-    background-color: transparent;
-    border-color: rgb(from var(--accent-primary) r g b / 0.14);
+    background-color: rgb(from var(--accent-primary) r g b / 0.16);
+    border-color: rgb(from var(--accent-primary) r g b / 0.44);
+    box-shadow: inset 0 -3px 0 rgb(from var(--accent-primary) r g b / 0.64);
   }
   50% {
-    background-color: rgb(from var(--accent-primary) r g b / 0.1);
-    border-color: rgb(from var(--accent-primary) r g b / 0.3);
+    background-color: rgb(from var(--accent-primary) r g b / 0.28);
+    border-color: rgb(from var(--accent-primary) r g b / 0.74);
+    box-shadow: inset 0 -3px 0 rgb(from var(--accent-primary) r g b / 0.95);
   }
 }
 
@@ -6685,7 +6688,7 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 
   .wm-tab.active[data-state="running"] {
     animation: none;
-    background: rgb(from var(--accent-primary) r g b / 0.08);
+    background: rgb(from var(--accent-primary) r g b / 0.18);
   }
 }
 

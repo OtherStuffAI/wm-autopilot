@@ -18,9 +18,13 @@ describe("live layout CSS", () => {
     expect(styles).toContain('background: #ef4444;');
     expect(styles).toContain('.wm-tab.active');
     expect(styles).toContain('.wm-tab.active[data-state="running"]');
-    expect(styles).toContain('animation: wm-tab-active-working-breathe 3.6s ease-in-out infinite;');
+    expect(styles).toContain('transition: background 100ms ease, border-color 100ms ease, box-shadow 100ms ease, color 100ms ease;');
+    expect(styles).toContain('background: rgb(from var(--accent-primary) r g b / 0.18);');
+    expect(styles).toContain('box-shadow: inset 0 -3px 0 rgb(from var(--accent-primary) r g b / 0.72);');
+    expect(styles).toContain('animation: wm-tab-active-working-breathe 1.4s ease-in-out infinite;');
     expect(styles).toContain('@keyframes wm-tab-active-working-breathe');
-    expect(styles).toContain('background-color: rgb(from var(--accent-primary) r g b / 0.1);');
+    expect(styles).toContain('background-color: rgb(from var(--accent-primary) r g b / 0.28);');
+    expect(styles).not.toContain('@keyframes wm-tab-active-working-breathe {\n  0%,\n  100% {\n    background-color: transparent;');
     expect(styles).not.toContain('.wm-tab.active[data-state="complete"]');
   });
 
