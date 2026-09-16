@@ -52,4 +52,11 @@ describe('Settings page composition', () => {
     expect(adminUsersPanels.indexOf('const userManagementCard = buildAdminUserManagementCard();'))
       .toBeLessThan(adminUsersPanels.indexOf('const portsCard = buildAdminPortsCard();'));
   });
+
+  test('renders distinct Allowed and Admin controls for managed users', () => {
+    expect(adminUsersPanels).toContain('admin-user-allowed-toggle');
+    expect(adminUsersPanels).toContain('admin-user-admin-toggle');
+    expect(adminUsersPanels).toContain('Admin (bootstrap)');
+    expect(adminUsersPanels).toContain('toggleUserAdmin(user.npub, adminCheckbox.checked)');
+  });
 });

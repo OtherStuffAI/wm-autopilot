@@ -97,6 +97,7 @@ export interface ApiRoutesContext {
   };
   adminNpub: string | null;
   adminNpubs?: string[];
+  getAdminNpubs?: () => string[];
 
   // Callback to retrieve the remote IP for a request.
   // Optional — if omitted, localhost checks are skipped (e.g. in tests).
@@ -441,7 +442,7 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
       if (!authContext.session) {
         effectiveAuth = await ctx.resolveNip98AuthContext(request, url, authContext);
         if (effectiveAuth.npub) {
-          const configuredAdmins = ctx.adminNpubs ?? (ctx.adminNpub ? [ctx.adminNpub] : []);
+          const configuredAdmins = ctx.getAdminNpubs?.() ?? ctx.adminNpubs ?? (ctx.adminNpub ? [ctx.adminNpub] : []);
           effectiveIsAdmin = configuredAdmins.includes(effectiveAuth.npub);
         } else {
           return withProjectApiCors(Response.json({ error: "Authentication required" }, { status: 401 }));
@@ -773,7 +774,7 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
         allowedDirectories: workspaceScope.allowedDirectories,
         connectRelays: ctx.config.connectRelays,
         adminNpub: ctx.adminNpub,
-        adminNpubs: ctx.adminNpubs ?? (ctx.adminNpub ? [ctx.adminNpub] : []),
+        adminNpubs: ctx.getAdminNpubs?.() ?? ctx.adminNpubs ?? (ctx.adminNpub ? [ctx.adminNpub] : []),
         agents,
         defaultAgent,
         systemDefaultAgent: ctx.config.defaultAgent,

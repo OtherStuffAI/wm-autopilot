@@ -246,6 +246,7 @@ export type RecordAdapterUsage = (data: {
 export interface ProcessManagerOptions {
   resolveBillingLaunchConfig?: (input: BillingLaunchInput) => Promise<BillingLaunchResult>;
   recordAdapterUsage?: RecordAdapterUsage;
+  isAdminNpub?: (npub: string | null | undefined) => boolean;
   issueSessionCapability?: (input: {
     sessionId: string;
     ownerNpub: string;
@@ -472,6 +473,7 @@ export class ProcessManager {
   private readonly config: WingmanConfig;
   private readonly resolveBillingLaunchConfig?: (input: BillingLaunchInput) => Promise<BillingLaunchResult>;
   private readonly recordAdapterUsage?: RecordAdapterUsage;
+  private readonly isAdminNpub?: ProcessManagerOptions["isAdminNpub"];
   private readonly issueSessionCapability?: ProcessManagerOptions["issueSessionCapability"];
   private readonly revokeSessionCapabilities?: ProcessManagerOptions["revokeSessionCapabilities"];
   private readonly resolveTowerGitGatewayOrigins?: ProcessManagerOptions["resolveTowerGitGatewayOrigins"];
@@ -487,6 +489,7 @@ export class ProcessManager {
     this.config = config;
     this.resolveBillingLaunchConfig = options.resolveBillingLaunchConfig;
     this.recordAdapterUsage = options.recordAdapterUsage;
+    this.isAdminNpub = options.isAdminNpub;
     this.issueSessionCapability = options.issueSessionCapability;
     this.revokeSessionCapabilities = options.revokeSessionCapabilities;
     this.resolveTowerGitGatewayOrigins = options.resolveTowerGitGatewayOrigins;
@@ -1727,6 +1730,9 @@ export class ProcessManager {
   }
 
   private isAdminUser(npub: string | undefined): boolean {
+    if (this.isAdminNpub) {
+      return this.isAdminNpub(npub);
+    }
     return isNpubInList(npub, this.adminNpubs);
   }
 

@@ -484,6 +484,7 @@ let getAdminSelectionCount = () => 0;
 let fetchAdminUsers = async () => {};
 let replaceAdminUsersList = () => {};
 let toggleUserOnboarding = async () => {};
+let toggleUserAdmin = async () => {};
 let deleteAdminUser = async () => {};
 let deleteSelectedAdminUsers = async () => {};
 let updateAdminUserNickname = async () => {};
@@ -2005,6 +2006,7 @@ getAdminSelectionCount = adminUsersModule.getAdminSelectionCount;
 fetchAdminUsers = adminUsersModule.fetchAdminUsers;
 replaceAdminUsersList = adminUsersModule.replaceAdminUsersList;
 toggleUserOnboarding = adminUsersModule.toggleUserOnboarding;
+toggleUserAdmin = adminUsersModule.toggleUserAdmin;
 deleteAdminUser = adminUsersModule.deleteAdminUser;
 deleteSelectedAdminUsers = adminUsersModule.deleteSelectedAdminUsers;
 updateAdminUserNickname = adminUsersModule.updateAdminUserNickname;
@@ -2030,6 +2032,7 @@ const adminUsersPanelsModule = initAdminUsersPanels({
   clearAdminSelection,
   fetchAdminUsers,
   toggleUserOnboarding,
+  toggleUserAdmin,
   deleteAdminUser,
   deleteSelectedAdminUsers,
   updateAdminUserNickname,

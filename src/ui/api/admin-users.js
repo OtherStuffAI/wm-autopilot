@@ -342,24 +342,87 @@ export function initAdminUsersApi(deps) {
     }
   };
 
+  const toggleUserAdmin = async (npub, admin) => {
+    if (!state.identity.isAdmin || typeof npub !== "string" || npub.length === 0) {
+      return;
+    }
+    const normalizedKey = normaliseNpubValue(npub);
+    const key = normalizedKey ?? npub;
+    const viewerKey = normaliseNpubValue(state.identity.npub);
+    const payload = { npub, admin };
+
+    if (admin === false && viewerKey && normalizedKey === viewerKey) {
+      const confirmed = confirm("Remove your own admin access? You may lose access to Settings and admin controls.");
+      if (!confirmed) {
+        renderIfSettings();
+        return;
+      }
+      payload.confirmSelfAdminDemotion = true;
+    }
+
+    state.adminUsers.pending.add(key);
+    renderIfSettings();
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const responsePayload = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message =
+          responsePayload && typeof responsePayload === "object" && typeof responsePayload.error === "string" && responsePayload.error.length > 0
+            ? responsePayload.error
+            : response.statusText || "Failed to update admin access";
+        throw new Error(message);
+      }
+      const users = Array.isArray(responsePayload?.users) ? responsePayload.users : null;
+      const user = responsePayload && typeof responsePayload === "object" ? responsePayload.user : null;
+      if (Array.isArray(users)) {
+        replaceAdminUsersList(users);
+        state.adminUsers.pending.clear();
+      } else if (user && typeof user === "object") {
+        upsertAdminUser(user);
+      }
+      state.adminUsers.error = null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update admin access";
+      state.adminUsers.error = message;
+    } finally {
+      state.adminUsers.pending.delete(key);
+      renderIfSettings();
+    }
+  };
+
   const deleteAdminUser = async (npub, alias) => {
     if (!state.identity.isAdmin || typeof npub !== "string" || npub.length === 0) {
       return;
     }
     const displayName = (typeof alias === "string" && alias.length > 0) ? alias : npub;
-    const confirmed = confirm(`Are you sure you want to delete user "${displayName}"? This action cannot be undone and will remove all their data.`);
+    const normalizedKey = normaliseNpubValue(npub);
+    const key = normalizedKey ?? npub;
+    const viewerKey = normaliseNpubValue(state.identity.npub);
+    const targetUser = Array.isArray(state.adminUsers.items)
+      ? state.adminUsers.items.find((user) => normaliseNpubValue(user?.normalizedNpub ?? user?.npub) === key)
+      : null;
+    const deletingOwnAdmin = Boolean(targetUser?.admin && viewerKey && normalizedKey === viewerKey);
+    const confirmationMessage = deletingOwnAdmin
+      ? `Delete your own admin user "${displayName}"? This will remove your admin access and all user data.`
+      : `Are you sure you want to delete user "${displayName}"? This action cannot be undone and will remove all their data.`;
+    const confirmed = confirm(confirmationMessage);
     if (!confirmed) {
       return;
     }
-    const normalizedKey = normaliseNpubValue(npub);
-    const key = normalizedKey ?? npub;
     state.adminUsers.pending.add(key);
     renderIfSettings();
     try {
       const response = await fetch("/api/admin/users", {
         method: "DELETE",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ npub }),
+        body: JSON.stringify({
+          npub,
+          ...(deletingOwnAdmin ? { confirmSelfAdminDeletion: true } : {}),
+        }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
@@ -712,6 +775,7 @@ export function initAdminUsersApi(deps) {
     fetchAdminUsers,
     replaceAdminUsersList,
     toggleUserOnboarding,
+    toggleUserAdmin,
     deleteAdminUser,
     deleteSelectedAdminUsers,
     updateAdminUserNickname,

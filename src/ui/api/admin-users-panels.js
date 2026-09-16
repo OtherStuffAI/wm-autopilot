@@ -25,6 +25,7 @@ export function initAdminUsersPanels(deps) {
     clearAdminSelection,
     fetchAdminUsers,
     toggleUserOnboarding,
+    toggleUserAdmin,
     deleteAdminUser,
     deleteSelectedAdminUsers,
     updateAdminUserNickname,
@@ -255,7 +256,9 @@ export function initAdminUsersPanels(deps) {
 
       const status = document.createElement("span");
       status.className = "wm-admin-users__status";
-      status.textContent = user.approved || user.onboarded ? "Access: allowed" : "Access: blocked";
+      const accessLabel = user.approved || user.onboarded ? "Access: allowed" : "Access: blocked";
+      const adminLabel = user.admin ? "Admin: yes" : "Admin: no";
+      status.textContent = `${accessLabel} \u2022 ${adminLabel}`;
 
       const nicknameForm = document.createElement("form");
       nicknameForm.className = "wm-admin-users__nickname";
@@ -298,22 +301,43 @@ export function initAdminUsersPanels(deps) {
       const actions = document.createElement("div");
       actions.className = "wm-admin-users__actions";
 
-      const toggle = document.createElement("label");
-      toggle.className = "wm-admin-users__toggle";
+      const accessToggle = document.createElement("label");
+      accessToggle.className = "wm-admin-users__toggle";
 
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = Boolean(user.approved || user.onboarded);
-      checkbox.disabled = userPending || state.adminUsers.loading;
-      checkbox.addEventListener("change", () => {
-        if (checkbox.disabled) return;
-        toggleUserOnboarding(user.npub, checkbox.checked);
+      const accessCheckbox = document.createElement("input");
+      accessCheckbox.type = "checkbox";
+      accessCheckbox.checked = Boolean(user.approved || user.onboarded);
+      accessCheckbox.disabled = userPending || state.adminUsers.loading;
+      accessCheckbox.setAttribute("aria-label", `Toggle normal access for ${name.textContent}`);
+      accessCheckbox.dataset.testid = "admin-user-allowed-toggle";
+      accessCheckbox.addEventListener("change", () => {
+        if (accessCheckbox.disabled) return;
+        toggleUserOnboarding(user.npub, accessCheckbox.checked);
       });
 
-      const label = document.createElement("span");
-      label.textContent = "Allowed";
+      const accessLabelEl = document.createElement("span");
+      accessLabelEl.textContent = "Allowed";
 
-      toggle.append(checkbox, label);
+      accessToggle.append(accessCheckbox, accessLabelEl);
+
+      const adminToggle = document.createElement("label");
+      adminToggle.className = "wm-admin-users__toggle";
+
+      const adminCheckbox = document.createElement("input");
+      adminCheckbox.type = "checkbox";
+      adminCheckbox.checked = Boolean(user.admin);
+      adminCheckbox.disabled = userPending || state.adminUsers.loading || Boolean(user.bootstrapAdmin);
+      adminCheckbox.setAttribute("aria-label", `Toggle admin access for ${name.textContent}`);
+      adminCheckbox.dataset.testid = "admin-user-admin-toggle";
+      adminCheckbox.addEventListener("change", () => {
+        if (adminCheckbox.disabled) return;
+        toggleUserAdmin(user.npub, adminCheckbox.checked);
+      });
+
+      const adminLabelEl = document.createElement("span");
+      adminLabelEl.textContent = user.bootstrapAdmin ? "Admin (bootstrap)" : "Admin";
+
+      adminToggle.append(adminCheckbox, adminLabelEl);
 
       const deleteBtn = document.createElement("button");
       deleteBtn.type = "button";
@@ -325,7 +349,7 @@ export function initAdminUsersPanels(deps) {
         deleteAdminUser(user.npub, user.alias);
       });
 
-      actions.append(toggle, deleteBtn);
+      actions.append(accessToggle, adminToggle, deleteBtn);
 
       row.append(selectionControl, avatar, details, actions);
       list.append(row);

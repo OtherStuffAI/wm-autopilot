@@ -181,7 +181,12 @@ import { getEffectiveOwnerAuthContext, getEffectiveOwnerNpub } from "./auth/effe
 import { isCapabilityBoundSelfSessionMetadataRead } from "./auth/session-capability-access";
 import { resolveNip98AuthContext } from "./auth/nip98-auth";
 import { Nip98ReplayCache, verifyNip98Request } from "./auth/nip98-verifier";
-import { deriveNpubSegment, isNpubInList, normaliseNpub, normaliseNpubList } from "./identity/npub-utils";
+import { deriveNpubSegment, normaliseNpub, normaliseNpubList } from "./identity/npub-utils";
+import {
+  isEffectiveAdminNpub,
+  listEffectiveAdminNpubs,
+  seedBootstrapAdminUsers,
+} from "./auth/admin-npubs";
 import { generateIdentityAlias } from "./identity/identity-alias";
 import { resolveSessionOwnerNpub, sessionBelongsToViewer as sessionOwnerMatchesViewer } from "./sessions/session-ownership";
 import { resolveWorkspaceScope, type WorkspaceScope } from "./workspaces/workspace-scope";
@@ -399,12 +404,15 @@ const configuredAdminNpubs = normaliseNpubList(
   instanceSettingsService.get("identity.admin_npubs") ?? "",
 );
 const adminNpub = configuredAdminNpubs[0] ?? null;
+seedBootstrapAdminUsers(identityUserStore, configuredAdminNpubs);
 const wappPublisher = new TowerPgWappPublisher({
   defaultTowerUrl,
   authority: towerRegistrationIdentity,
   resolveSourceAppNpub: createWappSourceAppNpubResolver(backendConnectionStore),
 });
-const isConfiguredAdminNpub = (npub: string | null | undefined): boolean => isNpubInList(npub, configuredAdminNpubs);
+const getEffectiveAdminNpubs = (): string[] => listEffectiveAdminNpubs(identityUserStore, configuredAdminNpubs);
+const isConfiguredAdminNpub = (npub: string | null | undefined): boolean =>
+  isEffectiveAdminNpub(npub, identityUserStore, configuredAdminNpubs);
 const APPROVED_WORK_ROLES = new Set(["approved", "onboard"]);
 const agentDispatchAdminOnlyEnabled = isAgentDispatchAdminOnlyEnabled();
 
@@ -751,7 +759,7 @@ const warmRestartMarker = await loadWarmRestartMarker(restartMarkerPath);
 
 const resolveWorkspace = (context?: RequestAuthContext): WorkspaceScope => {
   const activeContext = context ?? getRequestContext();
-  return resolveWorkspaceScope(config, activeContext, configuredAdminNpubs, systemDocsRoot, systemDocsRootBoundary);
+  return resolveWorkspaceScope(config, activeContext, getEffectiveAdminNpubs(), systemDocsRoot, systemDocsRootBoundary);
 };
 
 const {
@@ -847,6 +855,7 @@ const agentProfileKeyRotation = new AgentProfileKeyRotation({
 });
 manager = new ProcessManager(config, {
   resolveBillingLaunchConfig: (input) => teamBillingService.resolveLaunchConfig(input),
+  isAdminNpub: isConfiguredAdminNpub,
   recordAdapterUsage: async (data) => {
     await teamBillingService.recordProxyUsage({
       sessionId: data.sessionId,
@@ -2436,7 +2445,7 @@ const resolveInternalNip98AuthContext = (
 
 const requireAdminAccess = (): AccessRule => {
   return (context) => {
-    if (!adminNpub) {
+    if (getEffectiveAdminNpubs().length === 0) {
       return deny("admin-only", 403);
     }
     return isAdminContext(context.auth) ? allow() : deny("admin-only", 403);
@@ -2503,7 +2512,7 @@ const resolveFeatureFlagStateForViewer = (
 const sessionApiContext: SessionApiContext = {
   manager,
   adminNpub,
-  adminNpubs: configuredAdminNpubs,
+  adminNpubs: getEffectiveAdminNpubs(),
   isAdminNpub: isConfiguredAdminNpub,
   agentHost,
   messageStore,
@@ -2697,7 +2706,8 @@ const handleApi = createApiRouteHandler({
     giteaUrl: config.giteaUrl,
   },
   adminNpub,
-  adminNpubs: configuredAdminNpubs,
+  adminNpubs: getEffectiveAdminNpubs(),
+  getAdminNpubs: getEffectiveAdminNpubs,
 
   // Pre-instantiated API handlers
   todoApiHandler,
@@ -2802,6 +2812,7 @@ const handleApi = createApiRouteHandler({
   },
   adminUsersApiContext: {
     adminNpub,
+    bootstrapAdminNpubs: configuredAdminNpubs,
     isAdminNpub: isConfiguredAdminNpub,
     config: { connectRelays: config.connectRelays },
     identityUserStore,
