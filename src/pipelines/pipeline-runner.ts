@@ -16,6 +16,7 @@ import { runParallelStep } from "./parallel-runner";
 import { expandPipelineBlock } from "./pipeline-blocks";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
 import { buildPipelineStepMetadata } from "./pipeline-step-metadata";
+import { buildShadowDecisionsError, runOpenRouterDecisions } from "./openrouter-decisions";
 import { type JsonObject, PipelineStore, type PipelineStatus, type PipelineStepRecord, type StepKind } from "./pipeline-store";
 
 const CALLBACK_POLL_MS = 1000;
@@ -445,19 +446,38 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     setActiveStep(input, stepRecord.id);
     let result: JsonObject;
     try {
-      result = await runClassifierStep({
+      const classifierInput = {
         selectedInput: selected,
         prompt: step.prompt,
-        provider: step.provider ?? "openrouter",
+        provider: step.provider ?? "openrouter" as const,
         model: resolveStringTemplate(input.current, step.model) ?? DEFAULT_CLASSIFIER_MODEL,
-        temperature: step.temperature,
-        maxTokens: step.maxTokens,
         timeoutMs: resolveDurationMs(input.current, step.timeoutMs, DEFAULT_CLASSIFIER_TIMEOUT_MS),
         attempts: resolveClassifierAttempts(input.current, step.retries),
         apiKey: resolveClassifierOpenRouterApiKey(input),
-      });
+      };
+      result = step.mode === "decisions"
+        ? await runOpenRouterDecisions({
+          state: selected,
+          instructionContext: step.prompt,
+          model: classifierInput.model,
+          questions: step.questions ?? {},
+          timeoutMs: classifierInput.timeoutMs,
+          attempts: classifierInput.attempts,
+          apiKey: classifierInput.apiKey,
+        })
+        : await runClassifierStep({
+          ...classifierInput,
+          temperature: step.temperature,
+          maxTokens: step.maxTokens,
+        });
       throwIfRunCancelled(store, input.runId);
     } catch (error) {
+      if (step.failurePolicy === "record_error") {
+        result = buildShadowDecisionsError(error, step.model ?? DEFAULT_CLASSIFIER_MODEL);
+        const current = assignOutput(input.current, result, step.assign);
+        store.completeStep({ id: stepRecord.id, status: "ok", result: current, output: result });
+        return { current };
+      }
       const latest = store.getStep(stepRecord.id);
       if (latest?.status === "running") {
         store.completeStep({

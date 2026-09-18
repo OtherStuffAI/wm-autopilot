@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { AgentAdapter } from "../agents/agent-adapter";
 import type { SessionSnapshot } from "../agents/process-manager";
 import type { SessionApiContext } from "../server/session-api-routes";
+import type { DeclarativeStep } from "./declarative";
 import { builtinPipelineFunctions } from "./functions";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
 import {
@@ -35,6 +36,35 @@ afterEach(() => {
 
 const makeStore = () => new PipelineStore(join(tempDir, "pipelines.sqlite"));
 const nativeFetch = globalThis.fetch;
+
+function classifierDefinition(
+  classifier: Omit<Extract<DeclarativeStep, { type: "classifier" }>, "name" | "type" | "input" | "assign">,
+  followingSteps: DeclarativeStep[] = [],
+): PipelineDefinitionRecord {
+  return {
+    id: "decisions-classifier-test",
+    slug: "decisions-classifier-test",
+    name: "decisions-classifier-test",
+    scope: "user",
+    ownerAlias: "alpha-beta-gamma",
+    path: join(tempDir, "decisions-classifier-test.json"),
+    spec: {
+      name: "decisions-classifier-test",
+      steps: [
+        {
+          name: "judge",
+          type: "classifier",
+          provider: "openrouter",
+          prompt: "Judge the supplied state.",
+          input: { pick: { item: "$.item", monitoringPurpose: "$.monitoringPurpose" } },
+          assign: "$.decision",
+          ...classifier,
+        },
+        ...followingSteps,
+      ],
+    },
+  };
+}
 
 describe("runDeclarativePipeline", () => {
   test("runs object-in object-out code steps and records each step", async () => {
@@ -391,6 +421,128 @@ describe("runDeclarativePipeline", () => {
     expect(run.status).toBe("ok");
     expect(calls).toBe(3);
     expect(run.result?.selection).toEqual({ recommendedPipelineId: "do-and-review", confidence: 0.9 });
+  });
+
+  test("runs OpenRouter decisions classifiers and preserves typed probabilities and usage", async () => {
+    const store = makeStore();
+    process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY = "test-key";
+    let requestBody: Record<string, unknown> = {};
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe("https://openrouter.ai/api/alpha/decisions");
+      requestBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(JSON.stringify({
+        id: "gen-dec-test",
+        model: "typesafe/jev-1.13-20260917",
+        provider: "TypeSafe",
+        answers: {
+          relevant: { type: "noul", noul: 0.93 },
+          priority: {
+            type: "score",
+            score: 1.8,
+            probabilities: { "0": 0.01, "1": 0.18, "2": 0.81 },
+            confidence: 0.72,
+          },
+        },
+        usage: { input_tokens: 123, output_tokens: 20, cost: 0.000005166 },
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    const definition = classifierDefinition({
+      mode: "decisions",
+      model: "~typesafe/jev-latest",
+      prompt: "Treat monitoringPurpose as policy context.",
+      questions: {
+        relevant: {
+          type: "noul",
+          instructions: "Is `item` relevant to `monitoringPurpose`?",
+          criteria: { true: "Directly relevant", false: "Unrelated" },
+        },
+        priority: {
+          type: "score",
+          instructions: "How important is `item`?",
+          criteria: ["No priority", "Routine", "High priority"],
+        },
+      },
+    });
+    const run = await runDeclarativePipeline({
+      store,
+      sessionApiContext: {} as never,
+      definition,
+      registry: builtinPipelineFunctions,
+      input: { item: { id: "item-1", title: "Rules update" }, monitoringPurpose: "WH40K" },
+      ownerNpub: "npub-test",
+      ownerAlias: "alpha-beta-gamma",
+      callbackOrigin: "http://localhost",
+    });
+
+    expect(requestBody).toMatchObject({
+      model: "~typesafe/jev-latest",
+      state: {
+        instructionContext: "Treat monitoringPurpose as policy context.",
+        item: { id: "item-1", title: "Rules update" },
+        monitoringPurpose: "WH40K",
+      },
+    });
+    expect(run.status).toBe("ok");
+    expect(run.result?.decision).toMatchObject({
+      shadowStatus: "ok",
+      authoritative: false,
+      advisoryOnly: true,
+      requestedModel: "~typesafe/jev-latest",
+      model: "typesafe/jev-1.13-20260917",
+      provider: "TypeSafe",
+      requestId: "gen-dec-test",
+      usage: { input_tokens: 123, output_tokens: 20, cost: 0.000005166 },
+      answers: { relevant: { type: "noul", noul: 0.93 } },
+      raw: { id: "gen-dec-test" },
+      error: null,
+    });
+  });
+
+  test.each([
+    ["malformed", () => new Response("not-json", { status: 200 }), "JSON Parse error"],
+    ["provider", () => new Response(JSON.stringify({ error: { message: "unavailable" } }), { status: 503 }), "failed (503)"],
+    ["schema", () => new Response(JSON.stringify({ model: "typesafe/jev", answers: [], usage: {} }), { status: 200 }), "answers must be a JSON object"],
+    ["timeout", () => { throw new DOMException("aborted", "AbortError"); }, "timed out"],
+  ])("records %s decisions failures without gating later steps", async (_label, responseFactory, expectedError) => {
+    const store = makeStore();
+    process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY = "test-key";
+    globalThis.fetch = (async () => responseFactory()) as typeof fetch;
+    const definition = classifierDefinition({
+      mode: "decisions",
+      failurePolicy: "record_error",
+      retries: 1,
+      questions: {
+        relevant: { type: "noul", instructions: "Is it relevant?" },
+      },
+    }, [{
+      name: "business-workflow-continues",
+      type: "code",
+      function: "test.businessOutcome",
+      assign: "$.businessOutcome",
+    }]);
+    const run = await runDeclarativePipeline({
+      store,
+      sessionApiContext: {} as never,
+      definition,
+      registry: { ...builtinPipelineFunctions, "test.businessOutcome": async () => ({ unchanged: true }) },
+      input: { item: { id: "item-1" } },
+      ownerNpub: "npub-test",
+      ownerAlias: "alpha-beta-gamma",
+      callbackOrigin: "http://localhost",
+    });
+
+    expect(run.status).toBe("ok");
+    expect(run.result?.decision).toMatchObject({
+      shadowStatus: "error",
+      authoritative: false,
+      advisoryOnly: true,
+      answers: {},
+      raw: null,
+    });
+    const decision = run.result?.decision as Record<string, unknown> | undefined;
+    expect(String(decision?.error)).toContain(expectedError);
+    expect(run.result?.businessOutcome).toEqual({ unchanged: true });
   });
 
   test("runs a flat loop-control step for a bounded number of iterations", async () => {

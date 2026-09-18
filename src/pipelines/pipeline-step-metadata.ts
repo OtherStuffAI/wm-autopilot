@@ -41,9 +41,12 @@ function buildExecutorMetadata(step: DeclarativeStep): JsonObject {
     return compactObject({
       kind: "classifier",
       provider: step.provider ?? "openrouter",
+      mode: step.mode ?? "chat-json",
       model: step.model ?? null,
       timeoutMs: step.timeoutMs ?? null,
       retries: step.retries ?? null,
+      failurePolicy: step.failurePolicy ?? "fail",
+      questions: step.questions ?? null,
       prompt: step.prompt,
     });
   }

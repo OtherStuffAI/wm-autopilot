@@ -28,6 +28,23 @@ export interface StepDisplaySpec {
   out?: DisplayFieldSpec[];
 }
 
+export type DecisionQuestion =
+  | {
+      type: "noul";
+      instructions: string;
+      criteria?: { true: string; false: string };
+    }
+  | {
+      type: "choice";
+      instructions: string;
+      criteria: Record<string, string>;
+    }
+  | {
+      type: "score";
+      instructions: string;
+      criteria: string[];
+    };
+
 export type DeclarativeStep =
   | {
       id?: string;
@@ -78,6 +95,9 @@ export type DeclarativeStep =
       assign?: string;
       when?: EqualsCondition;
       provider?: "openrouter";
+      mode?: "chat-json" | "decisions";
+      questions?: Record<string, DecisionQuestion>;
+      failurePolicy?: "fail" | "record_error";
       model?: string;
       temperature?: number;
       maxTokens?: number;
