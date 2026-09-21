@@ -178,7 +178,7 @@ import {
   type RequestAuthContext,
 } from "./auth/request-context";
 import { getEffectiveOwnerAuthContext, getEffectiveOwnerNpub } from "./auth/effective-owner";
-import { isCapabilityBoundSelfSessionMetadataRead } from "./auth/session-capability-access";
+import { isCapabilityBoundSelfSessionMetadataOperation } from "./auth/session-capability-access";
 import { resolveNip98AuthContext } from "./auth/nip98-auth";
 import { Nip98ReplayCache, verifyNip98Request } from "./auth/nip98-verifier";
 import { deriveNpubSegment, normaliseNpub, normaliseNpubList } from "./identity/npub-utils";
@@ -570,6 +570,12 @@ const schedulerEngine = new SchedulerEngine({
     manager,
     scheduleArchive: (sessionId) => scheduleSessionArchive(sessionId, manager),
     isSessionProtected: (sessionId) => isDirectChatSessionProtected(sessionId, chatInterceptStateStore, directChatTurnStore),
+    getLastUpdatedAt: (sessionId) => messageStore.getSession(sessionId)?.lastUpdatedAt ?? null,
+    getReadiness: (session) => getSessionPromptReadiness({
+      session,
+      adapter: manager.getAdapter(session.id),
+      timeoutMs: 750,
+    }),
   }),
   getInstanceIdentity: () => wingmanInstanceIdentity,
 });
@@ -661,7 +667,7 @@ let sessionApiContextRef: SessionApiContext | null = null;
 
 const requireApprovedWorkAccess = (): AccessRule => {
   return (context) => {
-    if (isCapabilityBoundSelfSessionMetadataRead(context)) return allow();
+    if (isCapabilityBoundSelfSessionMetadataOperation(context)) return allow();
     const ownerNpub = getEffectiveOwnerNpub(context.auth);
     return isUserApprovedForWork(ownerNpub)
       ? allow()

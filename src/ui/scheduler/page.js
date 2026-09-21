@@ -732,7 +732,7 @@ function getPageTemplate() {
       <template x-if="isCleanupAction">
         <div style="margin-top: 0.75rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px; border: 1px solid var(--border-primary);">
           <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0;">
-            Stops and archives active sessions whose metadata nextAction is set to stop.
+            Stops automatic sessions marked nextAction=stop, plus prompt-ready automatic sessions inactive for over 60 minutes.
           </p>
         </div>
       </template>
@@ -892,7 +892,7 @@ function getPageTemplate() {
                 <span x-text="pipelineName(job.pipelineDefinitionId)" style="opacity: 0.8;"></span>
               </template>
               <template x-if="(job.actionType || 'session') === 'cleanup'">
-                <span style="opacity: 0.8;">Stops sessions marked nextAction=stop</span>
+                <span style="opacity: 0.8;">Stops terminal or stale automatic sessions</span>
               </template>
               <template x-if="(job.actionType || 'session') === 'session'">
                 <span x-text="job.workingDirectory" style="opacity: 0.8;"></span>
@@ -1036,7 +1036,7 @@ function getPageTemplate() {
             <template x-if="editIsCleanupAction">
               <div style="margin-top: 0.75rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px; border: 1px solid var(--border-primary);">
                 <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0;">
-                  Stops and archives active sessions whose metadata nextAction is set to stop.
+                  Stops automatic sessions marked nextAction=stop, plus prompt-ready automatic sessions inactive for over 60 minutes.
                 </p>
               </div>
             </template>

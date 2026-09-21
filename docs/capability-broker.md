@@ -152,6 +152,13 @@ not be retried as a fallback. The PG CLI
 raw `--key` mode is retained only as an explicit operator path until its full
 Tower client stack accepts an asynchronous broker signer.
 
+An agent session may read or patch metadata only at its exact bound
+`/api/sessions/:sessionId/metadata` path. This permits terminal
+`nextAction=stop` updates without making the bot an approved user or granting
+cross-session or `/api/owners/...` management authority. The server recovers
+the session binding from the broker-added NIP-98 tag and enforces the same
+exact-session comparison before the session route runs.
+
 ## Lifecycle, audit, and operations
 
 Capabilities expire after at most two hours. The long-lived MCP client refreshes

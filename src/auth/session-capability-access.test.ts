@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { AccessActions, type AccessContext } from "./access-control";
-import { isCapabilityBoundSelfSessionMetadataRead } from "./session-capability-access";
+import {
+  isCapabilityBoundSelfSessionMetadataOperation,
+  isCapabilityBoundSelfSessionMetadataRead,
+} from "./session-capability-access";
 
 function context(method: string, pathname: string, capabilitySessionId: string | null): AccessContext {
   const request = new Request(`http://localhost${pathname}`, { method });
@@ -45,5 +48,17 @@ describe("session capability access helpers", () => {
         context("GET", "/api/sessions", "session-self"),
       ),
     ).toBeFalse();
+  });
+
+  test("allows self metadata PATCH but denies cross-session and owner-space PATCH", () => {
+    expect(isCapabilityBoundSelfSessionMetadataOperation(
+      context("PATCH", "/api/sessions/session-self/metadata", "session-self"),
+    )).toBeTrue();
+    expect(isCapabilityBoundSelfSessionMetadataOperation(
+      context("PATCH", "/api/sessions/session-other/metadata", "session-self"),
+    )).toBeFalse();
+    expect(isCapabilityBoundSelfSessionMetadataOperation(
+      context("PATCH", "/api/owners/npub1owner/sessions/session-self/metadata", "session-self"),
+    )).toBeFalse();
   });
 });

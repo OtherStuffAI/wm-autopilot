@@ -1,98 +1,124 @@
-import { describe, expect, test } from 'bun:test';
-import { isDirectChatSessionProtected } from '../agent-chat/direct-chat-lifecycle';
-import { cleanupStopNextActionSessions } from './next-action-cleanup';
+import { describe, expect, test } from "bun:test";
+import { cleanupStopNextActionSessions } from "./next-action-cleanup";
 
-function session(id: string) {
+const now = Date.parse("2026-09-21T12:00:00.000Z");
+
+function session(id: string, options: { automatic?: boolean; ageMinutes?: number; nextAction?: string } = {}) {
   return {
     id,
-    agent: 'codex',
+    agent: "codex",
     name: id,
-    metadata: { AGENT: true, nextAction: 'stop' },
+    status: "running",
+    startedAt: new Date(now - (options.ageMinutes ?? 61) * 60_000).toISOString(),
+    lastUpdatedAt: null,
+    metadata: {
+      AGENT: options.automatic ?? true,
+      ...(options.nextAction ? { nextAction: options.nextAction } : {}),
+    },
   } as any;
 }
 
-describe('next-action cleanup', () => {
-  test('does not stop a Flight Deck session with active, pending, or accepted work', async () => {
-    for (const state of ['active', 'pending', 'idle'] as const) {
-      const stopped: string[] = [];
-      const intercept = { routingKey: `route-${state}`, sessionId: `chat-${state}`, state,
-        pendingMessageCount: state === 'pending' ? 2 : 0 } as any;
-      const turn = state === 'idle' ? { state: 'accepted' } : null;
-      const result = await cleanupStopNextActionSessions({ manager: { listSessions: () => [session(`chat-${state}`)],
-        stopSession: async (id: string) => { stopped.push(id); } } as any, scheduleArchive: () => {},
-        isSessionProtected: (id) => isDirectChatSessionProtected(id, { listAll: () => [intercept] } as any,
-          { getPending: () => turn } as any) });
-      expect(result.matched).toBe(0); expect(stopped).toEqual([]);
+function harness(sessions: any[], options: {
+  lastUpdatedAt?: Record<string, string | null>;
+  readiness?: Record<string, "ready" | "busy">;
+  protectedIds?: string[];
+  currentSessionId?: string;
+} = {}) {
+  const stopped: string[] = [];
+  const archived: string[] = [];
+  const byId = new Map(sessions.map((item) => [item.id, item]));
+  return {
+    stopped,
+    archived,
+    run: () => cleanupStopNextActionSessions({
+      manager: {
+        listSessions: () => sessions,
+        getSession: (id: string) => byId.get(id),
+        stopSession: async (id: string) => { stopped.push(id); return byId.get(id); },
+      } as any,
+      scheduleArchive: (id) => archived.push(id),
+      isSessionProtected: (id) => options.protectedIds?.includes(id) ?? false,
+      getLastUpdatedAt: (id) => options.lastUpdatedAt?.[id] ?? null,
+      getReadiness: async (item) => ({
+        state: options.readiness?.[item.id] ?? "ready",
+        reason: "test",
+        retryAfterMs: 0,
+      }),
+      now: () => now,
+      currentSessionId: options.currentSessionId,
+    }),
+  };
+}
+
+describe("scheduled automatic-session cleanup", () => {
+  test("closes an automatic session older than 60 minutes without nextAction", async () => {
+    const f = harness([session("stale", { ageMinutes: 61 })]);
+    const result = await f.run();
+    expect(result).toMatchObject({ checked: 1, matched: 1, stopped: 1, archiveScheduled: 1, failed: 0 });
+    expect(result.details[0]?.reason).toBe("stale");
+    expect(f.stopped).toEqual(["stale"]);
+  });
+
+  test("preserves automatic sessions at or under 60 minutes", async () => {
+    for (const ageMinutes of [59, 60]) {
+      const f = harness([session(`age-${ageMinutes}`, { ageMinutes })]);
+      const result = await f.run();
+      expect(result.matched).toBe(0);
+      expect(result.skipped).toEqual([{ id: `age-${ageMinutes}`, reason: "not-stale" }]);
     }
   });
 
-  test('still stops and archives a genuinely terminal eligible session', async () => {
-    const stopped: string[] = []; const archived: string[] = [];
-    const result = await cleanupStopNextActionSessions({ manager: { listSessions: () => [session('terminal-worker')],
-      stopSession: async (id: string) => { stopped.push(id); } } as any, scheduleArchive: (id) => archived.push(id),
-      isSessionProtected: () => false });
-    expect(result.matched).toBe(1); expect(result.stopped).toBe(1);
-    expect(stopped).toEqual(['terminal-worker']); expect(archived).toEqual(['terminal-worker']);
-  });
-
-  test('protects a production-shaped Example Operator-started session and its native resume', async () => {
-    const exampleUserNpub = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpz2c9sm';
-    const directSession = {
-      ...session('ccac87cc-e9be-4c4e-8381-e99c71e5a604'),
-      metadata: {
-        AGENT: false,
-        nextAction: 'stop',
-        ownerNpub: exampleUserNpub,
-        createdByNpub: exampleUserNpub,
-      },
-    };
-    const nativeResume = {
-      ...session('bbedf2fa-03bd-4eee-aedb-d38bfaf8e4dd'),
-      origin: { type: 'native-resume', id: directSession.id },
-      metadata: {
-        AGENT: false,
-        nextAction: 'stop',
-        ownerNpub: exampleUserNpub,
-        createdByNpub: exampleUserNpub,
-        resumedFromWingmanSessionId: directSession.id,
-      },
-    };
-    const stopped: string[] = [];
-
-    const result = await cleanupStopNextActionSessions({
-      manager: {
-        listSessions: () => [directSession, nativeResume],
-        stopSession: async (id: string) => { stopped.push(id); },
-      } as any,
-      scheduleArchive: () => {},
-    });
-
-    expect(result.checked).toBe(2);
+  test("uses authoritative message activity ahead of the start-time fallback", async () => {
+    const item = session("recent-output", { ageMinutes: 180 });
+    const f = harness([item], { lastUpdatedAt: { "recent-output": new Date(now - 10 * 60_000).toISOString() } });
+    const result = await f.run();
     expect(result.matched).toBe(0);
-    expect(stopped).toEqual([]);
+    expect(result.skipped).toEqual([{ id: "recent-output", reason: "not-stale" }]);
   });
 
-  test('stops automatic worker and scheduler sessions', async () => {
-    const worker = session('automatic-worker');
-    const scheduler = {
-      ...session('automatic-scheduler'),
-      origin: { type: 'scheduler', id: 'close-out-sessions' },
-      metadata: { AGENT: false, nextAction: 'stop' },
-    };
-    const stopped: string[] = [];
-    const archived: string[] = [];
+  test("preserves user-created sessions regardless of age", async () => {
+    const f = harness([session("user", { automatic: false, ageMinutes: 600 })]);
+    const result = await f.run();
+    expect(result.matched).toBe(0);
+    expect(result.skipped).toEqual([{ id: "user", reason: "user-started" }]);
+  });
 
+  test("preserves active, protected, and cleanup-runner sessions", async () => {
+    const sessions = [session("busy"), session("direct"), session("runner")];
+    const f = harness(sessions, {
+      readiness: { busy: "busy" },
+      protectedIds: ["direct"],
+      currentSessionId: "runner",
+    });
+    const result = await f.run();
+    expect(result.matched).toBe(0);
+    expect(result.skipped).toEqual([
+      { id: "busy", reason: "not-ready" },
+      { id: "direct", reason: "protected" },
+      { id: "runner", reason: "protected" },
+    ]);
+  });
+
+  test("still closes nextAction=stop automatic sessions immediately", async () => {
+    const f = harness([session("terminal", { ageMinutes: 1, nextAction: "stop" })], {
+      readiness: { terminal: "busy" },
+    });
+    const result = await f.run();
+    expect(result).toMatchObject({ matched: 1, stopped: 1, archiveScheduled: 1, failed: 0 });
+    expect(result.details[0]?.reason).toBe("next-action-stop");
+  });
+
+  test("reports failed eligible work instead of a zero match", async () => {
+    const item = session("failed");
     const result = await cleanupStopNextActionSessions({
       manager: {
-        listSessions: () => [worker, scheduler],
-        stopSession: async (id: string) => { stopped.push(id); },
+        listSessions: () => [item], getSession: () => item,
+        stopSession: async () => { throw new Error("stop failed"); },
       } as any,
-      scheduleArchive: (id) => archived.push(id),
+      scheduleArchive: () => {}, getReadiness: async () => ({ state: "ready", reason: "test", retryAfterMs: 0 }),
+      now: () => now,
     });
-
-    expect(result.matched).toBe(2);
-    expect(result.stopped).toBe(2);
-    expect(stopped).toEqual(['automatic-worker', 'automatic-scheduler']);
-    expect(archived).toEqual(stopped);
+    expect(result).toMatchObject({ matched: 1, stopped: 0, failed: 1 });
+    expect(result.details[0]?.error).toBe("stop failed");
   });
 });

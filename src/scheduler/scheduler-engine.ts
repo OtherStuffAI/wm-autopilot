@@ -57,6 +57,7 @@ export interface SchedulerCleanupResult {
   stopped: number;
   archiveScheduled: number;
   failed: number;
+  skipped?: Array<{ id: string; reason: string }>;
 }
 
 // ============================================================
@@ -294,7 +295,10 @@ class SchedulerEngine {
           undefined,
           cleanup.failed > 0 ? `Cleanup failed for ${cleanup.failed} session(s)` : undefined,
         );
-        console.log(`[scheduler] Job "${job.name}" triggered — cleaned up ${cleanup.stopped}/${cleanup.matched} session(s)`);
+        console.log(
+          `[scheduler] Job "${job.name}" triggered — matched ${cleanup.matched}, stopped ${cleanup.stopped}, `
+          + `skipped ${cleanup.skipped?.length ?? 0}, failed ${cleanup.failed} session(s)`,
+        );
         return { cleanup };
       }
 
