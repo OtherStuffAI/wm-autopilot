@@ -322,6 +322,29 @@ Session metadata `nextAction: stop` means the current turn is complete. It does 
 
 The runtime may expose response activity to Tower for UI feedback, but the chat reply itself remains a normal message.
 
+### Durable activity and session-health projections
+
+Autopilot publishes one retained activity lifecycle for each trigger message. A
+turn advances through `accepted` and `working`, renews its five-minute lease
+every minute without adding commentary, and ends exactly once as `completed`,
+`failed`, or `cancelled`. A follow-up received while another turn owns the
+session is immediately projected as `queued` with `blocked_by_turn_id` and a
+positive `queue_position`; promotion clears those queue fields before runtime
+submission. Commentary is appended only for a new explicit user-visible
+runtime update.
+
+The final chat message remains the completion authority. Autopilot freezes and
+retries that write through the durable delivery reconciler before publishing a
+`completed` activity. Activity and session-health publication failures are
+also retained locally for retry with their original sequence.
+
+For each bound runtime session Autopilot separately publishes
+`agent-session-health` snapshots. Consumers must use its
+`starting|online|idle|busy|errored|stopped` status, active turn id, runtime
+generation, sequence, and lease health instead of inferring runtime state from
+activity prose or expiry. Sequence ordering is scoped to one runtime
+generation; a newer Autopilot process generation may restart the sequence.
+
 ## Single Implementation Work Package
 
 Implement this MVP as one Autopilot work package named **Agent Direct Chat: durable Flight Deck thread session runtime**. Assign the complete package to one worker/session in this repository. Do not split routing, state migration, prompting, lifecycle recovery, publication, and tests into separate independently handed-off tasks: correctness depends on their shared cursor and idempotency semantics.
