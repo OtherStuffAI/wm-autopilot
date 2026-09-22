@@ -1068,7 +1068,7 @@ describe('WorkspaceSubscriptionManager', () => {
       callbackOrigin: 'http://localhost:3600',
       requirePipelineRoutes: true,
     });
-    const { manager, agentStore } = createTestManager(
+    const { manager, store, agentStore } = createTestManager(
       dbPath,
       new Map(),
       undefined,
@@ -1107,6 +1107,13 @@ describe('WorkspaceSubscriptionManager', () => {
       'fd-agent-dispatch-comment-response',
       'fd-agent-dispatch-task-response',
     ]);
+    const activated = store.getBySubscriptionId(imported.subscription.subscriptionId);
+    expect(activated?.capabilityDefaults?.toSorted()).toEqual([
+      'chat_intercept',
+      'comment_dispatch',
+      'task_dispatch',
+    ]);
+    expect(activated?.dispatchRouteIds?.toSorted()).toEqual(routes.map((route) => route.routeId).toSorted());
   });
 
   test('imports AgentConnect for every local bot profile accepted by the PG workspace', async () => {

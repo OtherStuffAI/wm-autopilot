@@ -2106,6 +2106,34 @@ export class WorkspaceSubscriptionManager {
     return saved;
   }
 
+  private async activateOnboardedAgentForSubscription(input: {
+    subscription: WorkspaceSubscriptionRecord;
+    agentProfile: AgentDefinitionRecord | null;
+    botIdentity: RuntimeBotIdentity;
+  }): Promise<WorkspaceSubscriptionRecord> {
+    const agent = await this.ensureOnboardedAgentForSubscription(input);
+    if (!agent) {
+      return input.subscription;
+    }
+
+    const routes = this.ensureDefaultDispatchRoutesForSubscription(
+      input.subscription,
+      agent.capabilities,
+    );
+    const allRouteIds = this.dispatchPipelineRuntime
+      ?.listRoutesForSubscription(input.subscription.subscriptionId)
+      .map((route) => route.routeId) ?? routes.map((route) => route.routeId);
+
+    return this.saveRecord({
+      ...input.subscription,
+      capabilityDefaults: [...new Set([
+        ...(input.subscription.capabilityDefaults ?? []),
+        ...agent.capabilities,
+      ])],
+      dispatchRouteIds: [...new Set(allRouteIds)],
+    });
+  }
+
   async saveAgentForManager(input: CreateAgentDefinitionInput): Promise<AgentDefinitionRecord> {
     const agentId = input.agentId.trim();
     const label = input.label.trim() || agentId;
@@ -2677,7 +2705,7 @@ export class WorkspaceSubscriptionManager {
       record = await this.prepareFlightDeckPgSubscription(record, botIdentity);
       record = await this.verifyFlightDeckPgWorkspaceAccess(record, botIdentity);
       await this.ensureConnected(record, botIdentity, false);
-      const saved = this.store.getBySubscriptionId(record.subscriptionId) ?? record;
+      let saved = this.store.getBySubscriptionId(record.subscriptionId) ?? record;
       const subscriptionAgents = this.agentStore
         .listByWorkspaceAndBot(this.getEffectiveWorkspaceNpub(saved), saved.botNpub)
         .filter((agent) => agent.managedByNpub === saved.managedByNpub)
@@ -2686,7 +2714,7 @@ export class WorkspaceSubscriptionManager {
         ? [...new Set(subscriptionAgents.flatMap((agent) => agent.capabilities))]
         : saved.capabilityDefaults ?? [];
       this.ensureDefaultDispatchRoutesForSubscription(saved, routeCapabilities);
-      await this.ensureOnboardedAgentForSubscription({
+      saved = await this.activateOnboardedAgentForSubscription({
         subscription: saved,
         agentProfile,
         botIdentity,
@@ -2721,7 +2749,7 @@ export class WorkspaceSubscriptionManager {
 
     record = await this.refreshGroupKeys(record, botIdentity, true);
     await this.ensureConnected(record, botIdentity, false);
-    const saved = this.store.getBySubscriptionId(record.subscriptionId) ?? record;
+    let saved = this.store.getBySubscriptionId(record.subscriptionId) ?? record;
     const subscriptionAgents = this.agentStore
       .listByWorkspaceAndBot(this.getEffectiveWorkspaceNpub(saved), saved.botNpub)
       .filter((agent) => agent.managedByNpub === saved.managedByNpub)
@@ -2730,7 +2758,7 @@ export class WorkspaceSubscriptionManager {
       ? [...new Set(subscriptionAgents.flatMap((agent) => agent.capabilities))]
       : saved.capabilityDefaults ?? [];
     this.ensureDefaultDispatchRoutesForSubscription(saved, routeCapabilities);
-    await this.ensureOnboardedAgentForSubscription({
+    saved = await this.activateOnboardedAgentForSubscription({
       subscription: saved,
       agentProfile,
       botIdentity,
@@ -2763,7 +2791,7 @@ export class WorkspaceSubscriptionManager {
           continue;
         }
 
-        const refreshed = isFlightDeckPgSubscription(record)
+        let refreshed = isFlightDeckPgSubscription(record)
           ? await this.verifyFlightDeckPgWorkspaceAccess(
             await this.prepareFlightDeckPgSubscription(record, botIdentity),
             botIdentity,
@@ -2777,7 +2805,7 @@ export class WorkspaceSubscriptionManager {
         this.saveRecord(refreshed);
         this.clearRuntimeFailure(refreshed.subscriptionId, 'startup_reload_recovered');
         if (isFlightDeckPgSubscription(refreshed)) {
-          await this.ensureOnboardedAgentForSubscription({
+          refreshed = await this.activateOnboardedAgentForSubscription({
             subscription: refreshed,
             agentProfile: null,
             botIdentity,
