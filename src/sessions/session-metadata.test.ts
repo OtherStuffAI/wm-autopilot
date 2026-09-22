@@ -3,6 +3,11 @@ import { describe, expect, test } from "bun:test";
 import { normaliseSessionMetadata } from "./session-metadata";
 
 describe("normaliseSessionMetadata", () => {
+  test("preserves valid resolved skill revision audit metadata", () => {
+    expect(normaliseSessionMetadata({ resolvedSkillRevisions: [{ skillId: "source:skill", revisionId: "revision-1", digest: "a".repeat(64) }] }).resolvedSkillRevisions).toEqual([
+      { skillId: "source:skill", revisionId: "revision-1", digest: "a".repeat(64) },
+    ]);
+  });
   test("preserves Agent Direct Chat source coordinates", () => {
     expect(normaliseSessionMetadata({ AGENT: true, billingMode: "subscription", sessionClass: "flightdeck_chat",
       flightdeckTowerServiceNpub: " tower ", flightdeckWorkspaceId: " workspace ", flightdeckScopeId: " scope ",

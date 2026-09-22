@@ -84,6 +84,8 @@ import { identityUserStore } from "./storage/identity-user-store";
 import { TodoStore } from "./todos/todo-store";
 import { createTodoApiHandler } from "./todos/todo-api";
 import { ProjectStore } from "./projects/project-store";
+import { SkillStore } from "./skills/skill-store";
+import { SkillManager } from "./skills/skill-manager";
 import { createProjectApiHandler } from "./projects/project-api";
 import { createNpubProjectApiHandler } from "./projects/npub-project-api";
 import { npubProjectStore } from "./projects/npub-project-store";
@@ -453,6 +455,8 @@ if (subdomainProxyConfig.enabled) {
 ensureManagedFeatureFlags(featureFlagStore);
 process.env.WINGMAN_PID = process.pid.toString();
 const projectStore = new ProjectStore();
+const skillStore = new SkillStore();
+const skillManager = new SkillManager(skillStore, npubProjectStore);
 const todoStore = new TodoStore();
 const promptQueueStore = new PromptQueueStore("data/prompt-queue.db");
 const sessionDispatchStore = new SessionDispatchStore("data/session-dispatches.db");
@@ -886,6 +890,8 @@ manager = new ProcessManager(config, {
     return result.gatewayOrigins;
   },
 });
+manager.setResolvedSkillRevisionProvider((ownerNpub, directory) =>
+  skillManager.reconcileDefaultsBeforeLaunch(ownerNpub, directory, resolveWorkspace().allowedDirectories));
 
 if (adminNpub) {
   try {
@@ -1715,6 +1721,7 @@ const agentDirectDeliveryReconciler = new AgentDirectDeliveryReconciler({
   }),
   withProfileIdentity: directChatProfileIdentityRunner,
   reconcileActivity: createReconciledActivityPublisher(manager),
+  terminalizeActivity: createReconciledActivityPublisher(manager, true),
   publicationFilter: duplicateCallbackPublicationFilter,
   dispatchOutcomeStore: flightDeckDispatchOutcomeStore,
   log: console,
@@ -2694,6 +2701,7 @@ const remoteInstructRoutesContext: RemoteInstructRoutesContext = {
 };
 
 const handleApi = createApiRouteHandler({
+  skillApiContext: { manager: skillManager, resolveWorkspace },
   sessionDispatchService,
   getRequestIP: (req) => fipsControlPlane.externalRequestPeer(serverRef.current?.requestIP(req) ?? null),
   config: {

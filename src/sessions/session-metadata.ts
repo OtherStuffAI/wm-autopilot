@@ -58,6 +58,8 @@ export interface SessionMetadata {
   pinnedFiles?: string[];
   speechGenerateAudio?: boolean;
   speechAlwaysRead?: boolean;
+  /** Exact managed skill revisions visible in the working directory at launch. */
+  resolvedSkillRevisions?: Array<{ skillId: string; revisionId: string; digest: string }>;
 }
 
 export interface NativeAgentSessionMetadata {
@@ -215,6 +217,16 @@ export const normaliseSessionMetadata = (
         .filter((value) => value.length > 0)
     : undefined;
   const tags = normaliseSessionTags(metadata?.tags);
+  const resolvedSkillRevisions = Array.isArray(metadata?.resolvedSkillRevisions)
+    ? metadata.resolvedSkillRevisions.flatMap((value) => {
+        if (!value || typeof value !== "object") return [];
+        const record = value as Record<string, unknown>;
+        const skillId = cleanString(record.skillId);
+        const revisionId = cleanString(record.revisionId);
+        const digest = cleanString(record.digest);
+        return skillId && revisionId && /^[a-f0-9]{64}$/.test(digest) ? [{ skillId, revisionId, digest }] : [];
+      })
+    : undefined;
 
   return {
     AGENT: Boolean(metadata?.AGENT),
@@ -270,6 +282,7 @@ export const normaliseSessionMetadata = (
     pinnedFiles: pinnedFiles?.length ? pinnedFiles : undefined,
     speechGenerateAudio: Boolean(metadata?.speechGenerateAudio),
     speechAlwaysRead: Boolean(metadata?.speechAlwaysRead),
+    resolvedSkillRevisions: resolvedSkillRevisions?.length ? resolvedSkillRevisions : undefined,
   };
 };
 

@@ -480,6 +480,7 @@ export class ProcessManager {
   private readonly sessions = new Map<string, AgentSession>();
   private readonly allocatedPorts = new Set<number>();
   private readonly listeners = new Set<(event: SessionEvent) => void>();
+  private resolvedSkillRevisionProvider?: (ownerNpub: string, directory: string) => Promise<SessionMetadata["resolvedSkillRevisions"]>;
   private readonly adminNpubs = getConfiguredAdminNpubs();
   private readonly adminNpub = this.adminNpubs[0] ?? null;
   /** Debounce timers for log-driven session-updated events */
@@ -541,6 +542,10 @@ export class ProcessManager {
     const snapshot = this.toSnapshot(session);
     this.emit({ type: "session-updated", session: snapshot });
     return snapshot;
+  }
+
+  setResolvedSkillRevisionProvider(provider: (ownerNpub: string, directory: string) => Promise<SessionMetadata["resolvedSkillRevisions"]>) {
+    this.resolvedSkillRevisionProvider = provider;
   }
 
   /**
@@ -639,6 +644,12 @@ export class ProcessManager {
     const sessionWorkingDirectory = rawWorkingDirectory.startsWith("~/")
       ? resolve(homedir(), rawWorkingDirectory.slice(2))
       : rawWorkingDirectory;
+    if (requestNpub && this.resolvedSkillRevisionProvider) {
+      sessionMetadata = normaliseSessionMetadata({
+        ...sessionMetadata,
+        resolvedSkillRevisions: await this.resolvedSkillRevisionProvider(requestNpub, sessionWorkingDirectory),
+      });
+    }
     sessionMetadata = prepareNativeAgentSessionMetadata(agent, sessionWorkingDirectory, sessionMetadata);
     command = buildNativeAgentCommand(command, agent, sessionMetadata);
 

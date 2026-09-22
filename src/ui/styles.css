@@ -17492,3 +17492,16 @@ textarea.wm-input {
   .wm-signing-policy-summary { grid-template-columns: 1fr; }
   .wm-signing-policy-summary dd { margin-bottom: 0.5rem; }
 }
+.wm-skills { display: grid; gap: 1rem; max-width: 76rem; margin: 0 auto; padding: 1.25rem; }
+.wm-skills__header, .wm-skill-card header, .wm-skills__source { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.wm-skills__source-form, .wm-skills__controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; align-items: end; }
+.wm-skills__source-form label, .wm-skills__deploy label { display: grid; gap: .35rem; }
+.wm-skills__path, .wm-skills__actions { display: flex; gap: .5rem; }
+.wm-skills__sources, .wm-skills__catalog { display: grid; gap: .75rem; }
+.wm-skill-card dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .75rem; }
+.wm-skill-card dt { color: var(--muted-text, #777); font-size: .8rem; }
+.wm-skill-card dd { margin: .2rem 0 0; overflow-wrap: anywhere; }
+.wm-skill-badge { border: 1px solid currentColor; border-radius: 999px; padding: .15rem .5rem; font-size: .75rem; text-transform: capitalize; }
+.wm-skills__status { min-height: 1.5rem; }
+.wm-skills__deployment { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .5rem 0; }
+.wm-skills__deployment span { flex: 1 1 24rem; overflow-wrap: anywhere; }

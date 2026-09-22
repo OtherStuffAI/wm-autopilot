@@ -47,6 +47,7 @@ import { initNightWatchStore } from "./nightwatch/store.js";
 import { initSchedulerStore } from "./scheduler/store.js";
 import { initSchedulerPage } from "./scheduler/page.js";
 import { initPipelinesPage } from "./pipelines/page.js";
+import { initSkillsPage } from "./skills/page.js";
 import { initSessionsStore } from "./sessions/store.js";
 import { initAppsStore } from "./apps/store.js";
 import { syncAuthenticatedStartupStores } from "./startup/protected-store-sync.js";
@@ -258,6 +259,8 @@ let renderSchedulerPage = () => document.createDocumentFragment();
 let ensureSchedulerPageLoaded = () => {};
 let renderPipelinesPage = () => document.createDocumentFragment();
 let ensurePipelinesPageLoaded = () => {};
+let renderSkillsPage = () => document.createDocumentFragment();
+let ensureSkillsPageLoaded = () => {};
 let projectsFeatureEnabledForViewer = () => true;
 let syncFeatureFlagsFromConfig = () => {};
 let scheduleDirectorySuggestions = () => {};
@@ -503,6 +506,7 @@ const NIGHTWATCH_ROUTE = "/nightwatch";
 const SCHEDULER_ROUTE = "/scheduler";
 const TRIGGERS_ROUTE = "/triggers";
 const PIPELINES_ROUTE = "/pipelines";
+const SKILLS_ROUTE = "/skills";
 const TERMINAL_ROUTE = "/terminal";
 const HOME_ROUTE = "/home";
 const PRIVACY_ROUTE = "/privacy";
@@ -531,6 +535,9 @@ const getRouteFromPath = (pathname) => {
   }
   if (pathname === PIPELINES_ROUTE || pathname.startsWith(`${PIPELINES_ROUTE}/`)) {
     return "pipelines";
+  }
+  if (pathname === SKILLS_ROUTE || pathname.startsWith(`${SKILLS_ROUTE}/`)) {
+    return "skills";
   }
   if (pathname === TERMINAL_ROUTE || pathname.startsWith(`${TERMINAL_ROUTE}/`)) {
     return "terminal";
@@ -1315,6 +1322,8 @@ const updateDocumentTitle = () => {
     title = `Triggers - ${instanceName}`;
   } else if (currentRoute === "pipelines") {
     title = `Pipelines - ${instanceName}`;
+  } else if (currentRoute === "skills") {
+    title = `Skills - ${instanceName}`;
   } else if (currentRoute === "terminal") {
     title = `Terminal - ${instanceName}`;
   } else if (currentRoute === "home") {
@@ -1828,6 +1837,10 @@ const appRenderer = createAppRenderer({
     if (route === "pipelines") {
       disconnectTerminal();
       return renderPipelinesPage();
+    }
+    if (route === "skills") {
+      disconnectTerminal();
+      return renderSkillsPage();
     }
     if (route === "terminal") {
       return renderTerminal();
@@ -2465,6 +2478,10 @@ const pipelinesPageUI = initPipelinesPage({
 renderPipelinesPage = pipelinesPageUI.renderPage;
 ensurePipelinesPageLoaded = pipelinesPageUI.ensureLoaded;
 
+const skillsPageUI = initSkillsPage({ showToast, openDirectoryBrowser });
+renderSkillsPage = skillsPageUI.renderPage;
+ensureSkillsPageLoaded = skillsPageUI.ensureLoaded;
+
 renderMenuIdentitySection();
 
 const handleTouchStart = (event) => {
@@ -2557,6 +2574,7 @@ const {
   ensureNightWatchPageLoaded: (...args) => ensureNightWatchPageLoaded(...args),
   ensureSchedulerPageLoaded: (...args) => ensureSchedulerPageLoaded(...args),
   ensurePipelinesPageLoaded: (...args) => ensurePipelinesPageLoaded(...args),
+  ensureSkillsPageLoaded: (...args) => ensureSkillsPageLoaded(...args),
   loadFilesTree: (...args) => loadFilesTree(...args),
   updateFilesUrl: (...args) => updateFilesUrl(...args),
   getActiveSessionForIndicator,
@@ -2567,6 +2585,7 @@ const {
   TRIGGERS_ROUTE,
   SCHEDULER_ROUTE,
   PIPELINES_ROUTE,
+  SKILLS_ROUTE,
   TERMINAL_ROUTE,
   SETTINGS_ROUTE,
   PRIVACY_ROUTE,
@@ -2732,6 +2751,8 @@ window.addEventListener("popstate", () => {
     }
   } else if (currentRoute === "pipelines") {
     void ensurePipelinesPageLoaded();
+  } else if (currentRoute === "skills") {
+    void ensureSkillsPageLoaded();
   } else if (currentRoute === "terminal") {
     if (!syncTerminalNavigationVisibility()) {
       currentRoute = "home";

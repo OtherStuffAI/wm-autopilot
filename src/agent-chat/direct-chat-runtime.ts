@@ -24,6 +24,7 @@ import {
 } from './direct-chat-contract';
 import { getDirectChatTurnStore, type DirectChatTurnStore } from './direct-chat-turn-store';
 import { AgentActivityPublisher, type AgentActivityContext } from './agent-activity-publisher';
+import { AgentDirectLifecycleController } from './agent-direct-lifecycle-controller';
 import { awaitAcceptedFinalResponse, PromptBoundaryNotObservedError, sendPromptAndAwaitFinalResponse } from './session-runtime-session-ops';
 import { createFlightDeckPgChannelMessage, type FlightDeckPgChannel, type FlightDeckPgEvent, type FlightDeckPgMessage } from './tower-client';
 import type { AgentDefinitionRecord, RuntimeBotIdentity, WorkspaceSubscriptionRecord } from './types';
@@ -37,6 +38,7 @@ import { sourceLabelForFlightDeckChat } from './flightdeck-dispatch-metadata';
 import type { DuplicateCallbackPublicationFilter } from './duplicate-callback-publication-filter';
 import { BROKER_KEY_NOT_PROVISIONED } from '../signing/broker-key-vault';
 import { directChatSessionReplacementDecision } from './direct-chat-session-recovery';
+import { isInterruptedTurnError } from './session-runtime-turns';
 
 export interface DirectChatRuntimeInput {
   subscription: WorkspaceSubscriptionRecord;
@@ -208,6 +210,28 @@ export class AgentDirectChatRuntime {
             agent_npub: agent.botNpub,
           },
         });
+        const blockingTurn = this.turnStore.getPending(routingKey);
+        if (blockingTurn && blockingTurn.turnId !== buildDirectChatTurnId(routingKey, [eventMessage.messageId])) {
+          const queuedTurnId = buildDirectChatTurnId(routingKey, [eventMessage.messageId]);
+          const queuedContext: AgentActivityContext = {
+            backendConnectionId: input.subscription.backendConnectionId,
+            subscriptionId: input.subscription.subscriptionId,
+            backendBaseUrl: input.subscription.backendBaseUrl,
+            workspaceId: input.subscription.workspaceId!,
+            appNpub: input.subscription.sourceAppNpub,
+            botIdentity: input.botIdentity,
+            channelId: input.channel.id,
+            threadId,
+            triggerMessageId: eventMessage.messageId,
+            sessionId: `pending:${queuedTurnId}`,
+            agentNpub: agent.botNpub,
+            turnId: queuedTurnId,
+            startedAt: eventMessage.createdAt || new Date().toISOString(),
+          };
+          const queuedLifecycle = new AgentDirectLifecycleController(queuedContext, this.deps.processManager,
+            this.createActivityPublisher(queuedContext));
+          await queuedLifecycle.queued(blockingTurn.turnId, Math.max(1, upsert.record.pendingMessageCount));
+        }
       }
       this.enqueue(routingKey, agent, contextPrompt, input);
     }
@@ -281,7 +305,7 @@ export class AgentDirectChatRuntime {
       const input = { ...this.queued.get(routingKey)!, botIdentity };
       this.queued.delete(routingKey);
       let intercept = this.deps.interceptStore.getByRoutingKey(routingKey)!;
-      let activity: AgentActivityPublisher | null = null;
+      let activity: AgentDirectLifecycleController | null = null;
       let outcomeRecordIds = input.event.entity_id ? [input.event.entity_id] : [];
       let activeTurnId: string | null = null;
       try {
@@ -289,17 +313,18 @@ export class AgentDirectChatRuntime {
         activeTurnId = pending?.turnId ?? null;
         const pendingAwaiting = pending?.state === 'accepted' || pending?.state === 'awaiting_reply';
         if (pending?.replyBody) {
-          activity = this.createActivityPublisher({ backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl,
+          const activityContext = { backendConnectionId: input.subscription.backendConnectionId, subscriptionId: input.subscription.subscriptionId, backendBaseUrl: input.subscription.backendBaseUrl,
             workspaceId: input.subscription.workspaceId!, appNpub: input.subscription.sourceAppNpub,
             botIdentity: input.botIdentity, channelId: intercept.channelId, threadId: intercept.threadId,
             triggerMessageId: pending.sourceMessageIds.at(-1)!, sessionId: `pending:${pending.turnId}`,
-            agentNpub: intercept.botNpub, turnId: pending.turnId, startedAt: pending.createdAt });
-          if (pending.sessionId ?? intercept.sessionId) activity.bindSession((pending.sessionId ?? intercept.sessionId)!);
-          await activity.publish('working');
-          await activity.publishLatestCommentary(this.deps.processManager);
+            agentNpub: intercept.botNpub, turnId: pending.turnId, startedAt: pending.createdAt };
+          activity = new AgentDirectLifecycleController(activityContext, this.deps.processManager,
+            this.createActivityPublisher(activityContext));
+          await activity.working((pending.sessionId ?? intercept.sessionId ?? activityContext.sessionId));
+          await activity.commentary();
           await this.publishTurn(input, intercept, agent, pending.turnId, pending.sourceMessageIds, pending.clientRequestId,
             pending.replyBody, pending.replyReadyAt ?? undefined);
-          await activity.publish('completed');
+          await activity.finish('completed');
           continue;
         }
         const history = orderDirectChatMessages(input.messages);
@@ -368,14 +393,17 @@ export class AgentDirectChatRuntime {
           intercept = this.deps.interceptStore.save({ ...intercept, sessionId: session.id,
             sessionGeneration: sessionResolution.generation, previousSessionIds: sessionResolution.previousSessionIds,
             state: 'active', lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-          activity = this.createActivityPublisher({
-            backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
+          const activityContext = {
+            backendConnectionId: input.subscription.backendConnectionId, subscriptionId: input.subscription.subscriptionId,
+            backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
             appNpub: input.subscription.sourceAppNpub, botIdentity: input.botIdentity,
             channelId: intercept.channelId, threadId: intercept.threadId,
             triggerMessageId: recoverySourceMessageIds.at(-1)!, sessionId: session.id,
             agentNpub: intercept.botNpub, turnId: pending.turnId, startedAt: pending.createdAt,
-          });
-          await activity.publish('working');
+          };
+          activity = new AgentDirectLifecycleController(activityContext, this.deps.processManager,
+            this.createActivityPublisher(activityContext));
+          await activity.working(session.id);
           const recoveryPrompt = sessionResolution.bootstrap
             ? buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
                 scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery })
@@ -385,22 +413,22 @@ export class AgentDirectChatRuntime {
                   scopeId: input.channel.scope_id ?? null, history, nextMessages: delta });
           const recovered = sessionResolution.bootstrap
             ? await this.sendFinalResponse(this.deps.processManager, session.id, recoveryPrompt, {
-                onPoll: () => activity?.publishLatestCommentary(this.deps.processManager),
+                onPoll: () => activity?.commentary(),
               })
             : await awaitAcceptedFinalResponse(
                 this.deps.processManager,
                 session.id,
                 recoveryPrompt,
                 recoverySourceMessageIds,
-                { acceptedAt: pending.createdAt, onPoll: () => activity?.publishLatestCommentary(this.deps.processManager) },
+                { acceptedAt: pending.createdAt, onPoll: () => activity?.commentary() },
               );
           for (const recordId of recoverySourceMessageIds) {
             this.recordRecoveredSessionOutcome(input, agent, recordId, session.id, routingKey, 'final_turn');
           }
-          await activity.publishLatestCommentary(this.deps.processManager);
+          await activity.commentary();
           const published = await this.publishTurn(input, intercept, agent, pending.turnId, recoverySourceMessageIds,
             pending.clientRequestId, recovered.content, recovered.createdAt);
-          if (published) await activity.publish('completed');
+          if (published) await activity.finish('completed');
           continue;
         }
         const sourceMessageIds = delta.map((message) => message.messageId);
@@ -412,14 +440,17 @@ export class AgentDirectChatRuntime {
         activeTurnId = turnId;
         const clientRequestId = pending?.clientRequestId ?? buildDirectChatClientRequestId(routingKey, turnId);
         const now = pending?.createdAt ?? new Date().toISOString();
-        activity = this.createActivityPublisher({
-          backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
+        const activityContext = {
+          backendConnectionId: input.subscription.backendConnectionId, subscriptionId: input.subscription.subscriptionId,
+          backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
           appNpub: input.subscription.sourceAppNpub, botIdentity: input.botIdentity,
           channelId: intercept.channelId, threadId: intercept.threadId,
           triggerMessageId: sourceMessageIds.at(-1)!, sessionId: `pending:${turnId}`,
           agentNpub: intercept.botNpub, turnId, startedAt: now,
-        });
-        await activity.publish('accepted');
+        };
+        activity = new AgentDirectLifecycleController(activityContext, this.deps.processManager,
+          this.createActivityPublisher(activityContext));
+        await activity.accepted();
         this.turnStore.save({ turnId, routingKey, sourceMessageIds, clientRequestId, replyBody: null,
           publishedMessageId: null, state: 'accepted', createdAt: now, updatedAt: now,
           subscriptionId: input.subscription.subscriptionId, backendBaseUrl: input.subscription.backendBaseUrl,
@@ -435,8 +466,7 @@ export class AgentDirectChatRuntime {
         for (const recordId of sourceMessageIds) {
           this.recordSessionOutcome(input, agent, recordId, session.id, routingKey);
         }
-        activity.bindSession(session.id);
-        await activity.publish('working');
+        await activity.working(session.id);
         intercept = this.deps.interceptStore.save({ ...intercept, sessionId: session.id,
           sessionGeneration: sessionResolution.generation, previousSessionIds: sessionResolution.previousSessionIds,
           state: 'active', pendingMessageCount: delta.length, lastDecision: 'pending', lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
@@ -467,7 +497,7 @@ export class AgentDirectChatRuntime {
         let reply;
         try {
           reply = await this.sendFinalResponse(this.deps.processManager, session.id, prompt, {
-            onAccepted, onPoll: () => activity?.publishLatestCommentary(this.deps.processManager),
+            onAccepted, onPoll: () => activity?.commentary(),
           });
         } catch (error) {
           const failedTurn = this.turnStore.get(turnId);
@@ -494,23 +524,23 @@ export class AgentDirectChatRuntime {
             state: 'active', lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
           prompt = buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
             scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery });
-          activity.bindSession(session.id);
-          await activity.publish('working', `Retired ${rejectedSessionId}: ${replacement.detail}`);
+          await activity.working(session.id);
+          await activity.progress(`Retired ${rejectedSessionId}: ${replacement.detail}`);
           this.turnStore.save({ ...this.turnStore.get(turnId)!, sessionId: session.id, prompt,
             leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS).toISOString() : null,
             updatedAt: new Date().toISOString() });
           reply = await this.sendFinalResponse(this.deps.processManager, session.id, prompt, {
-            onAccepted, onPoll: () => activity?.publishLatestCommentary(this.deps.processManager),
+            onAccepted, onPoll: () => activity?.commentary(),
           });
         }
         for (const recordId of sourceMessageIds) {
           this.recordRecoveredSessionOutcome(input, agent, recordId, session.id, routingKey, 'final_turn');
         }
         const body = reply.content;
-        await activity.publishLatestCommentary(this.deps.processManager);
+        await activity.commentary();
         const published = await this.publishTurn(input, intercept, agent, turnId, sourceMessageIds, clientRequestId,
           body, reply.createdAt);
-        if (published) await activity.publish('completed');
+        if (published) await activity.finish('completed');
       } catch (error) {
         const awaiting = activeTurnId ? this.turnStore.get(activeTurnId) : null;
         if (awaiting?.state === 'awaiting_reply' && isSessionWaitTimeout(error)) {
@@ -532,9 +562,10 @@ export class AgentDirectChatRuntime {
           });
           continue;
         }
-        await activity?.publishLatestCommentary(this.deps.processManager);
+        await activity?.commentary();
         const errorMessage = error instanceof Error ? error.message : String(error);
-        await activity?.publish('failed', `Dispatch failed: ${errorMessage}`);
+        await activity?.finish(isInterruptedTurnError(error) ? 'cancelled' : 'failed',
+          `${isInterruptedTurnError(error) ? 'Dispatch cancelled' : 'Dispatch failed'}: ${errorMessage}`);
         const errorCode = (error as { code?: unknown })?.code === BROKER_KEY_NOT_PROVISIONED
           || errorMessage.startsWith(`${BROKER_KEY_NOT_PROVISIONED}:`)
           ? BROKER_KEY_NOT_PROVISIONED

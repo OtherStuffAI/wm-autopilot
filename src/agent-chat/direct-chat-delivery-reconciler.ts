@@ -32,6 +32,7 @@ interface AgentDirectDeliveryReconcilerDependencies {
   interceptStore?: ChatInterceptStateStore;
   publish?: typeof createFlightDeckPgChannelMessage;
   reconcileActivity?: (record: DirectChatTurnRecord, identity: RuntimeBotIdentity, transport: AgentDirectDeliveryTransport) => Promise<void>;
+  terminalizeActivity?: (record: DirectChatTurnRecord, identity: RuntimeBotIdentity, transport: AgentDirectDeliveryTransport) => Promise<void>;
   intervalMs?: number;
   activeIntervalMs?: number;
   unavailableIntervalMs?: number;
@@ -206,6 +207,9 @@ export class AgentDirectDeliveryReconciler {
       if (!messageId) throw Object.assign(new Error('Tower accepted Agent Direct publication without returning a message id.'), { status: 502 });
       const publishedAt = this.isoNow();
       const published = this.store.markPublished(record.turnId, owner, messageId, publishedAt);
+      if (published) await this.deps.withProfileIdentity(published, async (botIdentity) => {
+        await this.deps.terminalizeActivity?.(published, botIdentity, transport);
+      });
       this.deps.publicationFilter?.recordPublished({ decisionId: record.turnId, routingKey: record.routingKey,
         candidateAt, publishedAt, publishedMessageId: messageId });
       if (record.subscriptionId && record.agentId && record.sessionId) {

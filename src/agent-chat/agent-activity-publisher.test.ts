@@ -52,6 +52,37 @@ describe('Agent activity publisher', () => {
     ]);
   });
 
+  test('renews a silent working lease monotonically without duplicating commentary', async () => {
+    const delivered: any[] = [];
+    const publisher = new AgentActivityPublisher(context, async (input) => { delivered.push(input); return {}; }, 0,
+      async () => ({ content: 'One visible update', createdAt: '2026-07-24T00:00:01.000Z', sourceId: 'one' }),
+      undefined, publicationStore());
+    const manager = { getSession: () => ({ agent: 'codex', metadata: { nativeAgentSession: {
+      agent: 'codex', sessionId: 'native-1', workingDirectory: '/repo',
+    } } }) } as any;
+    await publisher.publish('working');
+    await publisher.publishLatestCommentary(manager);
+    for (let minute = 0; minute < 6; minute += 1) await publisher.heartbeat();
+    await publisher.publishLatestCommentary(manager);
+
+    expect(delivered.map((item) => item.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(delivered.filter((item) => item.body === 'One visible update')).toHaveLength(1);
+    expect(delivered.slice(2).every((item) => item.state === 'working' && !item.body && item.expiresInSeconds === 300)).toBe(true);
+  });
+
+  test('publishes queued metadata and clears it on accepted promotion', async () => {
+    const delivered: any[] = [];
+    const publisher = new AgentActivityPublisher(context, async (input) => { delivered.push(input); return {}; }, 0,
+      undefined, undefined, publicationStore());
+    await publisher.publish('queued', undefined, { blockedByTurnId: 'turn-before', queuePosition: 2 });
+    await publisher.publish('accepted');
+    expect(delivered.map((item) => ({ state: item.state, blockedByTurnId: item.blockedByTurnId,
+      queuePosition: item.queuePosition }))).toEqual([
+      { state: 'queued', blockedByTurnId: 'turn-before', queuePosition: 2 },
+      { state: 'accepted', blockedByTurnId: undefined, queuePosition: undefined },
+    ]);
+  });
+
   test('reads successive commentary from the bound runtime session while replacing one published activity', async () => {
     const delivered: any[] = [];
     const lookedUpSessionIds: string[] = [];

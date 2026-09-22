@@ -64,6 +64,7 @@ import {
 } from "./wapp-legacy-custody-migration-route";
 import type { LegacyWappCustodyMigration } from "../wapps/legacy-custody-migration";
 import { handleSigningPolicyApi, type SigningPolicyRoutesContext } from "./signing-policy-routes";
+import { handleSkillApi, type SkillApiContext } from "../skills/skill-api";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -142,6 +143,7 @@ export interface ApiRoutesContext {
   userSettingsRoutesContext: UserSettingsRoutesContext;
   instanceSettingsRoutesContext: InstanceSettingsRoutesContext;
   signingPolicyRoutesContext?: SigningPolicyRoutesContext;
+  skillApiContext?: SkillApiContext;
   remoteInstructRoutesContext: RemoteInstructRoutesContext;
   cloudflareTunnelRoutesContext?: CloudflareTunnelRoutesContext;
   workspaceDelegationStore: WorkspaceDelegationStore;
@@ -296,6 +298,14 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     const projectsFlag = ctx.resolveFeatureFlagStateForViewer(ctx.PROJECTS_FLAG_KEY, viewerIsAdmin, "on_admin");
     const projectsEnabled = projectsFlag.effectiveState === "on";
     const viewerNpub = getEffectiveOwnerNpub(authContext);
+
+    if (pathname.startsWith("/api/skills")) {
+      if (!ctx.skillApiContext) return Response.json({ error: "Skill manager unavailable" }, { status: 503 });
+      const denied = await ctx.ensureApiAccess(ctx.AccessActions.ProjectsManage, request, url, authContext);
+      if (denied) return denied;
+      const response = await handleSkillApi(request, url, method, authContext, ctx.skillApiContext);
+      if (response) return response;
+    }
 
     if (pathname === "/api/internal/wapps/tower-db") {
       if (!ctx.wappTowerDbRequestBroker) {

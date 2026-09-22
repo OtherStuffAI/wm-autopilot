@@ -70,6 +70,7 @@ export function createNavigation(deps) {
     ensureNightWatchPageLoaded,
     ensureSchedulerPageLoaded,
     ensurePipelinesPageLoaded,
+    ensureSkillsPageLoaded,
     loadFilesTree,
     updateFilesUrl,
     getActiveSessionForIndicator,
@@ -80,6 +81,7 @@ export function createNavigation(deps) {
     TRIGGERS_ROUTE,
     SCHEDULER_ROUTE,
     PIPELINES_ROUTE,
+    SKILLS_ROUTE,
     TERMINAL_ROUTE,
     SETTINGS_ROUTE,
     PRIVACY_ROUTE,
@@ -226,6 +228,18 @@ export function createNavigation(deps) {
     render();
   }
 
+  function navigateToSkills({ skipMenuClose = false } = {}) {
+    if (!state.identity.authenticated) { openIdentityLoginDialog(); return; }
+    if (!skipMenuClose) closeMenu();
+    closeIdentityLoginDialog();
+    deactivateLiveSessionRefresh();
+    setCurrentRoute("skills");
+    setLastLoggedSessionId(null);
+    if (window.location.pathname !== SKILLS_ROUTE) window.history.pushState({ route: "skills" }, "", SKILLS_ROUTE);
+    void ensureSkillsPageLoaded();
+    render();
+  }
+
   function navigateToTerminal({ skipMenuClose = false } = {}) {
     if (!state.identity.authenticated) {
       openIdentityLoginDialog();
@@ -330,6 +344,9 @@ export function createNavigation(deps) {
           return;
         } else if (targetRoute === "pipelines") {
           navigateToPipelines({ skipMenuClose: true });
+          return;
+        } else if (targetRoute === "skills") {
+          navigateToSkills({ skipMenuClose: true });
           return;
         } else if (targetRoute === "terminal") {
           navigateToTerminal({ skipMenuClose: true });

@@ -6,7 +6,13 @@ import { upsertFlightDeckPgAgentActivity } from './tower-client';
 import type { RuntimeBotIdentity } from './types';
 import { agentActivityPublicationStore, type AgentActivityPublicationStore } from './agent-activity-publication-store';
 
-export type AgentActivityState = 'accepted' | 'working' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+export type AgentActivityState = 'accepted' | 'queued' | 'working' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+
+export interface AgentActivityPublishOptions {
+  blockedByTurnId?: string;
+  queuePosition?: number;
+  heartbeat?: boolean;
+}
 
 export interface AgentActivityContext {
   backendConnectionId?: string | null;
@@ -40,6 +46,7 @@ export class AgentActivityPublisher {
   private lastState: AgentActivityState | null = null;
   private terminal = false;
   private established = false;
+  private heartbeatCount = 0;
   private publishQueue = Promise.resolve();
   private runtimeSessionId: string;
   private readonly activityId: string;
@@ -66,8 +73,12 @@ export class AgentActivityPublisher {
     this.runtimeSessionId = sessionId;
   }
 
-  async publish(state: AgentActivityState, body?: string): Promise<void> {
-    return this.enqueuePublish(() => this.publishNow(state, body));
+  async publish(state: AgentActivityState, body?: string, options?: AgentActivityPublishOptions): Promise<void> {
+    return this.enqueuePublish(() => this.publishNow(state, body, undefined, options));
+  }
+
+  async heartbeat(): Promise<void> {
+    return this.publish('working', undefined, { heartbeat: true });
   }
 
   private enqueuePublish(operation: () => Promise<void>): Promise<void> {
@@ -76,17 +87,19 @@ export class AgentActivityPublisher {
     return queued;
   }
 
-  private async publishNow(state: AgentActivityState, body?: string, sourceIdentity?: string): Promise<void> {
+  private async publishNow(state: AgentActivityState, body?: string, sourceIdentity?: string,
+    options: AgentActivityPublishOptions = {}): Promise<void> {
     if (this.terminal && !sourceIdentity) return;
     const normalized = body ? normalizeUserVisibleActivity(body) : null;
-    if (!sourceIdentity && state === 'working' && normalized === this.lastBody && (normalized || this.lastState === 'working')) return;
+    if (!options.heartbeat && !sourceIdentity && state === 'working'
+      && normalized === this.lastBody && (normalized || this.lastState === 'working')) return;
     const terminal = state === 'completed' || state === 'failed' || state === 'cancelled';
     // A replay can construct another publisher for the same durable turn while
     // the owning lifecycle is still active. Its stable sequence makes the
     // replayed receipt stale at Tower; do not let that unestablished replay
     // terminalize the owner's visible activity afterward.
     if (terminal && !this.established && !this.publicationStore.hasPending(this.activityId)) return;
-    const eventKey = sourceIdentity ?? `${state}:${normalized ?? ''}`;
+    const eventKey = sourceIdentity ?? (options.heartbeat ? `heartbeat:${Date.now()}:${++this.heartbeatCount}` : `${state}:${normalized ?? ''}`);
     const { botIdentity: _identity, ...publicContext } = this.context;
     const publicRequest = {
       ...publicContext,
@@ -96,10 +109,13 @@ export class AgentActivityPublisher {
       // activity_id. Keep the originally published value when the pending
       // turn later binds to its concrete runtime session.
       sessionId: this.context.sessionId,
-      label: state === 'accepted' ? 'Message received' : state === 'working' ? (normalized ? 'Working' : 'Agent started') : undefined,
+      label: state === 'queued' ? 'Queued' : state === 'accepted' ? 'Message received'
+        : state === 'working' ? (normalized ? 'Working' : 'Agent started') : undefined,
       summary: normalized ? normalized.replace(/\s+/g, ' ').slice(0, 240) : undefined,
       body: normalized ?? undefined,
       expiresInSeconds: terminal ? 60 : 300,
+      blockedByTurnId: state === 'queued' ? options.blockedByTurnId : undefined,
+      queuePosition: state === 'queued' ? options.queuePosition : undefined,
     };
     const claim = this.publicationStore.claim(this.activityId, eventKey, this.sequenceBase, new Date().toISOString(), publicRequest);
     this.sequence = Math.max(this.sequence, claim.sequence);

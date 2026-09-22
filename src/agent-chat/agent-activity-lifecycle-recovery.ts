@@ -21,7 +21,7 @@ export function createActivityProfileRecovery(deps: {
   };
 }
 
-export function createReconciledActivityPublisher(manager: ProcessManager) {
+export function createReconciledActivityPublisher(manager: ProcessManager, terminal = false) {
   return async (record: DirectChatTurnRecord, botIdentity: RuntimeBotIdentity, transport: AgentDirectDeliveryTransport) => {
     const fallback = { ...transport, botIdentity, channelId: record.channelId!, threadId: record.threadId!,
       triggerMessageId: record.triggerMessageId ?? record.sourceMessageIds.at(-1)!,
@@ -30,10 +30,10 @@ export function createReconciledActivityPublisher(manager: ProcessManager) {
     const saved = agentActivityPublicationStore.contextFor(activityId);
     const publisher = new AgentActivityPublisher({ ...fallback, ...saved, botIdentity });
     if (record.sessionId) publisher.bindSession(record.sessionId);
-    await publisher.publish('working');
+    if (!terminal) await publisher.publish('working');
     const source = agentActivityPublicationStore.commentarySourceFor(activityId);
     if (source) await publisher.publishCommentaryFromSource(source);
     else await publisher.publishLatestCommentary(manager);
-    await publisher.publish('completed');
+    if (terminal) await publisher.publish('completed');
   };
 }

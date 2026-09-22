@@ -1207,12 +1207,14 @@ export async function upsertFlightDeckPgAgentActivity(params: {
   turnId: string;
   sessionId: string;
   agentNpub: string;
-  state: 'accepted' | 'working' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+  state: 'accepted' | 'queued' | 'working' | 'waiting' | 'completed' | 'failed' | 'cancelled';
   sequence: number;
   label?: string;
   summary?: string;
   body?: string;
   expiresInSeconds?: number;
+  blockedByTurnId?: string;
+  queuePosition?: number;
   signal?: AbortSignal;
 }): Promise<FlightDeckPgWriteResult> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/agent-activities/${encodeURIComponent(params.activityId)}`;
@@ -1231,6 +1233,8 @@ export async function upsertFlightDeckPgAgentActivity(params: {
     ...(params.summary ? { summary: params.summary } : {}),
     ...(params.body ? { body: params.body } : {}),
     ...(params.expiresInSeconds ? { expires_in_seconds: params.expiresInSeconds } : {}),
+    ...(params.blockedByTurnId ? { blocked_by_turn_id: params.blockedByTurnId } : {}),
+    ...(params.queuePosition ? { queue_position: params.queuePosition } : {}),
   };
   const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId, botIdentity: params.botIdentity, url, method: 'PUT', body });
   const response = await fetchPgRequest(params, url, {
@@ -1242,6 +1246,53 @@ export async function upsertFlightDeckPgAgentActivity(params: {
   });
   if (!response.ok) {
     const error = await parseTowerError(response, 'flightdeck_pg_agent_activity_upsert');
+    throw Object.assign(new Error(error.message), error);
+  }
+  return await response.json() as FlightDeckPgWriteResult;
+}
+
+export async function upsertFlightDeckPgAgentSessionHealth(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
+  backendBaseUrl: string;
+  workspaceId: string;
+  appNpub: string;
+  botIdentity: RuntimeBotIdentity;
+  channelId: string;
+  threadId?: string | null;
+  sessionId: string;
+  agentNpub: string;
+  status: 'starting' | 'online' | 'idle' | 'busy' | 'errored' | 'stopped';
+  activeTurnId?: string | null;
+  generation: number;
+  sequence: number;
+  errorSummary?: string;
+  expiresInSeconds?: number;
+  signal?: AbortSignal;
+}): Promise<FlightDeckPgWriteResult> {
+  const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/agent-session-health/${encodeURIComponent(params.sessionId)}`;
+  const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
+  const body = {
+    channel_id: params.channelId,
+    ...(params.threadId ? { thread_id: params.threadId } : {}),
+    agent_npub: params.agentNpub,
+    status: params.status,
+    ...(params.activeTurnId ? { active_turn_id: params.activeTurnId } : {}),
+    generation: params.generation,
+    sequence: params.sequence,
+    ...(params.errorSummary ? { error_summary: params.errorSummary } : {}),
+    ...(params.expiresInSeconds ? { expires_in_seconds: params.expiresInSeconds } : {}),
+  };
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId,
+    subscriptionId: params.subscriptionId, botIdentity: params.botIdentity, url, method: 'PUT', body });
+  const response = await fetchPgRequest(params, url, {
+    method: 'PUT',
+    headers: { Accept: 'application/json', Authorization: authorization, 'Content-Type': 'application/json',
+      'x-flightdeck-pg-app-npub': params.appNpub },
+    body: JSON.stringify(body), signal: params.signal,
+  });
+  if (!response.ok) {
+    const error = await parseTowerError(response, 'flightdeck_pg_agent_session_health_upsert');
     throw Object.assign(new Error(error.message), error);
   }
   return await response.json() as FlightDeckPgWriteResult;
