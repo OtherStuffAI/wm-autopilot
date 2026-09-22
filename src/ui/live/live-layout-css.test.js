@@ -75,4 +75,13 @@ describe("live layout CSS", () => {
     expect(linkRule?.groups?.body).toContain("overflow-wrap: anywhere;");
     expect(linkRule?.groups?.body).toContain("word-break: break-word;");
   });
+
+  test("keeps composer actions stacked to the right of the text entry", () => {
+    const composerRule = styles.match(/\.wm-composer\s*\{(?<body>[^}]+)\}/);
+    const buttonGroupRule = styles.match(/\.wm-composer \.wm-button-group\s*\{(?<body>[^}]+)\}/);
+
+    expect(composerRule?.groups?.body).toContain("display: grid;");
+    expect(composerRule?.groups?.body).toContain("grid-template-columns: minmax(0, 1fr) auto;");
+    expect(buttonGroupRule?.groups?.body).toContain("flex-direction: column;");
+  });
 });

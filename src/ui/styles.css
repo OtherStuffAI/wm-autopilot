@@ -6877,7 +6877,8 @@ body[data-theme="light"] .wm-agent-dispatch-capability-card {
 }
 
 .wm-composer {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 1rem;
   padding: 1rem 1.25rem;
@@ -7961,7 +7962,7 @@ body[data-keyboard-open="true"] .wm-composer-shell {
   }
 
   .wm-composer {
-    flex-direction: row;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: stretch;
     gap: 0.5rem;
     padding: 0.85rem 0.9rem;
