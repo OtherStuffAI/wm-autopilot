@@ -120,6 +120,28 @@ describe('WorkspaceSubscriptionStore', () => {
     expect(store.listStartupCandidates().map((candidate) => candidate.subscriptionId)).toContain(record.subscriptionId);
   });
 
+  test('retries active unhealthy subscriptions after transient transport failures', () => {
+    const store = new WorkspaceSubscriptionStore(makeTempDb());
+    const record = store.save({
+      ...store.createDefault({
+        managedByNpub: 'npub1manager',
+        backendConnectionId: 'backend-1',
+        workspaceOwnerNpub: 'npub1workspace',
+        backendBaseUrl: 'https://tower.example.com',
+        workspaceId: 'workspace-pg-1',
+        workspaceServiceNpub: 'npub1workspaceservice',
+        botNpub: 'npub1bot',
+        sourceAppNpub: 'npub1app',
+        onboardingSource: 'nostr_33357',
+      }),
+      sseStatus: 'disconnected',
+      healthStatus: 'unhealthy',
+      lastErrorCode: null,
+    });
+
+    expect(store.listStartupCandidates().map((candidate) => candidate.subscriptionId)).toContain(record.subscriptionId);
+  });
+
   test('scopes same owner and app by explicit workspace identity', () => {
     const store = new WorkspaceSubscriptionStore(makeTempDb());
     const first = store.save(store.createDefault({
