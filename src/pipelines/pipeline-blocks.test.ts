@@ -20,4 +20,19 @@ describe("expandPipelineBlock", () => {
     ]);
     expect(expansion.steps.map((step) => step.type)).toEqual(["agent", "code", "code"]);
   });
+
+  test("expands jev.rerankCandidates into bounded judgment and deterministic composition", () => {
+    const expansion = expandPipelineBlock({
+      name: "rerank-editorial-candidates",
+      type: "block",
+      block: "jev.rerankCandidates",
+      input: { pick: { query: "$.brief", candidates: "$.candidates" } },
+      assign: "$.rerank",
+    });
+
+    expect(expansion.outputPath).toBe("$.rerank");
+    expect(expansion.steps.map((step) => step.type)).toEqual(["parallel", "code"]);
+    expect(expansion.steps[0]).toMatchObject({ source: "$.blocks.rerank_editorial_candidates.input.candidates" });
+    expect(expansion.steps[1]).toMatchObject({ function: "jev.composeRerank", assign: "$.rerank" });
+  });
 });

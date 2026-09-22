@@ -153,7 +153,7 @@ function ensureParallelChildren(input: ParallelStepRunnerInput, items: unknown[]
       runId: input.runId,
       stepIndex: input.nextStepIndex(),
       name,
-      kind: child.type === "parallel" ? "parallel" : child.type,
+      kind: child.type,
       input: selected,
       status: "queued",
       parentStepId: input.parentStepId,

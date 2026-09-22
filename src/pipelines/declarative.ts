@@ -52,7 +52,7 @@ export type DeclarativeStep =
       description?: string;
       display?: StepDisplaySpec;
       type: "block";
-      block: string;
+      block: "memory.graphContext" | "jev.rerankCandidates";
       input?: SelectorSpec;
       assign?: string;
       config?: JsonObject;

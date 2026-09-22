@@ -12,6 +12,7 @@ import { signWithWingmanKey } from "../mcp/wingman-signer";
 import { generateSpeechAudio, resolveSpeechExtension } from "../server/audio-speech";
 import { userSettingsStore } from "../storage/user-settings-store";
 import { indexCorpusSequentially, indexRepositoryForPipeline } from "../code-intelligence/pipeline";
+import { composeJevRerank } from "./jev-reranker";
 
 interface MemoryEntity {
   name: string;
@@ -1204,6 +1205,9 @@ function latestThreadText(chatContext: Record<string, unknown>, fallback: unknow
 }
 
 export const builtinPipelineFunctions: FunctionRegistry = {
+  async "jev.composeRerank"(input) {
+    return composeJevRerank(input);
+  },
   async "codeIntelligence.indexRepository"(input) {
     return await indexRepositoryForPipeline(input as unknown as Parameters<typeof indexRepositoryForPipeline>[0]) as unknown as JsonObject;
   },

@@ -8,12 +8,97 @@ export interface PipelineBlockExpansion {
 }
 
 export function expandPipelineBlock(step: Extract<DeclarativeStep, { type: "block" }>): PipelineBlockExpansion {
+  const scratchPath = `$.blocks.${sanitizePathPart(step.name || step.block)}`;
+  const inputPath = `${scratchPath}.input`;
+  const outputPath = step.assign ?? (step.block === "jev.rerankCandidates" ? "$.jevRerank" : "$.graphMemory");
+  if (step.block === "jev.rerankCandidates") {
+    return {
+      scratchPath,
+      inputPath,
+      outputPath,
+      steps: [
+        {
+          name: `${step.name} / judge-candidates`,
+          description: "Obtain one independent Jev Noul relevance probability for every query-candidate pair; errors remain explicit for fail-open composition.",
+          type: "parallel",
+          source: `${inputPath}.candidates`,
+          itemKey: "id",
+          maxConcurrency: `${inputPath}.maxConcurrency`,
+          itemInput: {
+            pick: {
+              query: `${inputPath}.query`,
+              priorContext: `${inputPath}.priorContext`,
+              candidate: "$item",
+            },
+          },
+          step: {
+            name: "judge-candidate-relevance",
+            description: "Judge only whether this candidate would materially help satisfy the supplied brief in light of compact prior context.",
+            type: "classifier",
+            provider: "openrouter",
+            mode: "decisions",
+            model: "~typesafe/jev-latest",
+            failurePolicy: "record_error",
+            retries: 1,
+            timeoutMs: 15_000,
+            prompt: "Use only query, priorContext and candidate. Do not research, select, summarize or infer missing facts. Return the configured narrow relevance judgment.",
+            questions: {
+              relevance: {
+                type: "noul",
+                instructions: "Would `candidate` materially help satisfy `query`, considering `priorContext` only to avoid already-covered or mismatched material?",
+                criteria: {
+                  true: "The candidate provides directly useful, material evidence or coverage for the supplied brief.",
+                  false: "The candidate is irrelevant, duplicative of prior coverage, too weakly connected, or would not materially help satisfy the brief.",
+                },
+              },
+            },
+          },
+          assign: `${scratchPath}.judgments`,
+          display: {
+            in: [
+              { label: "Editorial Brief", path: `${inputPath}.query`, format: "text" },
+              { label: "Candidates", path: `${inputPath}.candidates`, format: "records", limit: 20 },
+            ],
+            out: [
+              { label: "Jev Results", path: "$.items", format: "records", limit: 20 },
+              { label: "Completed", path: "$.ok", format: "count" },
+              { label: "Errors", path: "$.error", format: "count" },
+            ],
+          },
+        },
+        {
+          name: `${step.name} / compose-rerank`,
+          description: "Deterministically sort stable ties, enforce threshold/count/context budgets, calculate replay metrics, and restore the complete original set on any incomplete Jev result.",
+          type: "code",
+          function: "jev.composeRerank",
+          input: {
+            pick: {
+              candidates: `${inputPath}.candidates`,
+              knownSelectedIds: `${inputPath}.knownSelectedIds`,
+              config: `${inputPath}.config`,
+              judgments: `${scratchPath}.judgments`,
+            },
+          },
+          assign: outputPath,
+          display: {
+            in: [
+              { label: "Candidates", path: "$.candidates", format: "records", limit: 20 },
+              { label: "Jev Results", path: "$.judgments.items", format: "records", limit: 20 },
+            ],
+            out: [
+              { label: "Mode", path: "$.mode", format: "text" },
+              { label: "Selected Candidates", path: "$.selectedCandidates", format: "records", limit: 20 },
+              { label: "Metrics", path: "$.metrics", format: "json" },
+              { label: "Warnings", path: "$.warnings", format: "list", empty: "None" },
+            ],
+          },
+        },
+      ],
+    };
+  }
   if (step.block !== "memory.graphContext") {
     throw new Error(`Unknown pipeline block: ${step.block}`);
   }
-  const scratchPath = `$.blocks.${sanitizePathPart(step.name || step.block)}`;
-  const inputPath = `${scratchPath}.input`;
-  const outputPath = step.assign ?? "$.graphMemory";
   return {
     scratchPath,
     inputPath,
