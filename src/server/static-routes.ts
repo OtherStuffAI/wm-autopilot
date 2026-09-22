@@ -43,6 +43,10 @@ export async function serveIndex(
     `href="/styles.css?v=${assetVersion}"`,
   );
   html = html.replace(
+    /href="\/skills\/page\.css"/,
+    `href="/skills/page.css?v=${assetVersion}"`,
+  );
+  html = html.replace(
     /src="\/app\.js"/,
     `src="/app.js?v=${assetVersion}"`,
   );

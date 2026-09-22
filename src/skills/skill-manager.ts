@@ -53,6 +53,23 @@ export class SkillManager {
     return { imported: true, importId: result.revisions[0]!.importId, revisions: result.revisions };
   }
 
+  async registerImportAndActivate(owner: string, input: Parameters<SkillManager["registerSource"]>[1], allowedRoots: string[], isAdmin: boolean) {
+    const source = this.registerSource(owner, input, isAdmin);
+    try {
+      const result = await this.import(owner, source.id, allowedRoots, isAdmin);
+      if (!result.imported || !result.importId) {
+        const validation = result.revisions.flatMap((revision) => revision.errors).join(" · ");
+        for (const revision of result.revisions) await rm(revision.snapshotPath, { recursive: true, force: true });
+        throw new Error(validation || "Import validation failed");
+      }
+      this.activate(owner, source.id, result.importId, isAdmin);
+      return { source: this.store.getSource(source.id), ...result };
+    } catch (error) {
+      this.store.deleteSource(source.id);
+      throw error;
+    }
+  }
+
   activate(owner: string, sourceId: string, importId: string, canManageSystem: boolean) {
     const source = this.ownedSource(owner, sourceId, !canManageSystem);
     const revision = this.store.listRevisions(owner).find((candidate) => candidate.sourceId === source.id && candidate.importId === importId);

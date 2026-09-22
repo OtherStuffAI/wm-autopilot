@@ -30,6 +30,14 @@ export async function handleSkillApi(request: Request, url: URL, method: Method,
       }, workspace.isAdmin);
       return Response.json({ source }, { status: 201 });
     }
+    if (parts[0] === "sources" && parts[1] === "import" && parts.length === 2 && method === "POST") {
+      const input = await body(request);
+      return Response.json(await context.manager.registerImportAndActivate(owner, {
+        name: String(input.name ?? ""), sourceClass: String(input.sourceClass ?? "user") as "wingman" | "third_party" | "user",
+        sourceKind: String(input.sourceKind ?? "git") as "git" | "local", location: String(input.location ?? ""),
+        ref: typeof input.ref === "string" ? input.ref : null, defaultEnabled: input.defaultEnabled === true,
+      }, workspace.allowedDirectories, workspace.isAdmin), { status: 201 });
+    }
     if (parts[0] === "sources" && parts[1] && parts.length === 2 && method === "GET") {
       const source = context.manager.store.getSource(parts[1]);
       if (!source || (source.ownerNpub !== owner && source.ownerNpub !== "wingman-system")) throw new Error("Source not found");

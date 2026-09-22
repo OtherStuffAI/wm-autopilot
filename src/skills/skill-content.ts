@@ -5,6 +5,29 @@ import type { SkillRevisionRecord, SkillSourceRecord } from "./types";
 
 const VALID_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const IGNORE = new Set([".git", ".DS_Store"]);
+const COMPATIBILITY_ROOTS = new Set([".agents", ".claude", ".codex", ".opencode"]);
+
+const portablePath = (root: string, path: string) => relative(root, path).split(sep).join("/");
+
+const compatibilityAlias = (root: string, path: string) => {
+  const parts = portablePath(root, path).split("/");
+  return parts.length >= 3 && COMPATIBILITY_ROOTS.has(parts[0]!) && parts[1] === "skills";
+};
+
+const validateIgnoredAlias = async (root: string, path: string) => {
+  const displayPath = portablePath(root, path);
+  if (!compatibilityAlias(root, path)) {
+    throw new Error(`Symbolic link is not allowed in canonical skill content: ${displayPath}. Replace it with regular files or move the compatibility alias under .agents/skills, .claude/skills, .codex/skills, or .opencode/skills.`);
+  }
+  let target: string;
+  try { target = await realpath(path); }
+  catch { throw new Error(`Compatibility alias is broken or cyclic: ${displayPath}. Point it at a canonical skill directory inside this source.`); }
+  try { ensureWithin(await realpath(root), target); }
+  catch { throw new Error(`Compatibility alias escapes the source checkout: ${displayPath}. Point it at a canonical skill directory inside this source.`); }
+  if (!(await stat(target)).isDirectory()) {
+    throw new Error(`Compatibility alias must point at a skill directory: ${displayPath}. Point it at a canonical skill directory inside this source.`);
+  }
+};
 
 export const ensureWithin = (root: string, candidate: string) => {
   const normalizedRoot = resolve(root);
@@ -22,7 +45,7 @@ export const digestDirectory = async (root: string): Promise<{ digest: string; f
       if (IGNORE.has(entry.name)) continue;
       const path = join(directory, entry.name);
       const link = await lstat(path);
-      if (link.isSymbolicLink()) throw new Error(`Symbolic links are not allowed: ${relative(root, path)}`);
+      if (link.isSymbolicLink()) { await validateIgnoredAlias(root, path); continue; }
       if (link.isDirectory()) await visit(path);
       else if (link.isFile()) entries.push({ path: relative(root, path).split(sep).join("/"), data: await readFile(path), executable: (link.mode & 0o111) !== 0 });
       else throw new Error(`Unsupported file type: ${relative(root, path)}`);
@@ -49,7 +72,7 @@ export const discoverSkills = async (root: string, source: SkillSourceRecord, sn
       if (IGNORE.has(entry.name)) continue;
       const path = join(directory, entry.name);
       const link = await lstat(path);
-      if (link.isSymbolicLink()) throw new Error(`Symbolic links are not allowed: ${relative(root, path)}`);
+      if (link.isSymbolicLink()) { await validateIgnoredAlias(root, path); continue; }
       if (link.isDirectory()) await visit(path);
       else if (entry.name === "SKILL.md") skillFiles.push(path);
     }

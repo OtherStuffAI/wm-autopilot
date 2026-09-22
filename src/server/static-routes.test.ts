@@ -98,6 +98,7 @@ describe("createStaticRouteHandler", () => {
       "/views/settings/workspace-settings-details.js",
       "/views/settings/workspace-settings-db.js",
       "/views/settings/settings-purpose.js",
+      "/skills/page-components.js",
     ]) {
       const moduleResponse = await handler.serveBeforeApi(new Request(`http://localhost${pathname}`), pathname);
       expect(moduleResponse?.status).toBe(200);
@@ -117,6 +118,13 @@ describe("createStaticRouteHandler", () => {
     expect(response.headers.get("cache-control")).toBe("public, max-age=3600");
   });
 
+  test("serves modular Skills styles with text/css", async () => {
+    const handler = await createHandler();
+    const response = await handler.serveBeforeApi(new Request("http://localhost/skills/page.css"), "/skills/page.css");
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("content-type")).toBe("text/css; charset=utf-8");
+  });
+
   test("does not serve a standalone FD Dispatch SPA route", async () => {
     const handler = await createHandler();
     const request = new Request("http://localhost/fd-dispatch");
@@ -133,6 +141,7 @@ describe("createStaticRouteHandler", () => {
     expect(response?.status).toBe(200);
     expect(response?.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(html).toContain('href="/styles.css?v=test"');
+    expect(html).toContain('href="/skills/page.css?v=test"');
     expect(html).toContain('src="/app.js?v=test"');
     expect(html).not.toContain('data-route="fd-dispatch"');
   });

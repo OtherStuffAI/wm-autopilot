@@ -23,6 +23,18 @@ async function fixture() {
 }
 
 describe("SkillManager", () => {
+  test("registers, imports, and activates atomically on first use", async () => {
+    const { root, source, store, manager } = await fixture();
+    const result = await manager.registerImportAndActivate("npub-owner", { name: "Example", sourceClass: "user", sourceKind: "local", location: source }, [root], false);
+    expect(result.imported).toBe(true);
+    expect(result.source?.activeImportId).toBe(result.importId);
+    expect(manager.list("npub-owner").catalog).toHaveLength(1);
+
+    await writeFile(join(source, "example-skill", "SKILL.md"), "Missing frontmatter\n");
+    await expect(manager.registerImportAndActivate("npub-owner", { name: "Broken", sourceClass: "user", sourceKind: "local", location: source }, [root], false)).rejects.toThrow("SKILL.md requires YAML frontmatter");
+    expect(store.listSources("npub-owner").map((entry) => entry.name)).toEqual(["Example"]);
+  });
+
   test("imports immutable validated revisions and atomically deploys provenance", async () => {
     const { root, source, project, manager } = await fixture();
     const registered = manager.registerSource("npub-owner", { name: "Example", sourceClass: "user", sourceKind: "local", location: source }, false);
@@ -56,7 +68,7 @@ describe("SkillManager", () => {
     const { root, source, manager } = await fixture();
     await symlink("/tmp", join(source, "escape"));
     const registered = manager.registerSource("npub-owner", { name: "Example", sourceClass: "user", sourceKind: "local", location: source }, false);
-    await expect(manager.import("npub-owner", registered.id, [root], false)).rejects.toThrow("Symbolic links are not allowed");
+    await expect(manager.import("npub-owner", registered.id, [root], false)).rejects.toThrow("Symbolic link is not allowed in canonical skill content: escape");
     await expect(manager.plan("npub-other", { action: "apply", projectIds: ["project-1"], skillIds: [] }, [root])).rejects.toThrow("Project not found");
   });
 

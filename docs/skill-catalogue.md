@@ -5,7 +5,8 @@ Autopilot owns a machine-local, owner-scoped Agent Skills catalogue at `/skills`
 ## Safety model
 
 - Import reads files but never executes repository hooks, installers, or skill scripts.
-- Symlinks, traversal names, unsupported file types, and duplicate normalized skill names are rejected.
+- Harness aliases under `.agents/skills`, `.claude/skills`, `.codex/skills`, and `.opencode/skills` are validated, then excluded from discovery and digests. They must resolve to an in-checkout directory; broken, cyclic, and escaping aliases are rejected with their repository-relative path.
+- Symlinks elsewhere (including canonical skill content), traversal names, unsupported file types, and duplicate normalized skill names are rejected. Imports therefore snapshot regular files only and discover each canonical skill once.
 - Git imports disable hooks, pin the resolved commit, and snapshot validated content under Autopilot data storage.
 - Deployment uses a staged copy and atomic rename. Existing unmanaged content is a conflict.
 - Update and removal compare the current directory digest with recorded provenance. Locally modified content is not overwritten or deleted unless a new plan explicitly requests replacement.

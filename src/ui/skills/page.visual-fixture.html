@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skills visual fixture</title>
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="./page.css">
+  <style>body{margin:0;background:#f4f3f0;color:#242124} .fixture-shell{min-height:100vh;padding-top:4rem} .fixture-bar{position:fixed;inset:0 0 auto;height:4rem;background:#fff;border-bottom:1px solid #dedbd5;z-index:2}</style>
+</head>
+<body data-theme="light">
+  <div class="fixture-bar" aria-hidden="true"></div>
+  <div class="fixture-shell">
+    <main class="wm-skills" data-testid="skills-page" aria-labelledby="skills-heading">
+      <header class="wm-skills__hero"><div><p class="wm-eyebrow">Runtime catalogue</p><h1 id="skills-heading">Skills</h1><p>Bring trusted Agent Skills into one catalogue, then apply managed copies to your projects.</p></div><div class="wm-skills__hero-actions"><button class="wm-button secondary">Refresh</button><button class="wm-button primary">Add source</button></div></header>
+      <section class="wm-skills__summary" aria-label="Catalogue summary"><div><strong>1</strong><span>Available skills</span></div><div><strong>1</strong><span>Sources</span></div><div><strong>1</strong><span>Project installs</span></div></section>
+      <p class="wm-skills__status" aria-live="polite">Brag imported and activated. Projects were not changed.</p>
+      <section class="wm-skills__section"><div class="wm-skills__section-heading"><div><p class="wm-eyebrow">Origins</p><h2>Sources</h2><p>Repositories and folders that supply immutable catalogue revisions.</p></div></div><div class="wm-skills__source-grid"><article class="wm-card wm-skills-source"><header><div><div class="wm-skills-source__title"><h3>Brag</h3><span class="wm-skill-badge">third-party</span></div><p class="wm-skills-source__location">https://github.com/latent-spaces/brag.git</p></div><span class="wm-skills-source__state" data-state="ready">Ready</span></header><dl><div><dt>Revision</dt><dd>afd94a6c12e0</dd></div><div><dt>Last imported</dt><dd>22 Sep 2026, 1:15 pm</dd></div></dl><details><summary>Source details</summary></details><footer><p>Import again to check for and activate the latest revision.</p><button class="wm-button secondary">Import latest</button></footer></article></div></section>
+      <section class="wm-skills__section"><div class="wm-skills__section-heading"><div><p class="wm-eyebrow">Available to deploy</p><h2>Catalogue</h2><p>Apply a validated revision to a project when you need it.</p></div></div><div class="wm-skills__catalog-grid"><article class="wm-card wm-skill-card"><header><div><div class="wm-skill-card__title"><h3>brag</h3><span class="wm-skill-badge">Brag</span></div><p>Build retrieval augmented generation systems from a validated, immutable revision.</p></div></header><div class="wm-skill-card__meta"><span>1 project install</span><span>5 compatible harnesses</span></div><details><summary>Revision details</summary></details><details><summary>Project deployments (1)</summary></details><footer><button class="wm-button primary">Apply to a project</button></footer></article></div></section>
+    </main>
+  </div>
+</body>
+</html>

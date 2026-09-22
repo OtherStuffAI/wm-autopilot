@@ -55,6 +55,7 @@ const vendorGzipCache = new Map<string, { data: Uint8Array; headers: Record<stri
 const uiAssetMap: Record<string, { url: URL; type: string }> = {
   "/app.js": { url: new URL("../ui/app.js", import.meta.url), type: "application/javascript; charset=utf-8" },
   "/styles.css": { url: new URL("../ui/styles.css", import.meta.url), type: "text/css; charset=utf-8" },
+  "/skills/page.css": { url: new URL("../ui/skills/page.css", import.meta.url), type: "text/css; charset=utf-8" },
   "/identity/index.js": {
     url: new URL("../ui/identity/index.js", import.meta.url),
     type: "application/javascript; charset=utf-8",
