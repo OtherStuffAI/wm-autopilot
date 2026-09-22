@@ -1204,6 +1204,71 @@ describe("runDeclarativePipeline", () => {
     expect(store.listSteps(run.id).map((step) => step.kind)).toEqual(["parallel", "code", "code", "code"]);
   });
 
+  test("runs decisions classifiers in parallel and records individual failures", async () => {
+    const store = makeStore();
+    process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY = "test-key";
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { state?: { candidate?: { id?: string } } };
+      const id = body.state?.candidate?.id;
+      if (id === "broken") return new Response("not-json", { status: 200 });
+      return new Response(JSON.stringify({
+        id: `decision-${id}`,
+        model: "typesafe/jev-test",
+        provider: "TypeSafe",
+        answers: { novelty: { type: "noul", noul: id === "new" ? 0.94 : 0.12 } },
+        usage: { input_tokens: 10, output_tokens: 2, cost: 0.000001 },
+      }), { status: 200 });
+    }) as typeof fetch;
+    const definition: PipelineDefinitionRecord = {
+      id: "parallel-decisions",
+      slug: "parallel-decisions",
+      name: "parallel-decisions",
+      scope: "user",
+      ownerAlias: "alpha-beta-gamma",
+      path: join(tempDir, "parallel-decisions.json"),
+      spec: {
+        name: "parallel-decisions",
+        input: { candidates: [{ id: "new" }, { id: "broken" }, { id: "old" }] },
+        steps: [{
+          name: "judge-candidates",
+          type: "parallel",
+          source: "$.candidates",
+          itemKey: "id",
+          itemInput: { pick: { candidate: "$item" } },
+          step: {
+            name: "judge-candidate",
+            type: "classifier",
+            provider: "openrouter",
+            mode: "decisions",
+            model: "~typesafe/jev-latest",
+            prompt: "Judge only the supplied candidate.",
+            failurePolicy: "record_error",
+            retries: 1,
+            questions: { novelty: { type: "noul", instructions: "Is `candidate` novel?" } },
+          },
+          assign: "$.judgments",
+        }],
+      },
+    };
+
+    const run = await runDeclarativePipeline({
+      store,
+      sessionApiContext: {} as never,
+      definition,
+      registry: builtinPipelineFunctions,
+      input: definition.spec.input!,
+      ownerNpub: "npub-test",
+      ownerAlias: "alpha-beta-gamma",
+      callbackOrigin: "http://localhost",
+    });
+
+    const items = (run.result?.judgments as { items?: Array<{ result: Record<string, unknown> }> })?.items ?? [];
+    expect(run.status).toBe("ok");
+    expect(items.map((item) => item.result.shadowStatus)).toEqual(["ok", "error", "ok"]);
+    expect(items[1]?.result).toMatchObject({ answers: {}, raw: null, authoritative: false });
+    expect(store.listSteps(run.id).map((step) => step.kind)).toEqual(["parallel", "classifier", "classifier", "classifier"]);
+  });
+
   test("stagger-starts parallel agent children while allowing active concurrency", async () => {
     process.env.PIPELINE_PARALLEL_POLL_MS = "5";
     const store = makeStore();

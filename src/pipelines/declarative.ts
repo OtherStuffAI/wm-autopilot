@@ -133,7 +133,7 @@ export type DeclarativeStep =
       agentStartupRetryBackoffMs?: number | string;
       itemKey?: string;
       itemInput?: SelectorSpec;
-      step: DeclarativeStep;
+      step: Exclude<DeclarativeStep, { type: "parallel" | "loop" | "block" }>;
       input?: SelectorSpec;
       assign?: string;
       when?: EqualsCondition;

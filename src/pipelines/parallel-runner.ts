@@ -14,6 +14,7 @@ const DEFAULT_AGENT_STARTUP_RETRY_BACKOFF_MS = 2_500;
 
 type ParallelStep = Extract<DeclarativeStep, { type: "parallel" }>;
 type AgentStep = Extract<DeclarativeStep, { type: "agent" }>;
+type ClassifierStep = Extract<DeclarativeStep, { type: "classifier" }>;
 
 export interface ParallelStepRunnerInput {
   store: PipelineStore;
@@ -27,6 +28,11 @@ export interface ParallelStepRunnerInput {
   shouldRelaunchAgentChild: (child: PipelineStepRecord) => boolean;
   runAgentChild: (input: {
     childStep: AgentStep;
+    childRecord: PipelineStepRecord;
+    selectedInput: JsonObject;
+  }) => Promise<void>;
+  runClassifierChild: (input: {
+    childStep: ClassifierStep;
     childRecord: PipelineStepRecord;
     selectedInput: JsonObject;
   }) => Promise<void>;
@@ -198,8 +204,13 @@ async function runParallelChild(
     return;
   }
 
+  if (child.type === "classifier") {
+    await input.runClassifierChild({ childStep: child, childRecord: runningChild, selectedInput: selected });
+    return;
+  }
+
   if (child.type !== "agent") {
-    throw new Error(`Parallel step ${input.parentStep.name} only supports code and agent child steps`);
+    throw new Error(`Parallel step ${input.parentStep.name} only supports code, classifier, and agent child steps`);
   }
 
   await input.runAgentChild({

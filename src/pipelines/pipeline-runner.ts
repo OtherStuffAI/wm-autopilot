@@ -417,6 +417,40 @@ async function executePipelineStep(input: PipelineRunnerInput & {
           throw error;
         }
       },
+      runClassifierChild: async ({ childStep, childRecord, selectedInput }) => {
+        const requestedModel = resolveStringTemplate(input.current, childStep.model) ?? DEFAULT_CLASSIFIER_MODEL;
+        let result: JsonObject;
+        try {
+          const classifierInput = {
+            selectedInput,
+            prompt: childStep.prompt,
+            provider: childStep.provider ?? "openrouter" as const,
+            model: requestedModel,
+            timeoutMs: resolveDurationMs(input.current, childStep.timeoutMs, DEFAULT_CLASSIFIER_TIMEOUT_MS),
+            attempts: resolveClassifierAttempts(input.current, childStep.retries),
+            apiKey: resolveClassifierOpenRouterApiKey(input),
+          };
+          result = childStep.mode === "decisions"
+            ? await runOpenRouterDecisions({
+              state: selectedInput,
+              instructionContext: childStep.prompt,
+              model: classifierInput.model,
+              questions: childStep.questions ?? {},
+              timeoutMs: classifierInput.timeoutMs,
+              attempts: classifierInput.attempts,
+              apiKey: classifierInput.apiKey,
+            })
+            : await runClassifierStep({
+              ...classifierInput,
+              temperature: childStep.temperature,
+              maxTokens: childStep.maxTokens,
+            });
+        } catch (error) {
+          if (childStep.failurePolicy !== "record_error") throw error;
+          result = buildShadowDecisionsError(error, requestedModel);
+        }
+        input.store.completeStep({ id: childRecord.id, status: "ok", result, output: result });
+      },
     });
     throwIfRunCancelled(store, input.runId);
     const current = assignOutput(input.current, aggregate, step.assign);
