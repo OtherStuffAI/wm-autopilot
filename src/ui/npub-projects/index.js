@@ -5,10 +5,11 @@
 
 /** @typedef {{ id: string, npub: string, directoryPath: string, name: string, isCustomName: boolean, worktreeName: string | null, appId: string | null, taskBoardUrl: string | null, lastUsedAt: string, sessionCount: number }} NpubProject */
 
-/** @type {{ items: NpubProject[], loading: boolean, error: string | null }} */
+/** @type {{ items: NpubProject[], loading: boolean, initialized: boolean, error: string | null }} */
 const npubProjectsState = {
   items: [],
   loading: false,
+  initialized: false,
   error: null,
 };
 
@@ -29,6 +30,7 @@ const fetchNpubProjects = async () => {
     npubProjectsState.items = [];
   } finally {
     npubProjectsState.loading = false;
+    npubProjectsState.initialized = true;
   }
 };
 
@@ -166,6 +168,7 @@ const renderProjectRow = (project, onUpdate) => {
   const row = document.createElement("div");
   row.className = "wm-npub-project-row";
   row.dataset.projectId = project.id;
+  row.dataset.testid = `project-name-row-${project.id}`;
 
   const info = document.createElement("div");
   info.className = "wm-npub-project-info";
@@ -182,6 +185,8 @@ const renderProjectRow = (project, onUpdate) => {
   nameInput.className = "wm-npub-project-name-input";
   nameInput.value = project.name;
   nameInput.style.display = "none";
+  nameInput.setAttribute("aria-label", `Project name for ${project.directoryPath}`);
+  nameInput.dataset.testid = `project-name-input-${project.id}`;
 
   nameContainer.append(nameSpan, nameInput);
 
@@ -309,12 +314,15 @@ const renderProjectRow = (project, onUpdate) => {
   editBtn.className = "wm-button small secondary";
   editBtn.textContent = "Rename";
   editBtn.title = "Rename this project";
+  editBtn.setAttribute("aria-label", `Rename ${project.name}`);
+  editBtn.dataset.testid = `project-name-rename-${project.id}`;
 
   const saveBtn = document.createElement("button");
   saveBtn.type = "button";
   saveBtn.className = "wm-button small primary";
   saveBtn.textContent = "Save";
   saveBtn.style.display = "none";
+  saveBtn.setAttribute("aria-label", `Save project name for ${project.directoryPath}`);
 
   const cancelBtn = document.createElement("button");
   cancelBtn.type = "button";
@@ -536,6 +544,7 @@ const renderAddProjectForm = (onUpdate) => {
 const renderNpubProjectsPanel = (onUpdate) => {
   const card = document.createElement("section");
   card.className = "wm-card wm-npub-projects-card";
+  card.dataset.testid = "project-names-settings";
 
   const header = document.createElement("div");
   header.className = "wm-npub-projects-header";
@@ -547,6 +556,7 @@ const renderNpubProjectsPanel = (onUpdate) => {
   addBtn.type = "button";
   addBtn.className = "wm-button small secondary";
   addBtn.textContent = "Add Project";
+  addBtn.setAttribute("aria-label", "Add a project to recent session projects");
 
   header.append(heading, addBtn);
 

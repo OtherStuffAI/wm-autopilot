@@ -5,6 +5,7 @@ export const SETTINGS_PAGE_PATHS = Object.freeze({
   profile: '/settings/profile',
   credentials: '/settings/credentials',
   speech: '/settings/speech',
+  projectNames: '/settings/project-names',
   workspaces: '/settings/automation/workspaces',
   agentProfiles: '/settings/automation/agent-profiles',
   remote: '/settings/automation/remote-instruct',

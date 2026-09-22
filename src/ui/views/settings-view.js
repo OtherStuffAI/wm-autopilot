@@ -30,6 +30,7 @@ const PAGE_COPY = Object.freeze({
   profile: ['Profile', 'Your identity, sign-in state and default launch agent.'],
   credentials: ['API keys & accounts', 'Personal AI, tool and developer account credentials. Secret values are never displayed.'],
   speech: ['Speech', 'Speech provider settings and generated Flight Deck reply audio.'],
+  projectNames: ['Project names', 'Choose the names shown for recent session projects.'],
   workspaces: ['Workspaces', 'Your servers, workspaces, and bots — connected through Agent Direct.'],
   agentProfiles: ['Bots', 'Manage your bots, their working folders, and the tools they use.'],
   remote: ['Remote instruction prompt', 'Control the context added to remote instructions and review its supported variables.'],
@@ -102,6 +103,9 @@ export function initSettingsView(deps) {
     appsStore,
     triggerRestart,
     completionSoundController,
+    npubProjectsState,
+    fetchNpubProjects,
+    renderNpubProjectsPanel,
   } = deps;
 
   function renderAssignedPortsSection({ allocationActions = false } = {}) {
@@ -206,6 +210,20 @@ export function initSettingsView(deps) {
     return createPage('speech', state.identity.authenticated
       ? createSpeechSettingsSection()
       : createManagedCard('Sign in required', 'Sign in to manage personal speech settings.'));
+  }
+
+  function renderProjectNamesPage() {
+    if (!state.identity.authenticated) {
+      return createPage('projectNames', createManagedCard('Sign in required', 'Sign in to manage project names.'));
+    }
+    if (!npubProjectsState.loading && !npubProjectsState.initialized) {
+      void fetchNpubProjects().then(() => render());
+    }
+    const refreshProjects = async () => {
+      await fetchNpubProjects();
+      render();
+    };
+    return createPage('projectNames', renderNpubProjectsPanel(refreshProjects));
   }
 
   function renderWorkspacesPage() {
@@ -328,6 +346,7 @@ export function initSettingsView(deps) {
       profile: renderProfilePage,
       credentials: renderCredentialsPage,
       speech: renderSpeechPage,
+      projectNames: renderProjectNamesPage,
       workspaces: renderWorkspacesPage,
       agentProfiles: renderAgentProfilesPage,
       remote: renderRemotePage,

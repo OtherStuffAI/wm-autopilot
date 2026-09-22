@@ -20,11 +20,13 @@ describe('settings route helpers', () => {
     expect(getSettingsNavigationItems(true).map((item) => item.id)).toContain('signingPolicies');
     expect(getSettingsNavigationItems(false).map((item) => item.id)).not.toContain('agentProfiles');
     expect(getSettingsNavigationItems(false).map((item) => item.id)).not.toContain('signingPolicies');
+    expect(getSettingsNavigationItems(false).map((item) => item.id)).toContain('projectNames');
   });
 
   test('resolves canonical grouped settings pages', () => {
     expect(resolveSettingsRoute('/settings').pageId).toBe('profile');
     expect(resolveSettingsRoute('/settings/credentials').pageId).toBe('credentials');
+    expect(resolveSettingsRoute('/settings/project-names').pageId).toBe('projectNames');
     expect(resolveSettingsRoute('/settings/automation/remote-instruct').pageId).toBe('remote');
     expect(resolveSettingsRoute('/settings/automation/agent-profiles', { isAdmin: true }).pageId).toBe('agentProfiles');
     expect(resolveSettingsRoute('/settings/models').pageId).toBe('models');
@@ -66,6 +68,7 @@ describe('settings route helpers', () => {
 
   test('builds canonical page paths', () => {
     expect(getSettingsPathForTab('profile')).toBe('/settings/profile');
+    expect(getSettingsPathForTab('projectNames')).toBe('/settings/project-names');
     expect(getSettingsPathForTab('workspaces')).toBe('/settings/automation/workspaces');
     expect(getSettingsPathForTab('agentProfiles')).toBe('/settings/automation/agent-profiles');
     expect(getSettingsPathForTab('access')).toBe('/settings/access');

@@ -2,6 +2,7 @@ export const SETTINGS_NAVIGATION = Object.freeze([
   { id: 'profile', group: 'Your account', label: 'Profile' },
   { id: 'credentials', group: 'Your account', label: 'API keys & accounts' },
   { id: 'speech', group: 'Your account', label: 'Speech' },
+  { id: 'projectNames', group: 'Your account', label: 'Project names' },
   { id: 'workspaces', group: 'Bots & connections', label: 'Workspaces' },
   { id: 'agentProfiles', group: 'Bots & connections', label: 'Bots', adminOnly: true },
   { id: 'remote', group: 'Advanced', label: 'Remote instruction prompt' },
