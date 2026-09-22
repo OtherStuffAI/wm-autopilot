@@ -6639,6 +6639,20 @@ export class WorkspaceSubscriptionManager {
       throw new Error(`Bot key record not found for ${record.botNpub}.`);
     }
 
+    if (isFlightDeckPgSubscription(record)) {
+      let next = await this.prepareFlightDeckPgSubscription(record, botIdentity);
+      next = await this.verifyFlightDeckPgWorkspaceAccess(next, botIdentity, {
+        throwOnRetryable: true,
+      });
+      if (options.reconnect) {
+        await this.ensureConnected(next, botIdentity, false);
+      }
+      await this.replayPendingIntercepts(next, botIdentity);
+      const latest = this.store.getBySubscriptionId(record.subscriptionId) ?? next;
+      this.clearRuntimeFailure(latest.subscriptionId, options.reason);
+      return latest;
+    }
+
     const prepared = await this.prepareWorkspaceSession(record, botIdentity, {
       forceNew: options.refreshWorkspaceKey,
     });

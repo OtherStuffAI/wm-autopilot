@@ -1221,6 +1221,44 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(probes).toContain(stale);
   });
 
+  test('reconnect repairs a failed bound Flight Deck PG subscription without creating a legacy workspace key', async () => {
+    const dbPath = makeTempDb();
+    const instanceIdentity = makeInstanceIdentity();
+    let accessChecks = 0;
+    const { manager, store } = createTestManager(dbPath, new Map(), undefined, instanceIdentity, undefined, {
+      fetchFlightDeckPgWorkspaceMe: async () => {
+        accessChecks += 1;
+        return { actor: { actor_id: 'actor-bot' }, membership: { role: 'agent' }, permissions: ['workspace.read'] };
+      },
+      fetchFlightDeckPgEvents: async () => ({ events: [], next_cursor: null }),
+    });
+    const imported = await manager.importAgentConnectPackage({
+      managedByNpub: 'npub1manager',
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+      onboardingSource: 'nostr_33357',
+    });
+    manager.shutdown();
+    const failed = store.save({
+      ...store.getBySubscriptionId(imported.subscription.subscriptionId)!,
+      wsKeyStatus: 'failed',
+      sseStatus: 'disconnected',
+      healthStatus: 'unhealthy',
+      lastErrorCode: 'flightdeck_pg_access_failed',
+    });
+
+    const repaired = await manager.reconnectForManager(failed.subscriptionId, 'npub1manager');
+
+    expect(accessChecks).toBeGreaterThan(0);
+    expect(repaired).toMatchObject({
+      subscriptionId: failed.subscriptionId,
+      wsKeyNpub: instanceIdentity.npub,
+      wsKeyBlobJson: null,
+      wsKeyStatus: 'active',
+    });
+    expect(repaired?.sseStatus).not.toBe('disconnected');
+    manager.shutdown();
+  });
+
   test('creates a 33357 Flight Deck workspace agent without v4 workspace key registration', async () => {
     const dbPath = makeTempDb();
     const routeStore = new DispatchRouteStore(dbPath);
