@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+const phoneStyles = readFileSync(new URL("./phone-layout.css", import.meta.url), "utf8");
 
 describe("live layout CSS", () => {
   test("distinguishes running, completed, and selected tabs", () => {
@@ -83,5 +84,16 @@ describe("live layout CSS", () => {
     expect(composerRule?.groups?.body).toContain("display: grid;");
     expect(composerRule?.groups?.body).toContain("grid-template-columns: minmax(0, 1fr) auto;");
     expect(buttonGroupRule?.groups?.body).toContain("flex-direction: column;");
+  });
+
+  test("preserves the stacked, single-line composer actions on phones", () => {
+    const composerRule = phoneStyles.match(/#app\[data-route="live"\] \.wm-composer\s*\{(?<body>[^}]+)\}/);
+    const buttonGroupRule = phoneStyles.match(/#app\[data-route="live"\] \.wm-composer \.wm-button-group\s*\{(?<body>[^}]+)\}/);
+    const buttonRule = phoneStyles.match(/#app\[data-route="live"\] \.wm-composer \.wm-button\s*\{(?<body>[^}]+)\}/);
+
+    expect(composerRule?.groups?.body).toContain("grid-template-columns: minmax(0, 1fr) auto;");
+    expect(buttonGroupRule?.groups?.body).toContain("flex-direction: column;");
+    expect(buttonRule?.groups?.body).toContain("height: 2rem;");
+    expect(buttonRule?.groups?.body).toContain("line-height: 1;");
   });
 });
