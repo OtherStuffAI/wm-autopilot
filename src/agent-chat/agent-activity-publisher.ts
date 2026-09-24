@@ -6,6 +6,7 @@ import { upsertFlightDeckPgAgentActivity } from './tower-client';
 import type { RuntimeBotIdentity } from './types';
 import { agentActivityPublicationStore, type AgentActivityPublicationStore } from './agent-activity-publication-store';
 import { liveThreadActivityHub, type LiveThreadActivityHub } from './live-thread-activity';
+import { isConvergedAgentActivityError } from './agent-activity-delivery';
 
 export type AgentActivityState = 'accepted' | 'queued' | 'working' | 'waiting' | 'completed' | 'failed' | 'cancelled';
 
@@ -169,6 +170,11 @@ export class AgentActivityPublisher {
           towerResult = await this.deliver({ ...request, signal: controller.signal });
           delivered = true;
         } catch (error) {
+          if (isConvergedAgentActivityError(error)) {
+            delivered = true;
+            towerResult = {};
+            break;
+          }
           lastError = error;
           if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 50));
         } finally {

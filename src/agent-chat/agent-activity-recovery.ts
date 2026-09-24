@@ -2,6 +2,7 @@ import { AgentActivityPublisher, type AgentActivityContext } from './agent-activ
 import { agentActivityPublicationStore, type AgentActivityPublicationStore } from './agent-activity-publication-store';
 import { upsertFlightDeckPgAgentActivity } from './tower-client';
 import type { RuntimeBotIdentity } from './types';
+import { isConvergedAgentActivityError } from './agent-activity-delivery';
 
 export type PublicActivityRequest = Omit<Parameters<typeof upsertFlightDeckPgAgentActivity>[0], 'botIdentity' | 'signal'>;
 export type ActivityIdentityRunner = (request: PublicActivityRequest,
@@ -63,6 +64,10 @@ export class AgentActivityRecovery {
             } finally { clearTimeout(timeout); }
           });
         } catch (error) {
+          if (isConvergedAgentActivityError(error)) {
+            this.store.markAccepted(item.activityId, item.eventKey);
+            continue;
+          }
           const message = error instanceof Error ? error.message : String(error);
           this.store.markFailed(item.activityId, item.eventKey, message);
           this.store.deferAfterFailure(item.activityId, item.eventKey);

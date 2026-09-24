@@ -139,6 +139,25 @@ describe('durable activity publication', () => {
     expect(store.pending()).toEqual([]);
   });
 
+  test('retires stale and terminal replay receipts but preserves identity conflicts', async () => {
+    const store = new AgentActivityPublicationStore(':memory:');
+    const { botIdentity: _identity, ...payload } = context;
+    for (const [eventKey, sequence] of [['stale', 1], ['terminal', 2], ['identity', 3]] as const) {
+      store.claim('activity', eventKey, sequence - 1, undefined,
+        { ...payload, activityId: 'activity', state: 'working', sequence });
+    }
+    const recovery = new AgentActivityRecovery(() => identity, store, async (request) => {
+      const detailCode = request.sequence === 1 ? 'stale_agent_activity_sequence'
+        : request.sequence === 2 ? 'agent_activity_terminal' : 'agent_activity_turn_identity_mismatch';
+      throw Object.assign(new Error(detailCode), { status: 409, detailCode });
+    }, quiet);
+
+    await recovery.recover();
+
+    expect(store.pending().map((row) => row.eventKey)).toEqual([]);
+    expect(store.hasPending('activity')).toBe(true);
+  });
+
   test('retries commentary on the next poll after failure without advancing its checkpoint', async () => {
     const store = new AgentActivityPublicationStore(':memory:');
     let online = false;
