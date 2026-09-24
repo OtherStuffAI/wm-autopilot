@@ -6,6 +6,8 @@ import type { WorkspaceSubscriptionManager } from "../agent-chat/subscription-ru
 import type { CloudflareTunnelClient } from "../cloudflare/tunnel-hostnames";
 import type { AgentChatApiContext } from "./agent-chat-routes";
 import type { CloudflareTunnelRoutesContext } from "./cloudflare-tunnel-routes";
+import type { ControlPlaneRoutesContext } from "./control-plane-routes";
+import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
 
 const anonymousAuth: RequestAuthContext = {
   npub: null,
@@ -31,6 +33,7 @@ function createHandler(options: {
   legacyWappCustodyMigration?: any;
   workspaceIsAdmin?: boolean;
   requestIp?: string;
+  controlPlaneRoutesContext?: ControlPlaneRoutesContext;
 } = {}) {
   const authContext = options.authContext ?? anonymousAuth;
   const settings = options.settings ?? {};
@@ -159,6 +162,14 @@ function createHandler(options: {
       },
     },
     cloudflareTunnelRoutesContext: options.cloudflareTunnelRoutesContext,
+    controlPlaneRoutesContext: options.controlPlaneRoutesContext ?? {
+      identity: null,
+      baseUrl: "http://localhost:3000",
+      baseUrlConfigured: false,
+      getFipsEndpoint: () => ({ enabled: false, nodeNpub: null, meshAddress: null, port: 3000, url: null, status: "disabled" }),
+      workspaceDelegationStore: {} as any,
+      agentStore: {} as any,
+    },
     workspaceDelegationStore: {} as any,
     featureFlagStore: {
       getFlag: () => null,
@@ -205,6 +216,47 @@ function createHandler(options: {
 }
 
 describe("createApiRouteHandler config defaults", () => {
+  test("routes advertised owner-space discovery through NIP-98 resolution", async () => {
+    const owner = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    const identityNpub = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    let resolvedUrl = "";
+    const handler = createHandler({
+      resolveNip98AuthContext: async (_request, url, auth) => {
+        resolvedUrl = url.toString();
+        return { ...auth, npub: owner, signerNpub: owner, subjectNpub: owner, authMethod: "nip98" };
+      },
+      controlPlaneRoutesContext: {
+        identity: {
+          npub: identityNpub,
+          pubkeyHex: "a".repeat(64),
+          secretKey: new Uint8Array(32),
+          nsec: "unused",
+          nsecHex: "unused",
+          displayName: "Generic Autopilot",
+          source: "generated",
+        },
+        baseUrl: "http://localhost:3000",
+        baseUrlConfigured: false,
+        getFipsEndpoint: () => ({ enabled: true, nodeNpub: identityNpub, meshAddress: "fd00::1", port: 3000,
+          url: `http://${identityNpub}.fips:3000/`, status: "listening" }),
+        workspaceDelegationStore: { findActiveDelegation: () => null } as any,
+        agentStore: {
+          listForManagerNpub: () => [],
+          getByAgentId: () => null,
+          canInstruct: () => false,
+        },
+      },
+    });
+    const url = new URL(`http://localhost:3000/api/owners/${owner}/control-plane/v1/agents?visible=true`);
+    const response = await handler(new Request(url), url, "GET", anonymousAuth);
+    expect(response.status).toBe(200);
+    expect(resolvedUrl).toBe(url.toString());
+    expect(await response.json()).toEqual({
+      installation_id: expect.stringMatching(/^autopilot_[0-9a-f]{32}$/),
+      agents: [],
+    });
+  });
+
   test("exposes only terminal configured state", async () => {
     const handler = createHandler({ terminalConfigured: true });
     const url = new URL("http://localhost/api/config");

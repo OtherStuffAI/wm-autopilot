@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
+import { finalizeEvent, generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
 
 import type { WingmanInstanceIdentity } from "../identity/wingman-instance-identity";
 import {
-  canonicalConnectPackagePayload,
+  CONNECT_PACKAGE_EVENT_KIND,
+  canonicalConnectManifest,
   createAutopilotConnectPackage,
   verifyAutopilotConnectPackage,
 } from "./connect-package";
@@ -22,33 +23,95 @@ function identity(): WingmanInstanceIdentity {
   };
 }
 
-describe("Autopilot connect package", () => {
-  test("signs every public field with deterministic canonical serialization", () => {
-    const now = new Date("2026-09-24T02:00:00.250Z");
-    const created = createAutopilotConnectPackage({
-      identity: identity(),
-      fipsEndpoint: "http://npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq.fips:3601/",
-      httpsEndpoint: "https://autopilot.example/",
+function createFixture(now = new Date("2026-09-24T02:00:00.250Z")) {
+  const signingIdentity = identity();
+  const ownerNpub = nip19.npubEncode(getPublicKey(generateSecretKey()));
+  return {
+    signingIdentity,
+    ownerNpub,
+    now,
+    package: createAutopilotConnectPackage({
+      identity: signingIdentity,
+      fipsEndpoint: `http://${signingIdentity.npub}.fips:3601/`,
+      ownerNpub,
+      httpsEndpoint: "https://autopilot.example/base",
       now,
+    }),
+  };
+}
+
+describe("Autopilot connect package", () => {
+  test("matches the Flight Deck build 2050 envelope, manifest, canonical signature, and advertised owner paths", () => {
+    const fixture = createFixture();
+    const created = fixture.package;
+    expect(Object.keys(created)).toEqual(["manifest", "signature"]);
+    expect(created.manifest).toEqual({
+      kind: "wingman_autopilot_connect",
+      version: 1,
+      generated_at: fixture.now.toISOString(),
+      installation: {
+        id: expect.stringMatching(/^autopilot_[0-9a-f]{32}$/),
+        npub: fixture.signingIdentity.npub,
+      },
+      endpoints: {
+        fips: `http://${fixture.signingIdentity.npub}.fips:3601`,
+        https: "https://autopilot.example",
+      },
+      api: {
+        version: 1,
+        capabilities: ["health", "agents.read"],
+        health_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/health`,
+        agents_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/agents`,
+      },
     });
-    expect(verifyAutopilotConnectPackage(created, { now })).toEqual(created);
-    expect(created.signedEvent.content).toBe(canonicalConnectPackagePayload(created.payload));
+    expect(created.signature.kind).toBe(CONNECT_PACKAGE_EVENT_KIND);
+    expect(created.signature.kind).toBe(27236);
+    expect(created.signature.content).toBe(canonicalConnectManifest(created.manifest));
+    expect(verifyAutopilotConnectPackage(created, { now: fixture.now })).toEqual(created);
   });
 
-  test("rejects tampering, unsupported versions, and expired generation times", () => {
-    const createdAt = new Date("2026-09-24T02:00:00Z");
-    const created = createAutopilotConnectPackage({ identity: identity(), fipsEndpoint: "http://example.fips:3601/", now: createdAt });
-    expect(() => verifyAutopilotConnectPackage({ ...created, payload: { ...created.payload, fipsEndpoint: "https://attacker.example/" } }, { now: createdAt })).toThrow("tampered");
-    expect(() => verifyAutopilotConnectPackage({ ...created, payload: { ...created.payload, version: 2 } }, { now: createdAt })).toThrow("version");
-    expect(() => verifyAutopilotConnectPackage(created, { now: new Date(createdAt.getTime() + 301_000) })).toThrow("expired");
+  test("rejects tampering, unsupported versions, signer/FIPS mismatches, and expired packages", () => {
+    const fixture = createFixture();
+    expect(() => verifyAutopilotConnectPackage({
+      ...fixture.package,
+      manifest: { ...fixture.package.manifest, generated_at: "2026-09-24T02:00:01.250Z" },
+    }, { now: fixture.now })).toThrow("tampered");
+    expect(() => verifyAutopilotConnectPackage({
+      ...fixture.package,
+      manifest: { ...fixture.package.manifest, version: 2 },
+    }, { now: fixture.now })).toThrow("version");
+    expect(() => verifyAutopilotConnectPackage(fixture.package, {
+      now: new Date(fixture.now.getTime() + 301_000),
+    })).toThrow("expired");
+
+    const other = identity();
+    const wrongSigner = {
+      manifest: fixture.package.manifest,
+      signature: finalizeEvent({
+        kind: 27236,
+        created_at: Math.floor(fixture.now.getTime() / 1000),
+        tags: [],
+        content: canonicalConnectManifest(fixture.package.manifest),
+      }, other.secretKey),
+    };
+    expect(() => verifyAutopilotConnectPackage(wrongSigner, { now: fixture.now })).toThrow("signer");
+    expect(() => createAutopilotConnectPackage({
+      identity: fixture.signingIdentity,
+      fipsEndpoint: `http://${other.npub}.fips:3601`,
+      ownerNpub: fixture.ownerNpub,
+      now: fixture.now,
+    })).toThrow("match the installation identity");
   });
 
-  test("exports no reusable secret or credential", () => {
-    const signingIdentity = identity();
-    const created = createAutopilotConnectPackage({ identity: signingIdentity, fipsEndpoint: "http://example.fips:3601/" });
-    const encoded = JSON.stringify(created);
-    expect(encoded).not.toContain(signingIdentity.nsec);
-    expect(encoded).not.toContain(signingIdentity.nsecHex);
+  test("rejects secret-bearing packages and exports no reusable credential", () => {
+    const fixture = createFixture();
+    const encoded = JSON.stringify(fixture.package);
+    expect(encoded).not.toContain(fixture.signingIdentity.nsec);
+    expect(encoded).not.toContain(fixture.signingIdentity.nsecHex);
     expect(encoded).not.toMatch(/bunker:\/\/|bearer|nwc|private.?key|secret/i);
+    expect(() => verifyAutopilotConnectPackage({
+      ...fixture.package,
+      credentials: { private_key: "nsec1forbidden" },
+    }, { now: fixture.now })).toThrow("forbidden credential");
   });
 });

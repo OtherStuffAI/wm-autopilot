@@ -1,50 +1,44 @@
 import type {
   AgentDiscoveryV1,
-  AgentOverviewV1,
+  AutopilotConnectManifestV1,
   InstallationHealthV1,
-  InstallationManifestV1,
 } from "./contracts";
 
-/** Generic public-only fixtures for Tower and Flight Deck contract tests. */
+/** Generic public-only response fixtures for Flight Deck compatibility tests. */
 export const controlPlaneV1Fixtures = {
   manifest: {
-    apiVersion: "v1",
-    installationId: "autopilot_0123456789abcdef0123456789abcdef",
-    installationNpub: `npub1${"q".repeat(58)}`,
-    fipsEndpoint: `http://npub1${"p".repeat(58)}.fips:3601/`,
-    httpsEndpoint: "https://autopilot.example/",
-    readCapabilities: [
-      "installation.manifest.read",
-      "installation.health.read",
-      "agents.discover.read",
-      "agents.overview.read",
-    ],
-  } satisfies InstallationManifestV1,
+    kind: "wingman_autopilot_connect",
+    version: 1,
+    generated_at: "2026-01-01T00:00:00.000Z",
+    installation: {
+      id: "autopilot_0123456789abcdef0123456789abcdef",
+      npub: `npub1${"q".repeat(58)}`,
+    },
+    endpoints: {
+      fips: `http://npub1${"q".repeat(58)}.fips:3601`,
+      https: "https://autopilot.example",
+    },
+    api: {
+      version: 1,
+      capabilities: ["health", "agents.read"],
+      health_path: `/api/owners/npub1${"p".repeat(58)}/control-plane/v1/health`,
+      agents_path: `/api/owners/npub1${"p".repeat(58)}/control-plane/v1/agents`,
+    },
+  } satisfies AutopilotConnectManifestV1,
   health: {
-    apiVersion: "v1",
-    installationId: "autopilot_0123456789abcdef0123456789abcdef",
-    status: "healthy",
-    fips: { status: "listening", endpoint: `http://npub1${"p".repeat(58)}.fips:3601/`, error: null },
-    checkedAt: "2026-01-01T00:00:00.000Z",
+    ok: true,
+    installation_id: "autopilot_0123456789abcdef0123456789abcdef",
+    installation_npub: `npub1${"q".repeat(58)}`,
+    api_version: 1,
   } satisfies InstallationHealthV1,
-  agent: {
-    agentId: "agent-example",
-    botNpub: `npub1${"x".repeat(58)}`,
-    displayName: "Example Agent",
-    picture: null,
-    capabilities: ["chat_intercept"],
-    canInstruct: true,
+  discovery: {
+    installation_id: "autopilot_0123456789abcdef0123456789abcdef",
+    agents: [{
+      agent_id: "agent-example",
+      bot_npub: `npub1${"x".repeat(58)}`,
+      name: "Example Agent",
+      description: "Product-neutral fixture",
+      can_instruct: true,
+    }],
   } satisfies AgentDiscoveryV1,
-  overview: {
-    agentId: "agent-example",
-    botNpub: `npub1${"x".repeat(58)}`,
-    displayName: "Example Agent",
-    picture: null,
-    capabilities: ["chat_intercept"],
-    canInstruct: true,
-    about: "Generic fixture agent",
-    nip05: null,
-    enabled: true,
-    archived: false,
-  } satisfies AgentOverviewV1,
 } as const;
