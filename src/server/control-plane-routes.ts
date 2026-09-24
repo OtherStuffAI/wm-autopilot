@@ -213,12 +213,27 @@ export async function handleControlPlaneApi(
 ): Promise<Response | null> {
   if (url.pathname === "/api/control-plane/v1/connect-package" || url.pathname === "/api/control-plane/v2/connect-package") {
     if (method !== "GET") return noStore(Response.json({ error: "method-not-allowed" }, { status: 405 }));
+    if (authContext.authMethod !== "nip98") {
+      return noStore(Response.json({ error: "nip98-authentication-required" }, { status: 401 }));
+    }
     const ownerNpub = validNpub(url.searchParams.get("owner_npub") ?? "");
     if (!ownerNpub) {
       return noStore(Response.json({
         error: "owner-selection-required",
         detail: "Pass one valid owner npub as ?owner_npub= so the signed package can advertise directly callable owner-space routes",
       }, { status: 400 }));
+    }
+    const access = resolveOwnerAccess(
+      authContext,
+      ownerNpub,
+      ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
+      DelegationScopes.ControlPlaneRead,
+    );
+    if (!access) {
+      return noStore(Response.json({
+        error: "control-plane-read-authority-required",
+        requiredScope: DelegationScopes.ControlPlaneRead,
+      }, { status: 403 }));
     }
     const isV2 = url.pathname === "/api/control-plane/v2/connect-package";
     const installation = isV2 ? readyInstallation(ctx) : readyLegacyInstallation(ctx);

@@ -302,7 +302,11 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     const viewerNpub = getEffectiveOwnerNpub(authContext);
 
     if (pathname === "/api/control-plane/v1/connect-package" || pathname === "/api/control-plane/v2/connect-package") {
-      const response = await handleControlPlaneApi(request, url, method, authContext, ctx.controlPlaneRoutesContext);
+      const controlAuthContext = await ctx.resolveNip98AuthContext(request, url, authContext);
+      const response = await runWithRequestContext(
+        controlAuthContext,
+        () => handleControlPlaneApi(request, url, method, controlAuthContext, ctx.controlPlaneRoutesContext),
+      );
       if (response) return response;
     }
 

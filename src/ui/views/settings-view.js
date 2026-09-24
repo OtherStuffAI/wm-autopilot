@@ -228,7 +228,7 @@ export function initSettingsView(deps) {
 
   function renderWorkspacesPage() {
     return createPage('workspaces', state.identity.authenticated
-      ? createWorkspaceSettingsSection({ openDirectoryBrowser })
+      ? createWorkspaceSettingsSection({ ownerNpub: state.identity.npub })
       : createManagedCard('Sign in required', 'Sign in to view workspace connection health and agent routing.'));
   }
 

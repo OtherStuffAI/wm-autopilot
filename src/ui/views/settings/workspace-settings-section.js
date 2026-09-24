@@ -11,6 +11,7 @@ import { createButton } from './agent-chat-shared-ui.js';
 import { buildWorkspaceSettingsModel } from './workspace-settings-model.js';
 import { createWorkspaceDetails, disclosure, element } from './workspace-settings-details.js';
 import { workspaceSettingsDb, Dexie } from './workspace-settings-db.js';
+import { createAutopilotConnectPackageCard } from './autopilot-connect-package-card.js';
 
 Alpine.data('workspaceSettingsView', () => ({
   snapshot: null,
@@ -30,7 +31,7 @@ Alpine.data('workspaceSettingsView', () => ({
   },
 }));
 
-export function createWorkspaceSettingsSection() {
+export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
   const container = element('div', '', 'wm-workspaces-page');
   const viewId = randomId();
   container.dataset.testid = 'workspace-settings-section';
@@ -53,6 +54,7 @@ export function createWorkspaceSettingsSection() {
     await refresh();
     return result;
   } });
+  const connectPackageCard = createAutopilotConnectPackageCard({ ownerNpub });
   container.append(status, body, modal.element);
 
   function showError(error) {
@@ -176,7 +178,7 @@ export function createWorkspaceSettingsSection() {
     const sameWorkspace = body.dataset.workspace === selected?.key;
     const openPanels = sameWorkspace ? [...body.querySelectorAll('details[open] > summary')].map((summary) => summary.dataset.testid) : [];
     const focusedId = body.contains(document.activeElement) ? document.activeElement.dataset.testid : null;
-    body.replaceChildren(toolbar, intro, layout, access);
+    body.replaceChildren(connectPackageCard, toolbar, intro, layout, access);
     if (selected?.towerConnection) body.append(createTowerTransportCard(selected.towerConnection, {
       canManage: snapshot.canManage && selected.towerConnection.canManageTransport && !busy, onAction: transportAction,
       draft: snapshot.transportDrafts?.find((row) => row.id === selected.towerConnection.backendConnectionId)?.transport,
@@ -194,6 +196,10 @@ export function createWorkspaceSettingsSection() {
   container.renderWorkspaceSnapshot = render;
   container.workspaceError = showError;
   container.refreshWorkspace = refresh;
-  container.stopWorkspaceRefresh = () => { stopped = true; clearTimeout(timer); };
+  container.stopWorkspaceRefresh = () => {
+    stopped = true;
+    clearTimeout(timer);
+    connectPackageCard.stopConnectPackageExpiry?.();
+  };
   return container;
 }

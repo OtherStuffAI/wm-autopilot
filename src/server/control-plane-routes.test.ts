@@ -152,6 +152,26 @@ describe("control-plane routes", () => {
     expect(missingOwner?.status).toBe(400);
   });
 
+  test("requires NIP-98 owner authority before generating a connect package", async () => {
+    const url = new URL(`https://autopilot.example/api/control-plane/v2/connect-package?owner_npub=${owner}`);
+    const sessionResponse = await handleControlPlaneApi(
+      new Request(url),
+      url,
+      "GET",
+      { ...auth(owner), authMethod: "session", session: { npub: owner, exp: Date.now() + 60_000 } },
+      context(),
+    );
+    expect(sessionResponse?.status).toBe(401);
+    expect(await sessionResponse!.json()).toEqual({ error: "nip98-authentication-required" });
+
+    const wrongOwnerResponse = await handleControlPlaneApi(new Request(url), url, "GET", auth(wrongDelegate), context());
+    expect(wrongOwnerResponse?.status).toBe(403);
+    expect(await wrongOwnerResponse!.json()).toMatchObject({
+      error: "control-plane-read-authority-required",
+      requiredScope: DelegationScopes.ControlPlaneRead,
+    });
+  });
+
   test("filters delegated discovery by scope, resource, and instructor grant", async () => {
     const response = await request(`/api/owners/${owner}/control-plane/v1/agents`, delegate);
     expect((await response!.json()).agents.map((item: { agent_id: string }) => item.agent_id)).toEqual(["agent-visible"]);
