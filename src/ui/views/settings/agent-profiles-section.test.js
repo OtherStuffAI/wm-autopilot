@@ -83,6 +83,10 @@ function findByTestId(root, testId) {
   return null;
 }
 
+function textContentTree(root) {
+  return [root?.textContent, ...(root?.children || []).map(textContentTree)].filter(Boolean).join(' ');
+}
+
 describe('Agent Profiles Settings entry', () => {
   beforeEach(() => {
     createPayload = null;
@@ -112,6 +116,12 @@ describe('Agent Profiles Settings entry', () => {
       addButton.click();
       expect(modal.hidden).toBe(false);
       expect(findByTestId(modal, 'agent-chat-agent-name')).not.toBeNull();
+      const handlerModeSelect = findByTestId(modal, 'agent-chat-agent-create-handler-mode');
+      expect(handlerModeSelect.value).toBe('session');
+      expect(handlerModeSelect.children.map((option) => [option.value, option.textContent])).toEqual([
+        ['session', 'Agent session'],
+        ['pipeline_router', 'Pipeline router (Jev)'],
+      ]);
       expect(findByTestId(modal, 'agent-chat-agent-working-directory')).not.toBeNull();
       expect(findByTestId(modal, 'agent-chat-agent-create-harness')).not.toBeNull();
       expect(findByTestId(modal, 'agent-chat-agent-create-model')).not.toBeNull();
@@ -132,6 +142,9 @@ describe('Agent Profiles Settings entry', () => {
       harnessSelect.value = 'goose';
       harnessSelect.dispatchEvent({ type: 'change' });
       modelSelect.value = 'qwen/qwen3.7-flash';
+      handlerModeSelect.value = 'pipeline_router';
+      handlerModeSelect.dispatchEvent({ type: 'change' });
+      expect(findByTestId(modal, 'agent-chat-agent-create-handler-note').textContent).toContain('not used for pipeline routing');
       const nameInput = findByTestId(modal, 'agent-chat-agent-name');
       nameInput.value = 'Builder';
       nameInput.dispatchEvent({ type: 'input' });
@@ -153,7 +166,44 @@ describe('Agent Profiles Settings entry', () => {
         model: 'qwen/qwen3.7-flash',
         workingDirectory: '/Users/example/wingmen/Builder21',
         mediaFile,
+        directChat: { handlerMode: 'pipeline_router' },
       });
+    } finally {
+      globalThis.document = originalDocument;
+    }
+  });
+
+  test('defaults new bots to the agent session handler', async () => {
+    const originalDocument = globalThis.document;
+    globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+    try {
+      const { createAgentProfilesSection } = await import('./agent-profiles-section.js');
+      const section = createAgentProfilesSection();
+      await Promise.resolve(); await Promise.resolve();
+      findByTestId(section, 'agent-profiles-add').click();
+      const modal = findByTestId(section, 'agent-chat-agent-name-modal');
+      findByTestId(modal, 'agent-chat-agent-name').value = 'Session Bot';
+      findByTestId(modal, 'agent-chat-agent-name-submit').click();
+      await Promise.resolve(); await Promise.resolve();
+      expect(createPayload?.directChat).toEqual({ handlerMode: 'session' });
+    } finally {
+      globalThis.document = originalDocument;
+    }
+  });
+
+  test('shows a persisted pipeline router handler on the bot card', async () => {
+    listedAgents = [{
+      agentId: 'pipe', label: 'Pipe', botNpub: 'npub1pipe', workingDirectory: '/workspace/pipe',
+      harness: 'codex', model: null, enabled: true, capabilities: [],
+      directChat: { enabled: true, handlerMode: 'pipeline_router' }, publicProfile: { name: 'Pipe' },
+    }];
+    const originalDocument = globalThis.document;
+    globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+    try {
+      const { createAgentProfilesSection } = await import('./agent-profiles-section.js');
+      const section = createAgentProfilesSection();
+      await Promise.resolve(); await Promise.resolve();
+      expect(textContentTree(findByTestId(section, 'agent-profile-pipe'))).toContain('Direct chat Pipeline router');
     } finally {
       globalThis.document = originalDocument;
     }

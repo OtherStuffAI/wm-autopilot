@@ -175,6 +175,14 @@ export async function handleAgentProfileCreateApi(
   const harness = typeof body.harness === 'string' ? body.harness.trim() : '';
   const requestedModel = typeof body.model === 'string' ? body.model.trim() || null : null;
   const model = requestedModel === 'default' ? null : requestedModel;
+  const directChatInput = body.directChat && typeof body.directChat === 'object' && !Array.isArray(body.directChat)
+    ? body.directChat as Record<string, unknown>
+    : null;
+  if (directChatInput && Object.prototype.hasOwnProperty.call(directChatInput, 'handlerMode')
+    && directChatInput.handlerMode !== 'session' && directChatInput.handlerMode !== 'pipeline_router') {
+    return Response.json({ error: 'directChat.handlerMode must be session or pipeline_router.' }, { status: 400 });
+  }
+  const handlerMode = directChatInput?.handlerMode === 'pipeline_router' ? 'pipeline_router' : 'session';
   let instructorNpubs: string[];
   try {
     instructorNpubs = Array.isArray(body.instructorNpubs)
@@ -225,7 +233,7 @@ export async function handleAgentProfileCreateApi(
       instructorNpubs,
       publicProfile,
       capabilities: ['chat_intercept', 'task_dispatch', 'comment_dispatch'],
-      directChat: { enabled: true, sessionAgent: harness, directory: workingDirectory, model, idleRetentionMinutes: 60 },
+      directChat: { handlerMode, enabled: true, sessionAgent: harness, directory: workingDirectory, model, idleRetentionMinutes: 60 },
       enabled: body.enabled !== false,
     });
     const owner = verified ? {

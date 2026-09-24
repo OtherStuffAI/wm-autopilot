@@ -982,6 +982,7 @@ describe('agent-chat routes', () => {
       agentId: 'Builder21', label: 'Builder', botNpub: 'npub1Builder', workspaceOwnerNpub: 'npub1workspace',
       groupNpubs: [], workingDirectory: '/Users/example/wingmen/Builder21', harness: 'goose', model: null,
       publicProfile: { name: 'Builder', picture: null, about: 'Builder', nip05: null }, capabilities: ['chat_intercept'],
+      directChat: { handlerMode: 'pipeline_router' as const, enabled: true, sessionAgent: 'goose', directory: '/Users/example/wingmen/Builder21', model: null, idleRetentionMinutes: 60 },
       enabled: true, createdAt: now, updatedAt: now, managedByNpub: 'npub1manager',
     } as const;
     const signedProfileEvent = { id: 'event-1', pubkey: '00'.repeat(32), created_at: 1, kind: 0, tags: [], content: '{}', sig: '11'.repeat(64) };
@@ -990,6 +991,7 @@ describe('agent-chat routes', () => {
         expect(input).toMatchObject({
           agentId: 'Builder21',
           harness: 'goose',
+          directChat: { handlerMode: 'pipeline_router' },
           managedByNpub: 'npub1manager',
           workspaceOwnerNpub: 'npub1manager',
         });
@@ -998,7 +1000,7 @@ describe('agent-chat routes', () => {
     } as unknown as WorkspaceSubscriptionManager;
     const request = new Request('http://localhost/api/agent-chat/profiles', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profileId: 'Builder21', label: 'Builder', workingDirectory: '/Users/example/wingmen/Builder21', harness: 'goose', about: 'Builder' }),
+      body: JSON.stringify({ profileId: 'Builder21', label: 'Builder', workingDirectory: '/Users/example/wingmen/Builder21', harness: 'goose', about: 'Builder', directChat: { handlerMode: 'pipeline_router' } }),
     });
     const response = await handleAgentChatApi(request, new URL(request.url), 'POST', authContext, {
       manager,
@@ -1007,8 +1009,31 @@ describe('agent-chat routes', () => {
     });
     const body = await response!.json() as Record<string, unknown>;
     expect(response?.status).toBe(201);
+    expect((body.agent as Record<string, unknown>).directChat).toMatchObject({ handlerMode: 'pipeline_router' });
     expect(JSON.stringify(body)).toContain('npub1Builder');
     expect(JSON.stringify(body)).not.toMatch(/nsec|encryptedEscrow|botSecret|WINGMAN_CAPABILITY/i);
+  });
+
+  test('rejects an invalid direct chat handler before creating a profile', async () => {
+    let createCalls = 0;
+    const manager = {
+      createAgentProfileForManager: async () => { createCalls += 1; throw new Error('must not create'); },
+    } as unknown as WorkspaceSubscriptionManager;
+    const request = new Request('http://localhost/api/agent-chat/profiles', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profileId: 'pipe', label: 'Pipe', workingDirectory: '/workspace/pipe', harness: 'codex',
+        directChat: { handlerMode: 'unknown' },
+      }),
+    });
+    const response = await handleAgentChatApi(request, new URL(request.url), 'POST', authContext, {
+      manager,
+      agentTypes: [{ id: 'codex', label: 'Codex' }],
+      publishAgentProfile: async () => ({ eventId: 'never', published: 0 }),
+    });
+    expect(response?.status).toBe(400);
+    expect(await response!.json()).toMatchObject({ error: expect.stringContaining('handlerMode') });
+    expect(createCalls).toBe(0);
   });
 
   test('rotates a profile key only for a manager with bound confirmation', async () => {

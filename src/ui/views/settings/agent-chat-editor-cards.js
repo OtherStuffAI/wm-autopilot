@@ -540,6 +540,22 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     : 'Create a sovereign local agent profile and non-exportable Nostr identity for this workspace.';
 
   const nameField = createInput('Agent name', 'Lara', 'agent-chat-agent-name');
+  const handlerModeField = createLookupField(
+    'Direct chat handler',
+    'agent-chat-agent-create-handler-mode',
+    'Direct chat handler mode',
+  );
+  for (const [label, value] of [['Agent session', 'session'], ['Pipeline router (Jev)', 'pipeline_router']]) {
+    const option = document.createElement('option');
+    option.textContent = label;
+    option.value = value;
+    handlerModeField.select.append(option);
+  }
+  handlerModeField.select.value = 'session';
+  const handlerModeNote = document.createElement('p');
+  handlerModeNote.className = 'wm-settings__port-note';
+  handlerModeNote.dataset.testid = 'agent-chat-agent-create-handler-note';
+  handlerModeNote.setAttribute('aria-live', 'polite');
   const workingDirectoryField = createInput('Working folder', '/workspace/lara', 'agent-chat-agent-working-directory');
   const harnessField = createLookupField('Agent tool', 'agent-chat-agent-create-harness', 'Agent profile harness');
   const modelField = createLookupField('Model', 'agent-chat-agent-create-model', 'Agent profile model');
@@ -657,6 +673,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     return {
       agentId,
       label: label || 'Agent',
+      handlerMode: handlerModeField.select.value === 'pipeline_router' ? 'pipeline_router' : 'session',
       workingDirectory: customWorkingDirectory || deriveDefaultWorkingDirectory(agentId),
       harness: harnessField.select.value.trim(),
       model: modelValueForPayload(modelField.select.value),
@@ -721,6 +738,12 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     syncAdvancedDirectoryToName();
     renderPreview();
   });
+  function renderHandlerModeNote() {
+    handlerModeNote.textContent = handlerModeField.select.value === 'pipeline_router'
+      ? 'Routes direct chat to an eligible pipeline with Jev. Working folder, agent tool, and model are retained as bot runtime settings but are not used for pipeline routing.'
+      : 'Starts an agent session for direct chat and dispatches.';
+  }
+  handlerModeField.select.addEventListener('change', renderHandlerModeNote);
   workingDirectoryField.input.addEventListener('input', () => {
     directoryTouched = true;
     renderPreview();
@@ -785,6 +808,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     heading,
     note,
     nameField.row,
+    ...(standalone ? [handlerModeField.row, handlerModeNote] : []),
     instructorsField.row,
     advancedPanel,
     ...(standalone ? [] : [preview]),
@@ -804,6 +828,8 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     open(defaultName = '') {
       statusLine.textContent = '';
       nameField.input.value = defaultName;
+      handlerModeField.select.value = 'session';
+      renderHandlerModeNote();
       directoryTouched = false;
       workingDirectoryField.input.value = deriveDefaults(defaultName).workingDirectory;
       pictureField.input.value = '';

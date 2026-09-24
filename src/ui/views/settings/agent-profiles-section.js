@@ -40,6 +40,7 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
         profileId: defaults.agentId,
         label: defaults.label,
         name: defaults.label,
+        directChat: { handlerMode: defaults.handlerMode },
         workingDirectory: defaults.workingDirectory,
         harness: defaults.harness,
         model: defaults.model,
