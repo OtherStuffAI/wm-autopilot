@@ -20,7 +20,7 @@ export type FlightDeckInvocationResolver = (
 ) => Promise<FlightDeckInvocationResolution>;
 
 export type FlightDeckThreadSender = (
-  input: FlightDeckPipelineInvocation & { message: string },
+  input: FlightDeckPipelineInvocation & { message: string; pipelineRunId?: string },
 ) => Promise<JsonObject>;
 
 const resolverKey = Symbol.for("wingmen.pipeline.flightDeckInvocationResolver");
@@ -48,7 +48,7 @@ export function normalizeFlightDeckPipelineInvocation(value: unknown): FlightDec
     workspaceId: requiredText(input.workspaceId, "workspaceId"),
     threadId: requiredText(input.threadId, "threadId"),
     frmNpub: requiredText(input.frmNpub, "frmNpub"),
-    prompt: requiredText(input.prompt, "prompt"),
+    prompt: requiredSourceText(input.prompt, "prompt"),
   };
   if (!isUuid(normalized.workspaceId)) throw new Error("workspaceId must be a UUID");
   if (!isUuid(normalized.threadId)) throw new Error("threadId must be a UUID");
@@ -74,12 +74,17 @@ export async function returnPipelineMarkdownToFlightDeckThread(input: JsonObject
   const message = requiredText(input.message, "message");
   const sender = (globalThis as FlightDeckInvocationGlobal)[senderKey];
   if (!sender) throw new Error("Flight Deck pipeline thread delivery is not configured");
-  return await sender({ ...invocation, message });
+  return await sender({ ...invocation, message, pipelineRunId: typeof input.pipelineRunId === "string" ? input.pipelineRunId : undefined });
 }
 
 function requiredText(value: unknown, name: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required`);
   return value.trim();
+}
+
+function requiredSourceText(value: unknown, name: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required`);
+  return value;
 }
 
 function isUuid(value: string): boolean {

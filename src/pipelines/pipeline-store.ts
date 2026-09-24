@@ -631,6 +631,22 @@ export class PipelineStore {
     );
   }
 
+  listEvents(runId: string): Array<Record<string, unknown>> {
+    return this.db.query(`SELECT * FROM pipeline_events WHERE run_id = ? ORDER BY ts ASC`).all(runId) as Array<Record<string, unknown>>;
+  }
+
+  claimFlightDeckRouterSource(sourceMessageId: string, agentNpub: string): boolean {
+    const result = this.db.run(`INSERT OR IGNORE INTO pipeline_router_decisions
+      (source_message_id, agent_npub, status, evidence_json, created_at, updated_at)
+      VALUES (?, ?, 'routing', '{}', ?, ?)`, [sourceMessageId, agentNpub, now(), now()]);
+    return result.changes === 1;
+  }
+
+  completeFlightDeckRouterDecision(sourceMessageId: string, input: { status: string; runId?: string | null; evidence: JsonObject }): void {
+    this.db.run(`UPDATE pipeline_router_decisions SET status = ?, run_id = ?, evidence_json = ?, updated_at = ?
+      WHERE source_message_id = ?`, [input.status, input.runId ?? null, encodeJson(input.evidence), now(), sourceMessageId]);
+  }
+
   private migrate(): void {
     this.db.run(`
       CREATE TABLE IF NOT EXISTS pipeline_runs (
@@ -652,6 +668,10 @@ export class PipelineStore {
         completed_at TEXT
       )
     `);
+    this.db.run(`CREATE TABLE IF NOT EXISTS pipeline_router_decisions (
+      source_message_id TEXT PRIMARY KEY, agent_npub TEXT NOT NULL, status TEXT NOT NULL,
+      run_id TEXT, evidence_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )`);
     this.db.run(`
       CREATE TABLE IF NOT EXISTS pipeline_steps (
         id TEXT PRIMARY KEY,

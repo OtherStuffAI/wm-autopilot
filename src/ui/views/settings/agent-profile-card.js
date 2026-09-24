@@ -55,6 +55,7 @@ export function createProfileCard(agent, canManage, isDefault, onEdit, onRotate,
     ...createProfileFact('Agent tool', agent.harness || agent.directChat?.sessionAgent || 'Not configured'),
     ...createProfileFact('Model', agent.model || agent.directChat?.model || 'Tool default'),
     ...createProfileFact('Status', agent.enabled === false ? 'Disabled' : 'Enabled'),
+    ...createProfileFact('Direct chat', agent.directChat?.handlerMode === 'pipeline_router' ? 'Pipeline router' : 'Agent session'),
   );
   const actions = document.createElement('div');
   actions.className = 'wm-agent-profile__actions';

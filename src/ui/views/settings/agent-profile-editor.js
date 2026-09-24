@@ -48,6 +48,13 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
   const lookup = createAgentModelLookupController({ harnessSelect: harness.select, modelSelect: model.select, status: lookupStatus });
   const enabled = createCheckbox('Enabled', 'agent-profile-edit-enabled', true);
   const directChatEnabled = createCheckbox('Respond to direct chat / dispatch', 'agent-profile-edit-direct-chat-enabled', true);
+  const handlerMode = createSelect('Direct chat handler', 'agent-profile-edit-handler-mode', 'Direct chat handler mode');
+  for (const [text, value] of [['Agent session', 'session'], ['Pipeline router (Jev)', 'pipeline_router']]) {
+    const option = document.createElement('option');
+    option.textContent = text;
+    option.value = value;
+    handlerMode.select.append(option);
+  }
   const instructors = createTextarea('Who can instruct this agent?', '', 'agent-profile-edit-instructors', 4);
   instructors.input.setAttribute('aria-label', 'Instructor npubs, one per line');
   const name = createInput('Public Nostr name', '', 'agent-profile-edit-name');
@@ -72,7 +79,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
   summary.dataset.testid = 'agent-profile-edit-public-toggle';
   details.append(summary, name.row, mediaPicker.element, picture.row, about.row, nip05.row, identity.row);
   form.append(title, label.row, directory.row, harness.row, model.row, lookupStatus,
-    enabled.row, directChatEnabled.row, instructors.row, details, status, actions);
+    enabled.row, directChatEnabled.row, handlerMode.row, instructors.row, details, status, actions);
   overlay.append(form);
   let current = null;
   let runtimeConfig = null;
@@ -88,6 +95,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
     directory.input.value = agent.workingDirectory || agent.directChat?.directory || '';
     enabled.input.checked = agent.enabled !== false;
     directChatEnabled.input.checked = agent.directChat?.enabled !== false;
+    handlerMode.select.value = agent.directChat?.handlerMode === 'pipeline_router' ? 'pipeline_router' : 'session';
     instructors.input.value = (agent.instructorNpubs || []).join('\n');
     name.input.value = agent.publicProfile?.name || agent.label || '';
     picture.input.value = agent.publicProfile?.picture || '';
@@ -117,6 +125,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
         model: modelValueForPayload(model.select.value),
         enabled: enabled.input.checked,
         directChatEnabled: directChatEnabled.input.checked,
+        directChat: { handlerMode: handlerMode.select.value },
         instructorNpubs: instructors.input.value.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean),
         capabilities: current.capabilities,
         publicProfile: {

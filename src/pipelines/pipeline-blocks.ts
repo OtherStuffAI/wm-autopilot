@@ -11,6 +11,19 @@ export function expandPipelineBlock(step: Extract<DeclarativeStep, { type: "bloc
   const scratchPath = `$.blocks.${sanitizePathPart(step.name || step.block)}`;
   const inputPath = `${scratchPath}.input`;
   const outputPath = step.assign ?? defaultBlockOutputPath(step.block);
+  if (step.block === "flightdeck.threadInvocation") {
+    return {
+      scratchPath, inputPath, outputPath,
+      steps: [{
+        name: `${step.name} / normalise-thread-invocation`,
+        description: "Validate and normalise the reusable four-field Flight Deck thread invocation contract.",
+        type: "code", function: "flightdeck.threadInvocation",
+        input: { pick: { workspaceId: `${inputPath}.workspaceId`, threadId: `${inputPath}.threadId`, frmNpub: `${inputPath}.frmNpub`, prompt: `${inputPath}.prompt` } },
+        assign: outputPath,
+        display: { in: [{ label: "Thread", path: "$.threadId", format: "text" }, { label: "Chat Message", path: "$.prompt", format: "text" }], out: [{ label: "Thread", path: "$.threadId", format: "text" }, { label: "Chat Message", path: "$.prompt", format: "text" }] },
+      }],
+    };
+  }
   if (step.block === "flightdeck.returnToThread") {
     return {
       scratchPath,
@@ -234,6 +247,7 @@ export function expandPipelineBlock(step: Extract<DeclarativeStep, { type: "bloc
 }
 
 function defaultBlockOutputPath(block: Extract<DeclarativeStep, { type: "block" }>['block']): string {
+  if (block === "flightdeck.threadInvocation") return "$.flightDeckInvocation";
   if (block === "jev.rerankCandidates") return "$.jevRerank";
   if (block === "flightdeck.sendDirectMessage") return "$.directMessage";
   if (block === "flightdeck.returnToThread") return "$.threadDelivery";

@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { expandPipelineBlock } from "./pipeline-blocks";
 
 describe("expandPipelineBlock", () => {
+  test("expands flightdeck.threadInvocation as the four-field entry contract", () => {
+    const expansion = expandPipelineBlock({ name: "accept", type: "block", block: "flightdeck.threadInvocation" });
+    expect(expansion.steps[0]).toMatchObject({ type: "code", function: "flightdeck.threadInvocation" });
+    expect(expansion.outputPath).toBe("$.flightDeckInvocation");
+  });
   test("expands memory.graphContext into entity extraction, search, and consolidation steps", () => {
     const expansion = expandPipelineBlock({
       name: "recall-memory",

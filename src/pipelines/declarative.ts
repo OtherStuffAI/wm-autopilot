@@ -52,7 +52,7 @@ export type DeclarativeStep =
       description?: string;
       display?: StepDisplaySpec;
       type: "block";
-      block: "memory.graphContext" | "jev.rerankCandidates" | "flightdeck.sendDirectMessage" | "flightdeck.returnToThread";
+      block: "memory.graphContext" | "jev.rerankCandidates" | "flightdeck.sendDirectMessage" | "flightdeck.threadInvocation" | "flightdeck.returnToThread";
       input?: SelectorSpec;
       assign?: string;
       config?: JsonObject;
@@ -141,6 +141,7 @@ export type DeclarativeStep =
     };
 
 export interface DeclarativePipeline {
+  enabled?: boolean;
   name: string;
   description?: string;
   version?: string | number;

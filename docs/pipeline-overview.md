@@ -8,6 +8,8 @@ Flight Deck can start any selected pipeline definition through `POST /api/pipeli
 
 Before creating a run, Autopilot validates all fields and resolves the workspace/thread through its active managed-agent subscription. Definitions adopt return delivery by preserving the four top-level fields and ending with the `flightdeck.returnToThread` block:
 
+A pipeline is chat-addressable when its first effective step is the `flightdeck.threadInvocation` block. The block validates and normalises the same four fields without adding a sender field. Agent profiles whose Direct Chat handler is `pipeline_router` list the latest enabled owner-visible definitions, retain only those chat-addressable entries, and ask `~typesafe/jev-latest` for one typed choice plus `no_match`. Ordinary profiles continue to use session-backed Agent Direct.
+
 ```json
 {
   "id": "return-final-response",
@@ -28,7 +30,7 @@ Before creating a run, Autopilot validates all fields and resolves the workspace
 }
 ```
 
-The block re-resolves the destination at delivery time and posts the exact Markdown body as the configured managed agent using Tower's message-instruction signature plus exact-body NIP-98 request. The structured result includes delivery status, workspace, thread, channel, message ID, managed sender, requester context, format, and signature protocol. Missing or ambiguous workspace/thread state fails explicitly. The separate `flightdeck.sendDirectMessage` block remains available for intentionally addressed two-party DMs.
+The block re-resolves the destination at delivery time and posts the exact Markdown body using Tower's message-instruction signature plus exact-body NIP-98 request. Router-started runs use durable trusted run context to retain the initiating agent identity for final signing; manual launches safely fall back to the configured managed agent. `frmNpub` remains requester context and never grants signing authority. The structured result includes delivery status, workspace, thread, channel, message ID, managed sender, requester context, format, and signature protocol. Missing or ambiguous workspace/thread state fails explicitly. The separate `flightdeck.sendDirectMessage` block remains available for intentionally addressed two-party DMs.
 
 ## Runtime Gate
 

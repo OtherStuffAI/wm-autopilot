@@ -1253,6 +1253,7 @@ export async function handleAgentChatApi(
       publicProfile,
       capabilities: Array.isArray(body.capabilities) ? parseDispatchCapabilities(body.capabilities) : existing.capabilities,
       directChat: {
+        handlerMode: directChatInput?.handlerMode === 'pipeline_router' ? 'pipeline_router' : 'session',
         enabled: typeof body.directChatEnabled === 'boolean'
           ? body.directChatEnabled
           : directChatInput?.enabled !== false,

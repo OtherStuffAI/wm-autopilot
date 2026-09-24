@@ -39,6 +39,7 @@ import { BROKER_KEY_NOT_PROVISIONED } from '../signing/broker-key-vault';
 import { directChatSessionReplacementDecision } from './direct-chat-session-recovery';
 import { isInterruptedTurnError } from './session-runtime-turns';
 import { assertDirectChatWorkspaceCompatible, buildDirectChatSessionBinding } from './direct-chat-session-binding';
+import type { PipelineRouterRequest } from './pipeline-router-handler';
 
 export interface DirectChatRuntimeInput {
   subscription: WorkspaceSubscriptionRecord;
@@ -72,6 +73,7 @@ interface DirectChatRuntimeDependencies {
     agent: AgentDefinitionRecord,
     operation: (identity: RuntimeBotIdentity) => Promise<T>,
   ) => Promise<T>;
+  routePipeline?: (input: PipelineRouterRequest) => Promise<void>;
 }
 
 interface MessageRevisionDispatch {
@@ -207,6 +209,12 @@ export class AgentDirectChatRuntime {
       });
       if (upsert.wasDuplicate && !this.turnStore.getPending(routingKey)) continue;
       handled = true;
+      if (agent.directChat?.handlerMode === 'pipeline_router') {
+        if (!upsert.wasDuplicate) await this.deps.routePipeline?.({ agent, subscription: input.subscription,
+          botIdentity: input.botIdentity, channelId: input.channel.id, threadId,
+          message: input.messages.find((message) => message.id === eventMessage.messageId)! });
+        continue;
+      }
       if (!upsert.wasDuplicate) {
         this.dispatchOutcomeStore.recordSessionQueued({
           subscriptionId: input.subscription.subscriptionId,

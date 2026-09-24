@@ -215,6 +215,7 @@ export interface AgentDefinitionRecord {
     error: string | null;
   };
   directChat?: {
+    handlerMode?: 'session' | 'pipeline_router';
     enabled: boolean;
     sessionAgent: string | null;
     directory: string;

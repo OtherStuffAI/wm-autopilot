@@ -232,7 +232,9 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     if (!fn) {
       throw new Error(`Unknown pipeline function: ${step.function}`);
     }
-    const result = await fn(selected);
+    const result = await fn(step.function === "flightdeck.returnToThread"
+      ? { ...selected, pipelineRunId: input.runId }
+      : selected);
     throwIfRunCancelled(store, input.runId);
     assertObject(result, `step ${stepName} result`);
     const current = assignOutput(input.current, result, step.assign);

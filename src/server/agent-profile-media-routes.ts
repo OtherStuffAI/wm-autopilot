@@ -317,6 +317,7 @@ async function buildMediaCandidate(
       nip05: typeof publicInput.nip05 === 'string' ? publicInput.nip05.trim() || null : existing.publicProfile?.nip05 ?? null,
     },
     directChat: {
+      handlerMode: directChatInput?.handlerMode === 'pipeline_router' ? 'pipeline_router' : 'session',
       enabled: typeof body.directChatEnabled === 'boolean'
         ? body.directChatEnabled
         : directChatInput?.enabled === undefined ? existing.directChat?.enabled !== false : directChatInput.enabled !== false,

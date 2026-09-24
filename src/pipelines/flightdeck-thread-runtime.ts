@@ -24,6 +24,7 @@ interface ThreadRuntimeDependencies {
   fetchChannels?: typeof fetchFlightDeckPgScopeChannels;
   fetchMessages?: typeof fetchFlightDeckPgChannelMessages;
   createMessage?: typeof createFlightDeckPgChannelMessage;
+  resolveTrustedAgentNpub?: (runId: string) => string | null;
 }
 
 export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): {
@@ -51,14 +52,15 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
   };
 
   const send: FlightDeckThreadSender = async (input) => {
-    const selected = selectManagedSubscription(deps, input.workspaceId, null);
-    const agent = deps.agentStore.getByBotNpub(selected.botNpub);
+    const trustedAgentNpub = input.pipelineRunId && deps.resolveTrustedAgentNpub?.(input.pipelineRunId);
+    const selected = selectManagedSubscription(deps, input.workspaceId, null, trustedAgentNpub || null);
+    const agent = deps.agentStore.getByBotNpub(trustedAgentNpub || selected.botNpub);
     if (!agent || !agent.enabled || agent.archived) {
       throw new Error(`Workspace ${input.workspaceId} has no active managed agent identity`);
     }
     return await deps.withAgentIdentity(agent, async (botIdentity) => {
-      if (botIdentity.botNpub !== selected.botNpub) {
-        throw new Error("Resolved managed agent identity does not match the workspace subscription");
+      if (botIdentity.botNpub !== (trustedAgentNpub || selected.botNpub)) {
+        throw new Error("Resolved managed agent identity does not match trusted pipeline context");
       }
       const channel = await resolveThreadChannel(deps, selected, botIdentity, input.threadId);
       const result = await (deps.createMessage ?? createFlightDeckPgChannelMessage)({
@@ -94,6 +96,7 @@ function selectManagedSubscription(
   deps: ThreadRuntimeDependencies,
   workspaceId: string,
   ownerNpub?: string | null,
+  preferredBotNpub?: string | null,
 ): WorkspaceSubscriptionRecord {
   const records = deps.subscriptionStore.listAll();
   const active = records.filter((record) =>
@@ -101,6 +104,11 @@ function selectManagedSubscription(
   );
   const owned = ownerNpub ? active.filter((record) => record.managedByNpub === ownerNpub) : [];
   const candidates = owned.length > 0 ? owned : active;
+  const preferred = preferredBotNpub ? candidates.filter((record) => record.botNpub === preferredBotNpub) : [];
+  if (preferred.length === 1) return preferred[0]!;
+  if (preferredBotNpub && preferred.length !== 1) {
+    throw new Error(`Trusted agent ${preferredBotNpub} does not resolve one active subscription for workspace ${workspaceId}`);
+  }
   const managers = [...new Set(candidates.map((record) => record.managedByNpub).filter((value): value is string => Boolean(value)))];
   const defaultAgent = managers.length === 1 ? deps.agentStore.getDefaultForManagerNpub?.(managers[0]!) : null;
   const defaultCandidates = defaultAgent ? candidates.filter((record) => record.botNpub === defaultAgent.botNpub) : [];

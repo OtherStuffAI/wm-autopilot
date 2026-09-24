@@ -31,6 +31,7 @@ import {
 import { isSessionWaitTimeout } from './flightdeck-dispatch-lifecycle';
 import { buildFlightDeckChatSourceLabel } from './flightdeck-dispatch-metadata';
 import type { DuplicateCallbackPublicationFilter } from './duplicate-callback-publication-filter';
+import type { PipelineRouterRequest } from './pipeline-router-handler';
 
 const DEFAULT_IDLE_RETENTION_MINUTES = 60;
 
@@ -48,6 +49,7 @@ interface AgentChatSessionRuntimeDependencies {
     agent: AgentDefinitionRecord,
     operation: (identity: RuntimeBotIdentity) => Promise<T>,
   ) => Promise<T>;
+  routePipeline?: (input: PipelineRouterRequest) => Promise<void>;
 }
 
 export interface AgentChatSessionRuntimeInput {
@@ -81,6 +83,7 @@ export class AgentChatSessionRuntime {
       withBotIdentity: deps.withBotIdentity,
       publicationFilter: deps.publicationFilter,
       dispatchOutcomeStore: this.dispatchOutcomeStore,
+      routePipeline: deps.routePipeline,
       getArchivedSession: (sessionId) => (deps.archiveStore ?? sessionArchiveStore).getArchivedSession(sessionId) });
     this.restorePersistedStates();
   }

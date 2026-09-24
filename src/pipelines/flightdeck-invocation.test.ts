@@ -15,7 +15,7 @@ const valid = {
 
 describe("Flight Deck pipeline invocation", () => {
   test("normalizes the four domain fields", () => {
-    expect(normalizeFlightDeckPipelineInvocation(valid)).toEqual({ ...valid, prompt: "Ask the council." });
+    expect(normalizeFlightDeckPipelineInvocation(valid)).toEqual(valid);
   });
 
   test("rejects missing, malformed, and extra invocation fields", async () => {

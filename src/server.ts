@@ -170,6 +170,7 @@ import { configurePipelineDirectMessageSender } from "./pipelines/direct-message
 import { createPipelineDirectMessageSender } from "./pipelines/direct-message-runtime";
 import { configureFlightDeckPipelineInvocation } from "./pipelines/flightdeck-invocation";
 import { createFlightDeckThreadRuntime } from "./pipelines/flightdeck-thread-runtime";
+import { createPipelineRouterHandler } from './agent-chat/pipeline-router-handler';
 import {
   buildAgentUrl,
   normaliseHostForUrl,
@@ -1733,6 +1734,14 @@ configureFlightDeckPipelineInvocation(createFlightDeckThreadRuntime({
   agentStore: agentDefinitionStore,
   subscriptionStore: workspaceSubscriptionStore,
   withAgentIdentity: profileBotIdentityRunner,
+  resolveTrustedAgentNpub: (runId) => {
+    const event = pipelineStore.listEvents(runId).find((row) => row.type === 'flightdeck_invocation_context');
+    if (!event || typeof event.data_json !== 'string') return null;
+    try {
+      const data = JSON.parse(event.data_json) as Record<string, unknown>;
+      return typeof data.initiatingAgentNpub === 'string' ? data.initiatingAgentNpub : null;
+    } catch { return null; }
+  },
 }));
 const directChatProfileIdentityRunner = createDirectChatProfileIdentityRunner({
   agentStore: agentDefinitionStore,
@@ -1761,6 +1770,9 @@ const agentChatSessionRuntime = new AgentChatSessionRuntime({
   directDeliveryReconciler: agentDirectDeliveryReconciler,
   publicationFilter: duplicateCallbackPublicationFilter,
   withBotIdentity: profileBotIdentityRunner,
+  routePipeline: createPipelineRouterHandler({ store: pipelineStore,
+    getSessionApiContext: () => sessionApiContextRef ?? (() => { throw new Error('Pipeline runtime is not ready'); })(),
+    callbackOrigin: `http://127.0.0.1:${config.port}` }),
 });
 workspaceSubscriptionManager.setChatRuntime(agentChatSessionRuntime);
 // NOTE: `agentWorkSessionRuntime` construction, `setAgentWorkRuntime`, and

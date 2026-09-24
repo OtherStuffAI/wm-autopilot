@@ -104,7 +104,7 @@ describe('AgentDefinitionStore', () => {
     expect(managedAgents).toHaveLength(2);
     expect(managedAgents[0]?.agentId).toBe('agent_alpha');
     expect(managedAgents[0]?.groupNpubs).toEqual(['npub1groupa', 'npub1groupb']);
-    expect(managedAgents[0]?.directChat).toEqual({ enabled: true, sessionAgent: 'codex', directory: '/Users/example/wingmen/agent-workspace', model: null, idleRetentionMinutes: 60 });
+    expect(managedAgents[0]?.directChat).toEqual({ handlerMode: 'session', enabled: true, sessionAgent: 'codex', directory: '/Users/example/wingmen/agent-workspace', model: null, idleRetentionMinutes: 60 });
 
     const workspaceBotAgents = store.listByWorkspaceAndBot('npub1workspace', 'npub1botalpha');
     expect(workspaceBotAgents.map((agent) => agent.agentId)).toEqual(['agent_alpha', 'agent_beta']);

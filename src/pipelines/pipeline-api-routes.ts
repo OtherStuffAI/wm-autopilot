@@ -35,7 +35,7 @@ import type { FunctionRegistry } from "./declarative";
 import { type JsonObject, PipelineStore, type PipelineRunRecord, type PipelineRunSummary } from "./pipeline-store";
 import { startPipelineWizardSession } from "./pipeline-wizard";
 import { startPipelineAnalysisSession } from "./pipeline-analysis";
-import { resolveFlightDeckPipelineInvocation } from "./flightdeck-invocation";
+import { startFlightDeckPipelineRun } from "./flightdeck-run-service";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -246,18 +246,9 @@ export async function handlePipelineApi(
     if (!definition) return Response.json({ error: "Pipeline definition not found" }, { status: 404 });
     const body = await request.json().catch(() => null);
     try {
-      const { input, resolution } = await resolveFlightDeckPipelineInvocation(body, ownerNpub);
-      const functions = await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions);
-      const run = startDeclarativePipeline({
-        store: ctx.store,
-        sessionApiContext: ctx.sessionApiContext,
-        definition,
-        registry: functions.registry,
-        input: { ...(definition.spec.input ?? {}), ...input },
-        ownerNpub,
-        ownerAlias,
-        callbackOrigin: ctx.callbackOrigin ?? url.origin,
-      });
+      const { input, resolution, run } = await startFlightDeckPipelineRun({ store: ctx.store,
+        sessionApiContext: ctx.sessionApiContext, definition, invocation: body as never, ownerNpub, ownerAlias,
+        callbackOrigin: ctx.callbackOrigin ?? url.origin });
       return Response.json({
         ok: true,
         invocation: { ...resolution, requesterNpub: input.frmNpub },

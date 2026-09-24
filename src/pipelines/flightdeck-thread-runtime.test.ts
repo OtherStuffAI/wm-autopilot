@@ -65,6 +65,25 @@ describe("Flight Deck thread runtime", () => {
     });
   });
 
+  test("uses the durable initiating agent instead of requester or workspace default for final signing", async () => {
+    const signers: string[] = [];
+    const runtime = createFlightDeckThreadRuntime({
+      agentStore: { getByBotNpub: (npub) => ({ enabled: true, archived: false, botNpub: npub }) as never },
+      subscriptionStore: { listAll: () => ['npub1default', 'npub1pipe'].map((botNpub, index) => ({
+        workspaceId: invocation.workspaceId, subscriptionId: `subscription-${index}`, backendBaseUrl: 'https://tower.test',
+        sourceAppNpub: 'npub1app', botNpub, lifecycleStatus: 'active', managedByNpub: 'npub1owner',
+      })) as never },
+      resolveTrustedAgentNpub: (runId) => runId === 'run-1' ? 'npub1pipe' : null,
+      withAgentIdentity: async (agent, operation) => { signers.push(agent.botNpub); return await operation({ botNpub: agent.botNpub } as never); },
+      fetchScopes: async () => ({ scopes: [{ id: 'scope-1' }], next_cursor: null }),
+      fetchChannels: async () => ({ channels: [{ id: 'channel-1' }], next_cursor: null }),
+      fetchMessages: async () => ({ messages: [{ id: invocation.threadId }], next_cursor: null }),
+      createMessage: async () => ({ message: { id: 'message-1' } }),
+    });
+    await runtime.send({ ...invocation, pipelineRunId: 'run-1', message: 'Answer' });
+    expect(signers).toEqual(['npub1pipe']);
+  });
+
   test("rejects an unresolved workspace or thread", async () => {
     await expect(fixture({ workspaceId: "00000000-0000-4000-8000-000000000000" }).runtime.resolve(invocation)).rejects.toThrow("No active");
     await expect(fixture({ hasThread: false }).runtime.resolve(invocation)).rejects.toThrow("was not found");
