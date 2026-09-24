@@ -16,7 +16,6 @@ async function control(args: string[], signal: AbortSignal): Promise<string> {
 export async function resolveNativeFipsDestination(endpoint: string, signal: AbortSignal): Promise<string> {
   const { nodeNpub } = parseTowerFipsEndpoint(endpoint);
   signal.throwIfAborted();
-  let localNodeNpub: string | null = null;
   if (process.platform === "darwin") {
     const status = await inspectNativeFipsRuntime({
       fipsctlPath: Bun.env.FIPSCTL_PATH,
@@ -32,7 +31,6 @@ export async function resolveNativeFipsDestination(endpoint: string, signal: Abo
       },
     });
     if (!status.ready) throw new Error(status.error ?? "Native FIPS is unavailable");
-    localNodeNpub = status.descriptor?.nodeNpub ?? null;
   } else {
     const raw = await control(["--socket", Bun.env.FIPS_CONTROL_SOCKET?.trim() || "/app/data/fips/control.sock", "show", "status"], signal);
     const result = JSON.parse(raw);
@@ -40,10 +38,6 @@ export async function resolveNativeFipsDestination(endpoint: string, signal: Abo
     if (status.state !== "running" || status.tun_state !== "active" || status.persistent !== true) {
       throw new Error("Native FIPS requires a running daemon, active TUN and persistent identity");
     }
-    localNodeNpub = typeof status.npub === "string" ? status.npub : null;
-  }
-  if (localNodeNpub === nodeNpub) {
-    throw new Error("Approved Tower FIPS endpoint resolves to this Autopilot node; a remote Tower transport npub is required");
   }
   const address = await control(["address", nodeNpub], signal);
   if (isIP(address) !== 6 || !address.startsWith("fd")) throw new Error("Native FIPS returned an invalid mesh address");

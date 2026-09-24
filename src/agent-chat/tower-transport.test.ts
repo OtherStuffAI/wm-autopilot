@@ -117,6 +117,31 @@ test("backs off repeated native verification failures without trying HTTPS", asy
   expect(publicRequests).toBe(0);
 });
 
+test("supports a local ingress whose logical endpoint uses the native daemon identity", async () => {
+  const endpoint = `http://${nodeNpub}.fips:43100`;
+  let resolutions = 0;
+  const transport = new TowerTransport(endpoint, {
+    mode: "fips", httpsEndpoint: "https://public.example", fipsEndpoint: endpoint, expectedServiceNpub: serviceNpub,
+  }, {
+    resolveMesh: async (requested) => {
+      resolutions += 1;
+      expect(requested).toBe(endpoint);
+      return "fd12:3456::1";
+    },
+    requestMesh: async (url, address) => {
+      expect(url.toString()).toBe(`${endpoint}/health`);
+      expect(address).toBe("fd12:3456::1");
+      return Response.json({ service_npub: serviceNpub });
+    },
+    fetch: (() => { throw new Error("Unexpected public request"); }) as unknown as typeof fetch,
+  });
+
+  expect(await transport.verify()).toBe("fd12:3456::1");
+  expect(resolutions).toBe(1);
+  expect(transport.diagnostics.effectiveTransport).toBeNull();
+  expect(transport.diagnostics.verifiedServiceNpub).toBe(serviceNpub);
+});
+
 test.each(["http://localhost:43100", `http://${nodeNpub}.fips:0`, `http://${nodeNpub}.fips:80`, `http://${nodeNpub}.fips:043100`, `http://${nodeNpub}.fips:65536`, `http://${nodeNpub}.fips:43100/path`, `http://${nodeNpub}.fips:43100?x=1`, "http://npub1fake.fips:43100"])("rejects unsafe endpoint %s", (endpoint) => {
   expect(() => parseTowerFipsEndpoint(endpoint)).toThrow();
 });
