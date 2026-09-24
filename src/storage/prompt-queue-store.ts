@@ -208,6 +208,13 @@ export class PromptQueueStore {
     this.clearQueue.run(sessionId);
   }
 
+  rebindSession(sourceSessionId: string, targetSessionId: string): number {
+    if (!sourceSessionId || !targetSessionId || sourceSessionId === targetSessionId) return 0;
+    const result = this.db.query("UPDATE prompt_queue SET session_id = ?1 WHERE session_id = ?2")
+      .run(targetSessionId, sourceSessionId);
+    return result.changes;
+  }
+
   deletePromptsByType(type: string): number {
     const normalizedType = type.trim();
     if (!normalizedType) return 0;

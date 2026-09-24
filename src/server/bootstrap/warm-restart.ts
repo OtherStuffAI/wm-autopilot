@@ -8,6 +8,8 @@ import { hasTmuxWindow } from "../../agents/tmux-wrapper";
 import type { NativeResumeSourceSession } from "../../sessions/native-resume-launch";
 import { createRestartReplacement } from "../../sessions/restart-session-policy";
 import { resolveStoredSessionTargetFile } from "../../security/filesystem-boundary";
+import type { PromptQueueStore } from "../../storage/prompt-queue-store";
+import type { SessionDispatchStore } from "../../session-dispatch/session-dispatch-store";
 
 export type WarmRestartMarker = {
   createdAt: string;
@@ -18,6 +20,8 @@ export type WarmRestartMarker = {
   requestedBy?: string | null;
   status?: string;
   message?: string;
+  operationId?: string;
+  recoveredSessions?: Array<{ sourceSessionId: string; sessionId: string; disposition: "resumed" | "fresh"; reason?: string }>;
 };
 
 export interface WarmRestartOutcome {
@@ -281,6 +285,7 @@ export const restoreRestartedSessions = async (
   manager: ProcessManager,
   store: MessageStore,
   allowedAgents: AgentType[],
+  bindings?: { promptQueueStore?: PromptQueueStore; sessionDispatchStore?: SessionDispatchStore },
 ): Promise<WarmRestartOutcome | null> => {
   if (!marker || (marker.mode !== "native-resume" && marker.mode !== "resume-or-fresh")) return null;
 
@@ -291,7 +296,17 @@ export const restoreRestartedSessions = async (
   const freshSessions: Array<{ sourceSessionId: string; sessionId: string; reason?: string }> = [];
   const isAgentType = (agent: string): agent is AgentType => allowedAgents.includes(agent as AgentType);
 
+  for (const recovered of marker.recoveredSessions ?? []) {
+    if (recovered.disposition === "resumed") {
+      resumedSessions.push({ sourceSessionId: recovered.sourceSessionId, sessionId: recovered.sessionId });
+    } else {
+      freshSessions.push({ sourceSessionId: recovered.sourceSessionId, sessionId: recovered.sessionId, reason: recovered.reason });
+    }
+  }
+  const alreadyRecovered = new Set((marker.recoveredSessions ?? []).map((entry) => entry.sourceSessionId));
+
   for (const sourceSessionId of targetIds) {
+    if (alreadyRecovered.has(sourceSessionId)) continue;
     const source = recordsById.get(sourceSessionId) as NativeResumeSourceSession | undefined;
     if (!source) {
       failed.push(sourceSessionId);
@@ -300,6 +315,8 @@ export const restoreRestartedSessions = async (
     try {
       const replacement = await createRestartReplacement(manager, source, isAgentType, marker.requestedBy);
       copyRestartTranscript(store, sourceSessionId, replacement.sessionId);
+      bindings?.promptQueueStore?.rebindSession(sourceSessionId, replacement.sessionId);
+      bindings?.sessionDispatchStore?.rebindSession(sourceSessionId, replacement.sessionId);
       if (replacement.disposition === "resumed") {
         resumedSessions.push({ sourceSessionId, sessionId: replacement.sessionId });
       } else {
@@ -309,6 +326,8 @@ export const restoreRestartedSessions = async (
           reason: replacement.reason,
         });
       }
+      marker.recoveredSessions = [...(marker.recoveredSessions ?? []), replacement];
+      if (marker.operationId) await writeWarmRestartMarker(markerPath, marker);
     } catch (error) {
       console.warn(
         `[restart] failed to recreate session ${sourceSessionId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -327,7 +346,12 @@ export const restoreRestartedSessions = async (
   };
   warmRestartOutcome.current = outcome;
   warmRestartState.marker = null;
-  await clearWarmRestartMarker(markerPath);
+  if (marker.operationId) {
+    marker.status = "recovered";
+    await writeWarmRestartMarker(markerPath, marker);
+  } else {
+    await clearWarmRestartMarker(markerPath);
+  }
   console.log(
     `[restart] recreated ${outcome.restored} of ${targetIds.length} stopped session${targetIds.length === 1 ? "" : "s"} (${resumedSessions.length} resumed, ${freshSessions.length} fresh)`,
   );

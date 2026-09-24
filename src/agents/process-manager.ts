@@ -10,6 +10,7 @@ import { isPortAvailable } from "../utils/port-utils.js";
 import { sanitizeLogEntry } from "../logging/log-sanitizer";
 import { trackProjectForSession } from "../projects/npub-project-tracker";
 import type { AgentRuntimeStatus } from "../types/agent-status";
+import { restartDrainGate } from "./session-admission";
 import type { AgentAdapter, AdapterSessionContext, AgentTransport } from "./agent-adapter";
 import {
   resolveAdapterFactory,
@@ -591,6 +592,7 @@ export class ProcessManager {
     metadata?: SessionMetadataInput,
     model?: string,
   ): Promise<SessionSnapshot> {
+    restartDrainGate.assertSessionStartAllowed();
     const launchStartedAt = Date.now();
     const requestNpub = explicitNpub ?? getAuthenticatedNpub() ?? undefined;
     const definition = this.config.agents[agent];

@@ -11,6 +11,14 @@ function makeTempDb(): string {
 }
 
 describe('PromptQueueStore', () => {
+  test('rebinds retained prompts without changing their stable identities', () => {
+    const store = new PromptQueueStore(makeTempDb());
+    const prompt = store.addPrompt('source', { content: 'Continue once', type: 'dispatch_callback', dedupeKey: 'callback-1' });
+    expect(store.rebindSession('source', 'replacement')).toBe(1);
+    expect(store.getSessionQueue('source')).toEqual([]);
+    expect(store.getSessionQueue('replacement')).toMatchObject([{ id: prompt?.id, content: 'Continue once', dedupeKey: 'callback-1' }]);
+  });
+
   test('detects queued prompts by exact content within a session', () => {
     const store = new PromptQueueStore(makeTempDb());
 

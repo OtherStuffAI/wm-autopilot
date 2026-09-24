@@ -55,6 +55,11 @@ describe("handleSystemRoutes restart", () => {
       ensureApiAccess: async () => null, AccessActions: { SystemManage: "system:manage" },
       manager: { listSessions: () => [], stopSession: async () => undefined },
       restartMarkerPath: join(root, "restart.json"), isAgentType: () => true,
+      controlledRestartOperationPath: join(root, "controlled-restart.json"),
+      messageStore: { listSessions: () => [] },
+      promptQueueStore: { getQueueCount: () => 0, rebindSession: () => 0 },
+      sessionDispatchStore: { rebindSession: () => undefined },
+      queueDispatchInFlight: new Set(), controlledRestartGracePeriodMs: 0,
       launchRestart: async (value: unknown) => { marker = value; return Response.json({ status: "scheduled" }, { status: 202 }); },
     } as unknown as SystemRoutesContext;
     const response = await handleSystemRoutes(new Request(url, { method: "POST", body: JSON.stringify({ confirm: "controlled-restart" }) }), url, "POST", auth, ctx);

@@ -19,6 +19,12 @@ import type { AppProcessManager } from "../apps/app-process-manager";
 import type { AppRegistry } from "../apps/app-registry";
 import type { SystemCleanupDeps, SystemCleanupResult } from "./system-cleanup";
 import { scheduleRestartWithSessionRecovery } from "./restart-request";
+import {
+  loadControlledRestartOperation,
+  requestControlledRestart,
+} from "./controlled-restart";
+import type { PromptQueueStore } from "../storage/prompt-queue-store";
+import type { SessionDispatchStore } from "../session-dispatch/session-dispatch-store";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -27,6 +33,7 @@ type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEA
 export interface SystemRoutesContext {
   getFipsEndpoint?: () => FipsAppEndpoint;
   restartMarkerPath: string;
+  controlledRestartOperationPath: string;
   warmRestartManagerScriptPath: string;
   projectRoot: string;
   configPort: number;
@@ -41,6 +48,10 @@ export interface SystemRoutesContext {
   initiateShutdown: (reason: string) => void;
   performSystemCleanup: (deps: SystemCleanupDeps) => Promise<SystemCleanupResult>;
   messageStore: MessageStore;
+  promptQueueStore: PromptQueueStore;
+  sessionDispatchStore: SessionDispatchStore;
+  queueDispatchInFlight: ReadonlySet<string>;
+  controlledRestartGracePeriodMs: number;
   appProcessManager: AppProcessManager;
   appRegistry: AppRegistry;
 }
@@ -105,7 +116,17 @@ export async function handleSystemRoutes(
     if (denied || authContext.authMethod !== "nip98" || !authContext.signerNpub) {
       return denied ?? Response.json({ error: "direct-admin-nip98-required" }, { status: 403 });
     }
-    return Response.json({ inProgress: warmRestartState.inProgress, marker: warmRestartState.marker, outcome: warmRestartOutcome.current });
+    try {
+      const operation = await loadControlledRestartOperation(ctx.controlledRestartOperationPath);
+      return Response.json({
+        inProgress: operation ? !["complete", "partial", "failed"].includes(operation.status) : warmRestartState.inProgress,
+        operation,
+        marker: warmRestartState.marker,
+        outcome: warmRestartOutcome.current,
+      });
+    } catch (error) {
+      return Response.json({ error: `Failed to read controlled restart status: ${error instanceof Error ? error.message : String(error)}` }, { status: 500 });
+    }
   }
 
   if (pathname === "/api/system/controlled-restart" && method === "POST") {
@@ -120,9 +141,18 @@ export async function handleSystemRoutes(
     if (payload.confirm !== "controlled-restart") {
       return Response.json({ error: "explicit-confirmation-required" }, { status: 400 });
     }
-    return scheduleRestartWithSessionRecovery({
-      manager: ctx.manager, markerPath: ctx.restartMarkerPath,
-      requestedBy: authContext.signerNpub, reason: "flightdeck-controlled-restart",
+    const initiatingSessionId = typeof payload.initiatingSessionId === "string" ? payload.initiatingSessionId : null;
+    return requestControlledRestart({
+      manager: ctx.manager,
+      messageStore: ctx.messageStore,
+      promptQueueStore: ctx.promptQueueStore,
+      sessionDispatchStore: ctx.sessionDispatchStore,
+      queueDispatchInFlight: ctx.queueDispatchInFlight,
+      operationPath: ctx.controlledRestartOperationPath,
+      markerPath: ctx.restartMarkerPath,
+      requesterNpub: authContext.signerNpub,
+      gracePeriodMs: ctx.controlledRestartGracePeriodMs,
+      initiatingSessionId,
       isAgentType: ctx.isAgentType,
       preflight: ctx.launchRestart ? undefined : async () => { await stat(ctx.warmRestartManagerScriptPath); },
       launch: ctx.launchRestart ?? ((marker) => launchRestartManager(ctx, marker)),

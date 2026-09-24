@@ -143,6 +143,30 @@ export class SessionDispatchStore {
     return row ? this.map(row) : null;
   }
 
+  rebindSession(sourceSessionId: string, targetSessionId: string): void {
+    if (!sourceSessionId || !targetSessionId || sourceSessionId === targetSessionId) return;
+    const now = new Date().toISOString();
+    this.db.transaction(() => {
+      this.db.query("UPDATE session_dispatches SET worker_session_id = ?1, updated_at = ?3 WHERE worker_session_id = ?2")
+        .run(targetSessionId, sourceSessionId, now);
+      this.db.query("UPDATE session_dispatches SET callback_session_id = ?1, updated_at = ?3 WHERE callback_session_id = ?2")
+        .run(targetSessionId, sourceSessionId, now);
+      const wake = this.db.query("SELECT * FROM session_dispatch_callback_wakes WHERE callback_session_id = ?1")
+        .get(sourceSessionId) as Row | null;
+      if (wake) {
+        this.db.query("DELETE FROM session_dispatch_callback_wakes WHERE callback_session_id = ?1").run(sourceSessionId);
+        this.db.query(`INSERT OR IGNORE INTO session_dispatch_callback_wakes (
+          callback_session_id, inbox_fingerprint, state, attempt_count, claimed_at, submitted_at,
+          busy_observed_at, lease_expires_at, next_retry_at, last_error, created_at, updated_at
+        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)`).run(...[
+          targetSessionId, wake.inbox_fingerprint, wake.state, wake.attempt_count, wake.claimed_at,
+          wake.submitted_at, wake.busy_observed_at, wake.lease_expires_at, wake.next_retry_at,
+          wake.last_error, wake.created_at, now,
+        ] as any[]);
+      }
+    })();
+  }
+
   list(filters: { callbackSessionId?: string; state?: DispatchState; ownerNpub?: string | null } = {}): SessionDispatch[] {
     const clauses: string[] = [];
     const values: unknown[] = [];

@@ -9,6 +9,23 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("SessionDispatchStore", () => {
+  test("rebinds worker and callback ownership without duplicating callbacks", () => {
+    const root = mkdtempSync(join(tmpdir(), "dispatch-store-rebind-")); roots.push(root);
+    const store = new SessionDispatchStore(join(root, "dispatches.db"));
+    const created = store.create({ workerSessionId: "source", callbackSessionId: "source", ownerNpub: "npub1owner",
+      state: "callback_pending", prompt: "Do it", promptQueuedAt: "2026-01-01T00:00:00.000Z", reportingContext: {},
+      terminalStatus: "completed", terminalMessage: "Done", terminalMessageCreatedAt: "2026-01-01T00:01:00.000Z",
+      terminalFingerprint: "fingerprint", callbackPrompt: null, nativeDiscoveryStartedAt: null,
+      nativeDiscoveryNextAttemptAt: null, nativeDiscoveryAttemptCount: 0, nativeDiscoveryLastError: null,
+      callbackAttemptCount: 0, callbackNextAttemptAt: null, callbackExpiresAt: null, callbackQueuedAt: null,
+      callbackAcknowledgedAt: null, closedAt: null, lastError: null });
+    store.rebindSession("source", "replacement");
+    store.rebindSession("source", "replacement");
+    expect(store.get(created.dispatchId)).toMatchObject({ workerSessionId: "replacement", callbackSessionId: "replacement" });
+    expect(store.listUnresolvedCallbacks("replacement")).toHaveLength(1);
+    expect(store.listUnresolvedCallbacks("source")).toHaveLength(0);
+  });
+
   test("persists optional reporting context and terminal state across reopen", () => {
     const root = mkdtempSync(join(tmpdir(), "dispatch-store-")); roots.push(root);
     const path = join(root, "dispatches.db");

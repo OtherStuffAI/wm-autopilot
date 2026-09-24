@@ -10,6 +10,7 @@ import { deliverSessionAgentMessage } from "./session-agent-message";
 import { getSessionPromptReadiness } from "./prompt-readiness";
 import type { FlightDeckSessionTurnBridge } from "../agent-chat/flightdeck-session-turn-bridge";
 import type { DispatchInboxWakeClaim, SessionDispatchInboxCoordinator } from "../session-dispatch/session-dispatch-inbox";
+import { restartDrainGate } from "../agents/session-admission";
 
 // ---------- Context supplied by server.ts ----------
 
@@ -210,6 +211,7 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
     acceptedAt?: string;
     onAccepted?: () => void;
   }): Promise<{ messages: unknown[]; deliveryMs: number; messageSyncMs: number; turnObserved: boolean }> {
+    restartDrainGate.assertPromptExecutionAllowed();
     const initialCount = ctx.messageStore.listSessionMessages(input.session.id).length;
     const deliveryStartedAt = Date.now();
     const sentAtMs = Date.now();
@@ -353,6 +355,7 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
 
   async function maybeAutoDispatchQueuedPrompt(session: SessionSnapshot | null) {
     if (!session) return;
+    if (restartDrainGate.isDraining()) return;
     if (queueDispatchInFlight.has(session.id)) {
       if (session.agentRuntimeStatus === "running") ctx.dispatchInbox?.noteSessionBusy(session.id);
       return;

@@ -285,6 +285,7 @@ import {
   writeWarmRestartMarker,
 } from "./server/bootstrap/warm-restart";
 import type { WarmRestartMarker } from "./server/bootstrap/warm-restart";
+import { recordControlledRestartRecovery } from "./server/controlled-restart";
 import { resolveTerminalConfig } from "./terminal/terminal-config";
 import { TerminalSessionManager } from "./terminal/terminal-session-manager";
 import { TerminalTicketStore } from "./terminal/terminal-ticket-store";
@@ -783,6 +784,7 @@ await mkdir(attachmentRoot, { recursive: true }).catch(() => undefined);
 const warmRestartRoot = join(homeDirectory, ".wingmen");
 await mkdir(warmRestartRoot, { recursive: true }).catch(() => undefined);
 const restartMarkerPath = join(warmRestartRoot, "restart.json");
+const controlledRestartOperationPath = join(warmRestartRoot, "controlled-restart.json");
 const warmRestartMarker = await loadWarmRestartMarker(restartMarkerPath);
 
 const resolveWorkspace = (context?: RequestAuthContext): WorkspaceScope => {
@@ -1857,13 +1859,18 @@ const {
 // Session creation and rehydration emit manager events that can dispatch
 // persisted prompts. Recovery must therefore run after the dispatch engine is
 // initialized, or startup will hit the destructured helper's temporal dead zone.
-await restoreRestartedSessions(
+const restartRecoveryOutcome = await restoreRestartedSessions(
   warmRestartMarker,
   restartMarkerPath,
   manager,
   messageStore,
   [...SUPPORTED_AGENT_TYPES],
+  { promptQueueStore, sessionDispatchStore },
 );
+
+await recordControlledRestartRecovery(controlledRestartOperationPath, restartRecoveryOutcome).catch((error) => {
+  console.warn(`[restart] failed to record controlled recovery outcome: ${error instanceof Error ? error.message : String(error)}`);
+});
 
 await rehydrateWarmSessions(
   warmRestartMarker,
@@ -2818,11 +2825,16 @@ const handleApi = createApiRouteHandler({
   systemRoutesContext: {
     getFipsEndpoint: () => fipsControlPlane.getEndpoint(),
     restartMarkerPath,
+    controlledRestartOperationPath,
     warmRestartManagerScriptPath,
     projectRoot,
     configPort: config.port,
     wingmanCoreTmuxSession: WINGMAN_CORE_TMUX_SESSION,
     manager,
+    promptQueueStore,
+    sessionDispatchStore,
+    queueDispatchInFlight,
+    controlledRestartGracePeriodMs: Math.max(0, Number.parseInt(Bun.env.CONTROLLED_RESTART_GRACE_MS || "30000", 10) || 30000),
     ensureApiAccess,
     AccessActions,
     isAgentType,

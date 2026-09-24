@@ -6,6 +6,32 @@ import { tmpdir } from "node:os";
 import { restoreRestartedSessions } from "./warm-restart";
 
 describe("restoreRestartedSessions", () => {
+  test("checkpoints each replacement and skips it on repeated startup while rebinding durable work", async () => {
+    const root = await mkdtemp(join(tmpdir(), "wingman-idempotent-recovery-"));
+    const markerPath = join(root, "restart.json");
+    const marker = { createdAt: new Date().toISOString(), mode: "resume-or-fresh" as const,
+      sessionIds: ["session-old"], requestedBy: "npub1owner", operationId: "operation-1" };
+    await writeFile(markerPath, `${JSON.stringify(marker)}\n`, "utf8");
+    let launches = 0;
+    const rebound: string[] = [];
+    const manager = { createSession: async () => { launches += 1; return { id: "session-new" }; } };
+    const store = { listSessions: () => [{ id: "session-old", agent: "codex", name: "Manager", npub: "npub1owner",
+      workingDirectory: "/tmp/project", metadata: { goal: "Report completion", nextAction: "reflect" } }],
+      listSessionMessages: () => [], replaceMessages: () => undefined };
+    const bindings = { promptQueueStore: { rebindSession: (from: string, to: string) => { rebound.push(`queue:${from}:${to}`); } },
+      sessionDispatchStore: { rebindSession: (from: string, to: string) => { rebound.push(`callback:${from}:${to}`); } } };
+
+    const first = await restoreRestartedSessions(marker, markerPath, manager as never, store as never, ["codex"], bindings as never);
+    const persisted = await Bun.file(markerPath).json();
+    const second = await restoreRestartedSessions(persisted, markerPath, manager as never, store as never, ["codex"], bindings as never);
+
+    expect(launches).toBe(1);
+    expect(rebound).toEqual(["queue:session-old:session-new", "callback:session-old:session-new"]);
+    expect(first?.freshSessions).toHaveLength(1);
+    expect(second?.freshSessions).toEqual(first?.freshSessions);
+    expect((await Bun.file(markerPath).json()).status).toBe("recovered");
+  });
+
   test("creates replacement sessions from the durable restart marker", async () => {
     const root = await mkdtemp(join(tmpdir(), "wingman-native-resume-"));
     const markerPath = join(root, "restart.json");
