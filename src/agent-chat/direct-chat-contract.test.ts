@@ -9,9 +9,9 @@ import {
 
 describe('Agent Direct Chat contract', () => {
   const messages = orderDirectChatMessages([
-    { id: 'm2', body: 'second', created_at: '2026-01-01T00:00:02Z', created_by_actor_npub: 'npub1human' },
-    { id: 'm1', body: '@Example Agent first', created_at: '2026-01-01T00:00:01Z', created_by_actor_npub: 'npub1human', metadata: { mentions: [{ type: 'agent', npub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg', label: 'Example Agent' }] } },
-    { id: 'a1', body: 'reply', created_at: '2026-01-01T00:00:03Z', created_by_actor_npub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg' },
+    { id: 'm2', body: 'second', created_at: '2026-01-01T00:00:02Z', created_by_actor_npub: 'npub1human', created_by_actor_label: 'Pete' },
+    { id: 'm1', body: '@Example Agent first', created_at: '2026-01-01T00:00:01Z', created_by_actor_npub: 'npub1human', created_by_actor_label: 'Pete', metadata: { mentions: [{ type: 'agent', npub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg', label: 'Example Agent' }] } },
+    { id: 'a1', body: 'reply', created_at: '2026-01-01T00:00:03Z', created_by_actor_npub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg', created_by_actor_label: 'Rick' },
   ]);
 
   test('requires canonical npub mention metadata and orders authoritative history', () => {
@@ -95,23 +95,27 @@ describe('Agent Direct Chat contract', () => {
     expect(bootstrap.indexOf('# Metadata')).toBeLessThan(bootstrap.indexOf('# History'));
     expect(bootstrap.indexOf('# History')).toBeLessThan(bootstrap.indexOf('# Prompt'));
     expect(bootstrap).toContain('"tower_service_npub": "npub1tower"');
-    expect(bootstrap).toContain('"message_id": "m2"');
+    expect(bootstrap).toContain('## 2026-01-01T00:00:02Z · Pete · m2');
     expect(bootstrap).toContain('# Prompt\n\n@Example Agent first');
     expect(bootstrap.match(/@Example Agent first/g)).toHaveLength(1);
 
     const followUp = buildDirectChatFollowUpPrompt({ routingKey: 'route', threadId: 't1', history: messages,
-      actionableMessages: [{ ...messages[1]!, message: 'Carry On', attachments: [{ id: 'file-1' }], mentions: messages[0]!.mentions }],
+      actionableMessages: [{ ...messages[1]!, message: 'Carry On', attachments: [{ id: 'file-1', filename: 'brief.pdf', content_type: 'application/pdf', storage_object_id: 'object-1' }], mentions: messages[0]!.mentions }],
       historyCheckpointMessageId: 'm1' });
     expect(followUp).toContain('polished response using GitHub-Flavored Markdown');
     expect(followUp).toContain('published verbatim to Flight Deck');
     expect(followUp).not.toContain('FLIGHTDECK_REPLY_BEGIN');
     expect(followUp).not.toContain('# Metadata');
     expect(followUp).toContain('# History');
-    expect(followUp).toContain('"message_id": "a1"');
-    expect(followUp).not.toContain('"message_id": "m1"');
-    expect(followUp).toContain('# Prompt\n\nCarry On');
-    expect(followUp).toContain('"id": "file-1"');
-    expect(followUp).toContain('"label": "Example Agent"');
+    expect(followUp).toContain('## 2026-01-01T00:00:03Z · Rick · a1');
+    expect(followUp).not.toContain(' · m1');
+    expect(followUp).toContain('# Prompt\n\nCarry On\n\nMessage: m2 · 2026-01-01T00:00:02Z');
+    expect(followUp).toContain('brief.pdf · application/pdf · storage://object-1 · id:file-1');
+    for (const repeatedField of ['user_id', 'user_npub', 'owning_thread_id', '\"mentions\"', '\"attachments\"', '\"inherited\"']) {
+      expect(followUp).not.toContain(repeatedField);
+    }
+    expect(followUp).not.toContain('Prompt record metadata');
+    expect(followUp).not.toContain('npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg');
   });
 
   test('renders no missing history and fails closed on an inconsistent checkpoint', () => {
@@ -120,6 +124,39 @@ describe('Agent Direct Chat contract', () => {
     expect(noHistory).toContain('# History\n\n_No missing history._\n\n# Prompt\n\nCarry On');
     expect(() => buildDirectChatFollowUpPrompt({ routingKey: 'route', threadId: 't1', history: messages,
       actionableMessages: [messages[1]!], historyCheckpointMessageId: 'missing' })).toThrow('absent from the authoritative');
+  });
+
+  test('materially reduces database-shaped transcript noise', () => {
+    const history = Array.from({ length: 8 }, (_, index) => ({
+      ...messages[index % messages.length]!,
+      messageId: `message-${index}-${'a'.repeat(28)}`,
+      userId: `actor-${index}-${'b'.repeat(30)}`,
+      owningThreadId: `thread-${'c'.repeat(29)}`,
+      message: `Message body ${index}`,
+      attachments: [],
+    }));
+    const prompt = { ...messages[0]!, messageId: 'actionable-message', message: 'Carry On' };
+    const compact = buildDirectChatFollowUpPrompt({
+      routingKey: 'route',
+      threadId: 'thread',
+      history: [...history, prompt],
+      actionableMessages: [prompt],
+    });
+    const databaseShaped = JSON.stringify(history.map((message) => ({
+      message_id: message.messageId,
+      user_id: message.userId,
+      user_npub: message.userNpub,
+      created_at: message.createdAt,
+      message: message.message,
+      attachments: message.attachments,
+      mentions: message.mentions,
+      inherited: message.inherited,
+      owning_thread_id: message.owningThreadId,
+    })), null, 2);
+
+    expect(compact.length).toBeLessThan(databaseShaped.length * 0.6);
+    expect(compact).not.toContain('[]');
+    expect(compact).not.toContain('false');
   });
 
   test('keeps inherited branch history inert even when it mentions the routed agent', () => {

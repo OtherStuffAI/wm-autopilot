@@ -98,6 +98,7 @@ export interface FlightDeckPgMessage {
   row_version?: number | null;
   created_by_actor_id?: string | null;
   created_by_actor_npub?: string | null;
+  created_by_actor_label?: string | null;
   sender_npub?: string | null;
   updated_by_actor_id?: string | null;
   created_at?: string | null;

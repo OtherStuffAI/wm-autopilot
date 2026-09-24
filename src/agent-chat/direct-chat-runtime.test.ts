@@ -337,7 +337,7 @@ describe('Agent Direct Chat runtime', () => {
 
     const childPrompt = f.prompts[0]!;
     expect(childPrompt).toContain('"thread_id": "child-thread"');
-    expect(childPrompt).toContain('"message_id": "m1"');
+    expect(childPrompt).toContain(' · m1');
     expect(childPrompt).toContain('# Prompt\n\n@Example Agent new child instruction');
     expect(f.published[0].metadata.source_message_ids).toEqual(['m2']);
     expect(f.published[0].threadId).toBe('child-thread');
@@ -630,9 +630,10 @@ describe('Agent Direct Chat runtime', () => {
     const m3 = f.message('m3', '@Example Agent follow up', true); await f.handle([m1, a2, m2, m3], 'm3'); await f.runtime.waitForIdle();
     expect(f.creates).toHaveLength(1); expect(f.prompts).toHaveLength(2); expect(f.prompts[1]).not.toContain('# Metadata');
     const followUp = f.prompts[1]!;
-    expect(followUp).not.toContain('"message_id": "m1"');
-    expect(followUp).toContain('"message_id": "a2"');
-    expect(followUp).toContain('"message_id": "m2"');
+    expect(followUp).not.toContain(' · m1');
+    expect(followUp).toContain(' · a2');
+    expect(followUp).toContain(' · m2');
+    expect(followUp).toContain('Message: m3 · ');
     expect(followUp).toContain('# Prompt\n\n@Example Agent follow up');
     expect(f.interceptStore.listAll()[0]?.lastHumanMessageIdDelivered).toBe('m3');
     expect(f.interceptStore.listAll()[0]?.nativeHistoryCheckpointMessageId).toBe('m3');
@@ -1055,7 +1056,7 @@ describe('Agent Direct Chat runtime', () => {
     await f.runtime.waitForIdle();
 
     expect(f.prompts).toHaveLength(1);
-    expect(f.prompts[0]).toContain('"message_id": "m2"');
+    expect(f.prompts[0]).toContain('Message: m2 · ');
     expect(f.published).toHaveLength(1);
     expect(f.published[0].body).not.toContain('Duplicate callback');
     expect(f.published[0].metadata.source_message_ids).toEqual(['m2']);
@@ -1122,9 +1123,9 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.prompts).toHaveLength(1); expect(f.published).toHaveLength(1);
     const prompt = f.prompts[0]!;
     expect(prompt).toContain('# Metadata');
-    expect(prompt).toContain('"message_id": "a1"');
-    expect(prompt).toContain('"message_id": "m1"');
-    expect(prompt).toContain('"message_id": "m2"');
+    expect(prompt).toContain(' · a1');
+    expect(prompt).toContain(' · m1');
+    expect(prompt).toContain(' · m2');
     expect(prompt).toContain('# Prompt\n\n@Example Agent queued while stopped');
     const state = f.interceptStore.getByRoutingKey(routingKey)!;
     expect(state.sessionGeneration).toBe(2); expect(state.previousSessionIds).toEqual(['archived-session']);
