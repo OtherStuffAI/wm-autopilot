@@ -1020,7 +1020,7 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.prompts).toHaveLength(1); expect(f.interceptStore.listAll()[0]!.lastAgentMessageIdPublished).toBe('agent-message-replayed');
   });
 
-  test('recovers a provisional wait timeout after the accepted session produces its late final', async () => {
+  test('retires an accepted session that times out and replays from chat history in a fresh session', async () => {
     const f = fixture({
       timeoutFirstResponse: true,
       useDeliveryReconciler: true,
@@ -1035,28 +1035,22 @@ describe('Agent Direct Chat runtime', () => {
     const m1 = f.message('m1', '@Example Agent finish this after the supervisor wait', true);
     await f.handle([m1], 'm1');
     await f.runtime.waitForIdle();
-    expect(f.dispatchOutcomeStore.listPage(['sub1'], { limit: 25, offset: 0 }).rows[0]).toMatchObject({
-      outcome: 'launched', actionId: 'session-1', status: 'waiting', reasonCode: 'provisional_timeout',
+    const state = f.interceptStore.listAll()[0]!;
+    expect(f.stops).toEqual(['session-1']);
+    expect(f.creates).toHaveLength(2);
+    expect(f.creates[1][3].type).toBe('agent-chat');
+    expect(state).toMatchObject({
+      sessionId: 'session-2', sessionGeneration: 2, previousSessionIds: ['session-1'], state: 'idle',
     });
-
-    const lateAt = new Date(Date.now() + 10).toISOString();
-    f.sessions.get('session-1').messages.push(
-      { role: 'user', content: 'accepted source message m1', createdAt: lateAt },
-      { role: 'assistant', content: 'Late authoritative final.', createdAt: lateAt },
-    );
-    const routingKey = f.interceptStore.listAll()[0]!.routingKey;
-    const pendingTurn = f.turnStore.getPending(routingKey)!;
-    for (let attempt = 0; attempt < 20 && f.published.length === 0; attempt += 1) {
-      await f.deliveryReconciler.processTurnNow(pendingTurn.turnId);
-      await Bun.sleep(10);
-    }
-    expect(f.turnStore.get(pendingTurn.turnId)).toMatchObject({ state: 'published' });
-    await waitUntil(() => f.published.length === 1);
-
-    expect(f.published.at(-1)?.body).toBe('Late authoritative final.');
+    expect(f.prompts).toHaveLength(1);
+    expect(f.prompts[0]).toContain('finish this after the supervisor wait');
+    expect(f.published).toHaveLength(1);
+    expect(f.published[0].metadata.session_id).toBe('session-2');
+    expect(f.published[0].metadata.source_message_ids).toEqual(['m1']);
+    expect(f.activities.map((activity) => activity.body).filter(Boolean).join('\n'))
+      .toContain('Retired session-1: Timed out waiting for session session-1 to produce a final response.');
     expect(f.dispatchOutcomeStore.listPage(['sub1'], { limit: 25, offset: 0 }).rows[0]).toMatchObject({
-      outcome: 'launched', action: 'session', actionId: 'session-1', status: 'recovered',
-      reasonCode: 'recovered_success', details: { recovery: { evidence: 'flightdeck_delivery' } },
+      outcome: 'launched', action: 'session', actionId: 'session-2', status: 'running', recordId: 'm1',
     });
   });
 

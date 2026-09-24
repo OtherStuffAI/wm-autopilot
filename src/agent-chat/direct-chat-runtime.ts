@@ -552,10 +552,14 @@ export class AgentDirectChatRuntime {
           const replacement = replacePromptBoundary
             ? { reason: 'previous session did not accept the submitted prompt', detail: error.message }
             : directChatSessionReplacementDecision(error);
-          if (!replacement || (!replacePromptBoundary && failedTurn?.state === 'awaiting_reply')) throw error;
+          const promptWasAccepted = failedTurn?.state === 'awaiting_reply';
+          const replacementAllowed = replacePromptBoundary || (promptWasAccepted
+            ? replacement?.requiresAcceptedPrompt === true
+            : replacement?.requiresAcceptedPrompt !== true);
+          if (!replacement || !replacementAllowed) throw error;
           const rejectedSessionId = session.id;
           await this.deps.processManager.stopSession(rejectedSessionId).catch((stopError) => {
-            this.log.warn('[agent-chat] failed to retire non-accepting direct chat session', {
+            this.log.warn('[agent-chat] failed to retire unhealthy direct chat session', {
               routingKey, sessionId: rejectedSessionId,
               error: stopError instanceof Error ? stopError.message : String(stopError),
             });
