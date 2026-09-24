@@ -6,9 +6,21 @@ import {
   createAutopilotConnectPackage,
   installationIdForIdentity,
 } from "../control-plane/connect-package";
-import type { AgentDiscoveryItemV1, AgentDiscoveryV1, AgentOverviewV1, InstallationHealthV1 } from "../control-plane/contracts";
+import type {
+  AgentDiscoveryItemV1,
+  AgentDiscoveryV1,
+  AgentOverviewV1,
+  AgentPipelinesV1,
+  AgentSchedulesV1,
+  AgentTriggersV1,
+  InstallationHealthV1,
+  PipelineDefinitionSummaryV1,
+} from "../control-plane/contracts";
 import type { WingmanInstanceIdentity } from "../identity/wingman-instance-identity";
 import { normaliseNpub } from "../identity/npub-utils";
+import type { PipelineBindingStore } from "../pipelines/pipeline-binding-store";
+import type { PipelineDefinitionRecord } from "../pipelines/pipeline-loader";
+import type { ScheduledJob, SchedulerStore } from "../scheduler/scheduler-store";
 import type { WorkspaceDelegationStore } from "../storage/workspace-delegation-store";
 import type { FipsAppEndpoint } from "../apps/fips-app-ingress-manager";
 import { nip19 } from "nostr-tools";
@@ -28,6 +40,9 @@ export interface ControlPlaneRoutesContext {
   getFipsEndpoint: () => FipsAppEndpoint;
   workspaceDelegationStore: WorkspaceDelegationStore;
   agentStore: AgentStore;
+  pipelineBindingStore: Pick<PipelineBindingStore, "getAvailabilityMode" | "getDefaultMode" | "listAvailableIds" | "listDefaultIds" | "listOverrides">;
+  listPipelineDefinitions: (ownerNpub: string) => Promise<PipelineDefinitionRecord[]>;
+  schedulerStore: Pick<SchedulerStore, "bindLegacyJobsToAgent" | "listJobsForAgent">;
   now?: () => Date;
 }
 
@@ -66,21 +81,27 @@ function readyInstallation(ctx: ControlPlaneRoutesContext): { identity: WingmanI
   return { identity: ctx.identity, fips };
 }
 
-function discovery(agent: AgentDefinitionRecord, signerNpub: string): AgentDiscoveryItemV1 {
+function agentPaths(ownerNpub: string, agentId: string): AgentDiscoveryItemV1["paths"] {
+  const base = `/api/owners/${encodeURIComponent(ownerNpub)}/control-plane/v1/agents/${encodeURIComponent(agentId)}`;
+  return { overview: `${base}/overview`, pipelines: `${base}/pipelines`, schedules: `${base}/schedules`, triggers: `${base}/triggers` };
+}
+
+function discovery(agent: AgentDefinitionRecord, signerNpub: string, ownerNpub: string): AgentDiscoveryItemV1 {
   return {
     agent_id: agent.agentId,
     bot_npub: agent.botNpub,
     name: agent.publicProfile?.name || agent.label || agent.agentId,
     description: agent.publicProfile?.about ?? "",
     can_instruct: agent.instructorNpubs?.includes(signerNpub) ?? false,
+    paths: agentPaths(ownerNpub, agent.agentId),
   };
 }
 
-function overview(installationId: string, agent: AgentDefinitionRecord, signerNpub: string): AgentOverviewV1 {
+function overview(installationId: string, agent: AgentDefinitionRecord, signerNpub: string, ownerNpub: string): AgentOverviewV1 {
   return {
     installation_id: installationId,
     agent: {
-      ...discovery(agent, signerNpub),
+      ...discovery(agent, signerNpub, ownerNpub),
       picture: agent.publicProfile?.picture ?? null,
       nip05: agent.publicProfile?.nip05 ?? null,
       capabilities: [...agent.capabilities],
@@ -90,8 +111,10 @@ function overview(installationId: string, agent: AgentDefinitionRecord, signerNp
   };
 }
 
-function ownerRoute(pathname: string): { ownerNpub: string; resource: string; agentId: string | null } | null {
-  const match = pathname.match(/^\/api\/owners\/([^/]+)\/control-plane\/v1\/(manifest|health|agents)(?:\/([^/]+))?$/);
+type AgentResource = "overview" | "pipelines" | "schedules" | "triggers";
+
+function ownerRoute(pathname: string): { ownerNpub: string; resource: string; agentId: string | null; agentResource: AgentResource | null } | null {
+  const match = pathname.match(/^\/api\/owners\/([^/]+)\/control-plane\/v1\/(manifest|health|agents)(?:\/([^/]+))?(?:\/(overview|pipelines|schedules|triggers))?$/);
   if (!match) return null;
   let ownerNpub: string | null;
   try {
@@ -100,7 +123,56 @@ function ownerRoute(pathname: string): { ownerNpub: string; resource: string; ag
     return null;
   }
   if (!ownerNpub) return null;
-  return { ownerNpub, resource: match[2]!, agentId: match[3] ? decodeURIComponent(match[3]) : null };
+  return {
+    ownerNpub,
+    resource: match[2]!,
+    agentId: match[3] ? decodeURIComponent(match[3]) : null,
+    agentResource: (match[4] as AgentResource | undefined) ?? null,
+  };
+}
+
+function definitionSummary(definition: PipelineDefinitionRecord): PipelineDefinitionSummaryV1 {
+  return {
+    pipeline_definition_id: definition.id,
+    name: definition.name,
+    description: definition.spec.description ?? "",
+    scope: definition.scope,
+    version: definition.spec.version ?? null,
+    tags: [...(definition.spec.tags ?? [])],
+  };
+}
+
+function scheduleItem(job: ScheduledJob, agent: AgentDefinitionRecord) {
+  return {
+    schedule_id: job.id,
+    agent_id: agent.agentId,
+    bot_npub: job.botNpub,
+    name: job.name,
+    enabled: job.enabled,
+    cron_expression: job.cronExpression,
+    timezone: job.timezone,
+    active_start_time: job.activeStartTime,
+    active_end_time: job.activeEndTime,
+    action_type: job.actionType,
+    pipeline_definition_id: job.pipelineDefinitionId,
+    last_run_at: job.lastRunAt,
+    next_run_at: job.nextRunAt,
+  };
+}
+
+function triggerItem(job: ScheduledJob, agent: AgentDefinitionRecord) {
+  return {
+    trigger_id: job.id,
+    agent_id: agent.agentId,
+    bot_npub: job.botNpub,
+    name: job.name,
+    enabled: job.enabled,
+    trigger_type: job.triggerType === "cron" ? "unsupported" as const : job.triggerType,
+    file_pattern: job.filePattern,
+    action_type: job.actionType,
+    pipeline_definition_id: job.pipelineDefinitionId,
+    last_run_at: job.lastRunAt,
+  };
 }
 
 function authorisedAgents(
@@ -183,11 +255,66 @@ export async function handleControlPlaneApi(
   if (route.agentId) {
     const agent = access.agents.find((candidate) => candidate.agentId === route.agentId);
     if (!agent) return noStore(Response.json({ error: "agent-not-found" }, { status: 404 }));
-    return noStore(Response.json(overview(installationId, agent, access.signerNpub)));
+    if (!route.agentResource || route.agentResource === "overview") {
+      return noStore(Response.json(overview(installationId, agent, access.signerNpub, route.ownerNpub)));
+    }
+    if (route.agentResource === "pipelines") {
+      const definitions = await ctx.listPipelineDefinitions(route.ownerNpub);
+      const availabilityMode = ctx.pipelineBindingStore.getAvailabilityMode(agent.agentId);
+      const defaultMode = ctx.pipelineBindingStore.getDefaultMode(agent.agentId);
+      const explicitIds = ctx.pipelineBindingStore.listAvailableIds(agent.agentId);
+      const assignedIds = availabilityMode === "implicit_all" ? definitions.map((definition) => definition.id) : explicitIds;
+      const persistedDefaultIds = ctx.pipelineBindingStore.listDefaultIds(agent.agentId);
+      const defaultIds = defaultMode === "implicit_library"
+        ? definitions.filter((definition) => definition.spec.default === true).map((definition) => definition.id)
+        : persistedDefaultIds;
+      const overrides = ctx.pipelineBindingStore.listOverrides(agent.agentId);
+      const definitionIds = new Set(definitions.map((definition) => definition.id));
+      const missingDefinitionIds = Array.from(new Set([
+        ...explicitIds,
+        ...persistedDefaultIds,
+        ...overrides.map((binding) => binding.pipelineDefinitionId),
+      ].filter((id) => !definitionIds.has(id)))).sort();
+      const body: AgentPipelinesV1 = {
+        installation_id: installationId,
+        agent_id: agent.agentId,
+        bot_npub: agent.botNpub,
+        availability_mode: availabilityMode,
+        default_mode: defaultMode,
+        available_definitions: definitions.map(definitionSummary),
+        assignments: assignedIds.map((pipeline_definition_id) => ({ pipeline_definition_id })),
+        defaults: defaultIds.map((pipeline_definition_id) => ({ pipeline_definition_id })),
+        overrides: overrides.map((binding) => ({
+          kind: binding.kind,
+          context_id: binding.contextId,
+          pipeline_definition_id: binding.pipelineDefinitionId,
+        })),
+        missing_definition_ids: missingDefinitionIds,
+      };
+      return noStore(Response.json(body));
+    }
+    ctx.schedulerStore.bindLegacyJobsToAgent(agent.agentId, agent.botNpub, route.ownerNpub);
+    const jobs = ctx.schedulerStore.listJobsForAgent(agent.agentId);
+    if (route.agentResource === "schedules") {
+      const body: AgentSchedulesV1 = {
+        installation_id: installationId,
+        agent_id: agent.agentId,
+        bot_npub: agent.botNpub,
+        schedules: jobs.filter((job) => job.triggerType === "cron").map((job) => scheduleItem(job, agent)),
+      };
+      return noStore(Response.json(body));
+    }
+    const body: AgentTriggersV1 = {
+      installation_id: installationId,
+      agent_id: agent.agentId,
+      bot_npub: agent.botNpub,
+      triggers: jobs.filter((job) => job.triggerType !== "cron").map((job) => triggerItem(job, agent)),
+    };
+    return noStore(Response.json(body));
   }
   const body: AgentDiscoveryV1 = {
     installation_id: installationId,
-    agents: access.agents.map((agent) => discovery(agent, access.signerNpub)),
+    agents: access.agents.map((agent) => discovery(agent, access.signerNpub, route.ownerNpub)),
   };
   return noStore(Response.json(body));
 }

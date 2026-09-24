@@ -18,7 +18,7 @@ The response envelope is `{ manifest, signature }`. A representative wire shape 
     "endpoints": { "fips": "http://npub1....fips:3601", "https": "https://autopilot.example" },
     "api": {
       "version": 1,
-      "capabilities": ["health", "agents.read"],
+      "capabilities": ["health", "agents.read", "agents.overview.read", "agents.pipelines.read", "agents.schedules.read", "agents.triggers.read"],
       "health_path": "/api/owners/npub1owner.../control-plane/v1/health",
       "agents_path": "/api/owners/npub1owner.../control-plane/v1/agents"
     }
@@ -49,9 +49,62 @@ Discovery returns:
 ```json
 {
   "installation_id": "autopilot_<stable-id>",
-  "agents": [{ "agent_id": "agent-example", "bot_npub": "npub1...", "name": "Example Agent", "description": "Public description", "can_instruct": true }]
+  "agents": [{
+    "agent_id": "agent-example",
+    "bot_npub": "npub1...",
+    "name": "Example Agent",
+    "description": "Public description",
+    "can_instruct": true,
+    "paths": {
+      "overview": "/api/owners/npub1owner.../control-plane/v1/agents/agent-example/overview",
+      "pipelines": "/api/owners/npub1owner.../control-plane/v1/agents/agent-example/pipelines",
+      "schedules": "/api/owners/npub1owner.../control-plane/v1/agents/agent-example/schedules",
+      "triggers": "/api/owners/npub1owner.../control-plane/v1/agents/agent-example/triggers"
+    }
+  }]
 }
 ```
+
+The `paths` values are the exact owner-space URLs that Flight Deck signs with NIP-98. The legacy overview alias `GET .../agents/:agentId` remains accepted; new consumers should use the advertised `/overview` path.
+
+## Agent Space reads
+
+The discovery payload advertises four agent-specific reads:
+
+- `GET /api/owners/:ownerNpub/control-plane/v1/agents/:agentId/overview`
+- `GET /api/owners/:ownerNpub/control-plane/v1/agents/:agentId/pipelines`
+- `GET /api/owners/:ownerNpub/control-plane/v1/agents/:agentId/schedules`
+- `GET /api/owners/:ownerNpub/control-plane/v1/agents/:agentId/triggers`
+
+Overview extends the discovery item with public profile fields, public capabilities, and enabled/archive state. Pipelines returns reusable definition summaries separately from agent assignments, defaults, and workspace/scope/channel overrides:
+
+```json
+{
+  "installation_id": "autopilot_<stable-id>",
+  "agent_id": "agent-example",
+  "bot_npub": "npub1...",
+  "availability_mode": "explicit",
+  "default_mode": "explicit",
+  "available_definitions": [{
+    "pipeline_definition_id": "shared:0123456789ab",
+    "name": "Example pipeline",
+    "description": "Reusable library definition",
+    "scope": "shared",
+    "version": 2,
+    "tags": ["example"]
+  }],
+  "assignments": [{ "pipeline_definition_id": "shared:0123456789ab" }],
+  "defaults": [{ "pipeline_definition_id": "shared:0123456789ab" }],
+  "overrides": [{ "kind": "channel", "context_id": "channel-example", "pipeline_definition_id": "shared:0123456789ab" }],
+  "missing_definition_ids": []
+}
+```
+
+`availability_mode: "implicit_all"` is the explicit backward-compatible state for an agent with no availability configuration: all definitions currently loaded from the established shared/user library are assigned. `default_mode: "implicit_library"` similarly exposes definitions carrying the existing `default: true` marker. Once bindings are explicitly configured, an empty list means none. Bindings store definition IDs only; definition JSON remains in the shared/user definition stores and runtime history remains in the pipeline store. A referenced definition that is no longer loadable is reported in `missing_definition_ids` rather than silently substituted or hidden.
+
+Schedules and triggers are split by trigger kind. Both retain the execution `bot_npub` and repeat the stable `agent_id` on every item. Schedule rows expose cron/timezone, action and run timing. Trigger rows expose file-watcher type/pattern, action and last-run timing. Neither response exposes wrapped keys, prompts, working directories, pipeline input, or other internal scheduler state.
+
+Existing scheduler rows are reconciled once by the exact owner plus `bot_npub`, then persisted with `agent_id`; subsequent filtering uses only stable `agent_id`. New and updated scheduler rows bind `agent_id` when their active bot identity resolves to an owner-managed agent.
 
 Every protected request passes through the normal API router and shared NIP-98 verifier. Authorization binds the exact URL including query, method, and body hash when a body exists, and rejects replayed events. The owner may read the agents it manages. A delegated signer requires an active exact-owner `control-plane:read` delegation, is restricted by `resourceFilters.agentIds`, and must be an instructor for every returned agent. Workspace membership is not authority. Unauthorized agent lookups return `404`.
 

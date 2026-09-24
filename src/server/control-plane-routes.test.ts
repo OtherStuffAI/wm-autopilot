@@ -41,7 +41,12 @@ function grant(overrides: Partial<WorkspaceDelegationRecord> = {}): WorkspaceDel
     createdBy: owner, ...overrides };
 }
 
-function context(options: { fips?: "listening" | "unavailable" | "mismatch"; delegation?: WorkspaceDelegationRecord | null } = {}): ControlPlaneRoutesContext {
+function context(options: {
+  fips?: "listening" | "unavailable" | "mismatch";
+  delegation?: WorkspaceDelegationRecord | null;
+  bindingMode?: "implicit_all" | "explicit";
+  defaultMode?: "implicit_library" | "explicit";
+} = {}): ControlPlaneRoutesContext {
   const records = [agent("agent-visible", [owner, delegate]), agent("agent-hidden", [owner])];
   const delegation = options.delegation === undefined ? grant() : options.delegation;
   const installationIdentity = identity();
@@ -59,6 +64,39 @@ function context(options: { fips?: "listening" | "unavailable" | "mismatch"; del
         && (!scope || delegation.scopes.includes(scope)) ? delegation : null } as WorkspaceDelegationStore,
     agentStore: { listForManagerNpub: (npub) => npub === owner ? records : [], getByAgentId: (id) => records.find((item) => item.agentId === id) ?? null,
       canInstruct: (id, npub) => records.find((item) => item.agentId === id)?.instructorNpubs?.includes(npub ?? "") ?? false },
+    pipelineBindingStore: {
+      getAvailabilityMode: () => options.bindingMode ?? "explicit",
+      getDefaultMode: () => options.defaultMode ?? "explicit",
+      listAvailableIds: () => options.bindingMode === "implicit_all" ? [] : ["shared:pipeline-a"],
+      listDefaultIds: () => options.defaultMode === "implicit_library" ? [] : ["shared:pipeline-a"],
+      listOverrides: () => [{ agentId: "agent-visible", kind: "channel", contextId: "channel-1", pipelineDefinitionId: "shared:pipeline-a", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }],
+    },
+    listPipelineDefinitions: async () => [{
+      id: "shared:pipeline-a", slug: "pipeline-a.v1", name: "Pipeline A", scope: "shared", ownerAlias: null,
+      path: "/library/pipeline-a.v1.json", spec: { name: "Pipeline A", description: "Reusable pipeline", version: 1, default: true, tags: ["example"], steps: [] },
+    }],
+    schedulerStore: {
+      bindLegacyJobsToAgent: () => 0,
+      listJobsForAgent: () => [{
+        id: "trigger-1", name: "Daily review", userNpub: owner, agentId: "agent-visible", botNpub,
+        wrappedKeyCiphertext: "hidden", wrappedKeyNonce: "hidden", agent: "codex", model: null,
+        workingDirectory: "/private", initialPrompt: "private", nightwatchmanEnabled: false,
+        triggerType: "cron", persistedTriggerType: "cron", unsupportedReason: null,
+        cronExpression: "0 9 * * *", timezone: "UTC", watchDirectory: null, filePattern: "*",
+        activeStartTime: null, activeEndTime: null, actionType: "pipeline", pipelineDefinitionId: "shared:pipeline-a",
+        pipelineInputJson: "{}", pipelineAgent: null, wappActivityInstallationId: null, enabled: true,
+        lastRunAt: null, nextRunAt: "2026-09-25T09:00:00Z", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      }, {
+        id: "watcher-1", name: "Inbox watcher", userNpub: owner, agentId: "agent-visible", botNpub,
+        wrappedKeyCiphertext: "hidden", wrappedKeyNonce: "hidden", agent: "codex", model: null,
+        workingDirectory: "/private", initialPrompt: "private", nightwatchmanEnabled: false,
+        triggerType: "file_watcher", persistedTriggerType: "file_watcher", unsupportedReason: null,
+        cronExpression: "", timezone: "UTC", watchDirectory: "/private", filePattern: "*.json",
+        activeStartTime: null, activeEndTime: null, actionType: "session", pipelineDefinitionId: null,
+        pipelineInputJson: null, pipelineAgent: null, wappActivityInstallationId: null, enabled: true,
+        lastRunAt: "2026-09-24T01:00:00Z", nextRunAt: null, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      }],
+    },
     now: () => new Date("2026-09-24T02:00:00Z"),
   };
 }
@@ -81,6 +119,12 @@ describe("control-plane routes", () => {
       name: "agent-visible",
       description: "",
       can_instruct: true,
+      paths: {
+        overview: `/api/owners/${owner}/control-plane/v1/agents/agent-visible/overview`,
+        pipelines: `/api/owners/${owner}/control-plane/v1/agents/agent-visible/pipelines`,
+        schedules: `/api/owners/${owner}/control-plane/v1/agents/agent-visible/schedules`,
+        triggers: `/api/owners/${owner}/control-plane/v1/agents/agent-visible/triggers`,
+      },
     });
     expect(response?.headers.get("cache-control")).toBe("no-store");
   });
@@ -113,6 +157,10 @@ describe("control-plane routes", () => {
     expect((await response!.json()).agents.map((item: { agent_id: string }) => item.agent_id)).toEqual(["agent-visible"]);
     const hidden = await request(`/api/owners/${owner}/control-plane/v1/agents/agent-hidden`, delegate);
     expect(hidden?.status).toBe(404);
+    const hiddenBindings = await request(`/api/owners/${owner}/control-plane/v1/agents/agent-hidden/pipelines`, delegate);
+    expect(hiddenBindings?.status).toBe(404);
+    const hiddenSchedules = await request(`/api/owners/${owner}/control-plane/v1/agents/agent-hidden/schedules`, delegate);
+    expect(hiddenSchedules?.status).toBe(404);
     const wrong = await request(`/api/owners/${owner}/control-plane/v1/agents`, wrongDelegate);
     expect(wrong?.status).toBe(403);
     const wrongScope = await request(`/api/owners/${owner}/control-plane/v1/agents`, delegate, context({ delegation: grant({ scopes: ["sessions:read"] }) }));
@@ -126,6 +174,70 @@ describe("control-plane routes", () => {
     const sessionAuth = { ...auth(owner), authMethod: "session" as const };
     const response = await handleControlPlaneApi(new Request(url), url, "GET", sessionAuth, context());
     expect(response?.status).toBe(401);
+  });
+
+  test("returns distinct reusable definitions, assignments, defaults and overrides", async () => {
+    const response = await request(`/api/owners/${owner}/control-plane/v1/agents/agent-visible/pipelines`, owner);
+    expect(response?.status).toBe(200);
+    expect(await response!.json()).toEqual({
+      installation_id: expect.stringMatching(/^autopilot_/),
+      agent_id: "agent-visible",
+      bot_npub: botNpub,
+      availability_mode: "explicit",
+      default_mode: "explicit",
+      available_definitions: [{
+        pipeline_definition_id: "shared:pipeline-a", name: "Pipeline A", description: "Reusable pipeline",
+        scope: "shared", version: 1, tags: ["example"],
+      }],
+      assignments: [{ pipeline_definition_id: "shared:pipeline-a" }],
+      defaults: [{ pipeline_definition_id: "shared:pipeline-a" }],
+      overrides: [{ kind: "channel", context_id: "channel-1", pipeline_definition_id: "shared:pipeline-a" }],
+      missing_definition_ids: [],
+    });
+  });
+
+  test("keeps missing bindings backward compatible with explicit implicit modes", async () => {
+    const response = await request(
+      `/api/owners/${owner}/control-plane/v1/agents/agent-visible/pipelines`,
+      owner,
+      context({ bindingMode: "implicit_all", defaultMode: "implicit_library" }),
+    );
+    const body = await response!.json();
+    expect(body).toMatchObject({
+      availability_mode: "implicit_all",
+      default_mode: "implicit_library",
+      assignments: [{ pipeline_definition_id: "shared:pipeline-a" }],
+      defaults: [{ pipeline_definition_id: "shared:pipeline-a" }],
+    });
+  });
+
+  test("returns public schedule fields with stable agent identity and retained bot identity", async () => {
+    const response = await request(`/api/owners/${owner}/control-plane/v1/agents/agent-visible/schedules`, delegate);
+    expect(response?.status).toBe(200);
+    const body = await response!.json();
+    expect(body).toMatchObject({ agent_id: "agent-visible", bot_npub: botNpub });
+    expect(body.schedules).toEqual([{
+      schedule_id: "trigger-1", agent_id: "agent-visible", bot_npub: botNpub, name: "Daily review", enabled: true,
+      cron_expression: "0 9 * * *", timezone: "UTC", active_start_time: null, active_end_time: null,
+      action_type: "pipeline", pipeline_definition_id: "shared:pipeline-a", last_run_at: null,
+      next_run_at: "2026-09-25T09:00:00Z",
+    }]);
+    expect(JSON.stringify(body)).not.toContain("initialPrompt");
+    expect(JSON.stringify(body)).not.toContain("workingDirectory");
+    expect(JSON.stringify(body)).not.toContain("wrappedKey");
+  });
+
+  test("returns public trigger fields filtered by stable agent identity", async () => {
+    const response = await request(`/api/owners/${owner}/control-plane/v1/agents/agent-visible/triggers`, owner);
+    expect(await response!.json()).toMatchObject({
+      agent_id: "agent-visible",
+      bot_npub: botNpub,
+      triggers: [{
+        trigger_id: "watcher-1", agent_id: "agent-visible", bot_npub: botNpub, name: "Inbox watcher",
+        enabled: true, trigger_type: "file_watcher", file_pattern: "*.json", action_type: "session",
+        pipeline_definition_id: null, last_run_at: "2026-09-24T01:00:00Z",
+      }],
+    });
   });
 
   test("fails explicitly when FIPS is unavailable and never substitutes HTTPS", async () => {

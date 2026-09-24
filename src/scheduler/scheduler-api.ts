@@ -23,6 +23,7 @@ export interface SchedulerApiDependencies {
   getNpub: (request: Request) => string | null;
   getInstanceIdentity?: () => WingmanInstanceIdentity | null;
   getActiveBotOwnerNpub?: (botNpub: string) => string | null;
+  getAgentIdForBotNpub?: (botNpub: string, ownerNpub: string) => string | null;
 }
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -182,6 +183,7 @@ async function handleCreateJob(
   const job = deps.store.createJob({
     name,
     userNpub,
+    agentId: deps.getAgentIdForBotNpub?.(botNpub, userNpub) ?? null,
     botNpub: actionType === "cleanup" ? "" : botNpub,
     wrappedKeyCiphertext: wrapped.ciphertext,
     wrappedKeyNonce: wrapped.nonce,
@@ -233,6 +235,7 @@ async function handleUpdateJob(
       return Response.json({ error: "botNpub must be an active bot identity owned by the scheduler owner" }, { status: 400 });
     }
     update.botNpub = botNpub;
+    update.agentId = deps.getAgentIdForBotNpub?.(botNpub, userNpub) ?? null;
   }
   if (body.actionType === "session" || body.actionType === "pipeline" || body.actionType === "cleanup") {
     update.actionType = body.actionType;

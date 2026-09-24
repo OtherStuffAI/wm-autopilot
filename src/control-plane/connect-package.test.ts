@@ -59,7 +59,14 @@ describe("Autopilot connect package", () => {
       },
       api: {
         version: 1,
-        capabilities: ["health", "agents.read"],
+        capabilities: [
+          "health",
+          "agents.read",
+          "agents.overview.read",
+          "agents.pipelines.read",
+          "agents.schedules.read",
+          "agents.triggers.read",
+        ],
         health_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/health`,
         agents_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/agents`,
       },

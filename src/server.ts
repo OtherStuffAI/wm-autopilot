@@ -157,7 +157,8 @@ import { userSettingsStore } from "./storage/user-settings-store";
 import { artifactsStore } from "./storage/artifacts-store";
 import { resumeRunningPipelineRuns } from "./pipelines/pipeline-api-routes";
 import { type JsonObject, PipelineStore } from "./pipelines/pipeline-store";
-import { getPipelineDefinition } from "./pipelines/pipeline-loader";
+import { PipelineBindingStore } from "./pipelines/pipeline-binding-store";
+import { getPipelineDefinition, listLatestPipelineDefinitions } from "./pipelines/pipeline-loader";
 import { loadPipelineFunctionRegistry } from "./pipelines/function-loader";
 import { builtinPipelineFunctions } from "./pipelines/functions";
 import { runDeclarativePipeline } from "./pipelines/pipeline-runner";
@@ -466,6 +467,7 @@ const sessionDispatchInbox = new SessionDispatchInboxCoordinator(
 );
 sessionDispatchInbox.migrateLegacyCallbacks(promptQueueStore);
 const pipelineStore = new PipelineStore();
+const pipelineBindingStore = new PipelineBindingStore();
 const todoApiHandler = createTodoApiHandler({ store: todoStore, projectStore });
 const projectApiHandler = createProjectApiHandler({
   store: projectStore,
@@ -597,6 +599,8 @@ const schedulerApiHandler = createSchedulerApiHandler({
   engine: schedulerEngine,
   getInstanceIdentity: () => wingmanInstanceIdentity,
   getActiveBotOwnerNpub: (botNpub) => botKeyStore.getActiveKeyForBotNpub(botNpub)?.userNpub ?? null,
+  getAgentIdForBotNpub: (botNpub, ownerNpub) =>
+    agentDefinitionStore.listForManagerNpub(ownerNpub).find((agent) => agent.botNpub === botNpub)?.agentId ?? null,
   getNpub: (request: Request) => {
     const ctx = getRequestContext();
     if (ctx?.delegateRelationshipId && ctx.delegatedOwnerNpub) {
@@ -2709,6 +2713,9 @@ const handleApi = createApiRouteHandler({
     getFipsEndpoint: () => fipsControlPlane.getEndpoint(),
     workspaceDelegationStore,
     agentStore: agentDefinitionStore,
+    pipelineBindingStore,
+    listPipelineDefinitions: (ownerNpub) => listLatestPipelineDefinitions(generateIdentityAlias(ownerNpub)),
+    schedulerStore,
   },
   sessionDispatchService,
   getRequestIP: (req) => fipsControlPlane.externalRequestPeer(serverRef.current?.requestIP(req) ?? null),

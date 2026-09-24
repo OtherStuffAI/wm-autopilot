@@ -29,6 +29,7 @@ export interface ScheduledJob {
   id: string;
   name: string;
   userNpub: string;
+  agentId: string | null;
   botNpub: string;
   wrappedKeyCiphertext: string;
   wrappedKeyNonce: string;
@@ -72,6 +73,7 @@ export interface CreateJobInput {
   id?: string;
   name: string;
   userNpub: string;
+  agentId?: string | null;
   botNpub: string;
   wrappedKeyCiphertext: string;
   wrappedKeyNonce: string;
@@ -96,6 +98,7 @@ export interface CreateJobInput {
 
 export interface UpdateJobInput {
   name?: string;
+  agentId?: string | null;
   botNpub?: string;
   agent?: string;
   model?: string | null;
@@ -127,6 +130,7 @@ interface RawJobRow {
   id: string;
   name: string;
   userNpub: string;
+  agentId: string | null;
   botNpub: string;
   wrappedKeyCiphertext: string;
   wrappedKeyNonce: string;
@@ -185,6 +189,7 @@ const DEFAULT_DB_PATH = databaseFile;
 const JOB_SELECT_COLS = `
   id, name,
   user_npub AS userNpub,
+  agent_id AS agentId,
   bot_npub AS botNpub,
   wrapped_key_ciphertext AS wrappedKeyCiphertext,
   wrapped_key_nonce AS wrappedKeyNonce,
@@ -231,7 +236,7 @@ class SchedulerStore {
     this.db
       .query(
         `INSERT INTO scheduled_jobs (
-           id, name, user_npub, bot_npub,
+           id, name, user_npub, agent_id, bot_npub,
            wrapped_key_ciphertext, wrapped_key_nonce,
            agent, model, working_directory, initial_prompt,
            nightwatchman_enabled, trigger_type, cron_expression, timezone,
@@ -240,12 +245,13 @@ class SchedulerStore {
            action_type, pipeline_definition_id, pipeline_input_json,
            pipeline_agent, wapp_activity_installation_id, enabled, last_run_at, next_run_at,
            created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, 1, NULL, NULL, ?24, ?25)`,
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, 1, NULL, NULL, ?25, ?26)`,
       )
       .run(
         id,
         input.name,
         input.userNpub,
+        input.agentId ?? null,
         input.botNpub,
         input.wrappedKeyCiphertext,
         input.wrappedKeyNonce,
@@ -300,6 +306,21 @@ class SchedulerStore {
     return rows.map(rowToJob);
   }
 
+  listJobsForAgent(agentId: string): ScheduledJob[] {
+    return this.db.query<RawJobRow, [string]>(
+      `SELECT ${JOB_SELECT_COLS} FROM scheduled_jobs WHERE agent_id = ?1 ORDER BY created_at DESC`,
+    ).all(agentId).map(rowToJob);
+  }
+
+  bindLegacyJobsToAgent(agentId: string, botNpub: string, userNpub: string): number {
+    const result = this.db.run(
+      `UPDATE scheduled_jobs SET agent_id = ?1, updated_at = ?4
+       WHERE agent_id IS NULL AND bot_npub = ?2 AND user_npub = ?3`,
+      [agentId, botNpub, userNpub, new Date().toISOString()],
+    );
+    return result.changes;
+  }
+
   listEnabledJobs(): ScheduledJob[] {
     const rows = this.db
       .query<RawJobRow, []>(
@@ -317,6 +338,10 @@ class SchedulerStore {
     if (input.name !== undefined) {
       sets.push(`name = ?${paramIndex++}`);
       values.push(input.name);
+    }
+    if (input.agentId !== undefined) {
+      sets.push(`agent_id = ?${paramIndex++}`);
+      values.push(input.agentId);
     }
     if (input.botNpub !== undefined) {
       sets.push(`bot_npub = ?${paramIndex++}`);
@@ -496,6 +521,7 @@ class SchedulerStore {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         user_npub TEXT NOT NULL,
+        agent_id TEXT,
         bot_npub TEXT NOT NULL,
         wrapped_key_ciphertext TEXT NOT NULL,
         wrapped_key_nonce TEXT NOT NULL,
@@ -553,10 +579,12 @@ class SchedulerStore {
       "ALTER TABLE scheduled_job_runs ADD COLUMN pipeline_run_id TEXT",
       "ALTER TABLE scheduled_jobs ADD COLUMN wapp_activity_installation_id TEXT",
       "ALTER TABLE scheduled_jobs ADD COLUMN model TEXT",
+      "ALTER TABLE scheduled_jobs ADD COLUMN agent_id TEXT",
     ];
     for (const sql of migrations) {
       try { this.db.exec(sql); } catch { /* column already exists */ }
     }
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_agent ON scheduled_jobs(agent_id)");
     this.db.exec("UPDATE scheduled_jobs SET nightwatchman_enabled = 0 WHERE nightwatchman_enabled <> 0");
     reconcileHeartbeatReliabilityDefaults(this);
   }

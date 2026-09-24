@@ -10,7 +10,14 @@ export const CONNECT_PACKAGE_VERSION = 1;
 export const CONTROL_API_VERSION = 1;
 export const CONNECT_PACKAGE_EVENT_KIND = 27236;
 export const DEFAULT_CONNECT_PACKAGE_MAX_AGE_SECONDS = 300;
-export const CONTROL_READ_CAPABILITIES = ["health", "agents.read"] as const;
+export const CONTROL_READ_CAPABILITIES = [
+  "health",
+  "agents.read",
+  "agents.overview.read",
+  "agents.pipelines.read",
+  "agents.schedules.read",
+  "agents.triggers.read",
+] as const;
 
 const SECRET_KEY_PATTERN = /(^|_)(nsec|secret|private_key|bearer|token|bunker_uri|nwc|wallet_connect)(_|$)/i;
 const SECRET_VALUE_PATTERN = /^(nsec1|nostr\+walletconnect:|nostrconnect:|bunker:)/i;
