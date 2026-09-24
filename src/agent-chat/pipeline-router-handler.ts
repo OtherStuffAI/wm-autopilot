@@ -2,6 +2,7 @@ import { generateIdentityAlias } from '../identity/identity-alias';
 import { runOpenRouterDecisions } from '../pipelines/openrouter-decisions';
 import { listLatestPipelineDefinitions, type PipelineDefinitionRecord } from '../pipelines/pipeline-loader';
 import { startFlightDeckPipelineRun } from '../pipelines/flightdeck-run-service';
+import { resolveClassifierOpenRouterApiKey } from '../pipelines/classifier-openrouter-credentials';
 import type { PipelineStore } from '../pipelines/pipeline-store';
 import type { SessionApiContext } from '../server/session-api-routes';
 import { createFlightDeckPgChannelMessage, type FlightDeckPgMessage } from './tower-client';
@@ -37,9 +38,10 @@ export function createPipelineRouterHandler(deps: { store: PipelineStore; getSes
         `${definition.spec.name}: ${definition.spec.description || 'No description provided.'}`]), ['no_match', 'None of the available pipelines is suitable for this request.']]);
       const prompt = request.message.body ?? '';
       if (!prompt) throw new Error('The source message body is unavailable');
+      const sessionApiContext = deps.getSessionApiContext();
       const decision = await (deps.decide ?? runOpenRouterDecisions)({ state: { sourceQuestion: prompt }, model: '~typesafe/jev-latest',
         questions: { pipeline: { type: 'choice', instructions: 'Choose the single best pipeline for the exact source question, or no_match.', criteria } },
-        timeoutMs: 8000, attempts: 3, apiKey: process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API ?? '' });
+        timeoutMs: 8000, attempts: 3, apiKey: resolveClassifierOpenRouterApiKey({ ownerNpub, sessionApiContext }) });
       const answer = (decision.answers as Record<string, Record<string, unknown>>).pipeline;
       const selectedId = String(answer?.choice ?? '');
       const evidence = { selectedId, probabilities: answer?.probabilities, confidence: answer?.confidence,
@@ -49,7 +51,7 @@ export function createPipelineRouterHandler(deps: { store: PipelineStore; getSes
       if (selectedId === 'no_match') return await publish('I could not find a suitable pipeline for this request.', 'no_match', evidence);
       const selected = definitions.find((definition) => definition.id === selectedId);
       if (!selected) throw new Error('Jev selected a pipeline outside the eligible catalogue');
-      const started = await (deps.startRun ?? startFlightDeckPipelineRun)({ store: deps.store, sessionApiContext: deps.getSessionApiContext(),
+      const started = await (deps.startRun ?? startFlightDeckPipelineRun)({ store: deps.store, sessionApiContext,
         definition: selected, invocation: { workspaceId: request.subscription.workspaceId!, threadId: request.threadId,
           frmNpub: request.message.sender_npub ?? request.message.created_by_actor_npub ?? '', prompt }, ownerNpub, ownerAlias, callbackOrigin: deps.callbackOrigin,
         initiatingAgentNpub: request.agent.botNpub, sourceMessageId });

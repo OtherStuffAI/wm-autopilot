@@ -126,6 +126,7 @@ export interface SessionApiContext {
   userSettingsStore?: {
     getAll: (npub: string) => Record<string, string>;
   };
+  getStoredInstanceSetting?: (key: string) => string | null;
 
   // Directory paths
   userIdentityRoot: string;

@@ -2587,6 +2587,7 @@ const sessionApiContext: SessionApiContext = {
   agentHost,
   messageStore,
   userSettingsStore,
+  getStoredInstanceSetting: (key) => instanceSettingsService.getAppValue(key),
   sessionArchiveStore,
   identityUserStore,
   promptQueueStore,

@@ -17,6 +17,7 @@ import { expandPipelineBlock } from "./pipeline-blocks";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
 import { buildPipelineStepMetadata } from "./pipeline-step-metadata";
 import { buildShadowDecisionsError, runOpenRouterDecisions } from "./openrouter-decisions";
+import { resolveClassifierOpenRouterApiKey } from "./classifier-openrouter-credentials";
 import { type JsonObject, PipelineStore, type PipelineStatus, type PipelineStepRecord, type StepKind } from "./pipeline-store";
 
 const CALLBACK_POLL_MS = 1000;
@@ -712,29 +713,6 @@ async function runClassifierStep(input: {
   }
   const message = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown error");
   throw new Error(`Classifier step failed after ${input.attempts} attempts: ${message}`);
-}
-
-function resolveClassifierOpenRouterApiKey(input: Pick<PipelineRunnerInput, "ownerNpub" | "sessionApiContext">): string {
-  const ownerSettings = input.ownerNpub && typeof input.sessionApiContext.userSettingsStore?.getAll === "function"
-    ? input.sessionApiContext.userSettingsStore.getAll(input.ownerNpub)
-    : {};
-  const stored = (
-    ownerSettings.openrouter_api_key
-    || ownerSettings.speech_api_key
-    || ownerSettings.openai_api_key
-    || ""
-  ).trim();
-  if (stored) return stored;
-  const value = (
-    process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY
-    ?? process.env.OPENROUTER_API_KEY
-    ?? process.env.OPENROUTER_API
-    ?? ""
-  ).trim();
-  if (!value) {
-    throw new Error("Classifier OpenRouter API key is not configured. Set speech_api_key/openrouter_api_key in user settings or set PIPELINE_CLASSIFIER_OPENROUTER_API_KEY, OPENROUTER_API_KEY, or OPENROUTER_API.");
-  }
-  return value;
 }
 
 async function callOpenRouterJsonClassifier(input: {

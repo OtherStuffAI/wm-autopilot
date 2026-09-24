@@ -29,7 +29,9 @@ describe('pipeline router handler', () => {
   test('starts the highest-probability choice with the exact source prompt and acknowledges once', async () => {
     const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
     const store = new PipelineStore(path); const published: any[] = []; const starts: any[] = [];
-    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({}) as any,
+    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
+      userSettingsStore: { getAll: () => ({ openrouter_api_key: 'owner-key' }) },
+    }) as any,
       listDefinitions: async () => [definition('council', 4), definition('hidden', 1, false)],
       decide: async (input: any) => ({ model: 'jev-1', usage: { input_tokens: 1, output_tokens: 1 }, latencyMs: 8,
         answers: { pipeline: { type: 'choice', choice: 'council', confidence: .7, probabilities: { council: .8, no_match: .2 } } } }) as any,
@@ -41,17 +43,49 @@ describe('pipeline router handler', () => {
       threadId: '22222222-2222-4222-8222-222222222222', frmNpub: 'npub1requester', prompt: '@Pipe use the council exactly' });
     expect(starts[0].initiatingAgentNpub).toBe('npub1pipe');
     expect(published.map((item) => item.body)).toEqual(["I’ve started Pipeline council with your request. Its response will return here."]);
+    expect(JSON.stringify(published)).not.toContain('owner-key');
   });
 
   test('no_match publishes one error and starts nothing', async () => {
     const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
     const store = new PipelineStore(path); const published: any[] = []; let starts = 0;
-    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({}) as any,
+    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
+      userSettingsStore: { getAll: () => ({ openrouter_api_key: 'owner-key' }) },
+    }) as any,
       listDefinitions: async () => [definition('council', 4)],
       decide: async () => ({ model: 'jev-1', usage: {}, latencyMs: 2, answers: { pipeline: { type: 'choice', choice: 'no_match', confidence: .8, probabilities: { council: .1, no_match: .9 } } } }) as any,
       startRun: async () => { starts += 1; throw new Error('unexpected'); },
       publish: async (input: any) => { published.push(input); return { message: { id: 'error-1' } } as any; } });
     await handler(request());
     expect(starts).toBe(0); expect(published).toHaveLength(1);
+  });
+
+  test('publishes a local configuration error without calling Decisions or exposing secrets', async () => {
+    const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
+    const store = new PipelineStore(path); const published: any[] = []; let decisions = 0; let evidence: unknown;
+    const completeDecision = store.completeFlightDeckRouterDecision.bind(store);
+    store.completeFlightDeckRouterDecision = (sourceMessageId, input) => {
+      evidence = input.evidence;
+      completeDecision(sourceMessageId, input);
+    };
+    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
+      userSettingsStore: { getAll: () => ({ openrouter_api_key: '   ' }) },
+      getStoredInstanceSetting: () => null,
+    }) as any,
+      listDefinitions: async () => [definition('council', 4)],
+      decide: async () => { decisions += 1; throw new Error('unexpected network call'); },
+      publish: async (input: any) => { published.push(input); return { message: { id: 'error-1' } } as any; } });
+    const previous = { classifier: process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY,
+      key: process.env.OPENROUTER_API_KEY, legacy: process.env.OPENROUTER_API };
+    delete process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY; delete process.env.OPENROUTER_API_KEY; delete process.env.OPENROUTER_API;
+    try { await handler(request()); } finally {
+      if (previous.classifier === undefined) delete process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY; else process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY = previous.classifier;
+      if (previous.key === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = previous.key;
+      if (previous.legacy === undefined) delete process.env.OPENROUTER_API; else process.env.OPENROUTER_API = previous.legacy;
+    }
+    expect(decisions).toBe(0); expect(published).toHaveLength(1);
+    expect(JSON.stringify(published)).not.toContain('owner-key');
+    expect(JSON.stringify(evidence)).not.toContain('owner-key');
+    expect(published[0].body).toContain('Classifier OpenRouter API key is not configured');
   });
 });
