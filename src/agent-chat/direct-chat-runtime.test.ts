@@ -59,6 +59,12 @@ function fixture(options: {
   const stops: string[] = [];
   const manager = {
     getSession: (id: string) => sessions.get(id) ?? null,
+    updateSessionMetadata: (id: string, patch: Record<string, unknown>) => {
+      const session = sessions.get(id);
+      if (!session) return null;
+      session.metadata = { ...session.metadata, ...patch };
+      return session;
+    },
     getAdapter: (id: string) => ({
       waitForReady: async () => {}, fetchStatus: async () => 'stable', deliversPromptsDirectly: () => true, fetchMessages: async () => [...(sessions.get(id).messages ?? [])],
       sendMessage: async (prompt: string) => {
@@ -448,6 +454,9 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.turnStore.getPending(intercept.routingKey)).toBeNull();
     expect(f.turnStore.get(buildDirectChatTurnId(intercept.routingKey, ['m1']))?.state).toBe('failed');
     expect(f.published).toHaveLength(0);
+    expect(f.dispatchOutcomeStore.listPage(['sub1'], { limit: 10, offset: 0 }).rows[0]).toMatchObject({
+      recordId: 'm1', outcome: 'failed',
+    });
   });
 
   test('recreates an orphaned pre-session turn after broker provisioning succeeds', async () => {
@@ -747,6 +756,66 @@ describe('Agent Direct Chat runtime', () => {
     f.sessions.get('session-1').status = 'stopped'; const m2 = f.message('m2', 'again', true); await f.handle([m1, m2], 'm2'); await f.runtime.waitForIdle();
     expect(f.creates).toHaveLength(2); expect(f.creates[1][3].type).toBe('native-resume');
     expect(f.interceptStore.listAll()[0]!.sessionGeneration).toBe(1);
+  });
+
+  test('refreshes stale resumed-session binding and terminal next action before accepting the prompt', async () => {
+    const f = fixture();
+    const m1 = f.message('m1', 'hello', true);
+    await f.handle([m1], 'm1');
+    await f.runtime.waitForIdle();
+    const stale = f.sessions.get('session-1');
+    stale.status = 'stopped';
+    stale.metadata = {
+      ...stale.metadata,
+      flightdeckScopeId: 'old-scope',
+      flightdeckChannelId: 'old-channel',
+      flightdeckThreadId: 'old-thread',
+      bindingId: 'old-thread',
+      goal: 'Complete an old task',
+      nextAction: 'stop',
+    };
+
+    const m2 = f.message('m2', 'Handle the newly resumed request', true);
+    await f.handle([m1, m2], 'm2');
+    await f.runtime.waitForIdle();
+
+    const resumed = f.sessions.get('session-2');
+    expect(resumed.metadata).toMatchObject({
+      flightdeckWorkspaceId: 'workspace-1',
+      flightdeckScopeId: 'scope-1',
+      flightdeckChannelId: 'channel-1',
+      flightdeckThreadId: 'thread-1',
+      bindingType: 'thread',
+      bindingId: 'thread-1',
+      sessionGeneration: 1,
+      nextAction: 'reflect',
+    });
+    expect(resumed.metadata.goal).toContain('Handle the newly resumed request');
+    expect(f.prompts.at(-1)).toContain('Handle the newly resumed request');
+    expect(f.dispatchOutcomeStore.listPage(['sub1'], { limit: 25, offset: 0 }).rows[0]).toMatchObject({
+      recordId: 'm2', status: 'running', actionId: 'session-2',
+    });
+  });
+
+  test('rebinds a running reused session before delivering the next message', async () => {
+    const f = fixture();
+    const m1 = f.message('m1', 'first request', true);
+    await f.handle([m1], 'm1');
+    await f.runtime.waitForIdle();
+    const reused = f.sessions.get('session-1');
+    reused.metadata = { ...reused.metadata, flightdeckScopeId: 'stale-scope',
+      flightdeckChannelId: 'stale-channel', flightdeckThreadId: 'stale-thread',
+      bindingId: 'stale-thread', goal: 'Old completed goal', nextAction: 'stop' };
+
+    const m2 = f.message('m2', 'new request for the running session', true);
+    await f.handle([m1, m2], 'm2');
+    await f.runtime.waitForIdle();
+
+    expect(f.creates).toHaveLength(1);
+    expect(reused.metadata).toMatchObject({ flightdeckScopeId: 'scope-1', flightdeckChannelId: 'channel-1',
+      flightdeckThreadId: 'thread-1', bindingId: 'thread-1', nextAction: 'reflect', sessionGeneration: 1 });
+    expect(reused.metadata.goal).toContain('new request for the running session');
+    expect(f.prompts.at(-1)).toContain('new request for the running session');
   });
 
   test('creates a generation-two continuity replacement when the session is missing', async () => {

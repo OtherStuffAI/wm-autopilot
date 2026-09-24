@@ -1,4 +1,3 @@
-import { buildFlightDeckSessionMetadata } from './flightdeck-session-metadata';
 import { DIRECT_CHAT_SUBMISSION_LEASE_MS } from './direct-chat-response';
 import type { AgentType } from '../config';
 import { isAgentType } from '../agent-types';
@@ -39,6 +38,7 @@ import type { DuplicateCallbackPublicationFilter } from './duplicate-callback-pu
 import { BROKER_KEY_NOT_PROVISIONED } from '../signing/broker-key-vault';
 import { directChatSessionReplacementDecision } from './direct-chat-session-recovery';
 import { isInterruptedTurnError } from './session-runtime-turns';
+import { assertDirectChatWorkspaceCompatible, buildDirectChatSessionBinding } from './direct-chat-session-binding';
 
 export interface DirectChatRuntimeInput {
   subscription: WorkspaceSubscriptionRecord;
@@ -426,7 +426,8 @@ export class AgentDirectChatRuntime {
           intercept = this.deps.interceptStore.save({ ...intercept,
             lastHumanMessageIdDelivered: recoverySourceMessageIds.at(-1) ?? intercept.lastHumanMessageIdDelivered,
             pendingMessageCount: 0, updatedAt: new Date().toISOString() });
-          const sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null);
+          const sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null,
+            delta.at(-1)?.message ?? '');
           const session = sessionResolution.session;
           for (const recordId of recoverySourceMessageIds) {
             this.recordSessionOutcome(input, agent, recordId, session.id, routingKey);
@@ -503,11 +504,9 @@ export class AgentDirectChatRuntime {
           acceptedAt: now, nextAttemptAt: now,
           leaseOwner: this.deps.deliveryReconciler?.runtimeLeaseOwner ?? null,
           leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS).toISOString() : null });
-        let sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null);
+        let sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null,
+          delta.at(-1)?.message ?? '');
         let session = sessionResolution.session;
-        for (const recordId of sourceMessageIds) {
-          this.recordSessionOutcome(input, agent, recordId, session.id, routingKey);
-        }
         await activity.working(session.id);
         intercept = this.deps.interceptStore.save({ ...intercept, sessionId: session.id,
           sessionGeneration: sessionResolution.generation, previousSessionIds: sessionResolution.previousSessionIds,
@@ -519,6 +518,9 @@ export class AgentDirectChatRuntime {
               historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId });
         const acceptedHistoryCheckpointMessageId = history.at(-1)?.messageId ?? null;
         const onAccepted = () => {
+            for (const recordId of sourceMessageIds) {
+              this.recordSessionOutcome(input, agent, recordId, session.id, routingKey);
+            }
             this.turnStore.save({ turnId, routingKey, sourceMessageIds, clientRequestId, replyBody: null,
               publishedMessageId: null, state: 'awaiting_reply', createdAt: now, updatedAt: new Date().toISOString(),
               subscriptionId: input.subscription.subscriptionId, backendBaseUrl: input.subscription.backendBaseUrl,
@@ -559,11 +561,8 @@ export class AgentDirectChatRuntime {
             });
           });
           sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null,
-            { forceReplacementReason: replacement.reason });
+            delta.at(-1)?.message ?? '', { forceReplacementReason: replacement.reason });
           session = sessionResolution.session;
-          for (const recordId of sourceMessageIds) {
-            this.recordSessionOutcome(input, agent, recordId, session.id, routingKey);
-          }
           intercept = this.deps.interceptStore.save({ ...intercept, sessionId: session.id,
             sessionGeneration: sessionResolution.generation, previousSessionIds: sessionResolution.previousSessionIds,
             state: 'active', lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
@@ -790,6 +789,7 @@ export class AgentDirectChatRuntime {
   }
 
   private async resolveSession(agent: AgentDefinitionRecord, intercept: NonNullable<ReturnType<ChatInterceptStateStore['getByRoutingKey']>>, subscription: WorkspaceSubscriptionRecord, scopeId: string | null,
+    latestMessage: string,
     options?: { forceReplacementReason?: string }): Promise<{
     session: SessionSnapshot; bootstrap: boolean; generation: number; previousSessionIds: string[]; recovery: { previousSessionId: string; reason: string } | null;
   }> {
@@ -800,14 +800,26 @@ export class AgentDirectChatRuntime {
       && live.workingDirectory === (agent.directChat?.directory || agent.workingDirectory);
     const liveModelCompatible = normalizeAgentModelOverride(live?.model) === normalizeAgentModelOverride(agent.directChat?.model ?? undefined);
     const liveCompatible = liveBindingCompatible && liveModelCompatible;
-    if (!options?.forceReplacementReason && liveCompatible && (live?.status === 'running' || live?.status === 'starting')) return { session: live, bootstrap: false, generation: intercept.sessionGeneration ?? 1, previousSessionIds: intercept.previousSessionIds ?? [], recovery: null };
+    const currentGeneration = intercept.sessionGeneration ?? 1;
+    const currentBinding = buildDirectChatSessionBinding({ subscription, intercept, agent, scopeId,
+      generation: currentGeneration, latestMessage });
+    if (!options?.forceReplacementReason && liveCompatible && (live?.status === 'running' || live?.status === 'starting')) {
+      assertDirectChatWorkspaceCompatible(live.metadata, currentBinding, live.id);
+      const rebound = this.deps.processManager.updateSessionMetadata(live.id, currentBinding);
+      if (!rebound) throw new Error(`Agent Direct session ${live.id} disappeared while refreshing its Flight Deck binding.`);
+      return { session: rebound, bootstrap: false, generation: currentGeneration,
+        previousSessionIds: intercept.previousSessionIds ?? [], recovery: null };
+    }
     const modelReplacementReason = live && liveBindingCompatible && !liveModelCompatible ? 'profile model changed' : null;
     const resumeSource = modelReplacementReason ? null : live ?? (archived && isAgentType(archived.agent) ? { ...archived, agent: archived.agent } : null);
     if (resumeSource && !options?.forceReplacementReason) {
       try {
         const launch = resolveNativeResumeLaunch(resumeSource, isAgentType, subscription.managedByNpub);
-        const resumed = await this.deps.processManager.createSession(launch.agent, launch.workingDirectory, launch.name, launch.origin, undefined, launch.ownerNpub, launch.metadata, live?.model);
-        return { session: resumed, bootstrap: false, generation: intercept.sessionGeneration ?? 1, previousSessionIds: intercept.previousSessionIds ?? [], recovery: null };
+        assertDirectChatWorkspaceCompatible(launch.metadata, currentBinding, resumeSource.id);
+        const resumed = await this.deps.processManager.createSession(launch.agent, launch.workingDirectory, launch.name,
+          launch.origin, undefined, launch.ownerNpub, { ...launch.metadata, ...currentBinding }, live?.model);
+        return { session: resumed, bootstrap: false, generation: currentGeneration,
+          previousSessionIds: intercept.previousSessionIds ?? [], recovery: null };
       } catch (error) {
         this.log.warn('[agent-chat] native direct chat resume failed; creating continuity replacement', {
           routingKey: intercept.routingKey,
@@ -824,11 +836,9 @@ export class AgentDirectChatRuntime {
     const sessionAgent = profile.sessionAgent && isAgentType(profile.sessionAgent) ? profile.sessionAgent : this.deps.defaultAgent;
     const session = await this.deps.processManager.createSession(sessionAgent, profile.directory, `${agent.label} Direct Chat`,
       { type: 'agent-chat', id: intercept.routingKey, label: `${agent.label} Flight Deck chat` }, undefined,
-      subscription.managedByNpub ?? undefined, { AGENT: true, sessionClass: 'flightdeck_chat',
-        ...buildFlightDeckSessionMetadata(subscription, intercept.botNpub, {
-          scopeId, channelId: intercept.channelId, threadId: intercept.threadId }),
-        agentChatAgentId: agent.agentId, agentChatBotNpub: agent.botNpub,
-        flightdeckAgentNpub: intercept.botNpub, flightdeckRoutingKey: intercept.routingKey, sessionGeneration: generation }, profile.model ?? undefined);
+      subscription.managedByNpub ?? undefined,
+      buildDirectChatSessionBinding({ subscription, intercept, agent, scopeId, generation, latestMessage }),
+      profile.model ?? undefined);
     return { session, bootstrap: true, generation, previousSessionIds,
       recovery: previous ? { previousSessionId: previous,
         reason: options?.forceReplacementReason ?? (resumeSource ? 'native resume unavailable' : modelReplacementReason ?? 'session missing') } : null };
