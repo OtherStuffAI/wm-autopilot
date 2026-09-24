@@ -20,7 +20,8 @@ export async function resolveNip98AuthContext(
   authContext: RequestAuthContext,
   options: ResolveNip98AuthOptions,
 ): Promise<RequestAuthContext> {
-  if (authContext.session) {
+  const hasNip98Authorization = request.headers.get("authorization")?.startsWith("Nostr ") === true;
+  if (authContext.session && !hasNip98Authorization) {
     return authContext;
   }
 
