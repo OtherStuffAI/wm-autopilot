@@ -65,9 +65,10 @@ export class AgentActivityRecovery {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           this.store.markFailed(item.activityId, item.eventKey, message);
+          this.store.deferAfterFailure(item.activityId, item.eventKey);
           this.log.error('[agent-activity] durable retry pending', { activityId: item.activityId,
             sequence: item.sequence, error: message });
-        } finally { this.store.defer(item.activityId, item.eventKey); }
+        }
       }
     } catch (error) {
       this.log.error('[agent-activity] recovery pass failed; will retry', {

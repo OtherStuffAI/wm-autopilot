@@ -110,6 +110,19 @@ describe('durable activity publication', () => {
     expect(store.claim('activity', 'entry', 0).accepted).toBe(true);
   });
 
+  test('backs off each failed durable publication independently with a bounded delay', () => {
+    const store = new AgentActivityPublicationStore(':memory:');
+    store.claim('activity', 'entry', 0, undefined, { state: 'working' });
+    const firstDelay = store.deferAfterFailure('activity', 'entry', { baseDelayMs: 1_000, maxDelayMs: 4_000 }) - Date.now();
+    const secondDelay = store.deferAfterFailure('activity', 'entry', { baseDelayMs: 1_000, maxDelayMs: 4_000 }) - Date.now();
+    const cappedDelay = store.deferAfterFailure('activity', 'entry', { baseDelayMs: 1_000, maxDelayMs: 4_000 }) - Date.now();
+
+    expect(firstDelay).toBeGreaterThanOrEqual(1_900);
+    expect(secondDelay).toBeGreaterThanOrEqual(3_900);
+    expect(cappedDelay).toBeGreaterThanOrEqual(3_900);
+    expect(store.pending()).toEqual([]);
+  });
+
   test('retries an ambiguous emitted claim with the identical sequence after a crash', async () => {
     const store = new AgentActivityPublicationStore(':memory:');
     const { botIdentity: _identity, ...payload } = context;

@@ -138,6 +138,24 @@ export class AgentActivityPublicationStore {
       .run(activityId, eventKey, Date.now() + delayMs);
   }
 
+  deferAfterFailure(activityId: string, eventKey: string, options: {
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+  } = {}): number {
+    const row = this.db.query(`UPDATE agent_activity_publications
+      SET attempt_count=attempt_count+1,
+        next_attempt_at=?3 + MIN(?4 * (1 << MIN(attempt_count, 16)), ?5)
+      WHERE activity_id=?1 AND event_key=?2
+      RETURNING next_attempt_at`).get(
+        activityId,
+        eventKey,
+        Date.now(),
+        options.baseDelayMs ?? 10_000,
+        options.maxDelayMs ?? 900_000,
+      ) as { next_attempt_at: number } | null;
+    return row?.next_attempt_at ?? 0;
+  }
+
   markAccepted(activityId: string, eventKey: string, at = new Date().toISOString()): void {
     this.db.query(`UPDATE agent_activity_publications SET status='accepted',last_error=NULL,updated_at=?3
       WHERE activity_id=?1 AND event_key=?2`).run(activityId, eventKey, at);

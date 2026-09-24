@@ -18,6 +18,9 @@ export interface TowerTransportDependencies {
   requestMesh?: typeof requestNativeFips;
   timeoutMs?: number;
   streamIdleTimeoutMs?: number;
+  reconnectBaseDelayMs?: number;
+  reconnectMaxDelayMs?: number;
+  now?: () => number;
 }
 
 export class TowerTransport {
@@ -25,6 +28,9 @@ export class TowerTransport {
   private readonly generation = new AbortController();
   private verified: { address: string; expires: number } | null = null;
   private verification: Promise<string> | null = null;
+  private reconnectAttempts = 0;
+  private retryAt = 0;
+  private retryError: Error | null = null;
 
   constructor(readonly logicalEndpoint: string, readonly config: TowerTransportConfig,
     private readonly dependencies: TowerTransportDependencies = {}) {
@@ -38,6 +44,8 @@ export class TowerTransport {
   close(): void {
     this.generation.abort(new Error("Tower transport selection changed"));
     this.verified = null;
+    this.retryAt = 0;
+    this.retryError = null;
   }
 
   target(input: string | URL): URL {
@@ -78,6 +86,12 @@ export class TowerTransport {
     signal?.throwIfAborted();
     if (this.verified && this.verified.expires > Date.now()) return this.verified.address;
     if (this.verification) return waitForVerification(this.verification, signal);
+    const now = (this.dependencies.now ?? Date.now)();
+    if (this.retryError && now < this.retryAt) {
+      throw Object.assign(new Error(
+        `Tower FIPS reconnect is backed off until ${new Date(this.retryAt).toISOString()}: ${this.retryError.message}`,
+      ), { cause: this.retryError, retryAt: this.retryAt });
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(new DOMException("Tower mesh verification timed out", "TimeoutError")), this.dependencies.timeoutMs ?? 30_000);
     const bounded = AbortSignal.any([this.generation.signal, controller.signal]);
@@ -93,6 +107,9 @@ export class TowerTransport {
       if (health.service_npub !== this.config.expectedServiceNpub) throw new Error("Tower service identity mismatch on approved mesh endpoint");
       bounded.throwIfAborted();
       this.verified = { address, expires: Date.now() + 30_000 };
+      this.reconnectAttempts = 0;
+      this.retryAt = 0;
+      this.retryError = null;
       this.diagnostics.verifiedServiceNpub = health.service_npub;
       return address;
     };
@@ -101,6 +118,12 @@ export class TowerTransport {
     const pending = waitForVerification(check(), bounded).catch((error) => {
       this.verified = null;
       this.diagnostics.verifiedServiceNpub = null;
+      const reconnectBaseDelayMs = this.dependencies.reconnectBaseDelayMs ?? 1_000;
+      const reconnectMaxDelayMs = this.dependencies.reconnectMaxDelayMs ?? 60_000;
+      const delay = Math.min(reconnectBaseDelayMs * (2 ** this.reconnectAttempts), reconnectMaxDelayMs);
+      this.reconnectAttempts += 1;
+      this.retryAt = (this.dependencies.now ?? Date.now)() + delay;
+      this.retryError = error instanceof Error ? error : new Error(String(error));
       this.failure(error);
       throw error;
     });

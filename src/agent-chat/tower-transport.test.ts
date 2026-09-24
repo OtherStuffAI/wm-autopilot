@@ -91,6 +91,32 @@ test("mesh outage remains explicit with zero HTTPS requests", async () => {
   expect(publicRequests()).toBe(0);
 });
 
+test("backs off repeated native verification failures without trying HTTPS", async () => {
+  const endpoint = `http://${nodeNpub}.fips:43100`;
+  let now = 1_000;
+  let meshRequests = 0;
+  let publicRequests = 0;
+  const transport = new TowerTransport(endpoint, {
+    mode: "fips", httpsEndpoint: "https://public.example", fipsEndpoint: endpoint, expectedServiceNpub: serviceNpub,
+  }, {
+    now: () => now,
+    reconnectBaseDelayMs: 100,
+    reconnectMaxDelayMs: 400,
+    resolveMesh: async () => "::1",
+    requestMesh: async () => { meshRequests += 1; throw new Error("socket closed"); },
+    fetch: (() => { publicRequests += 1; throw new Error("Unexpected public request"); }) as unknown as typeof fetch,
+  });
+
+  await expect(transport.verify()).rejects.toThrow("socket closed");
+  await expect(transport.verify()).rejects.toThrow("reconnect is backed off");
+  expect(meshRequests).toBe(1);
+  now += 100;
+  await expect(transport.verify()).rejects.toThrow("socket closed");
+  await expect(transport.verify()).rejects.toThrow("reconnect is backed off");
+  expect(meshRequests).toBe(2);
+  expect(publicRequests).toBe(0);
+});
+
 test.each(["http://localhost:43100", `http://${nodeNpub}.fips:0`, `http://${nodeNpub}.fips:80`, `http://${nodeNpub}.fips:043100`, `http://${nodeNpub}.fips:65536`, `http://${nodeNpub}.fips:43100/path`, `http://${nodeNpub}.fips:43100?x=1`, "http://npub1fake.fips:43100"])("rejects unsafe endpoint %s", (endpoint) => {
   expect(() => parseTowerFipsEndpoint(endpoint)).toThrow();
 });
@@ -131,7 +157,7 @@ test("verification deadline releases shared callers when cancelled native I/O ne
   let resolutions = 0;
   const endpoint = `http://${nodeNpub}.fips:43100`;
   const transport = new TowerTransport(endpoint, { mode: "fips", httpsEndpoint: null, fipsEndpoint: endpoint, expectedServiceNpub: serviceNpub }, {
-    timeoutMs: 25,
+    timeoutMs: 25, reconnectBaseDelayMs: 0,
     resolveMesh: async () => ++resolutions === 1 ? await new Promise<string>(() => {}) : "::1",
     requestMesh: async () => Response.json({ service_npub: serviceNpub }),
   });
