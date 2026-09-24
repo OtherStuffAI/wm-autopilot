@@ -8,13 +8,15 @@ export interface PipelineDirectMessageInput extends JsonObject {
 
 export type PipelineDirectMessageSender = (input: PipelineDirectMessageInput) => Promise<JsonObject>;
 
-let configuredSender: PipelineDirectMessageSender | null = null;
+const senderKey = Symbol.for("wingmen.pipeline.directMessageSender");
+type DirectMessageGlobal = typeof globalThis & { [senderKey]?: PipelineDirectMessageSender };
 
 export function configurePipelineDirectMessageSender(sender: PipelineDirectMessageSender): void {
-  configuredSender = sender;
+  (globalThis as DirectMessageGlobal)[senderKey] = sender;
 }
 
 export async function sendPipelineDirectMessage(input: JsonObject): Promise<JsonObject> {
+  const configuredSender = (globalThis as DirectMessageGlobal)[senderKey] ?? null;
   if (!configuredSender) {
     throw new Error("Flight Deck pipeline direct-message delivery is not configured");
   }

@@ -13,8 +13,6 @@ import { generateSpeechAudio, resolveSpeechExtension } from "../server/audio-spe
 import { userSettingsStore } from "../storage/user-settings-store";
 import { indexCorpusSequentially, indexRepositoryForPipeline } from "../code-intelligence/pipeline";
 import { composeJevRerank } from "./jev-reranker";
-import { sendPipelineDirectMessage } from "./direct-message-block";
-import { prepareMarkdownMessage } from "./markdown-message";
 
 interface MemoryEntity {
   name: string;
@@ -1207,12 +1205,6 @@ function latestThreadText(chatContext: Record<string, unknown>, fallback: unknow
 }
 
 export const builtinPipelineFunctions: FunctionRegistry = {
-  async "flightdeck.sendDirectMessage"(input) {
-    return await sendPipelineDirectMessage(input);
-  },
-  async "text.prepareMarkdownMessage"(input) {
-    return prepareMarkdownMessage(input);
-  },
   async "jev.composeRerank"(input) {
     return composeJevRerank(input);
   },

@@ -1,8 +1,8 @@
-import { readdir, stat } from "node:fs/promises";
+import { readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
-import { createHash } from "node:crypto";
-import { pathToFileURL } from "node:url";
+import { basename, dirname, join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { FunctionRegistry } from "./declarative";
 import type { JsonObject, PipelineScope } from "./pipeline-store";
 import {
@@ -32,9 +32,12 @@ type UserFunctionModule = {
   version?: unknown;
 };
 
+const defaultCoreFunctionsDirectory = join(dirname(fileURLToPath(import.meta.url)), "runtime-functions");
+
 export async function loadPipelineFunctionRegistry(
   ownerAlias: string | null,
   builtinRegistry: FunctionRegistry,
+  options: { coreFunctionsDirectory?: string } = {},
 ): Promise<{ registry: FunctionRegistry; records: PipelineFunctionRecord[] }> {
   await ensurePipelineDirectories(ownerAlias);
   const registry: FunctionRegistry = { ...builtinRegistry };
@@ -51,6 +54,14 @@ export async function loadPipelineFunctionRegistry(
       error: null,
       hash: null,
     }));
+
+  const coreRecords = await loadFunctionDirectory({
+    directory: options.coreFunctionsDirectory ?? defaultCoreFunctionsDirectory,
+    scope: "builtin",
+    ownerAlias: null,
+    registry,
+  });
+  records.push(...coreRecords);
 
   const sharedRecords = await loadFunctionDirectory({
     directory: getSharedPipelineFunctionsDirectory(),
@@ -75,7 +86,7 @@ export async function loadPipelineFunctionRegistry(
 
 async function loadFunctionDirectory(input: {
   directory: string;
-  scope: PipelineScope;
+  scope: PipelineScope | "builtin";
   ownerAlias: string | null;
   registry: FunctionRegistry;
 }): Promise<PipelineFunctionRecord[]> {
@@ -92,19 +103,16 @@ async function loadFunctionDirectory(input: {
 
 async function loadFunctionFile(input: {
   path: string;
-  scope: PipelineScope;
+  scope: PipelineScope | "builtin";
   ownerAlias: string | null;
   registry: FunctionRegistry;
 }): Promise<PipelineFunctionRecord> {
   const fallbackName = `${input.scope}.${functionNameFromFilename(input.path)}`;
   let hash: string | null = null;
   try {
-    const info = await stat(input.path);
-    hash = createHash("sha256")
-      .update(`${input.path}:${info.mtimeMs}:${info.size}`)
-      .digest("hex")
-      .slice(0, 16);
-    const mod = await import(`${pathToFileURL(input.path).href}?pipelineFunction=${hash}`) as UserFunctionModule;
+    const source = await readFile(input.path, "utf8");
+    hash = createHash("sha256").update(source).digest("hex").slice(0, 16);
+    const mod = await importFreshFunctionModule(input.path, source, hash);
     const name = typeof mod.name === "string" && mod.name.trim() ? mod.name.trim() : fallbackName;
     const description = typeof mod.description === "string" ? mod.description : "";
     const version = typeof mod.version === "string" || typeof mod.version === "number" ? mod.version : null;
@@ -168,7 +176,22 @@ async function loadFunctionFile(input: {
 }
 
 function isFunctionModule(name: string): boolean {
-  return name.endsWith(".ts") || name.endsWith(".js") || name.endsWith(".mjs");
+  return !name.startsWith(".wingmen-hot-")
+    && (name.endsWith(".ts") || name.endsWith(".js") || name.endsWith(".mjs"));
+}
+
+async function importFreshFunctionModule(path: string, source: string, hash: string): Promise<UserFunctionModule> {
+  const extension = path.split(".").pop()?.toLowerCase();
+  const loader = extension === "ts" ? "ts" : "js";
+  const transpiler = new Bun.Transpiler({ loader });
+  const compiled = transpiler.transformSync(source);
+  const snapshotPath = join(dirname(path), `.wingmen-hot-${basename(path)}-${hash}-${randomUUID()}.mjs`);
+  try {
+    await writeFile(snapshotPath, compiled, { flag: "wx" });
+    return await import(pathToFileURL(snapshotPath).href) as UserFunctionModule;
+  } finally {
+    await unlink(snapshotPath).catch(() => undefined);
+  }
 }
 
 function functionNameFromFilename(path: string): string {

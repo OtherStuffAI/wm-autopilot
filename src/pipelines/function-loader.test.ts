@@ -69,4 +69,25 @@ export default async function run() {
     await loadPipelineFunctionRegistry("alpha-beta-gamma", builtinPipelineFunctions);
     expect(existsSync(join(tempDir, "pipelines", ".git"))).toBe(true);
   });
+
+  test("hot reloads trusted core functions between registry loads", async () => {
+    const coreDir = join(tempDir, "core-functions");
+    const functionPath = join(coreDir, "hot-value.ts");
+    mkdirSync(coreDir, { recursive: true });
+    writeFileSync(functionPath, `
+export const name = "core.hotValue";
+export default async function run() { return { value: "first" }; }
+`);
+    const first = await loadPipelineFunctionRegistry(null, builtinPipelineFunctions, { coreFunctionsDirectory: coreDir });
+    await expect(first.registry["core.hotValue"]!({})).resolves.toEqual({ value: "first" });
+
+    writeFileSync(functionPath, `
+export const name = "core.hotValue";
+export default async function run() { return { value: "second-version" }; }
+`);
+    const second = await loadPipelineFunctionRegistry(null, builtinPipelineFunctions, { coreFunctionsDirectory: coreDir });
+    await expect(second.registry["core.hotValue"]!({})).resolves.toEqual({ value: "second-version" });
+    expect(second.records.find((record) => record.name === "core.hotValue")?.hash)
+      .not.toBe(first.records.find((record) => record.name === "core.hotValue")?.hash);
+  });
 });
