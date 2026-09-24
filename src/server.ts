@@ -162,6 +162,8 @@ import { getPipelineDefinition, listLatestPipelineDefinitions } from "./pipeline
 import { loadPipelineFunctionRegistry } from "./pipelines/function-loader";
 import { builtinPipelineFunctions } from "./pipelines/functions";
 import { runDeclarativePipeline } from "./pipelines/pipeline-runner";
+import { configurePipelineDirectMessageSender } from "./pipelines/direct-message-block";
+import { createPipelineDirectMessageSender } from "./pipelines/direct-message-runtime";
 import {
   buildAgentUrl,
   normaliseHostForUrl,
@@ -1711,6 +1713,11 @@ const profileBotIdentityRunner = createProfileBotIdentityRunner({
   botKeyStore,
   brokerKeyVault,
 });
+configurePipelineDirectMessageSender(createPipelineDirectMessageSender({
+  agentStore: agentDefinitionStore,
+  subscriptionStore: workspaceSubscriptionStore,
+  withAgentIdentity: profileBotIdentityRunner,
+}));
 const directChatProfileIdentityRunner = createDirectChatProfileIdentityRunner({
   agentStore: agentDefinitionStore,
   withBotIdentity: profileBotIdentityRunner,

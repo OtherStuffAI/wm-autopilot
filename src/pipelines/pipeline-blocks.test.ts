@@ -35,4 +35,22 @@ describe("expandPipelineBlock", () => {
     expect(expansion.steps[0]).toMatchObject({ source: "$.blocks.rerank_editorial_candidates.input.candidates" });
     expect(expansion.steps[1]).toMatchObject({ function: "jev.composeRerank", assign: "$.rerank" });
   });
+
+  test("expands flightdeck.sendDirectMessage into deterministic delivery", () => {
+    const expansion = expandPipelineBlock({
+      name: "send-result",
+      type: "block",
+      block: "flightdeck.sendDirectMessage",
+      input: { pick: { fromNpub: "$.from", toNpub: "$.to", message: "$.message" } },
+      assign: "$.delivery",
+    });
+
+    expect(expansion.outputPath).toBe("$.delivery");
+    expect(expansion.steps).toHaveLength(1);
+    expect(expansion.steps[0]).toMatchObject({
+      type: "code",
+      function: "flightdeck.sendDirectMessage",
+      assign: "$.delivery",
+    });
+  });
 });

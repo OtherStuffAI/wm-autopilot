@@ -10,7 +10,42 @@ export interface PipelineBlockExpansion {
 export function expandPipelineBlock(step: Extract<DeclarativeStep, { type: "block" }>): PipelineBlockExpansion {
   const scratchPath = `$.blocks.${sanitizePathPart(step.name || step.block)}`;
   const inputPath = `${scratchPath}.input`;
-  const outputPath = step.assign ?? (step.block === "jev.rerankCandidates" ? "$.jevRerank" : "$.graphMemory");
+  const outputPath = step.assign ?? defaultBlockOutputPath(step.block);
+  if (step.block === "flightdeck.sendDirectMessage") {
+    return {
+      scratchPath,
+      inputPath,
+      outputPath,
+      steps: [
+        {
+          name: `${step.name} / send-direct-message`,
+          description: "Validate the sender as an active Autopilot agent and deliver the Markdown message to the exact two-party Flight Deck DM.",
+          type: "code",
+          function: "flightdeck.sendDirectMessage",
+          input: {
+            pick: {
+              fromNpub: `${inputPath}.fromNpub`,
+              toNpub: `${inputPath}.toNpub`,
+              message: `${inputPath}.message`,
+            },
+          },
+          assign: outputPath,
+          display: {
+            in: [
+              { label: "From Agent", path: "$.fromNpub", format: "text" },
+              { label: "To", path: "$.toNpub", format: "text" },
+              { label: "Message", path: "$.message", format: "text" },
+            ],
+            out: [
+              { label: "Delivered", path: "$.delivered" },
+              { label: "Channel", path: "$.channelId", format: "text" },
+              { label: "Message ID", path: "$.messageId", format: "text" },
+            ],
+          },
+        },
+      ],
+    };
+  }
   if (step.block === "jev.rerankCandidates") {
     return {
       scratchPath,
@@ -160,6 +195,12 @@ export function expandPipelineBlock(step: Extract<DeclarativeStep, { type: "bloc
       },
     ],
   };
+}
+
+function defaultBlockOutputPath(block: Extract<DeclarativeStep, { type: "block" }>['block']): string {
+  if (block === "jev.rerankCandidates") return "$.jevRerank";
+  if (block === "flightdeck.sendDirectMessage") return "$.directMessage";
+  return "$.graphMemory";
 }
 
 function sanitizePathPart(value: string): string {
