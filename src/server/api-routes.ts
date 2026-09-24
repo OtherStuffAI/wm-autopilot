@@ -301,7 +301,7 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     const projectsEnabled = projectsFlag.effectiveState === "on";
     const viewerNpub = getEffectiveOwnerNpub(authContext);
 
-    if (pathname === "/api/control-plane/v1/connect-package") {
+    if (pathname === "/api/control-plane/v1/connect-package" || pathname === "/api/control-plane/v2/connect-package") {
       const response = await handleControlPlaneApi(request, url, method, authContext, ctx.controlPlaneRoutesContext);
       if (response) return response;
     }

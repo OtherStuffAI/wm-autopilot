@@ -5,6 +5,7 @@ import type {
   AgentSchedulesV1,
   AgentTriggersV1,
   AutopilotConnectManifestV1,
+  AutopilotConnectManifestV2,
   InstallationHealthV1,
 } from "./contracts";
 
@@ -36,6 +37,33 @@ export const controlPlaneV1Fixtures = {
       agents_path: `/api/owners/npub1${"p".repeat(58)}/control-plane/v1/agents`,
     },
   } satisfies AutopilotConnectManifestV1,
+  distinctTransportManifest: {
+    kind: "wingman_autopilot_connect",
+    version: 2,
+    generated_at: "2026-01-01T00:00:00.000Z",
+    installation: {
+      id: "autopilot_0123456789abcdef0123456789abcdef",
+      npub: `npub1${"q".repeat(58)}`,
+    },
+    transport: { fips: { npub: `npub1${"t".repeat(58)}` } },
+    endpoints: {
+      fips: `http://npub1${"t".repeat(58)}.fips:3601`,
+      https: "https://autopilot.example",
+    },
+    api: {
+      version: 1,
+      capabilities: [
+        "health",
+        "agents.read",
+        "agents.overview.read",
+        "agents.pipelines.read",
+        "agents.schedules.read",
+        "agents.triggers.read",
+      ],
+      health_path: `/api/owners/npub1${"p".repeat(58)}/control-plane/v1/health`,
+      agents_path: `/api/owners/npub1${"p".repeat(58)}/control-plane/v1/agents`,
+    },
+  } satisfies AutopilotConnectManifestV2,
   health: {
     ok: true,
     installation_id: "autopilot_0123456789abcdef0123456789abcdef",

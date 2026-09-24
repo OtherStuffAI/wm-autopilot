@@ -246,6 +246,10 @@ describe("control-plane routes", () => {
     const packageResponse = await handleControlPlaneApi(new Request(packageUrl), packageUrl, "GET", auth(owner), ctx);
     expect(packageResponse?.status).toBe(503);
     expect(await packageResponse!.json()).toMatchObject({ error: "fips-transport-unavailable", detail: "mesh offline" });
+    const unavailableV2Url = new URL(`https://autopilot.example/api/control-plane/v2/connect-package?owner_npub=${owner}`);
+    const unavailableV2 = await handleControlPlaneApi(new Request(unavailableV2Url), unavailableV2Url, "GET", auth(owner), ctx);
+    expect(unavailableV2?.status).toBe(503);
+    expect(await unavailableV2!.json()).toMatchObject({ error: "fips-transport-unavailable", detail: "mesh offline" });
     const manifest = await request(`/api/owners/${owner}/control-plane/v1/manifest`, owner, ctx);
     expect(manifest?.status).toBe(503);
 
@@ -253,5 +257,21 @@ describe("control-plane routes", () => {
     const mismatchResponse = await handleControlPlaneApi(new Request(packageUrl), packageUrl, "GET", auth(owner), mismatch);
     expect(mismatchResponse?.status).toBe(503);
     expect(await mismatchResponse!.json()).toMatchObject({ error: "fips-identity-mismatch" });
+
+    const v2Url = new URL(`https://autopilot.example/api/control-plane/v2/connect-package?owner_npub=${owner}`);
+    const v2Response = await handleControlPlaneApi(new Request(v2Url), v2Url, "GET", auth(owner), mismatch);
+    expect(v2Response?.status).toBe(200);
+    const v2 = await v2Response!.json();
+    expect(v2.manifest).toMatchObject({
+      version: 2,
+      installation: { npub: mismatch.identity!.npub },
+      transport: { fips: { npub: delegate } },
+      endpoints: { fips: `http://${delegate}.fips:3601` },
+      api: { version: 1 },
+    });
+
+    const health = await request(`/api/owners/${owner}/control-plane/v1/health`, owner, mismatch);
+    expect(health?.status).toBe(200);
+    expect(await health!.json()).toMatchObject({ installation_npub: mismatch.identity!.npub });
   });
 });

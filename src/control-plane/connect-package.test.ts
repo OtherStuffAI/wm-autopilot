@@ -6,6 +6,7 @@ import {
   CONNECT_PACKAGE_EVENT_KIND,
   canonicalConnectManifest,
   createAutopilotConnectPackage,
+  createAutopilotConnectPackageV2,
   verifyAutopilotConnectPackage,
 } from "./connect-package";
 
@@ -85,7 +86,7 @@ describe("Autopilot connect package", () => {
     }, { now: fixture.now })).toThrow("tampered");
     expect(() => verifyAutopilotConnectPackage({
       ...fixture.package,
-      manifest: { ...fixture.package.manifest, version: 2 },
+      manifest: { ...fixture.package.manifest, version: 3 },
     }, { now: fixture.now })).toThrow("version");
     expect(() => verifyAutopilotConnectPackage(fixture.package, {
       now: new Date(fixture.now.getTime() + 301_000),
@@ -107,7 +108,57 @@ describe("Autopilot connect package", () => {
       fipsEndpoint: `http://${other.npub}.fips:3601`,
       ownerNpub: fixture.ownerNpub,
       now: fixture.now,
-    })).toThrow("match the installation identity");
+    })).toThrow("match its signed transport identity");
+  });
+
+  test("binds a distinct FIPS transport identity in a v2 manifest signed by the stable installation", () => {
+    const fixture = createFixture();
+    const transport = identity();
+    const created = createAutopilotConnectPackageV2({
+      identity: fixture.signingIdentity,
+      fipsEndpoint: `http://${transport.npub}.fips:3601/`,
+      fipsNodeNpub: transport.npub,
+      ownerNpub: fixture.ownerNpub,
+      httpsEndpoint: "https://autopilot.example/base",
+      now: fixture.now,
+    });
+    expect(created.manifest).toMatchObject({
+      version: 2,
+      installation: { npub: fixture.signingIdentity.npub },
+      transport: { fips: { npub: transport.npub } },
+      endpoints: { fips: `http://${transport.npub}.fips:3601` },
+      api: { version: 1 },
+    });
+    expect(created.signature.pubkey).toBe(fixture.signingIdentity.pubkeyHex);
+    expect(verifyAutopilotConnectPackage(created, { now: fixture.now })).toEqual(created);
+
+    const otherTransport = identity();
+    expect(() => createAutopilotConnectPackageV2({
+      identity: fixture.signingIdentity,
+      fipsEndpoint: `http://${otherTransport.npub}.fips:3601`,
+      fipsNodeNpub: transport.npub,
+      ownerNpub: fixture.ownerNpub,
+      now: fixture.now,
+    })).toThrow("match its signed transport identity");
+
+    const tampered = structuredClone(created);
+    tampered.manifest.transport.fips.npub = otherTransport.npub;
+    expect(() => verifyAutopilotConnectPackage(tampered, { now: fixture.now })).toThrow("tampered");
+
+    const inconsistentManifest = {
+      ...created.manifest,
+      endpoints: { ...created.manifest.endpoints, fips: `http://${otherTransport.npub}.fips:3601` },
+    };
+    const inconsistent = {
+      manifest: inconsistentManifest,
+      signature: finalizeEvent({
+        kind: CONNECT_PACKAGE_EVENT_KIND,
+        created_at: Math.floor(fixture.now.getTime() / 1000),
+        tags: [["d", created.manifest.installation.id]],
+        content: canonicalConnectManifest(inconsistentManifest),
+      }, fixture.signingIdentity.secretKey),
+    };
+    expect(() => verifyAutopilotConnectPackage(inconsistent, { now: fixture.now })).toThrow("transport identity");
   });
 
   test("rejects secret-bearing packages and exports no reusable credential", () => {

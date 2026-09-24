@@ -4,6 +4,7 @@ import type { RequestAuthContext } from "../auth/request-context";
 import {
   CONTROL_API_VERSION,
   createAutopilotConnectPackage,
+  createAutopilotConnectPackageV2,
   installationIdForIdentity,
 } from "../control-plane/connect-package";
 import type {
@@ -72,13 +73,20 @@ function readyInstallation(ctx: ControlPlaneRoutesContext): { identity: WingmanI
       detail: fips.error ?? "The approved FIPS endpoint is not listening",
     }, { status: 503 });
   }
-  if (fips.nodeNpub !== ctx.identity.npub) {
+  return { identity: ctx.identity, fips };
+}
+
+function readyLegacyInstallation(ctx: ControlPlaneRoutesContext): { identity: WingmanInstanceIdentity; fips: FipsAppEndpoint } | Response {
+  const installation = readyInstallation(ctx);
+  if (installation instanceof Response) return installation;
+  if (installation.fips.nodeNpub !== installation.identity.npub) {
     return Response.json({
       error: "fips-identity-mismatch",
-      detail: "The listening FIPS service identity does not match the Autopilot package signer",
+      detail: "Connect package v1 requires the FIPS transport identity to equal the Autopilot installation signer; use v2 for distinct identities",
+      upgrade_path: "/api/control-plane/v2/connect-package",
     }, { status: 503 });
   }
-  return { identity: ctx.identity, fips };
+  return installation;
 }
 
 function agentPaths(ownerNpub: string, agentId: string): AgentDiscoveryItemV1["paths"] {
@@ -203,7 +211,7 @@ export async function handleControlPlaneApi(
   authContext: RequestAuthContext,
   ctx: ControlPlaneRoutesContext,
 ): Promise<Response | null> {
-  if (url.pathname === "/api/control-plane/v1/connect-package") {
+  if (url.pathname === "/api/control-plane/v1/connect-package" || url.pathname === "/api/control-plane/v2/connect-package") {
     if (method !== "GET") return noStore(Response.json({ error: "method-not-allowed" }, { status: 405 }));
     const ownerNpub = validNpub(url.searchParams.get("owner_npub") ?? "");
     if (!ownerNpub) {
@@ -212,15 +220,19 @@ export async function handleControlPlaneApi(
         detail: "Pass one valid owner npub as ?owner_npub= so the signed package can advertise directly callable owner-space routes",
       }, { status: 400 }));
     }
-    const installation = readyInstallation(ctx);
+    const isV2 = url.pathname === "/api/control-plane/v2/connect-package";
+    const installation = isV2 ? readyInstallation(ctx) : readyLegacyInstallation(ctx);
     if (installation instanceof Response) return noStore(installation);
-    return noStore(Response.json(createAutopilotConnectPackage({
+    const common = {
       identity: installation.identity,
       fipsEndpoint: installation.fips.url!,
       ownerNpub,
       httpsEndpoint: ctx.baseUrlConfigured ? ctx.baseUrl : null,
       now: ctx.now?.(),
-    })));
+    };
+    return noStore(Response.json(isV2
+      ? createAutopilotConnectPackageV2({ ...common, fipsNodeNpub: installation.fips.nodeNpub! })
+      : createAutopilotConnectPackage(common)));
   }
 
   const route = ownerRoute(url.pathname);

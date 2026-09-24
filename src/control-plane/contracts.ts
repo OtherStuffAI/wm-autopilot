@@ -14,8 +14,23 @@ export interface AutopilotConnectManifestV1 {
   };
 }
 
+export interface AutopilotConnectManifestV2 {
+  kind: "wingman_autopilot_connect";
+  version: 2;
+  generated_at: string;
+  installation: { id: string; npub: string };
+  transport: { fips: { npub: string } };
+  endpoints: { fips: string; https: string | null };
+  api: AutopilotConnectManifestV1["api"];
+}
+
 export interface AutopilotConnectPackageV1 {
   manifest: AutopilotConnectManifestV1;
+  signature: Event;
+}
+
+export interface AutopilotConnectPackageV2 {
+  manifest: AutopilotConnectManifestV2;
   signature: Event;
 }
 
