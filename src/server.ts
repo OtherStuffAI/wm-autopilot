@@ -39,7 +39,11 @@ import {
   type AppRecord,
 } from "./apps/app-registry";
 import { redactAppEnv } from "./apps/app-env";
-import { createTrustedExecutionRule, type ExecutionAuditEntry } from "./auth/trusted-execution";
+import {
+  createApprovedAppOwnerRule,
+  createTrustedExecutionRule,
+  type ExecutionAuditEntry,
+} from "./auth/trusted-execution";
 import { hasWappActivityAuthority } from "./auth/wapp-activity-authority";
 import { hasWappLoginAuthority } from "./signing/wapp-login";
 import { appCommand, validateAppCommand } from "./apps/app-command";
@@ -705,6 +709,11 @@ registerAccessRule(AccessActions.FilesWrite, requireAuthentication({ allowNip98:
 registerAccessRule(AccessActions.FilesWrite, requireApprovedWorkAccess());
 registerAccessRule(AccessActions.AppsLifecycle, requireAuthentication({ allowNip98: true }));
 registerAccessRule(AccessActions.AppsLifecycle, requireApprovedWorkAccess());
+registerAccessRule(AccessActions.AppsSelfManage, requireAuthentication({ allowNip98: true }));
+registerAccessRule(AccessActions.AppsSelfManage, createApprovedAppOwnerRule({
+  isAdminNpub: isConfiguredAdminNpub,
+  isApprovedNpub: isUserApprovedForWork,
+}));
 registerAccessRule(AccessActions.AppsManage, requireAuthentication({ allowNip98: true }));
 registerAccessRule(AccessActions.AppsManage, createTrustedExecutionRule({
   kind: "apps",
@@ -2486,7 +2495,18 @@ const accessDeniedJson = (decision: AccessDecision): Response => {
     "cache-control": "no-store",
     ...(decision.headers ?? {}),
   });
-  return Response.json({ error: decision.reason ?? "forbidden" }, { status: decision.status ?? 403, headers });
+  const error = decision.reason ?? "forbidden";
+  const messages: Record<string, string> = {
+    "admin-or-execution-delegation-required":
+      "This operation changes shared infrastructure or signing custody. Ask an administrator, or use an owner-space delegation with the required scope.",
+    "approval-required": "Your account must be approved before you can manage apps on this Autopilot instance.",
+    "auth-required": "Sign in to manage apps.",
+    "admin-only": "This operation is restricted to an Autopilot administrator.",
+  };
+  return Response.json({ error, message: messages[error] ?? "You do not have access to perform this operation." }, {
+    status: decision.status ?? 403,
+    headers,
+  });
 };
 
 const ensureApiAccess = async (
@@ -3043,7 +3063,6 @@ const handleApi = createApiRouteHandler({
       if (canAccessAppOverride) {
         return canAccessAppOverride(app);
       }
-      if (sharedInstanceAccessEnabled && appsViewerNpub) return true;
       if (appsWorkspaceScope.isAdmin) return true;
       if (!appsViewerNpub) return false;
       return app.ownerNpub === appsViewerNpub;
@@ -3053,6 +3072,12 @@ const handleApi = createApiRouteHandler({
       sharedInstanceAccess: sharedInstanceAccessEnabled,
       workspaceScope: appsWorkspaceScope,
       viewerNpub: appsViewerNpub,
+      canManageCore: Boolean(
+        appsWorkspaceScope.isAdmin
+        && !appsAuthContext.delegateRelationshipId
+        && normaliseNpub(appsAuthContext.subjectNpub ?? appsAuthContext.signerNpub ?? appsAuthContext.npub)
+          === appsViewerNpub
+      ),
       AccessActions,
       ensureApiAccess,
       normaliseOptionalString,

@@ -45,6 +45,19 @@ export interface ExecutionAuditEntry {
   timestamp: string;
 }
 
+export function createApprovedAppOwnerRule(input: {
+  isAdminNpub: (npub: string | null | undefined) => boolean;
+  isApprovedNpub: (npub: string | null | undefined) => boolean;
+}): AccessRule {
+  return (context) => {
+    const ownerNpub = normaliseNpub(context.auth.targetOwnerNpub ?? context.auth.npub ?? null);
+    if (ownerNpub && (input.isAdminNpub(ownerNpub) || input.isApprovedNpub(ownerNpub))) {
+      return allow();
+    }
+    return deny("approval-required", 403);
+  };
+}
+
 export function createTrustedExecutionRule(input: {
   kind: "apps" | "sessions";
   isAdminNpub: (npub: string | null | undefined) => boolean;

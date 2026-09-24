@@ -9,7 +9,11 @@ import type { AppDomainRecord, AppDomainStatus } from '../apps/app-domain-regist
 import { AppDomainConflictError, normalizeAppHostname } from '../apps/app-domain-registry';
 import type { AppLifecycleAction, AppLifecycleScripts, AppRecord } from '../apps/app-registry';
 import type { AppProcessStatus } from '../apps/app-process-manager';
-import { parseAppEnvInput, type AppEnvironmentVariables } from '../apps/app-env';
+import {
+  parseAppEnvInput,
+  removeForbiddenAppSigningEnv,
+  type AppEnvironmentVariables,
+} from '../apps/app-env';
 import { readDotenvFile } from '../apps/dotenv-file';
 import { AppActionInProgressError, AppScriptMissingError } from '../apps/app-process-errors';
 import type { CaproverAppDefinition, CaproverRepoInfo, CaproverStore, CaproverTargetClient } from '../caprover';
@@ -23,6 +27,7 @@ import {
   type LegacyWappCustodyMigrationInput,
 } from '../wapps/legacy-custody-migration-contract';
 import type { LegacyWappCustodyMigration } from '../wapps/legacy-custody-migration';
+import { appCommandAccessAction, appRouteAccessAction } from './apps-api-access';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD';
 
@@ -119,9 +124,11 @@ export interface AppsApiContext {
   sharedInstanceAccess: boolean;
   workspaceScope: WorkspaceScope;
   viewerNpub: string | null;
+  canManageCore: boolean;
 
   AccessActions: {
     AppsLifecycle: AccessAction;
+    AppsSelfManage: AccessAction;
     AppsManage: AccessAction;
     AppsRead: AccessAction;
   };
@@ -497,7 +504,7 @@ export async function handleAppsApi(
   const pathname = url.pathname;
 
   if (pathname === '/api/apps/clone' && method === 'POST') {
-    const denied = await ctx.ensureApiAccess(ctx.AccessActions.AppsManage, request, url, authContext);
+    const denied = await ctx.ensureApiAccess(ctx.AccessActions.AppsSelfManage, request, url, authContext);
     if (denied) {
       return denied;
     }
@@ -645,7 +652,7 @@ export async function handleAppsApi(
   }
 
   if (pathname === '/api/apps' && method === 'POST') {
-    const denied = await ctx.ensureApiAccess(ctx.AccessActions.AppsManage, request, url, authContext);
+    const denied = await ctx.ensureApiAccess(ctx.AccessActions.AppsSelfManage, request, url, authContext);
     if (denied) {
       return denied;
     }
@@ -788,7 +795,7 @@ export async function handleAppsApi(
     const isActionRequest = method === 'POST' && parts[4] === 'actions';
     if (!isActionRequest) {
       const denied = await ctx.ensureApiAccess(
-        method === 'GET' || method === 'HEAD' ? ctx.AccessActions.AppsRead : ctx.AccessActions.AppsManage,
+        appRouteAccessAction(method, parts, ctx.AccessActions),
         request,
         url,
         authContext,
@@ -801,7 +808,7 @@ export async function handleAppsApi(
     if (!id) {
       return Response.json({ error: 'App id is required' }, { status: 400 });
     }
-    if (!ctx.workspaceScope.isAdmin && id === 'wingman-core') {
+    if (!ctx.canManageCore && id === 'wingman-core') {
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
@@ -1134,9 +1141,10 @@ export async function handleAppsApi(
       const overwrite = payload.overwrite === undefined ? true : ctx.parseBooleanInput(payload.overwrite) === true;
       try {
         const imported = await readDotenvFile(current.root, filename);
+        const safeImport = removeForbiddenAppSigningEnv(imported.env);
         const nextEnv: AppEnvironmentVariables = { ...(current.env ?? {}) };
         const skippedKeys: string[] = [];
-        for (const [key, value] of Object.entries(imported.env)) {
+        for (const [key, value] of Object.entries(safeImport.env)) {
           if (!overwrite && Object.prototype.hasOwnProperty.call(nextEnv, key)) {
             skippedKeys.push(key);
             continue;
@@ -1150,9 +1158,12 @@ export async function handleAppsApi(
         return Response.json({
           imported: {
             path: imported.path,
-            keys: Object.keys(imported.env).sort((left, right) => left.localeCompare(right)),
+            keys: Object.keys(safeImport.env).sort((left, right) => left.localeCompare(right)),
             skippedKeys,
-            warnings: imported.warnings,
+            warnings: [
+              ...imported.warnings,
+              ...safeImport.removedKeys.map((key) => `${key} was skipped because signing credentials are broker-managed`),
+            ],
             overwrite,
           },
           app: withWappAssignments(
@@ -1248,9 +1259,7 @@ export async function handleAppsApi(
         return Response.json({ error: 'Action is required' }, { status: 400 });
       }
       const normalizedAction = actionValue.toLowerCase();
-      const accessAction = normalizedAction === 'start' || normalizedAction === 'stop' || normalizedAction === 'restart'
-        ? ctx.AccessActions.AppsLifecycle
-        : ctx.AccessActions.AppsManage;
+      const accessAction = appCommandAccessAction(normalizedAction, ctx.AccessActions);
       const denied = await ctx.ensureApiAccess(accessAction, request, url, authContext);
       if (denied) {
         return denied;

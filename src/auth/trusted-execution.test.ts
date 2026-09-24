@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { AccessActions } from "./access-control";
-import { createTrustedExecutionRule, type ExecutionAuditEntry } from "./trusted-execution";
+import {
+  createApprovedAppOwnerRule,
+  createTrustedExecutionRule,
+  type ExecutionAuditEntry,
+} from "./trusted-execution";
 import type { RequestAuthContext } from "./request-context";
 
 const admin = "npub1admin";
@@ -26,6 +30,30 @@ function auth(overrides: Partial<RequestAuthContext>): RequestAuthContext {
 }
 
 describe("trusted execution authorization", () => {
+  test("allows approved owners, Admins, and scoped delegated owner contexts but denies unapproved owners", async () => {
+    const rule = createApprovedAppOwnerRule({
+      isAdminNpub: (value) => value === admin,
+      isApprovedNpub: (value) => value === "npub1approved",
+    });
+    const request = new Request("http://localhost/api/apps/app-1", { method: "PUT" });
+    const decide = (requestAuth: RequestAuthContext) => rule({
+      action: AccessActions.AppsSelfManage,
+      request,
+      url: new URL(request.url),
+      auth: requestAuth,
+    });
+    expect((await decide(auth({ npub: "npub1approved" })))?.allowed).toBeTrue();
+    expect((await decide(auth({ npub: admin })))?.allowed).toBeTrue();
+    expect((await decide(auth({
+      targetOwnerNpub: admin,
+      delegatedOwnerNpub: admin,
+      delegateRelationshipId: "delegation-1",
+      delegateScopes: ["apps:configure"],
+      delegateExecutionScope: "apps:configure",
+    })))?.allowed).toBeTrue();
+    expect((await decide(auth({ npub: "npub1unapproved" })))?.allowed).toBeFalse();
+  });
+
   test.each([
     ["PATCH", "/api/sessions/session-self/metadata", "metadata update"],
     ["DELETE", "/api/sessions/session-self", "stop"],

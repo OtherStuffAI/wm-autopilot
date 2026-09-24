@@ -53,8 +53,10 @@ function createContext(
     sharedInstanceAccess: false,
     workspaceScope: { defaultDirectory: '/workspace' } as AppsApiContext['workspaceScope'],
     viewerNpub: 'npub1viewer',
+    canManageCore: false,
     AccessActions: {
       AppsLifecycle: AccessActions.AppsLifecycle,
+      AppsSelfManage: AccessActions.AppsSelfManage,
       AppsManage: AccessActions.AppsManage,
       AppsRead: AccessActions.AppsRead,
     },
@@ -234,14 +236,14 @@ describe('handleAppsApi', () => {
     });
   });
 
-  test('lets approved non-Admins run lifecycle actions while restricting app management', async () => {
+  test('lets approved users manage and operate their own apps while keeping privileged mutations elevated', async () => {
     const app: AppRecord = {
       id: 'app-1',
       label: 'Shared App',
       root: '/workspace/app',
       scripts: { start: appCommand('bun', 'run', 'start') },
       tmuxSession: 'app-1',
-      ownerNpub: 'npub1otherowner',
+      ownerNpub: 'npub1viewer',
       createdAt: '2026-09-03T00:00:00.000Z',
       updatedAt: '2026-09-03T00:00:00.000Z',
       webApp: false,
@@ -255,20 +257,26 @@ describe('handleAppsApi', () => {
       appRegistry: {
         ...createContext().appRegistry,
         getApp: async () => app,
+        updateApp: async (_id, input) => ({ ...app, ...input }),
       },
       appProcessManager: {
         ...createContext().appProcessManager,
         start: async () => idleStatus(app.id),
       },
     });
-    const restrictedRequests = [
-      new Request('http://localhost/api/apps', { method: 'POST', body: JSON.stringify({ root: '/workspace/app' }) }),
-      new Request('http://localhost/api/apps/app-1', { method: 'PUT', body: JSON.stringify({ label: 'Changed' }) }),
-    ];
-    for (const request of restrictedRequests) {
-      const response = await handleAppsApi(request, new URL(request.url), request.method as 'POST' | 'PUT', authContext, ctx);
-      expect(response?.status).toBe(403);
-    }
+    const updateRequest = new Request('http://localhost/api/apps/app-1', {
+      method: 'PUT',
+      body: JSON.stringify({ label: 'Changed' }),
+    });
+    const updateResponse = await handleAppsApi(updateRequest, new URL(updateRequest.url), 'PUT', authContext, ctx);
+    expect(updateResponse?.status).toBe(200);
+
+    const domainRequest = new Request('http://localhost/api/apps/app-1/domains', {
+      method: 'POST',
+      body: JSON.stringify({ hostname: 'app.example.com' }),
+    });
+    const domainResponse = await handleAppsApi(domainRequest, new URL(domainRequest.url), 'POST', authContext, ctx);
+    expect(domainResponse?.status).toBe(403);
 
     const lifecycleRequest = new Request('http://localhost/api/apps/app-1/actions', {
       method: 'POST',
@@ -282,6 +290,114 @@ describe('handleAppsApi', () => {
       ctx,
     );
     expect(lifecycleResponse?.status).toBe(200);
+  });
+
+  test('hides another users app before an owner-local mutation runs', async () => {
+    const app = {
+      id: 'app-1', label: 'Other App', root: '/workspace/other', scripts: {}, tmuxSession: 'app-1',
+      ownerNpub: 'npub1otherowner', createdAt: '', updatedAt: '', webApp: false, webAppPort: null,
+    } satisfies AppRecord;
+    let updated = false;
+    const ctx = createContext({
+      canAccessApp: (candidate) => candidate.ownerNpub === 'npub1viewer',
+      appRegistry: {
+        ...createContext().appRegistry,
+        getApp: async () => app,
+        updateApp: async () => {
+          updated = true;
+          return app;
+        },
+      },
+    });
+    const request = new Request('http://localhost/api/apps/app-1', {
+      method: 'PUT',
+      body: JSON.stringify({ label: 'Taken over' }),
+    });
+    const response = await handleAppsApi(request, new URL(request.url), 'PUT', authContext, ctx);
+    expect(response?.status).toBe(404);
+    expect(updated).toBeFalse();
+  });
+
+  test('registers an approved users app under their own identity', async () => {
+    let registration: Parameters<AppsApiContext['appRegistry']['registerApp']>[0] | null = null;
+    const app = {
+      id: 'app-1', label: 'My App', root: '/workspace/app', scripts: {}, tmuxSession: 'app-1',
+      ownerNpub: 'npub1viewer', createdAt: '', updatedAt: '', webApp: false, webAppPort: null,
+    } satisfies AppRecord;
+    const ctx = createContext({
+      appRegistry: {
+        ...createContext().appRegistry,
+        registerApp: async (input) => {
+          registration = input;
+          return app;
+        },
+      },
+      buildAppResponse: (record) => ({ id: record.id, ownerNpub: record.ownerNpub }),
+    });
+    const request = new Request('http://localhost/api/apps', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ root: '/workspace/app', label: 'My App' }),
+    });
+    const response = await handleAppsApi(request, new URL(request.url), 'POST', authContext, ctx);
+    expect(response?.status).toBe(201);
+    expect(registration?.ownerNpub).toBe('npub1viewer');
+  });
+
+  test('retains, changes, removes env bindings and restarts with the updated app', async () => {
+    let app = {
+      id: 'app-1', label: 'My App', root: '/workspace/app', scripts: { start: appCommand('bun', 'run', 'start') },
+      tmuxSession: 'app-1', ownerNpub: 'npub1viewer', env: { RETAIN: 'old', CHANGE: 'before', REMOVE: 'gone' },
+      createdAt: '', updatedAt: '', webApp: false, webAppPort: null,
+    } satisfies AppRecord;
+    let restartedEnv: Record<string, string> | undefined;
+    const ctx = createContext({
+      appActions: ['start', 'stop', 'restart', 'setup', 'build'],
+      appRegistry: {
+        ...createContext().appRegistry,
+        getApp: async () => app,
+        updateApp: async (_id, input) => {
+          app = { ...app, ...input };
+          return app;
+        },
+      },
+      appProcessManager: {
+        ...createContext().appProcessManager,
+        restart: async () => {
+          restartedEnv = app.env;
+          return idleStatus(app.id);
+        },
+      },
+      buildAppResponse: (record) => ({ id: record.id, env: record.env }),
+    });
+    const update = new Request('http://localhost/api/apps/app-1', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ env: [
+        { key: 'RETAIN', retain: true },
+        { key: 'CHANGE', value: 'after' },
+        { key: 'ADD', value: 'new' },
+      ] }),
+    });
+    expect((await handleAppsApi(update, new URL(update.url), 'PUT', authContext, ctx))?.status).toBe(200);
+    expect(app.env).toEqual({ ADD: 'new', CHANGE: 'after', RETAIN: 'old' });
+
+    const restart = new Request('http://localhost/api/apps/app-1/actions', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'restart' }),
+    });
+    expect((await handleAppsApi(restart, new URL(restart.url), 'POST', authContext, ctx))?.status).toBe(200);
+    expect(restartedEnv).toEqual({ ADD: 'new', CHANGE: 'after', RETAIN: 'old' });
+  });
+
+  test('protects wingman-core from ordinary and delegated app contexts', async () => {
+    const ctx = createContext({
+      workspaceScope: { defaultDirectory: '/workspace', isAdmin: true } as AppsApiContext['workspaceScope'],
+      canManageCore: false,
+    });
+    const request = new Request('http://localhost/api/apps/wingman-core', { method: 'DELETE' });
+    const response = await handleAppsApi(request, new URL(request.url), 'DELETE', authContext, ctx);
+    expect(response?.status).toBe(404);
   });
 
   test('rejects lifecycle actions when the caller is not approved', async () => {
@@ -414,11 +530,13 @@ describe('handleAppsApi', () => {
       const response = await handleAppsApi(request, new URL(request.url), 'POST', authContext, ctx);
       expect(response?.status).toBe(200);
       const payload = await response!.json() as any;
-      expect(payload.imported.keys).toEqual(['TOWER_URL', 'WAPP_NSEC']);
+      expect(payload.imported.keys).toEqual(['TOWER_URL']);
+      expect(payload.imported.warnings).toContain(
+        'WAPP_NSEC was skipped because signing credentials are broker-managed',
+      );
       expect(app.env).toEqual({
         EXISTING: 'keep',
         TOWER_URL: 'https://tower.example',
-        WAPP_NSEC: 'nsec1starter',
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });

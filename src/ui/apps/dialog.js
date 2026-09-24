@@ -1,6 +1,7 @@
 import { fetchStarterProjectsApi, launchStarterProjectApi } from "../services/starter-projects.js";
 import { openConfirmDialog } from "../common/dialog-prompts.js";
 import { formatLifecycleCommand, parseLifecycleCommand } from "./lifecycle-command.js";
+import { buildManagedEnvironmentPayload } from "./environment-editor.js";
 
 export const initAppDialogs = ({
   state,
@@ -386,24 +387,16 @@ export const initAppDialogs = ({
   };
 
   const collectAppEnvValues = () => {
-    const env = [];
-    for (const row of getAppEnvRows()) {
+    const rows = getAppEnvRows().map((row) => {
       const keyInput = row.querySelector('[data-role="env-key"]');
       const valueInput = row.querySelector('[data-role="env-value"]');
-      const key = keyInput instanceof HTMLInputElement ? keyInput.value.trim() : "";
-      const value = valueInput instanceof HTMLInputElement ? valueInput.value : "";
-      const existing = row.dataset.existing === "true";
-      if (!key && !value) continue;
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-        throw new Error(`Invalid environment variable key: ${key || "(blank)"}`);
-      }
-      if (existing && value.length === 0) {
-        env.push({ key, retain: true });
-      } else {
-        env.push({ key, value });
-      }
-    }
-    return env;
+      return {
+        key: keyInput instanceof HTMLInputElement ? keyInput.value : "",
+        value: valueInput instanceof HTMLInputElement ? valueInput.value : "",
+        existing: row.dataset.existing === "true",
+      };
+    });
+    return buildManagedEnvironmentPayload(rows);
   };
 
   const resetAppDialog = () => {
@@ -592,7 +585,7 @@ export const initAppDialogs = ({
       if (!response.ok) {
         const message =
           payload && typeof payload === "object" && typeof payload.error === "string" && payload.error.length > 0
-            ? payload.error
+            ? payload.message || payload.error
             : response.statusText || "Failed to save app";
         throw new Error(message);
       }
@@ -758,7 +751,7 @@ export const initAppDialogs = ({
       if (!response.ok) {
         const message =
           payload && typeof payload === "object" && typeof payload.error === "string" && payload.error.length > 0
-            ? payload.error
+            ? payload.message || payload.error
             : response.statusText || "Failed to discover scripts";
         throw new Error(message);
       }
@@ -878,7 +871,7 @@ export const initAppDialogs = ({
       if (!response.ok) {
         const message =
           payload && typeof payload === "object" && typeof payload.error === "string" && payload.error.length > 0
-            ? payload.error
+            ? payload.message || payload.error
             : response.statusText || "Failed to clone repository";
         throw new Error(message);
       }

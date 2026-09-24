@@ -6,6 +6,7 @@ export const AccessActions = {
   FilesRead: "files:read",
   FilesWrite: "files:write",
   AppsLifecycle: "apps:lifecycle",
+  AppsSelfManage: "apps:self-manage",
   AppsManage: "apps:manage",
   AppsRead: "apps:read",
   ProjectsManage: "projects:manage",

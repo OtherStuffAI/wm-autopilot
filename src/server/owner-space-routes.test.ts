@@ -23,6 +23,9 @@ describe("owner-space executable authority", () => {
     expect(await resolveOwnerAppsScope(new Request("http://localhost/apps"), "PUT", "/apps/app-1")).toBe(DelegationScopes.AppsConfigure);
     expect(await resolveOwnerAppsScope(new Request("http://localhost/apps"), "GET", "/apps")).toBe(DelegationScopes.AppsRead);
     expect(await resolveOwnerAppsScope(action("deploy"), "POST", "/apps/app-1/deploy-to-caprover")).toBe(DelegationScopes.DeploymentsManage);
+    expect(await resolveOwnerAppsScope(action("domain"), "POST", "/apps/app-1/domains")).toBe(DelegationScopes.DeploymentsManage);
+    expect(await resolveOwnerAppsScope(action("migrate"), "POST", "/apps/app-1/legacy-custody-migration")).toBe(DelegationScopes.AppsManage);
+    expect(await resolveOwnerAppsScope(action("review-wapp-tower-broker"), "POST", "/apps/app-1/actions")).toBe(DelegationScopes.AppsManage);
   });
 
   test("maps WApp operations to narrow delegation scopes", () => {

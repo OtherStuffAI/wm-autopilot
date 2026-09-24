@@ -271,10 +271,12 @@ function delegatedWappResourceDenial(
 
 export async function resolveOwnerAppsScope(request: Request, method: HttpMethod, subpath: string): Promise<string> {
   if (method === "GET" || method === "HEAD") return DelegationScopes.AppsRead;
-  if (/\/caprover\/|\/deploy-to-caprover$/.test(subpath)) return DelegationScopes.DeploymentsManage;
+  if (/\/domains(?:\/|$)|\/caprover\/|\/deploy-to-caprover$/.test(subpath)) return DelegationScopes.DeploymentsManage;
+  if (/\/legacy-custody-migration$/.test(subpath)) return DelegationScopes.AppsManage;
   if (/\/actions$/.test(subpath) && method === "POST") {
     const body = await readJsonBody(request);
     const action = typeof body?.action === "string" ? body.action.trim().toLowerCase() : "";
+    if (action === "review-wapp-tower-broker") return DelegationScopes.AppsManage;
     return action === "setup" || action === "build" ? DelegationScopes.AppsBuild : DelegationScopes.AppsOperate;
   }
   return DelegationScopes.AppsConfigure;

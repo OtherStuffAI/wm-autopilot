@@ -64,7 +64,7 @@ export async function triggerAppActionApi(appId, action) {
   if (!response.ok) {
     const message =
       payload && typeof payload === "object" && typeof payload.error === "string" && payload.error.length > 0
-        ? payload.error
+        ? payload.message || payload.error
         : response.statusText || "Failed to perform action";
     return { success: false, error: message };
   }
@@ -87,7 +87,7 @@ export async function removeAppApi(appId, killSession = false) {
   if (!response.ok) {
     const message =
       payload && typeof payload === "object" && typeof payload.error === "string" && payload.error.length > 0
-        ? payload.error
+        ? payload.message || payload.error
         : response.statusText || "Failed to remove app";
     return { success: false, error: message };
   }
@@ -105,7 +105,7 @@ export async function removeWappApi(wappId) {
   if (!response.ok) {
     const message =
       payload && typeof payload === "object" && typeof payload.error === "string" && payload.error.length > 0
-        ? payload.error
+        ? payload.message || payload.error
         : response.statusText || "Failed to remove WApp";
     return { success: false, error: message, data: payload };
   }
@@ -131,7 +131,7 @@ export async function importAppDotenvApi(appId, options = {}) {
   if (!response.ok) {
     const message =
       payload && typeof payload === "object" && typeof payload.error === "string" && payload.error.length > 0
-        ? payload.error
+        ? payload.message || payload.error
         : response.statusText || "Failed to import .env";
     return { success: false, error: message, data: payload };
   }
