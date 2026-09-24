@@ -52,7 +52,7 @@ export type DeclarativeStep =
       description?: string;
       display?: StepDisplaySpec;
       type: "block";
-      block: "memory.graphContext" | "jev.rerankCandidates" | "flightdeck.sendDirectMessage";
+      block: "memory.graphContext" | "jev.rerankCandidates" | "flightdeck.sendDirectMessage" | "flightdeck.returnToThread";
       input?: SelectorSpec;
       assign?: string;
       config?: JsonObject;

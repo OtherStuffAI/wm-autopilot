@@ -2,6 +2,34 @@
 
 This document maps the Flight Deck Dispatch paths that are currently configured for chat, task, and comment advisories.
 
+## Reusable Flight Deck Invocation
+
+Flight Deck can start any selected pipeline definition through `POST /api/pipelines/definitions/:id/flightdeck-runs`. The JSON body always has the same four domain fields: `workspaceId`, `threadId`, `frmNpub`, and `prompt`. The workspace is the lookup boundary for the source thread. `frmNpub` records who requested the run; it never selects a key, signer, subscription, or agent authority.
+
+Before creating a run, Autopilot validates all fields and resolves the workspace/thread through its active managed-agent subscription. Definitions adopt return delivery by preserving the four top-level fields and ending with the `flightdeck.returnToThread` block:
+
+```json
+{
+  "id": "return-final-response",
+  "name": "return-final-response",
+  "description": "Return the final Markdown to the originating Flight Deck thread.",
+  "type": "block",
+  "block": "flightdeck.returnToThread",
+  "input": {
+    "pick": {
+      "workspaceId": "$.workspaceId",
+      "threadId": "$.threadId",
+      "frmNpub": "$.frmNpub",
+      "prompt": "$.prompt",
+      "message": "$.final.response"
+    }
+  },
+  "assign": "$.deliveryResult"
+}
+```
+
+The block re-resolves the destination at delivery time and posts the exact Markdown body as the configured managed agent using Tower's message-instruction signature plus exact-body NIP-98 request. The structured result includes delivery status, workspace, thread, channel, message ID, managed sender, requester context, format, and signature protocol. Missing or ambiguous workspace/thread state fails explicitly. The separate `flightdeck.sendDirectMessage` block remains available for intentionally addressed two-party DMs.
+
 ## Runtime Gate
 
 Every Flight Deck advisory passes through `DispatchPipelineRuntime` before a declarative pipeline starts.

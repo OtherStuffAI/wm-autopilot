@@ -7,6 +7,7 @@ import type { RequestAuthContext } from "../auth/request-context";
 import type { SessionApiContext } from "../server/session-api-routes";
 import { handlePipelineApi, type PipelineApiContext } from "./pipeline-api-routes";
 import { PipelineStore } from "./pipeline-store";
+import { configureFlightDeckPipelineInvocation } from "./flightdeck-invocation";
 
 let tempDir: string;
 let previousPipelineRoot: string | undefined;
@@ -125,6 +126,49 @@ async function waitForRunStatus(store: PipelineStore, runId: string, statuses: s
 }
 
 describe("pipeline run API visibility", () => {
+  test("starts arbitrary selected pipelines through the same Flight Deck contract", async () => {
+    const store = makeStore();
+    const input = {
+      workspaceId: "2e5caefd-dd65-45d2-b747-ee874e8e5fc9",
+      threadId: "c87e026d-23c5-4fe9-b752-117f18cf4a10",
+      frmNpub: "npub1requester",
+      prompt: "Question",
+    };
+    configureFlightDeckPipelineInvocation({
+      resolve: async (resolved) => ({
+        workspaceId: resolved.workspaceId,
+        threadId: resolved.threadId,
+        channelId: "channel-1",
+        senderNpub: "npub1managed",
+      }),
+      send: async () => ({ delivered: true }),
+    });
+    for (const slug of ["pipeline-a", "pipeline-b"]) {
+      writeSharedPipelineDefinition(slug, { name: slug, input: { internalDefault: true }, steps: [] });
+      const response = await handlePostJson(
+        `/api/pipelines/definitions/${slug}/flightdeck-runs`,
+        makeContext(store, true),
+        input,
+      );
+      const body = await response.json() as { run: { input: Record<string, unknown> }; invocation: Record<string, unknown> };
+      expect(response.status).toBe(202);
+      expect(body.run.input).toEqual({ internalDefault: true, ...input });
+      expect(body.invocation).toMatchObject({ channelId: "channel-1", senderNpub: "npub1managed", requesterNpub: input.frmNpub });
+    }
+  });
+
+  test("rejects malformed Flight Deck run input before creating a run", async () => {
+    const store = makeStore();
+    writeSharedPipelineDefinition("pipeline-a", { name: "pipeline-a", steps: [] });
+    const response = await handlePostJson(
+      "/api/pipelines/definitions/pipeline-a/flightdeck-runs",
+      makeContext(store, true),
+      { workspaceId: "bad", threadId: "", frmNpub: "not-an-npub", prompt: "" },
+    );
+    expect(response.status).toBe(400);
+    expect(store.listRuns({ ownerNpub: "npub1viewer" })).toHaveLength(0);
+  });
+
   test("includes shared pipeline runs for other owners on shared instances", async () => {
     const store = makeStore();
     const ownRun = store.createRun({

@@ -11,6 +11,42 @@ export function expandPipelineBlock(step: Extract<DeclarativeStep, { type: "bloc
   const scratchPath = `$.blocks.${sanitizePathPart(step.name || step.block)}`;
   const inputPath = `${scratchPath}.input`;
   const outputPath = step.assign ?? defaultBlockOutputPath(step.block);
+  if (step.block === "flightdeck.returnToThread") {
+    return {
+      scratchPath,
+      inputPath,
+      outputPath,
+      steps: [
+        {
+          name: `${step.name} / return-to-thread`,
+          description: "Resolve the source Flight Deck thread and post the final Markdown as the configured managed agent.",
+          type: "code",
+          function: "flightdeck.returnToThread",
+          input: {
+            pick: {
+              workspaceId: `${inputPath}.workspaceId`,
+              threadId: `${inputPath}.threadId`,
+              frmNpub: `${inputPath}.frmNpub`,
+              prompt: `${inputPath}.prompt`,
+              message: `${inputPath}.message`,
+            },
+          },
+          assign: outputPath,
+          display: {
+            in: [
+              { label: "Thread", path: "$.threadId", format: "text" },
+              { label: "Response", path: "$.message", format: "text" },
+            ],
+            out: [
+              { label: "Delivered", path: "$.delivered" },
+              { label: "Thread", path: "$.threadId", format: "text" },
+              { label: "Message ID", path: "$.messageId", format: "text" },
+            ],
+          },
+        },
+      ],
+    };
+  }
   if (step.block === "flightdeck.sendDirectMessage") {
     return {
       scratchPath,
@@ -200,6 +236,7 @@ export function expandPipelineBlock(step: Extract<DeclarativeStep, { type: "bloc
 function defaultBlockOutputPath(block: Extract<DeclarativeStep, { type: "block" }>['block']): string {
   if (block === "jev.rerankCandidates") return "$.jevRerank";
   if (block === "flightdeck.sendDirectMessage") return "$.directMessage";
+  if (block === "flightdeck.returnToThread") return "$.threadDelivery";
   return "$.graphMemory";
 }
 

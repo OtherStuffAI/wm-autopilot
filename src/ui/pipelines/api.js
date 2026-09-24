@@ -39,11 +39,11 @@ export async function fetchPipelineFunction(name) {
 }
 
 export async function runPipelineDefinition(id, input = null) {
-  const res = await fetch(`/api/pipelines/definitions/${encodeURIComponent(id)}/runs?async=1`, {
+  const res = await fetch(`/api/pipelines/definitions/${encodeURIComponent(id)}/flightdeck-runs`, {
     method: "POST",
     credentials: "include",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(input ? { input } : {}),
+    body: JSON.stringify(input ?? {}),
   });
   if (!res.ok) {
     const payload = await res.json().catch(() => ({}));

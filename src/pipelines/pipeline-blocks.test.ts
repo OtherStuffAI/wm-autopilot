@@ -53,4 +53,21 @@ describe("expandPipelineBlock", () => {
       assign: "$.delivery",
     });
   });
+
+  test("expands flightdeck.returnToThread with the standard routing envelope", () => {
+    const expansion = expandPipelineBlock({
+      name: "return-result",
+      type: "block",
+      block: "flightdeck.returnToThread",
+      input: { pick: { workspaceId: "$.workspaceId", threadId: "$.threadId", frmNpub: "$.frmNpub", prompt: "$.prompt", message: "$.final" } },
+      assign: "$.delivery",
+    });
+
+    expect(expansion.outputPath).toBe("$.delivery");
+    expect(expansion.steps[0]).toMatchObject({
+      type: "code",
+      function: "flightdeck.returnToThread",
+      assign: "$.delivery",
+    });
+  });
 });

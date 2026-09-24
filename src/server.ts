@@ -168,6 +168,8 @@ import { builtinPipelineFunctions } from "./pipelines/functions";
 import { runDeclarativePipeline } from "./pipelines/pipeline-runner";
 import { configurePipelineDirectMessageSender } from "./pipelines/direct-message-block";
 import { createPipelineDirectMessageSender } from "./pipelines/direct-message-runtime";
+import { configureFlightDeckPipelineInvocation } from "./pipelines/flightdeck-invocation";
+import { createFlightDeckThreadRuntime } from "./pipelines/flightdeck-thread-runtime";
 import {
   buildAgentUrl,
   normaliseHostForUrl,
@@ -1723,6 +1725,11 @@ const profileBotIdentityRunner = createProfileBotIdentityRunner({
   brokerKeyVault,
 });
 configurePipelineDirectMessageSender(createPipelineDirectMessageSender({
+  agentStore: agentDefinitionStore,
+  subscriptionStore: workspaceSubscriptionStore,
+  withAgentIdentity: profileBotIdentityRunner,
+}));
+configureFlightDeckPipelineInvocation(createFlightDeckThreadRuntime({
   agentStore: agentDefinitionStore,
   subscriptionStore: workspaceSubscriptionStore,
   withAgentIdentity: profileBotIdentityRunner,

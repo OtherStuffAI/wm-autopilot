@@ -95,9 +95,9 @@ function bindDefinitionActions(root, page, actions) {
   root.querySelector('[data-action="select-launcher-definition"]')?.addEventListener("change", (event) => {
     actions.selectLauncherDefinition(page, event.target?.value ?? "");
   });
-  root.querySelector('[data-action="run-input"]')?.addEventListener("input", (event) => {
-    actions.updateRunInput(event.target?.value ?? "");
-  });
+  root.querySelectorAll('[data-action="flightdeck-run-input"]').forEach((input) => input.addEventListener("input", (event) => {
+    actions.updateFlightDeckInput(event.target?.dataset?.field ?? "", event.target?.value ?? "");
+  }));
   root.querySelector('[data-action="open-launcher-for-definition"]')?.addEventListener("click", async (event) => {
     await actions.openLauncherForDefinition(page, event.currentTarget?.dataset?.id ?? "");
   });

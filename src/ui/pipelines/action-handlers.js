@@ -43,7 +43,6 @@ export function createPipelineActionHandlers(deps) {
       await loadDefinitions();
       state.launcherOpen = true;
       ensureSelectedDefinition(state);
-      state.runInputText = "";
       updatePage(page);
     },
     closeLauncher: (page) => updateField(page, "launcherOpen", false),
@@ -79,15 +78,15 @@ export function createPipelineActionHandlers(deps) {
     },
     selectLauncherDefinition: (page, id) => {
       state.selectedDefinitionId = id;
-      state.runInputText = "";
       updatePage(page);
     },
-    updateRunInput: (value) => { state.runInputText = value; },
+    updateFlightDeckInput: (field, value) => {
+      if (Object.prototype.hasOwnProperty.call(state.flightDeckInput, field)) state.flightDeckInput[field] = value;
+    },
     openLauncherForDefinition: async (page, id) => {
       await loadDefinitions();
       if (id) state.selectedDefinitionId = id;
       state.launcherOpen = true;
-      state.runInputText = "";
       updatePage(page);
     },
     openCreator: async (page) => {

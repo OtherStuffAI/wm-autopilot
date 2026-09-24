@@ -45,7 +45,12 @@ export function createPipelinesState() {
     selectedFunctionName: "",
     selectedFunctionDetail: null,
     selectedFunctionLoading: false,
-    runInputText: "",
+    flightDeckInput: {
+      workspaceId: "",
+      threadId: "",
+      frmNpub: "",
+      prompt: "",
+    },
     runningId: null,
     resumingRunId: null,
     cancellingRunId: null,
@@ -73,19 +78,8 @@ export function ensureSelectedDefinition(state) {
   state.selectedDefinitionId = pickDefaultDefinitionId(state);
 }
 
-export function ensureRunInputForSelection(state, definition) {
-  if (state.runInputText || !definition) return;
-  state.runInputText = JSON.stringify(definition.input ?? {}, null, 2);
-}
-
-export function parseRunInput(state) {
-  const text = state.runInputText.trim();
-  if (!text) return null;
-  const parsed = JSON.parse(text);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Run input must be a JSON object");
-  }
-  return parsed;
+export function parseFlightDeckInput(state) {
+  return Object.fromEntries(Object.entries(state.flightDeckInput).map(([key, value]) => [key, String(value ?? "").trim()]));
 }
 
 export function hasRunPayload(run) {

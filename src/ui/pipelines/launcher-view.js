@@ -20,7 +20,7 @@ export function renderRunLauncher(state, selected) {
       <div class="wm-pipeline-section-heading">
         <div>
           <h2 id="pipeline-run-launcher-title">Run Pipeline</h2>
-          <p class="wm-muted">Select a definition, review the input object, and start a new run.</p>
+          <p class="wm-muted">Select a definition and return its final response to a Flight Deck thread.</p>
         </div>
         <button type="button" data-action="close-launcher">Close</button>
       </div>
@@ -34,10 +34,7 @@ export function renderRunLauncher(state, selected) {
           `).join("")}
         </select>
       </label>
-      <label class="wm-pipeline-field">
-        <span>Run input JSON</span>
-        <textarea data-action="run-input" rows="8" spellcheck="false">${escapeHtml(state.runInputText)}</textarea>
-      </label>
+      ${renderFlightDeckInvocationFields(state)}
       <div class="wm-pipeline-launcher-actions">
         <button type="button" data-action="close-launcher">Cancel</button>
         <button type="button" data-action="run-selected-definition" ${state.runningId ? "disabled" : ""}>
@@ -45,6 +42,32 @@ export function renderRunLauncher(state, selected) {
         </button>
       </div>
     </section>
+  `;
+}
+
+function renderFlightDeckInvocationFields(state) {
+  const fields = [
+    ["workspaceId", "Workspace ID", "Source Flight Deck workspace UUID"],
+    ["threadId", "Thread ID", "Source Flight Deck thread UUID"],
+    ["frmNpub", "Requester npub", "Requester context; never used for signing"],
+  ];
+  return `
+    <fieldset class="wm-pipeline-fieldset" data-testid="flightdeck-pipeline-invocation">
+      <legend>Flight Deck invocation</legend>
+      ${fields.map(([field, label, placeholder]) => `
+        <label class="wm-pipeline-field">
+          <span>${escapeHtml(label)}</span>
+          <input type="text" data-action="flightdeck-run-input" data-field="${field}"
+            data-testid="pipeline-${field}" aria-label="${escapeAttribute(label)}"
+            placeholder="${escapeAttribute(placeholder)}" value="${escapeAttribute(state.flightDeckInput[field])}">
+        </label>
+      `).join("")}
+      <label class="wm-pipeline-field">
+        <span>Prompt</span>
+        <textarea data-action="flightdeck-run-input" data-field="prompt" data-testid="pipeline-prompt"
+          aria-label="Pipeline prompt" rows="6" placeholder="What should this pipeline do?">${escapeHtml(state.flightDeckInput.prompt)}</textarea>
+      </label>
+    </fieldset>
   `;
 }
 

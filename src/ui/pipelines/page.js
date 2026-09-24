@@ -26,13 +26,12 @@ import { makePipelinePath, parsePipelineRoute, pushPipelinePath, replacePipeline
 import { renderRunDetailPage, renderRunsListPage } from "./runs-view.js";
 import {
   createPipelinesState,
-  ensureRunInputForSelection,
   ensureSelectedDefinition,
   getRouteDefinition,
   getSelectedDefinition,
   hasRunPayload,
   normalizeTab,
-  parseRunInput,
+  parseFlightDeckInput,
   pickDefaultDefinitionId,
 } from "./state.js";
 import { escapeHtml } from "./view-utils.js";
@@ -138,9 +137,6 @@ export function initPipelinesPage({ showToast, isFeatureEnabledForViewer = () =>
     wrap.className = "wm-pipelines-shell";
     wrap.setAttribute("aria-labelledby", "pipelines-title");
     const selected = getRouteDefinition(state, route);
-    if (state.launcherOpen) {
-      ensureRunInputForSelection(state, getSelectedDefinition(state));
-    }
     wrap.innerHTML = `
       ${renderHeader(route)}
       ${state.error ? `<p class="wm-error" role="alert">${escapeHtml(state.error)}</p>` : ""}
@@ -530,7 +526,7 @@ export function initPipelinesPage({ showToast, isFeatureEnabledForViewer = () =>
     state.error = null;
     updatePage(page);
     try {
-      const payload = await runPipelineDefinition(id, parseRunInput(state));
+      const payload = await runPipelineDefinition(id, parseFlightDeckInput(state));
       state.selectedRun = payload;
       state.selectedStep = null;
       state.selectedRunTab = "overview";
