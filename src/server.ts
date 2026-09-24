@@ -2751,6 +2751,11 @@ const handleApi = createApiRouteHandler({
     listPipelineDefinitions: (ownerNpub) => listLatestPipelineDefinitions(generateIdentityAlias(ownerNpub)),
     schedulerStore,
   },
+  liveThreadActivityRoutesContext: {
+    workspaceDelegationStore,
+    interceptStore: chatInterceptStateStore,
+    turnStore: getDirectChatTurnStore(),
+  },
   sessionDispatchService,
   getRequestIP: (req) => fipsControlPlane.externalRequestPeer(serverRef.current?.requestIP(req) ?? null),
   config: {

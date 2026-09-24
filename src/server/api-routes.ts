@@ -66,6 +66,7 @@ import type { LegacyWappCustodyMigration } from "../wapps/legacy-custody-migrati
 import { handleSigningPolicyApi, type SigningPolicyRoutesContext } from "./signing-policy-routes";
 import { handleSkillApi, type SkillApiContext } from "../skills/skill-api";
 import { handleControlPlaneApi, type ControlPlaneRoutesContext } from "./control-plane-routes";
+import { handleLiveThreadActivityApi, type LiveThreadActivityRoutesContext } from './live-thread-activity-routes';
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -146,6 +147,7 @@ export interface ApiRoutesContext {
   signingPolicyRoutesContext?: SigningPolicyRoutesContext;
   skillApiContext?: SkillApiContext;
   controlPlaneRoutesContext: ControlPlaneRoutesContext;
+  liveThreadActivityRoutesContext: LiveThreadActivityRoutesContext;
   remoteInstructRoutesContext: RemoteInstructRoutesContext;
   cloudflareTunnelRoutesContext?: CloudflareTunnelRoutesContext;
   workspaceDelegationStore: WorkspaceDelegationStore;
@@ -317,7 +319,8 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
       }
       const response = await runWithRequestContext(
         controlAuthContext,
-        () => handleControlPlaneApi(request, url, method, controlAuthContext, ctx.controlPlaneRoutesContext),
+        async () => await handleLiveThreadActivityApi(request, url, method, controlAuthContext, ctx.liveThreadActivityRoutesContext)
+          ?? handleControlPlaneApi(request, url, method, controlAuthContext, ctx.controlPlaneRoutesContext),
       );
       if (response) return response;
     }

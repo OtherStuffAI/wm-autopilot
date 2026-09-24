@@ -67,6 +67,7 @@ describe("Autopilot connect package", () => {
           "agents.pipelines.read",
           "agents.schedules.read",
           "agents.triggers.read",
+          "flightdeck.live-thread-activity.v1",
         ],
         health_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/health`,
         agents_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/agents`,

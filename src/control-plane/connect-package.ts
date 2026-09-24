@@ -23,6 +23,7 @@ export const CONTROL_READ_CAPABILITIES = [
   "agents.pipelines.read",
   "agents.schedules.read",
   "agents.triggers.read",
+  "flightdeck.live-thread-activity.v1",
 ] as const;
 
 const SECRET_KEY_PATTERN = /(^|_)(nsec|secret|private_key|bearer|token|bunker_uri|nwc|wallet_connect)(_|$)/i;

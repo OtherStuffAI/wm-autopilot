@@ -5,6 +5,7 @@ import type { ProcessManager } from '../agents/process-manager';
 import { upsertFlightDeckPgAgentActivity } from './tower-client';
 import type { RuntimeBotIdentity } from './types';
 import { agentActivityPublicationStore, type AgentActivityPublicationStore } from './agent-activity-publication-store';
+import { liveThreadActivityHub, type LiveThreadActivityHub } from './live-thread-activity';
 
 export type AgentActivityState = 'accepted' | 'queued' | 'working' | 'waiting' | 'completed' | 'failed' | 'cancelled';
 
@@ -59,6 +60,7 @@ export class AgentActivityPublisher {
     private readonly readLatestActivity: (input: Parameters<typeof readCodexUserVisibleActivities>[0]) => Promise<CodexUserVisibleActivity[] | CodexUserVisibleActivity | null> = readCodexUserVisibleActivities,
     private readonly log: Pick<Console, 'error'> & Partial<Pick<Console, 'info'>> = console,
     private readonly publicationStore: AgentActivityPublicationStore = agentActivityPublicationStore,
+    private readonly liveActivity: LiveThreadActivityHub = liveThreadActivityHub,
   ) {
     const startedAt = Date.parse(context.startedAt ?? '');
     this.sequenceBase = sequenceBase ?? (Number.isFinite(startedAt) ? startedAt : Date.now()) * 1_000;
@@ -119,6 +121,21 @@ export class AgentActivityPublisher {
     };
     const claim = this.publicationStore.claim(this.activityId, eventKey, this.sequenceBase, new Date().toISOString(), publicRequest);
     this.sequence = Math.max(this.sequence, claim.sequence);
+    if (!claim.duplicate) {
+      this.liveActivity.publish({
+        workspaceId: this.context.workspaceId,
+        channelId: this.context.channelId,
+        threadId: this.context.threadId,
+        agentNpub: this.context.agentNpub,
+        sessionId: this.runtimeSessionId,
+        turnId: this.context.turnId,
+        sequence: claim.sequence,
+        lifecycle: state,
+        commentary: normalized,
+        activityStatus: publicRequest.label ?? state,
+        timestamp: new Date().toISOString(),
+      });
+    }
     if (claim.duplicate) {
       if (claim.accepted && state === 'working') this.established = true;
       if (claim.accepted && terminal) this.terminal = true;
