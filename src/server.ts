@@ -2702,6 +2702,14 @@ const remoteInstructRoutesContext: RemoteInstructRoutesContext = {
 
 const handleApi = createApiRouteHandler({
   skillApiContext: { manager: skillManager, resolveWorkspace },
+  controlPlaneRoutesContext: {
+    identity: wingmanInstanceIdentity,
+    baseUrl: config.baseUrl,
+    baseUrlConfigured: config.baseUrlConfigured,
+    getFipsEndpoint: () => fipsControlPlane.getEndpoint(),
+    workspaceDelegationStore,
+    agentStore: agentDefinitionStore,
+  },
   sessionDispatchService,
   getRequestIP: (req) => fipsControlPlane.externalRequestPeer(serverRef.current?.requestIP(req) ?? null),
   config: {

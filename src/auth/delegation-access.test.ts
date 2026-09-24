@@ -52,4 +52,9 @@ describe("owner execution delegation", () => {
     expect(delegationAllowsApp(rootGrant, { id: "app-2", root: "/apps/allowed/nested" })).toBeTrue();
     expect(delegationAllowsApp(rootGrant, { id: "app-2", root: "/apps/denied" })).toBeFalse();
   });
+
+  test("retains explicit agent resource filters for control-plane reads", () => {
+    const filtered = grant({ resourceFilters: { agentIds: ["agent-one"] } });
+    expect(filtered.resourceFilters?.agentIds).toEqual(["agent-one"]);
+  });
 });

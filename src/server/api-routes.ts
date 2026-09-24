@@ -65,6 +65,7 @@ import {
 import type { LegacyWappCustodyMigration } from "../wapps/legacy-custody-migration";
 import { handleSigningPolicyApi, type SigningPolicyRoutesContext } from "./signing-policy-routes";
 import { handleSkillApi, type SkillApiContext } from "../skills/skill-api";
+import { handleControlPlaneApi, type ControlPlaneRoutesContext } from "./control-plane-routes";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -144,6 +145,7 @@ export interface ApiRoutesContext {
   instanceSettingsRoutesContext: InstanceSettingsRoutesContext;
   signingPolicyRoutesContext?: SigningPolicyRoutesContext;
   skillApiContext?: SkillApiContext;
+  controlPlaneRoutesContext: ControlPlaneRoutesContext;
   remoteInstructRoutesContext: RemoteInstructRoutesContext;
   cloudflareTunnelRoutesContext?: CloudflareTunnelRoutesContext;
   workspaceDelegationStore: WorkspaceDelegationStore;
@@ -298,6 +300,23 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     const projectsFlag = ctx.resolveFeatureFlagStateForViewer(ctx.PROJECTS_FLAG_KEY, viewerIsAdmin, "on_admin");
     const projectsEnabled = projectsFlag.effectiveState === "on";
     const viewerNpub = getEffectiveOwnerNpub(authContext);
+
+    if (pathname === "/api/control-plane/v1/connect-package") {
+      const response = await handleControlPlaneApi(request, url, method, authContext, ctx.controlPlaneRoutesContext);
+      if (response) return response;
+    }
+
+    if (/^\/api\/owners\/[^/]+\/control-plane\/v1\//.test(pathname)) {
+      const controlAuthContext = await ctx.resolveNip98AuthContext(request, url, authContext);
+      if (controlAuthContext.authMethod !== "nip98") {
+        return Response.json({ error: "nip98-authentication-required" }, { status: 401 });
+      }
+      const response = await runWithRequestContext(
+        controlAuthContext,
+        () => handleControlPlaneApi(request, url, method, controlAuthContext, ctx.controlPlaneRoutesContext),
+      );
+      if (response) return response;
+    }
 
     if (pathname.startsWith("/api/skills")) {
       if (!ctx.skillApiContext) return Response.json({ error: "Skill manager unavailable" }, { status: 503 });

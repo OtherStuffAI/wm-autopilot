@@ -10,6 +10,7 @@ export const WORKSPACE_DELEGATION_EVENT_KIND = 30079;
 export type DelegationBillingMode = "delegate" | "owner" | "shared";
 
 export interface DelegationResourceFilters {
+  agentIds?: string[];
   projectRoots?: string[];
   pathPrefixes?: string[];
   appIds?: string[];
@@ -108,6 +109,7 @@ function validateResourceFilters(input: unknown): DelegationResourceFilters | un
   const record = input as Record<string, unknown>;
   const filters: DelegationResourceFilters = {};
   const projectRoots = normaliseStringArray(record.projectRoots);
+  const agentIds = normaliseStringArray(record.agentIds);
   const pathPrefixes = normaliseStringArray(record.pathPrefixes);
   const appIds = normaliseStringArray(record.appIds);
   const appRoots = normaliseStringArray(record.appRoots);
@@ -115,6 +117,7 @@ function validateResourceFilters(input: unknown): DelegationResourceFilters | un
   const wappIds = normaliseStringArray(record.wappIds);
   const workspaceIds = normaliseStringArray(record.workspaceIds);
   const scopeIds = normaliseStringArray(record.scopeIds);
+  if (agentIds.length > 0) filters.agentIds = agentIds;
   if (projectRoots.length > 0) {
     filters.projectRoots = projectRoots;
   }

@@ -22,6 +22,7 @@ export const DelegationScopes = {
   WappsAssign: "wapps:assign",
   FilesRead: "files:read",
   FilesWrite: "files:write",
+  ControlPlaneRead: "control-plane:read",
 } as const;
 
 export type DelegationScope = (typeof DelegationScopes)[keyof typeof DelegationScopes];
