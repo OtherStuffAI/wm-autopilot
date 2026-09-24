@@ -252,6 +252,7 @@ export interface ChatInterceptStateRecord {
   lastMessageIdSeen: string | null;
   lastEventCursorSeen?: string | null;
   lastHumanMessageIdDelivered?: string | null;
+  nativeHistoryCheckpointMessageId?: string | null;
   lastAgentMessageIdPublished?: string | null;
   lastCompletedTurnId?: string | null;
   pendingMessageCount: number;

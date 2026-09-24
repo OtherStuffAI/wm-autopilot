@@ -449,7 +449,8 @@ export class AgentDirectChatRuntime {
             ? buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
                 scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery })
             : intercept.lastCompletedTurnId
-              ? buildDirectChatFollowUpPrompt({ routingKey, threadId: intercept.threadId, history, actionableMessages: delta })
+              ? buildDirectChatFollowUpPrompt({ routingKey, threadId: intercept.threadId, history, actionableMessages: delta,
+                  historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId })
               : buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
                   scopeId: input.channel.scope_id ?? null, history, nextMessages: delta });
           const recovered = sessionResolution.bootstrap
@@ -514,7 +515,9 @@ export class AgentDirectChatRuntime {
         let prompt = sessionResolution.bootstrap
           ? buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
               scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery })
-          : buildDirectChatFollowUpPrompt({ routingKey, threadId: intercept.threadId, history, actionableMessages: delta });
+          : buildDirectChatFollowUpPrompt({ routingKey, threadId: intercept.threadId, history, actionableMessages: delta,
+              historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId });
+        const acceptedHistoryCheckpointMessageId = history.at(-1)?.messageId ?? null;
         const onAccepted = () => {
             this.turnStore.save({ turnId, routingKey, sourceMessageIds, clientRequestId, replyBody: null,
               publishedMessageId: null, state: 'awaiting_reply', createdAt: now, updatedAt: new Date().toISOString(),
@@ -528,6 +531,7 @@ export class AgentDirectChatRuntime {
               leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + 310_000).toISOString() : null });
             intercept = this.deps.interceptStore.save({ ...intercept,
               lastHumanMessageIdDelivered: sourceMessageIds.at(-1) ?? null, pendingMessageCount: 0,
+              nativeHistoryCheckpointMessageId: acceptedHistoryCheckpointMessageId,
               updatedAt: new Date().toISOString() });
           };
         // Persist the intended prompt before transport so restart recovery can

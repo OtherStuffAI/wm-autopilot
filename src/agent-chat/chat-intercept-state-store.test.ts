@@ -15,9 +15,12 @@ describe('ChatInterceptStateStore durable migration', () => {
     const store = new ChatInterceptStateStore(path); const migrated = store.getByRoutingKey('route')!;
     expect(migrated.sessionId).toBe('session-1'); expect(migrated.sessionGeneration).toBe(1); expect(migrated.previousSessionIds).toEqual([]);
     expect(migrated.lastHumanMessageIdDelivered).toBeNull();
-    store.save({ ...migrated, lastEventCursorSeen: 'cursor-1', lastHumanMessageIdDelivered: 'm1', updatedAt: new Date().toISOString() });
+    expect(migrated.nativeHistoryCheckpointMessageId).toBeNull();
+    store.save({ ...migrated, lastEventCursorSeen: 'cursor-1', lastHumanMessageIdDelivered: 'm1',
+      nativeHistoryCheckpointMessageId: 'history-m1', updatedAt: new Date().toISOString() });
     const reopened = new ChatInterceptStateStore(path).getByRoutingKey('route')!;
     expect(reopened.lastEventCursorSeen).toBe('cursor-1'); expect(reopened.lastHumanMessageIdDelivered).toBe('m1');
+    expect(reopened.nativeHistoryCheckpointMessageId).toBe('history-m1');
     const duplicate = store.upsertMessage({ routingKey: 'route', subscriptionId: 'sub', agentId: 'exampleAgent',
       workspaceOwnerNpub: 'owner', sourceAppNpub: 'app', channelId: 'channel', threadId: 'thread',
       botNpub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg', messageId: 'm1', eventCursor: 'cursor-2' });

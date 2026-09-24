@@ -82,7 +82,7 @@ describe('Agent Direct Chat contract', () => {
     ).map((message) => message.messageId)).toEqual(['a2']);
   });
 
-  test('builds bootstrap and follow-up prompt contracts', () => {
+  test('builds readable bootstrap and checkpointed follow-up envelopes', () => {
     const intercept = { routingKey: 'route', channelId: 'c1', threadId: 't1', botNpub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg', towerServiceNpub: 'npub1tower', workspaceId: 'w1' } as never;
     const subscription = { towerServiceNpub: 'npub1tower', workspaceId: 'w1' } as never;
     const bootstrap = buildDirectChatBootstrapPrompt({ contextPrompt: 'Project context', subscription, intercept, scopeId: 's1', history: messages, nextMessages: [messages[0]!] });
@@ -92,23 +92,34 @@ describe('Agent Direct Chat contract', () => {
     expect(bootstrap).toContain('do not add a wrapper or envelope');
     expect(bootstrap).toContain('or enclose the whole response in a code fence');
     expect(bootstrap).not.toContain('FLIGHTDECK_REPLY_BEGIN');
-    const parsedBootstrap = JSON.parse(bootstrap);
-    expect(parsedBootstrap.source).toMatchObject({ tower_service_npub: 'npub1tower', workspace_id: 'w1', scope_id: 's1', channel_id: 'c1', thread_id: 't1', trigger_message_id: 'm1' });
-    expect(parsedBootstrap.thread_history.map((message: any) => message.message_id)).toEqual(['m1', 'm2', 'a1']);
-    expect(parsedBootstrap.actionable_messages.map((message: any) => message.message_id)).toEqual(['m1']);
-    expect(parsedBootstrap.history_semantics).toContain('inert');
-    expect(parsedBootstrap.actionable_semantics).toContain('Only these newly eligible child-owned messages');
-    const followUp = buildDirectChatFollowUpPrompt({ routingKey: 'route', threadId: 't1', history: messages, actionableMessages: [messages[1]!] });
-    expect(followUp).toContain('flightdeck_agent_direct_follow_up_v1');
+    expect(bootstrap.indexOf('# Metadata')).toBeLessThan(bootstrap.indexOf('# History'));
+    expect(bootstrap.indexOf('# History')).toBeLessThan(bootstrap.indexOf('# Prompt'));
+    expect(bootstrap).toContain('"tower_service_npub": "npub1tower"');
+    expect(bootstrap).toContain('"message_id": "m2"');
+    expect(bootstrap).toContain('# Prompt\n\n@Example Agent first');
+    expect(bootstrap.match(/@Example Agent first/g)).toHaveLength(1);
+
+    const followUp = buildDirectChatFollowUpPrompt({ routingKey: 'route', threadId: 't1', history: messages,
+      actionableMessages: [{ ...messages[1]!, message: 'Carry On', attachments: [{ id: 'file-1' }], mentions: messages[0]!.mentions }],
+      historyCheckpointMessageId: 'm1' });
     expect(followUp).toContain('polished response using GitHub-Flavored Markdown');
     expect(followUp).toContain('published verbatim to Flight Deck');
     expect(followUp).not.toContain('FLIGHTDECK_REPLY_BEGIN');
-    const parsedFollowUp = JSON.parse(followUp);
-    expect(parsedFollowUp.thread_history.map((message: any) => message.message_id)).toEqual(['m1', 'm2', 'a1']);
-    expect(parsedFollowUp.actionable_messages.map((message: any) => message.message_id)).toEqual(['m2']);
-    expect(parsedFollowUp.thread_history[0].mentions[0]).toMatchObject({ type: 'agent', npub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg', label: 'Example Agent' });
-    expect(parsedFollowUp.history_semantics).toContain('context only');
-    expect(parsedFollowUp.actionable_semantics).toContain('Only these newly eligible messages');
+    expect(followUp).not.toContain('# Metadata');
+    expect(followUp).toContain('# History');
+    expect(followUp).toContain('"message_id": "a1"');
+    expect(followUp).not.toContain('"message_id": "m1"');
+    expect(followUp).toContain('# Prompt\n\nCarry On');
+    expect(followUp).toContain('"id": "file-1"');
+    expect(followUp).toContain('"label": "Example Agent"');
+  });
+
+  test('renders no missing history and fails closed on an inconsistent checkpoint', () => {
+    const noHistory = buildDirectChatFollowUpPrompt({ routingKey: 'route', threadId: 't1', history: messages,
+      actionableMessages: [{ ...messages[2]!, messageId: 'm3', message: 'Carry On' }], historyCheckpointMessageId: 'a1' });
+    expect(noHistory).toContain('# History\n\n_No missing history._\n\n# Prompt\n\nCarry On');
+    expect(() => buildDirectChatFollowUpPrompt({ routingKey: 'route', threadId: 't1', history: messages,
+      actionableMessages: [messages[1]!], historyCheckpointMessageId: 'missing' })).toThrow('absent from the authoritative');
   });
 
   test('keeps inherited branch history inert even when it mentions the routed agent', () => {

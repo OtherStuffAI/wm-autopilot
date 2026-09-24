@@ -87,12 +87,13 @@ class ChatInterceptStateStore {
          routing_key, subscription_id, agent_id, session_id, session_generation, previous_session_ids_json,
          session_class, workspace_owner_npub, source_app_npub, tower_service_npub, workspace_id,
          channel_id, thread_id, target_bot_npub, last_message_id_seen, last_event_cursor_seen,
-         last_human_message_id_delivered, last_agent_message_id_published, last_completed_turn_id, pending_message_count,
+         last_human_message_id_delivered, native_history_checkpoint_message_id,
+         last_agent_message_id_published, last_completed_turn_id, pending_message_count,
          state, last_decision, last_activity_at, created_at, updated_at
        ) VALUES (
          ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-         ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
-         ?21, ?22, ?23, ?24, ?25
+         ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
+         ?22, ?23, ?24, ?25, ?26
        )
        ON CONFLICT(routing_key) DO UPDATE SET
          subscription_id = excluded.subscription_id,
@@ -111,6 +112,7 @@ class ChatInterceptStateStore {
          last_message_id_seen = excluded.last_message_id_seen,
          last_event_cursor_seen = excluded.last_event_cursor_seen,
          last_human_message_id_delivered = excluded.last_human_message_id_delivered,
+         native_history_checkpoint_message_id = excluded.native_history_checkpoint_message_id,
          last_agent_message_id_published = excluded.last_agent_message_id_published,
          last_completed_turn_id = excluded.last_completed_turn_id,
          pending_message_count = excluded.pending_message_count,
@@ -136,6 +138,7 @@ class ChatInterceptStateStore {
       record.lastMessageIdSeen,
       record.lastEventCursorSeen ?? null,
       record.lastHumanMessageIdDelivered ?? null,
+      record.nativeHistoryCheckpointMessageId ?? null,
       record.lastAgentMessageIdPublished ?? null,
       record.lastCompletedTurnId ?? null,
       record.pendingMessageCount,
@@ -219,6 +222,7 @@ class ChatInterceptStateStore {
       lastMessageIdSeen: input.messageId,
       lastEventCursorSeen: input.eventCursor ?? existing?.lastEventCursorSeen ?? null,
       lastHumanMessageIdDelivered: existing?.lastHumanMessageIdDelivered ?? null,
+      nativeHistoryCheckpointMessageId: existing?.nativeHistoryCheckpointMessageId ?? null,
       lastAgentMessageIdPublished: existing?.lastAgentMessageIdPublished ?? null,
       lastCompletedTurnId: existing?.lastCompletedTurnId ?? null,
       pendingMessageCount: nextCount,
@@ -267,6 +271,7 @@ class ChatInterceptStateStore {
            last_message_id_seen,
            last_event_cursor_seen,
            last_human_message_id_delivered,
+           native_history_checkpoint_message_id,
            last_agent_message_id_published,
            last_completed_turn_id,
            pending_message_count,
@@ -304,6 +309,7 @@ class ChatInterceptStateStore {
            last_message_id_seen,
            last_event_cursor_seen,
            last_human_message_id_delivered,
+           native_history_checkpoint_message_id,
            last_agent_message_id_published,
            last_completed_turn_id,
            pending_message_count,
@@ -339,6 +345,7 @@ class ChatInterceptStateStore {
       lastMessageIdSeen: typeof row.last_message_id_seen === 'string' ? row.last_message_id_seen : null,
       lastEventCursorSeen: typeof row.last_event_cursor_seen === 'string' ? row.last_event_cursor_seen : null,
       lastHumanMessageIdDelivered: typeof row.last_human_message_id_delivered === 'string' ? row.last_human_message_id_delivered : null,
+      nativeHistoryCheckpointMessageId: typeof row.native_history_checkpoint_message_id === 'string' ? row.native_history_checkpoint_message_id : null,
       lastAgentMessageIdPublished: typeof row.last_agent_message_id_published === 'string' ? row.last_agent_message_id_published : null,
       lastCompletedTurnId: typeof row.last_completed_turn_id === 'string' ? row.last_completed_turn_id : null,
       pendingMessageCount: normalisePendingMessageCount(row.pending_message_count),

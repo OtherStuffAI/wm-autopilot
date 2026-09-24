@@ -12,7 +12,8 @@ export function initialiseChatInterceptStateSchema(db: Database): void {
     session_class TEXT NOT NULL, workspace_owner_npub TEXT NOT NULL, source_app_npub TEXT NOT NULL,
     tower_service_npub TEXT NOT NULL DEFAULT '', workspace_id TEXT NOT NULL DEFAULT '', channel_id TEXT NOT NULL,
     thread_id TEXT NOT NULL, target_bot_npub TEXT NOT NULL, last_message_id_seen TEXT, last_event_cursor_seen TEXT,
-    last_human_message_id_delivered TEXT, last_agent_message_id_published TEXT, last_completed_turn_id TEXT,
+    last_human_message_id_delivered TEXT, native_history_checkpoint_message_id TEXT,
+    last_agent_message_id_published TEXT, last_completed_turn_id TEXT,
     pending_message_count INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, last_decision TEXT NOT NULL DEFAULT 'pending',
     last_activity_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`);
@@ -22,6 +23,7 @@ export function initialiseChatInterceptStateSchema(db: Database): void {
     ['previous_session_ids_json', "TEXT NOT NULL DEFAULT '[]'"], ['tower_service_npub', "TEXT NOT NULL DEFAULT ''"],
     ['workspace_id', "TEXT NOT NULL DEFAULT ''"], ['last_event_cursor_seen', 'TEXT'],
     ['last_human_message_id_delivered', 'TEXT'], ['last_agent_message_id_published', 'TEXT'], ['last_completed_turn_id', 'TEXT'],
+    ['native_history_checkpoint_message_id', 'TEXT'],
   ];
   for (const [column, definition] of migrations) {
     if (!hasColumn(db, column)) db.exec(`ALTER TABLE chat_intercept_state ADD COLUMN ${column} ${definition}`);
