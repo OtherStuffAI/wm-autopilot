@@ -120,6 +120,7 @@ describe('Agent Profiles Settings entry', () => {
       expect(findByTestId(modal, 'agent-chat-agent-create-picture-preview')?.alt).toBe('Agent profile image preview');
       expect(findByTestId(modal, 'agent-chat-agent-create-about')).not.toBeNull();
       expect(findByTestId(modal, 'agent-chat-agent-create-nip05')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-chat-agent-create-instructors')).not.toBeNull();
       expect(findByTestId(modal, 'agent-chat-agent-name-advanced-panel')?.style.display).toBe('');
 
       const harnessSelect = findByTestId(modal, 'agent-chat-agent-create-harness');
@@ -181,6 +182,7 @@ describe('Agent Profiles Settings entry', () => {
       expect(findByTestId(modal, 'agent-profile-edit-harness').value).toBe('goose');
       expect(findByTestId(modal, 'agent-profile-edit-model').value).toBe('deepseek/deepseek-v4-flash-0731');
       expect(findByTestId(modal, 'agent-profile-edit-picture-file')).not.toBeNull();
+      expect(findByTestId(modal, 'agent-profile-edit-instructors')).not.toBeNull();
       expect(findByTestId(modal, 'agent-profile-edit-picture-status')?.attributes.get('aria-live')).toBe('polite');
       findByTestId(modal, 'agent-profile-edit-directory').value = '/Users/example/wingmen/Builder21';
       findByTestId(modal, 'agent-profile-edit-save').click();

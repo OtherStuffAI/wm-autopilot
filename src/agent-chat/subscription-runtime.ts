@@ -2226,6 +2226,7 @@ export class WorkspaceSubscriptionManager {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       managedByNpub: input.managedByNpub,
+      instructorNpubs: input.instructorNpubs ?? existing?.instructorNpubs ?? [input.managedByNpub],
     });
     this.ensureDefaultDispatchRoutesForAgent(saved);
     return saved;
@@ -4625,6 +4626,16 @@ export class WorkspaceSubscriptionManager {
 
       const sourceLabel = sourceLabelForFlightDeckChat({ event, message, messages });
       if (this.chatRuntime) {
+        const directPayload = normaliseFlightDeckPgChatPayload(message, event);
+        const directActorNpub = getOptionalText(message.created_by_actor_npub);
+        const directSignature = verifyFlightDeckPgInstructionSignature({
+          signature: directPayload.message_signature,
+          body: String(directPayload.body ?? ''),
+          actorNpub: directActorNpub,
+          workspaceId,
+          channelId,
+          threadId: message.thread_id ?? message.thread_source_message_id ?? message.id,
+        });
         const mentionedAgentNpubs = [...new Set(normaliseDirectChatMessage(message).mentions
           .map((mention) => mention.npub?.trim() ?? '')
           .filter(Boolean))].sort();
@@ -4638,6 +4649,11 @@ export class WorkspaceSubscriptionManager {
           channel: hydrated.channel,
           messages: hydrated.messages,
           audienceAgentNpubs: localAudience.map((profile) => profile.botNpub),
+          instructionAuthorization: {
+            verified: directSignature.ok,
+            authorNpub: directSignature.ok ? directSignature.signerNpub : null,
+            reason: directSignature.reason,
+          },
         });
         record.lastRoutingResult = buildSuccessDiagnostic('Flight Deck PG Agent Direct Chat event evaluated.', {
           subscription_id: record.subscriptionId,
@@ -6705,11 +6721,28 @@ export class WorkspaceSubscriptionManager {
             { fetchChannel: this.fetchFlightDeckPgChannelImpl, fetchMessages: this.fetchFlightDeckPgChannelMessagesImpl });
           const recovery = this.chatRuntime.recoverDirectChat({ subscription: record, botIdentity,
             channel: hydrated.channel, messages: hydrated.messages,
-            event: { entity_id: intercept.lastMessageIdSeen, channel_id: intercept.channelId, cursor: intercept.lastEventCursorSeen } },
+            event: { entity_id: intercept.lastMessageIdSeen, channel_id: intercept.channelId, cursor: intercept.lastEventCursorSeen },
+            instructionAuthorization: { verified: false, authorNpub: null, reason: 'recovery_uses_accepted_turn' } },
             intercept.routingKey);
           if (recovery.handled) continue;
+          const replayMessage = hydrated.messages.find((item) => item.id === intercept.lastMessageIdSeen);
+          const replayPayload = replayMessage
+            ? normaliseFlightDeckPgChatPayload(replayMessage, { entity_id: intercept.lastMessageIdSeen })
+            : null;
+          const replaySignature = replayMessage && replayPayload
+            ? verifyFlightDeckPgInstructionSignature({
+                signature: replayPayload.message_signature,
+                body: String(replayPayload.body ?? ''),
+                actorNpub: getOptionalText(replayMessage.created_by_actor_npub),
+                workspaceId: record.workspaceId ?? null,
+                channelId: intercept.channelId,
+                threadId: intercept.threadId,
+              })
+            : { ok: false, reason: 'replay_message_missing', signerNpub: null };
           await this.chatRuntime.handleDirectChat({ subscription: record, botIdentity, channel: hydrated.channel, messages: hydrated.messages,
-            event: { entity_id: intercept.lastMessageIdSeen, channel_id: intercept.channelId, cursor: intercept.lastEventCursorSeen } });
+            event: { entity_id: intercept.lastMessageIdSeen, channel_id: intercept.channelId, cursor: intercept.lastEventCursorSeen },
+            instructionAuthorization: { verified: replaySignature.ok,
+              authorNpub: replaySignature.ok ? replaySignature.signerNpub : null, reason: replaySignature.reason } });
         } catch (error) {
           console.warn(`[agent-chat] failed to replay direct turn ${intercept.routingKey}: ${error instanceof Error ? error.message : String(error)}`);
         }

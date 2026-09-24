@@ -231,6 +231,7 @@ export interface AgentDefinitionRecord {
   createdAt: string;
   updatedAt: string;
   managedByNpub: string | null;
+  instructorNpubs?: string[];
 }
 
 export interface ChatInterceptStateRecord {
@@ -291,6 +292,7 @@ export interface UpdateWorkspaceSubscriptionInput extends WorkspaceSubscriptionR
 
 export interface CreateAgentDefinitionInput {
   managedByNpub: string;
+  instructorNpubs?: string[];
   agentId: string;
   label: string;
   botNpub: string;

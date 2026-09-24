@@ -47,6 +47,11 @@ export interface DirectChatRuntimeInput {
   channel: FlightDeckPgChannel;
   messages: FlightDeckPgMessage[];
   audienceAgentNpubs?: string[];
+  instructionAuthorization: {
+    verified: boolean;
+    authorNpub: string | null;
+    reason: string;
+  };
 }
 
 interface DirectChatRuntimeDependencies {
@@ -177,6 +182,16 @@ export class AgentDirectChatRuntime {
       if (revisionDispatch
         ? !revisionDispatch.newlyAddedMentionNpubs.has(agent.botNpub)
         : !isAgentDirectMessageEligible(input.channel, eventMessage, agent.botNpub)) continue;
+      if (!input.instructionAuthorization.verified
+        || input.instructionAuthorization.authorNpub !== eventMessage.userNpub) {
+        this.recordAuthorizationSuppression(input, agent, eventMessage.messageId,
+          input.instructionAuthorization.reason || 'invalid_instruction_signature');
+        continue;
+      }
+      if (!this.deps.agentStore.canInstruct(agent.agentId, input.instructionAuthorization.authorNpub)) {
+        this.recordAuthorizationSuppression(input, agent, eventMessage.messageId, 'instructor_not_allowed');
+        continue;
+      }
       const threadId = input.messages.find((message) => message.id === eventMessage.messageId)?.thread_id
         ?? input.messages.find((message) => message.id === eventMessage.messageId)?.thread_source_message_id
         ?? eventMessage.messageId;
@@ -236,6 +251,32 @@ export class AgentDirectChatRuntime {
       this.enqueue(routingKey, agent, contextPrompt, input);
     }
     return { handled, reason: handled ? 'direct_chat_queued' : 'not_activated' };
+  }
+
+  private recordAuthorizationSuppression(
+    input: DirectChatRuntimeInput,
+    agent: AgentDefinitionRecord,
+    recordId: string,
+    reason: string,
+  ): void {
+    this.dispatchOutcomeStore.recordHistory(input.subscription.subscriptionId, {
+      at: new Date().toISOString(),
+      kind: 'chat',
+      action: 'chat_direct_authorization_denied',
+      agentId: agent.agentId,
+      sessionId: null,
+      recordId,
+      bindingId: input.event.thread_id ?? recordId,
+      bindingType: 'thread',
+      status: 'suppressed',
+      suppressionReason: reason,
+      details: { reason, agent_id: agent.agentId },
+    });
+    this.log.warn('[agent-chat] Agent Direct instruction denied', {
+      agentId: agent.agentId,
+      recordId,
+      reason,
+    });
   }
 
   recover(input: DirectChatRuntimeInput, routingKey: string): { handled: boolean; reason: string } {

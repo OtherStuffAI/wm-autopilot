@@ -11,6 +11,7 @@ import {
 } from '../agent-chat/agent-profile-media-store';
 import { AgentProfileCreationError } from '../agent-chat/subscription-runtime';
 import type { AgentDefinitionRecord } from '../agent-chat/types';
+import { validateInstructorNpubs } from '../agent-chat/instructor-authority';
 import { buildAgentProfileMediaPublicUrl } from './agent-profile-media-public-route';
 import type { AgentProfileMediaApiContext, AgentProfileMediaRequestScope } from './agent-profile-media-route-types';
 
@@ -174,6 +175,15 @@ export async function handleAgentProfileCreateApi(
   const harness = typeof body.harness === 'string' ? body.harness.trim() : '';
   const requestedModel = typeof body.model === 'string' ? body.model.trim() || null : null;
   const model = requestedModel === 'default' ? null : requestedModel;
+  let instructorNpubs: string[];
+  try {
+    instructorNpubs = Array.isArray(body.instructorNpubs)
+      ? validateInstructorNpubs(body.instructorNpubs.filter((value): value is string => typeof value === 'string'))
+      : [scope.managerNpub];
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : 'Invalid instructor npub.' }, { status: 400 });
+  }
+  if (!instructorNpubs.includes(scope.managerNpub)) instructorNpubs.push(scope.managerNpub);
   const agentType = ctx.agentTypes?.find((item) => item.id === harness);
   if (!profileId || !label || !workingDirectory || !harness) {
     return Response.json({ error: 'profileId, label, workingDirectory, and harness are required.' }, { status: 400 });
@@ -212,6 +222,7 @@ export async function handleAgentProfileCreateApi(
       workingDirectory,
       harness,
       model,
+      instructorNpubs,
       publicProfile,
       capabilities: ['chat_intercept', 'task_dispatch', 'comment_dispatch'],
       directChat: { enabled: true, sessionAgent: harness, directory: workingDirectory, model, idleRetentionMinutes: 60 },

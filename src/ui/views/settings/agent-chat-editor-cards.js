@@ -555,6 +555,8 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
   const mediaPicker = createAgentProfileMediaPicker('agent-chat-agent-create-picture');
   const aboutField = createTextarea('Public about (optional)', 'What this agent does', 'agent-chat-agent-create-about', 3);
   const nip05Field = createInput('NIP-05 (optional)', 'agent@example.com', 'agent-chat-agent-create-nip05');
+  const instructorsField = createTextarea('Who can instruct this agent? (optional)', 'npub1…', 'agent-chat-agent-create-instructors', 3);
+  instructorsField.input.setAttribute('aria-label', 'Instructor npubs, one per line');
   const advancedPanel = document.createElement('div');
   advancedPanel.setAttribute('data-testid', 'agent-chat-agent-name-advanced-panel');
   advancedPanel.style.cssText = 'display:none;margin-top:12px;padding:12px;border:1px solid var(--wm-border-muted, rgba(255,255,255,0.14));border-radius:8px;background:rgba(127,127,127,0.04);';
@@ -662,6 +664,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
       mediaFile: mediaPicker.file,
       about: aboutField.input.value.trim() || null,
       nip05: nip05Field.input.value.trim() || null,
+      instructorNpubs: instructorsField.input.value.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean),
       capabilities: ['chat_intercept', 'task_dispatch', 'comment_dispatch', 'task_review'],
     };
   }
@@ -782,6 +785,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     heading,
     note,
     nameField.row,
+    instructorsField.row,
     advancedPanel,
     ...(standalone ? [] : [preview]),
     createInlineActions(advancedButton, createButtonEl, cancelButton),

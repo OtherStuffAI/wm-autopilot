@@ -14,6 +14,7 @@ import {
   normalisePromptTemplate,
 } from './prompt-templates';
 import { recoverCompletedAgentProfileRotations } from './agent-profile-rotation-recovery';
+import { normaliseInstructorNpubs } from './instructor-authority';
 import type {
   AgentCapability,
   AgentDefinitionRecord,
@@ -130,6 +131,14 @@ class AgentDefinitionStore {
     return this.getWhere('bot_npub = ?1', [botNpub]);
   }
 
+  canInstruct(agentId: string, authorNpub: string | null | undefined): boolean {
+    const [npub] = normaliseInstructorNpubs(authorNpub ? [authorNpub] : []);
+    if (!npub) return false;
+    return Boolean(this.db.query(
+      'SELECT 1 FROM agent_instructor_grants WHERE agent_id = ?1 AND instructor_npub = ?2 LIMIT 1',
+    ).get(agentId, npub));
+  }
+
   getDefaultForManagerNpub(npub: string): AgentDefinitionRecord | null {
     const binding = this.db.query(
       `SELECT agent_id
@@ -225,7 +234,18 @@ class AgentDefinitionStore {
         sourceEventCreatedAt: null, result: null, error: null,
       }),
     ];
-    statement.run(...bindings);
+    const instructorNpubs = normaliseInstructorNpubs(
+      record.instructorNpubs !== undefined ? record.instructorNpubs : [record.managedByNpub, record.workspaceOwnerNpub],
+    );
+    this.db.transaction(() => {
+      statement.run(...bindings);
+      this.db.query('DELETE FROM agent_instructor_grants WHERE agent_id = ?1').run(record.agentId);
+      const insert = this.db.query(
+        `INSERT INTO agent_instructor_grants (agent_id, instructor_npub, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?3)`,
+      );
+      for (const npub of instructorNpubs) insert.run(record.agentId, npub, record.updatedAt);
+    })();
     const saved = this.getByAgentId(record.agentId) ?? record;
     if (saved.managedByNpub && saved.enabled && saved.archived !== true) {
       this.ensureDefaultForManager(saved.managedByNpub, saved.agentId);
@@ -264,6 +284,7 @@ class AgentDefinitionStore {
       ).run(existing.managedByNpub, agentId);
     }
     const result = this.db.query('DELETE FROM agent_definitions WHERE agent_id = ?1').run(agentId);
+    this.db.query('DELETE FROM agent_instructor_grants WHERE agent_id = ?1').run(agentId);
     if (result.changes > 0 && existing?.managedByNpub) {
       const replacement = this.listForManagerNpub(existing.managedByNpub)
         .filter((agent) => agent.enabled && agent.archived !== true)
@@ -440,6 +461,10 @@ class AgentDefinitionStore {
       createdAt: String(row.created_at ?? ''),
       updatedAt: String(row.updated_at ?? ''),
       managedByNpub: typeof row.managed_by_npub === 'string' ? row.managed_by_npub : null,
+      instructorNpubs: this.db.query(
+        `SELECT instructor_npub FROM agent_instructor_grants
+         WHERE agent_id = ?1 ORDER BY instructor_npub ASC`,
+      ).all(String(row.agent_id ?? '')).map((grant) => String((grant as { instructor_npub: string }).instructor_npub)),
     };
   }
 
@@ -483,6 +508,17 @@ class AgentDefinitionStore {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS agent_instructor_grants (
+        agent_id TEXT NOT NULL,
+        instructor_npub TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (agent_id, instructor_npub)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_instructor_grants_npub
+        ON agent_instructor_grants(instructor_npub, agent_id);
+
     `);
     const columns = this.db.query('PRAGMA table_info(agent_definitions)').all() as Array<{ name?: string }>;
     const hasChatTemplate = columns.some((row) => row.name === 'chat_prompt_template');
@@ -520,6 +556,11 @@ class AgentDefinitionStore {
     if (!hasPublicProfile) this.db.exec("ALTER TABLE agent_definitions ADD COLUMN public_profile_json TEXT NOT NULL DEFAULT '{}'");
     if (!hasPublicProfileRefresh) this.db.exec("ALTER TABLE agent_definitions ADD COLUMN public_profile_refresh_json TEXT NOT NULL DEFAULT '{}'");
     this.db.exec(`
+      INSERT OR IGNORE INTO agent_instructor_grants (agent_id, instructor_npub, created_at, updated_at)
+      SELECT agent_id, COALESCE(NULLIF(managed_by_npub, ''), workspace_owner_npub), created_at, updated_at
+      FROM agent_definitions
+      WHERE COALESCE(NULLIF(managed_by_npub, ''), workspace_owner_npub) <> '';
+
       INSERT OR IGNORE INTO agent_definition_defaults (
         managed_by_npub, agent_id, created_at, updated_at
       )

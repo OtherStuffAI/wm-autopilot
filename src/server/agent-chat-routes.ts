@@ -12,6 +12,7 @@ import {
   DEFAULT_TASK_REVIEW_PROMPT_TEMPLATE,
 } from '../agent-chat/prompt-templates';
 import { normaliseNpub } from '../identity/npub-utils';
+import { validateInstructorNpubs } from '../agent-chat/instructor-authority';
 import type {
   AgentDefinitionRecord,
   AgentChatDiagnostic,
@@ -1010,6 +1011,15 @@ export async function handleAgentChatApi(
     const harness = typeof body.harness === 'string' ? body.harness.trim() || null : null;
     const model = typeof body.model === 'string' ? body.model.trim() || null : null;
     const enabled = body.enabled !== false;
+    let instructorNpubs: string[];
+    try {
+      instructorNpubs = Array.isArray(body.instructorNpubs)
+        ? validateInstructorNpubs(body.instructorNpubs.filter((value): value is string => typeof value === 'string'))
+        : [scope.managerNpub];
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : 'Invalid instructor npub.' }, { status: 400 });
+    }
+    if (!instructorNpubs.includes(scope.managerNpub)) instructorNpubs.push(scope.managerNpub);
     const capabilityInput = Array.isArray(body.capabilities)
       ? body.capabilities.filter((value): value is string => typeof value === 'string')
       : [];
@@ -1100,6 +1110,7 @@ export async function handleAgentChatApi(
         approvalDispatchPromptTemplate,
         directChat,
         enabled,
+        instructorNpubs,
       });
       return Response.json({ agent: serialiseAgent(agent) });
     } catch (error) {
@@ -1256,6 +1267,18 @@ export async function handleAgentChatApi(
       taskReviewPromptTemplate: typeof body.taskReviewPromptTemplate === 'string' ? body.taskReviewPromptTemplate : existing.taskReviewPromptTemplate,
       approvalDispatchPromptTemplate: typeof body.approvalDispatchPromptTemplate === 'string' ? body.approvalDispatchPromptTemplate : existing.approvalDispatchPromptTemplate,
     };
+    if (Object.prototype.hasOwnProperty.call(body, 'instructorNpubs')) {
+      if (!Array.isArray(body.instructorNpubs)) {
+        return Response.json({ error: 'instructorNpubs must be an array of npubs.' }, { status: 400 });
+      }
+      try {
+        candidate.instructorNpubs = validateInstructorNpubs(
+          body.instructorNpubs.filter((value): value is string => typeof value === 'string'),
+        );
+      } catch (error) {
+        return Response.json({ error: error instanceof Error ? error.message : 'Invalid instructor npub.' }, { status: 400 });
+      }
+    }
     let publication: unknown = null;
     if (publicChanged) {
       if (!ctx.republishAgentProfile) {

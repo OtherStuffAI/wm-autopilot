@@ -18,6 +18,29 @@ function makeTempDb(): string {
 }
 
 describe('AgentDefinitionStore', () => {
+  test('seeds, replaces, removes, and scopes instructor grants by stable agent id', () => {
+    const store = new AgentDefinitionStore(makeTempDb());
+    const now = new Date().toISOString();
+    const base = {
+      label: 'Rick', botNpub: 'npub1rick', workspaceOwnerNpub: 'npub1workspace', groupNpubs: [],
+      workingDirectory: '/tmp/rick', capabilities: ['chat_intercept'] as const, enabled: true,
+      createdAt: now, updatedAt: now, managedByNpub: 'npub1manager',
+    };
+    store.save({ ...base, agentId: 'rick' });
+    store.save({ ...base, agentId: 'brick', botNpub: 'npub1brick' });
+    expect(store.canInstruct('rick', 'npub1manager')).toBe(true);
+    expect(store.canInstruct('brick', 'npub1manager')).toBe(true);
+
+    store.save({ ...store.getByAgentId('rick')!, instructorNpubs: ['npub1alice', 'npub1alice'] });
+    expect(store.getByAgentId('rick')?.instructorNpubs).toEqual(['npub1alice']);
+    expect(store.canInstruct('rick', 'npub1manager')).toBe(false);
+    expect(store.canInstruct('rick', 'npub1alice')).toBe(true);
+    expect(store.canInstruct('brick', 'npub1alice')).toBe(false);
+
+    store.save({ ...store.getByAgentId('rick')!, instructorNpubs: [] });
+    expect(store.canInstruct('rick', 'npub1alice')).toBe(false);
+  });
+
   test('persists one explicit default profile per manager', () => {
     const store = new AgentDefinitionStore(makeTempDb());
     const first = '2026-01-01T00:00:00.000Z';

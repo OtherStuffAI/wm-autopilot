@@ -137,12 +137,13 @@ function fixture(options: {
   const defaultDirectChat = { enabled: true, sessionAgent: 'codex', directory: '/Users/example/wingmen/agent-workspace', model: null, idleRetentionMinutes: 60 };
   const botNpub = options.botNpub ?? 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg';
   agentStore.save({ agentId: 'exampleAgent', label: 'Example Agent', botNpub, workspaceOwnerNpub: 'npub1workspace', groupNpubs: [], workingDirectory: '/legacy', capabilities: ['chat_intercept'],
-    directChat: options.directChat === null ? undefined : options.directChat ?? defaultDirectChat, enabled: true, createdAt: now, updatedAt: now, managedByNpub: 'npub1manager' });
+    directChat: options.directChat === null ? undefined : options.directChat ?? defaultDirectChat, enabled: true, createdAt: now, updatedAt: now, managedByNpub: 'npub1manager',
+    instructorNpubs: ['npub1human', 'npub1mapped', 'npub1other', 'npub1outsider', botNpub] });
   if (options.addBuilder) agentStore.save({ agentId: 'Builder', label: 'Builder', botNpub: 'npub1Builder', workspaceOwnerNpub: 'npub1manager',
     groupNpubs: [], workingDirectory: '/Users/example/wingmen/Builder21', harness: 'goose', model: 'deepseek/deepseek-v4-flash-0731',
     capabilities: ['chat_intercept'], directChat: { enabled: true, sessionAgent: 'goose', directory: '/Users/example/wingmen/Builder21',
       model: 'deepseek/deepseek-v4-flash-0731', idleRetentionMinutes: 60 }, enabled: true, createdAt: now, updatedAt: now,
-    managedByNpub: 'npub1manager' });
+    managedByNpub: 'npub1manager', instructorNpubs: ['npub1human', 'npub1mapped', 'npub1Builder'] });
   const subscription: any = { subscriptionId: 'sub1', workspaceOwnerNpub: 'npub1owner', workspaceServiceNpub: 'npub1workspace', workspaceId: 'workspace-1', towerServiceNpub: 'npub1tower', backendBaseUrl: 'https://tower', sourceAppNpub: 'npub1app', botNpub, wsKeyNpub: 'npub1mapped', managedByNpub: 'npub1manager' };
   const channel: any = { id: 'channel-1', scope_id: 'scope-1', kind: 'channel', participant_npubs: [], metadata: { agent_chat: { enabled: true, activation: 'mention_then_continue', context_prompt: 'Context' } }, ...(options.channel ?? {}) };
   const botIdentity: any = { botNpub, botPubkeyHex: '00', botSecret: new Uint8Array([1]) };
@@ -154,6 +155,11 @@ function fixture(options: {
     messages,
     event: { entity_id: entityId, channel_id: 'channel-1', cursor: `cursor-${entityId}`, ...event },
     audienceAgentNpubs,
+    instructionAuthorization: {
+      verified: true,
+      authorNpub: messages.find((entry) => entry.id === entityId)?.created_by_actor_npub ?? null,
+      reason: 'verified',
+    },
   });
   return { runtime, makeRuntime, handle, message, prompts, captures, creates, stops, published, activities, agentStore, interceptStore,
     turnStore, dispatchOutcomeStore, publicationDecisionStore, sessions, archivedSessions, subscription, channel, botIdentity,
@@ -208,6 +214,30 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 500): Promise<voi
 }
 
 describe('Agent Direct Chat runtime', () => {
+  test('denies invalid signatures and removed or wrong-agent grants before dispatch', async () => {
+    const f = fixture({ addBuilder: true });
+    const message = f.message('m1', '@Builder do this', { npub: 'npub1Builder' });
+    const input = {
+      subscription: f.subscription, botIdentity: f.botIdentity, channel: f.channel, messages: [message],
+      event: { entity_id: 'm1', channel_id: 'channel-1', cursor: 'cursor-m1' },
+      audienceAgentNpubs: ['npub1Builder'],
+    };
+
+    expect(await f.runtime.handle({ ...input,
+      instructionAuthorization: { verified: false, authorNpub: null, reason: 'missing_instruction_signature' },
+    })).toEqual({ handled: false, reason: 'not_activated' });
+    expect(f.creates).toHaveLength(0);
+
+    const builder = f.agentStore.getByAgentId('Builder')!;
+    f.agentStore.save({ ...builder, instructorNpubs: ['npub1other'] });
+    expect(await f.runtime.handle({ ...input,
+      instructionAuthorization: { verified: true, authorNpub: 'npub1human', reason: 'verified' },
+    })).toEqual({ handled: false, reason: 'not_activated' });
+    expect(f.creates).toHaveLength(0);
+    expect(f.agentStore.canInstruct('exampleAgent', 'npub1human')).toBe(true);
+    expect(f.agentStore.canInstruct('Builder', 'npub1human')).toBe(false);
+  });
+
   test('dispatches Example Agent and Builder mentions as isolated profiles and signing identities', async () => {
     const f = fixture({ addBuilder: true });
     const exampleAgent = f.message('m1', '@Example Agent', { type: 'agent', npub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg' });
@@ -830,7 +860,8 @@ describe('Agent Direct Chat runtime', () => {
     const restarted = f.makeRuntime();
     const input = { subscription: f.subscription, botIdentity: f.botIdentity, channel: f.channel,
       messages: [seeded.oldMessage, seeded.newerMessage],
-      event: { entity_id: 'm2', channel_id: 'channel-1', cursor: 'cursor-m2' } };
+      event: { entity_id: 'm2', channel_id: 'channel-1', cursor: 'cursor-m2' },
+      instructionAuthorization: { verified: true, authorNpub: 'npub1human', reason: 'verified' } };
 
     expect(restarted.recover(input, seeded.routingKey)).toEqual({
       handled: true,
@@ -878,7 +909,8 @@ describe('Agent Direct Chat runtime', () => {
     const seeded = seedPendingOrphan(f, 'stopped');
     const input = { subscription: f.subscription, botIdentity: f.botIdentity, channel: f.channel,
       messages: [seeded.oldMessage, seeded.newerMessage],
-      event: { entity_id: 'm2', channel_id: 'channel-1', cursor: 'cursor-m2' } };
+      event: { entity_id: 'm2', channel_id: 'channel-1', cursor: 'cursor-m2' },
+      instructionAuthorization: { verified: true, authorNpub: 'npub1human', reason: 'verified' } };
 
     expect(await f.runtime.handle(input)).toEqual({ handled: true, reason: 'direct_chat_queued' });
     await f.runtime.waitForIdle();

@@ -48,6 +48,8 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
   const lookup = createAgentModelLookupController({ harnessSelect: harness.select, modelSelect: model.select, status: lookupStatus });
   const enabled = createCheckbox('Enabled', 'agent-profile-edit-enabled', true);
   const directChatEnabled = createCheckbox('Respond to direct chat / dispatch', 'agent-profile-edit-direct-chat-enabled', true);
+  const instructors = createTextarea('Who can instruct this agent?', '', 'agent-profile-edit-instructors', 4);
+  instructors.input.setAttribute('aria-label', 'Instructor npubs, one per line');
   const name = createInput('Public Nostr name', '', 'agent-profile-edit-name');
   const picture = createInput('Public picture URL', '', 'agent-profile-edit-picture');
   const mediaPicker = createAgentProfileMediaPicker('agent-profile-edit-picture');
@@ -70,7 +72,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
   summary.dataset.testid = 'agent-profile-edit-public-toggle';
   details.append(summary, name.row, mediaPicker.element, picture.row, about.row, nip05.row, identity.row);
   form.append(title, label.row, directory.row, harness.row, model.row, lookupStatus,
-    enabled.row, directChatEnabled.row, details, status, actions);
+    enabled.row, directChatEnabled.row, instructors.row, details, status, actions);
   overlay.append(form);
   let current = null;
   let runtimeConfig = null;
@@ -86,6 +88,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
     directory.input.value = agent.workingDirectory || agent.directChat?.directory || '';
     enabled.input.checked = agent.enabled !== false;
     directChatEnabled.input.checked = agent.directChat?.enabled !== false;
+    instructors.input.value = (agent.instructorNpubs || []).join('\n');
     name.input.value = agent.publicProfile?.name || agent.label || '';
     picture.input.value = agent.publicProfile?.picture || '';
     mediaPicker.reset(picture.input.value);
@@ -114,6 +117,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
         model: modelValueForPayload(model.select.value),
         enabled: enabled.input.checked,
         directChatEnabled: directChatEnabled.input.checked,
+        instructorNpubs: instructors.input.value.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean),
         capabilities: current.capabilities,
         publicProfile: {
           name: name.input.value.trim(), picture: picture.input.value.trim(),

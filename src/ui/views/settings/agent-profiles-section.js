@@ -46,6 +46,7 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
         picture: defaults.picture,
         about: defaults.about,
         nip05: defaults.nip05,
+        instructorNpubs: defaults.instructorNpubs,
         mediaFile: defaults.mediaFile,
       });
       status.textContent = created.media?.savedLocally && created.media?.publishedToRelays
