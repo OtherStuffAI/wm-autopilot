@@ -81,7 +81,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "node-gyp": "^13.0.2"
   },
   "peerDependencies": {
     "typescript": "^5.9.3"

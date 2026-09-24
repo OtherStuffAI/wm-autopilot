@@ -42,6 +42,13 @@ Install dependencies:
 bun install
 ```
 
+This project targets Node 22 LTS (matching the container image). A version
+pin is provided in `.mise.toml` (and `.node-version` for nvm/fnm/volta); when
+working locally, activate that Node version first so `better-sqlite3` can use
+its prebuilt binaries. If a prebuilt binary is unavailable for a newer Node
+version, `node-gyp` is included as a devDependency so the install falls back
+to a source build instead of failing.
+
 Installation automatically prepares the verified loopback-only AgentAPI
 binary. If a compatible Go compiler is unavailable, the installer downloads a
 checksummed project-local toolchain under `.cache/toolchains`; no system Go
