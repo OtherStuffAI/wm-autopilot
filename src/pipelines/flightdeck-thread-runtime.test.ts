@@ -69,4 +69,68 @@ describe("Flight Deck thread runtime", () => {
     await expect(fixture({ workspaceId: "00000000-0000-4000-8000-000000000000" }).runtime.resolve(invocation)).rejects.toThrow("No active");
     await expect(fixture({ hasThread: false }).runtime.resolve(invocation)).rejects.toThrow("was not found");
   });
+
+  test("continues scanning after a channel reports thread_not_found", async () => {
+    const scannedChannels: string[] = [];
+    const { runtime } = fixtureWithChannels(async (input) => {
+      scannedChannels.push(input.channelId);
+      if (input.channelId === "channel-1") throw towerError(404, "thread_not_found", "Flight Deck PG thread not found in this channel");
+      return { messages: [{ id: invocation.threadId, channel_id: input.channelId }], next_cursor: null };
+    });
+
+    await expect(runtime.resolve(invocation)).resolves.toMatchObject({ channelId: "channel-2" });
+    expect(scannedChannels).toEqual(["channel-1", "channel-2"]);
+  });
+
+  test("reports a workspace-level error after every channel misses", async () => {
+    const scannedChannels: string[] = [];
+    const { runtime } = fixtureWithChannels(async (input) => {
+      scannedChannels.push(input.channelId);
+      throw towerError(404, "thread_not_found", "Flight Deck PG thread not found in this channel");
+    });
+
+    await expect(runtime.resolve(invocation)).rejects.toThrow(
+      `Thread ${invocation.threadId} was not found in workspace ${invocation.workspaceId}`,
+    );
+    expect(scannedChannels).toEqual(["channel-1", "channel-2"]);
+  });
+
+  test("propagates non-404 Tower errors without scanning later channels", async () => {
+    const towerFailure = towerError(403, "flightdeck_pg_forbidden", "Not allowed to read this channel");
+    const scannedChannels: string[] = [];
+    const { runtime } = fixtureWithChannels(async (input) => {
+      scannedChannels.push(input.channelId);
+      throw towerFailure;
+    });
+
+    await expect(runtime.resolve(invocation)).rejects.toBe(towerFailure);
+    expect(scannedChannels).toEqual(["channel-1"]);
+  });
 });
+
+function fixtureWithChannels(fetchMessages: NonNullable<Parameters<typeof createFlightDeckThreadRuntime>[0]["fetchMessages"]>) {
+  const runtime = createFlightDeckThreadRuntime({
+    agentStore: { getByBotNpub: () => ({ enabled: true, archived: false, botNpub: "npub1managed" }) as never },
+    subscriptionStore: { listAll: () => [{
+      workspaceId: invocation.workspaceId,
+      subscriptionId: "subscription-1",
+      backendBaseUrl: "https://tower.test",
+      sourceAppNpub: "npub1app",
+      botNpub: "npub1managed",
+      lifecycleStatus: "active",
+      managedByNpub: "npub1owner",
+    } as never] },
+    withAgentIdentity: async (_agent, operation) => await operation({ botNpub: "npub1managed" } as never),
+    fetchScopes: async () => ({ scopes: [{ id: "scope-1" }], next_cursor: null }),
+    fetchChannels: async () => ({
+      channels: [{ id: "channel-1" }, { id: "channel-2" }],
+      next_cursor: null,
+    }),
+    fetchMessages,
+  });
+  return { runtime };
+}
+
+function towerError(status: number, detailCode: string, message: string): Error {
+  return Object.assign(new Error(message), { status, detailCode });
+}

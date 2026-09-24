@@ -127,16 +127,28 @@ async function resolveThreadChannel(
     channels.push(...result.channels);
   }
   for (const channel of uniqueChannels(channels)) {
-    const result = await (deps.fetchMessages ?? fetchFlightDeckPgChannelMessages)({
-      ...base,
-      channelId: channel.id,
-      threadId,
-      effectiveTranscript: true,
-      limit: 200,
-    });
+    let result;
+    try {
+      result = await (deps.fetchMessages ?? fetchFlightDeckPgChannelMessages)({
+        ...base,
+        channelId: channel.id,
+        threadId,
+        effectiveTranscript: true,
+        limit: 200,
+      });
+    } catch (error) {
+      if (isThreadMissingFromChannel(error)) continue;
+      throw error;
+    }
     if (result.messages.some((message) => belongsToThread(message, threadId))) return channel;
   }
   throw new Error(`Thread ${threadId} was not found in workspace ${subscription.workspaceId}`);
+}
+
+function isThreadMissingFromChannel(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const towerError = error as { status?: unknown; detailCode?: unknown };
+  return towerError.status === 404 && towerError.detailCode === "thread_not_found";
 }
 
 function requestBase(subscription: WorkspaceSubscriptionRecord, botIdentity: FlightDeckPgBotIdentity) {
