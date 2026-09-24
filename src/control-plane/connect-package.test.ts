@@ -68,9 +68,12 @@ describe("Autopilot connect package", () => {
           "agents.schedules.read",
           "agents.triggers.read",
           "flightdeck.live-thread-activity.v1",
+          "system.controlled-restart.v1",
         ],
         health_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/health`,
         agents_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/agents`,
+        controlled_restart_path: "/api/system/controlled-restart",
+        controlled_restart_status_path: "/api/system/controlled-restart/status",
       },
     });
     expect(created.signature.kind).toBe(CONNECT_PACKAGE_EVENT_KIND);

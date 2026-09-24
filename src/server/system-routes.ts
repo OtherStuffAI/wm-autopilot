@@ -98,6 +98,37 @@ export async function handleSystemRoutes(
 ): Promise<Response | null> {
   const pathname = url.pathname;
 
+  // Only a directly signed configured-admin request may use the Flight Deck
+  // control. Bot and delegated restart authority is intentionally insufficient.
+  if (pathname === "/api/system/controlled-restart/status" && method === "GET") {
+    const denied = await ctx.ensureApiAccess(ctx.AccessActions.SystemManage, request, url, authContext);
+    if (denied || authContext.authMethod !== "nip98" || !authContext.signerNpub) {
+      return denied ?? Response.json({ error: "direct-admin-nip98-required" }, { status: 403 });
+    }
+    return Response.json({ inProgress: warmRestartState.inProgress, marker: warmRestartState.marker, outcome: warmRestartOutcome.current });
+  }
+
+  if (pathname === "/api/system/controlled-restart" && method === "POST") {
+    const denied = await ctx.ensureApiAccess(ctx.AccessActions.SystemManage, request, url, authContext);
+    if (denied || authContext.authMethod !== "nip98" || !authContext.signerNpub) {
+      return denied ?? Response.json({ error: "direct-admin-nip98-required" }, { status: 403 });
+    }
+    if (warmRestartState.inProgress) return Response.json({ error: "Restart already in progress" }, { status: 409 });
+    let payload: Record<string, unknown>;
+    try { payload = await request.clone().json() as Record<string, unknown>; }
+    catch { return Response.json({ error: "invalid-json" }, { status: 400 }); }
+    if (payload.confirm !== "controlled-restart") {
+      return Response.json({ error: "explicit-confirmation-required" }, { status: 400 });
+    }
+    return scheduleRestartWithSessionRecovery({
+      manager: ctx.manager, markerPath: ctx.restartMarkerPath,
+      requestedBy: authContext.signerNpub, reason: "flightdeck-controlled-restart",
+      isAgentType: ctx.isAgentType,
+      preflight: ctx.launchRestart ? undefined : async () => { await stat(ctx.warmRestartManagerScriptPath); },
+      launch: ctx.launchRestart ?? ((marker) => launchRestartManager(ctx, marker)),
+    });
+  }
+
   if (pathname === "/api/system/fips" && method === "GET") {
     const denied = await ctx.ensureApiAccess(ctx.AccessActions.SystemManage, request, url, authContext);
     if (denied) return denied;

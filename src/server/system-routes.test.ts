@@ -35,6 +35,33 @@ describe("handleSystemRoutes restart", () => {
     warmRestartState.marker = null;
   });
 
+  test("requires direct admin NIP-98 for controlled restart", async () => {
+    const url = new URL("http://node.fips:3601/api/system/controlled-restart");
+    const base = {
+      ensureApiAccess: async () => null,
+      AccessActions: { SystemManage: "system:manage" },
+    } as unknown as SystemRoutesContext;
+    const bot = await handleSystemRoutes(new Request(url, { method: "POST", body: JSON.stringify({ confirm: "controlled-restart" }) }), url, "POST", agentAuth, base);
+    expect(bot!.status).toBe(403);
+    expect(await bot!.json()).toEqual({ error: "direct-admin-nip98-required" });
+  });
+
+  test("accepts an explicitly confirmed direct admin request", async () => {
+    const root = await mkdtemp(join(tmpdir(), "controlled-restart-"));
+    const url = new URL("http://node.fips:3601/api/system/controlled-restart");
+    let marker: unknown;
+    const auth = { ...agentAuth, authMethod: "nip98", signerNpub: "npub1pete" } as RequestAuthContext;
+    const ctx = {
+      ensureApiAccess: async () => null, AccessActions: { SystemManage: "system:manage" },
+      manager: { listSessions: () => [], stopSession: async () => undefined },
+      restartMarkerPath: join(root, "restart.json"), isAgentType: () => true,
+      launchRestart: async (value: unknown) => { marker = value; return Response.json({ status: "scheduled" }, { status: 202 }); },
+    } as unknown as SystemRoutesContext;
+    const response = await handleSystemRoutes(new Request(url, { method: "POST", body: JSON.stringify({ confirm: "controlled-restart" }) }), url, "POST", auth, ctx);
+    expect(response!.status).toBe(202);
+    expect(marker).toMatchObject({ requestedBy: "npub1pete", reason: "flightdeck-controlled-restart" });
+  });
+
   test("allows trusted restart status reads and preserves explicit access denials", async () => {
     const url = new URL("http://localhost/api/system/restart/status");
     const baseContext = {

@@ -24,6 +24,7 @@ export const CONTROL_READ_CAPABILITIES = [
   "agents.schedules.read",
   "agents.triggers.read",
   "flightdeck.live-thread-activity.v1",
+  "system.controlled-restart.v1",
 ] as const;
 
 const SECRET_KEY_PATTERN = /(^|_)(nsec|secret|private_key|bearer|token|bunker_uri|nwc|wallet_connect)(_|$)/i;
@@ -87,6 +88,8 @@ function manifestApi(ownerNpub: string): AutopilotConnectManifestV1["api"] {
     capabilities: [...CONTROL_READ_CAPABILITIES],
     health_path: `/api/owners/${ownerSegment}/control-plane/v1/health`,
     agents_path: `/api/owners/${ownerSegment}/control-plane/v1/agents`,
+    controlled_restart_path: "/api/system/controlled-restart",
+    controlled_restart_status_path: "/api/system/controlled-restart/status",
   };
 }
 
@@ -193,6 +196,10 @@ export function verifyAutopilotConnectPackage(
   if (!Array.isArray(manifest.api.capabilities)) throw new Error("Connect package capabilities are invalid");
   exactAdvertisedPath(manifest.api.health_path, "Health route");
   exactAdvertisedPath(manifest.api.agents_path, "Agents route");
+  if (manifest.api.capabilities.includes("system.controlled-restart.v1")) {
+    exactAdvertisedPath(manifest.api.controlled_restart_path, "Controlled restart route");
+    exactAdvertisedPath(manifest.api.controlled_restart_status_path, "Controlled restart status route");
+  }
   const transportNpub = manifest.version === CONNECT_PACKAGE_TRANSPORT_VERSION
     ? manifest.transport?.fips?.npub
     : manifest.installation.npub;
