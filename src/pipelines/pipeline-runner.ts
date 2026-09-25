@@ -18,6 +18,7 @@ import type { PipelineDefinitionRecord } from "./pipeline-loader";
 import { buildPipelineStepMetadata } from "./pipeline-step-metadata";
 import { buildShadowDecisionsError, runOpenRouterDecisions } from "./openrouter-decisions";
 import { resolveClassifierOpenRouterApiKey } from "./classifier-openrouter-credentials";
+import { finalizePipelineAgentSession } from "./agent-session-finalization";
 import { type JsonObject, PipelineStore, type PipelineStatus, type PipelineStepRecord, type StepKind } from "./pipeline-store";
 
 const CALLBACK_POLL_MS = 1000;
@@ -899,15 +900,39 @@ async function runOrResumeAgentStep(input: PipelineRunnerInput & {
   callbackTimeoutMs: number;
 }): Promise<JsonObject> {
   const latest = input.store.getStep(input.stepId);
-  if (latest?.status === "ok") return latest.output ?? latest.result ?? {};
+  if (latest?.status === "ok") {
+    if (latest.wingmanSessionId && input.sessionApiContext.manager.getSession(latest.wingmanSessionId)) {
+      await finalizePipelineAgentSession({
+        ctx: input.sessionApiContext,
+        store: input.store,
+        runId: input.runId,
+        stepId: input.stepId,
+        sessionId: latest.wingmanSessionId,
+        callbackStatus: "ok",
+      }).catch(() => undefined);
+    }
+    return latest.output ?? latest.result ?? {};
+  }
   if (latest?.status === "error") throw new Error(latest.error ?? "Agent step failed");
   if (latest?.status === "cancelled") throw new PipelineCancelled(input.runId);
   if (latest?.status === "needs_input") {
     throw new PipelineHalt("needs_input", latest.output ?? latest.result ?? {}, "Agent step needs input");
   }
   if (latest?.wingmanSessionId && input.sessionApiContext.manager.getSession(latest.wingmanSessionId)) {
-    const result = await waitForCallbackResult(input.store, input.stepId, input.callbackTimeoutMs, () =>
-      Boolean(input.sessionApiContext.manager.getSession(latest.wingmanSessionId!)), latest.wingmanSessionId);
+    let result: Awaited<ReturnType<typeof waitForCallbackResult>> | null = null;
+    try {
+      result = await waitForCallbackResult(input.store, input.stepId, input.callbackTimeoutMs, () =>
+        Boolean(input.sessionApiContext.manager.getSession(latest.wingmanSessionId!)), latest.wingmanSessionId);
+    } finally {
+      await finalizePipelineAgentSession({
+        ctx: input.sessionApiContext,
+        store: input.store,
+        runId: input.runId,
+        stepId: input.stepId,
+        sessionId: latest.wingmanSessionId,
+        callbackStatus: result?.status ?? null,
+      }).catch(() => undefined);
+    }
     if (result.status === "error") throw new Error(result.error ?? "Agent step failed");
     if (result.status === "cancelled") throw new PipelineCancelled(input.runId);
     if (result.status === "needs_input") throw new PipelineHalt("needs_input", result.result ?? {}, "Agent step needs input");
@@ -1038,8 +1063,14 @@ async function runAgentStep(input: PipelineRunnerInput & {
       }
     } finally {
       if (session) {
-        sessionCtx.manager.updateSessionMetadata?.(session.id, { nextAction: "stop" });
-        await stopPipelineSession(sessionCtx, session.id).catch(() => undefined);
+        await finalizePipelineAgentSession({
+          ctx: sessionCtx,
+          store: input.store,
+          runId: input.runId,
+          stepId: input.stepId,
+          sessionId: session.id,
+          callbackStatus: result?.status ?? null,
+        }).catch(() => undefined);
       }
     }
   }
@@ -1139,13 +1170,6 @@ async function recordLiveSession(ctx: SessionApiContext, session: SessionSnapsho
     metadata: session.metadata,
   });
   await ctx.syncSessionMessages(session.id, true);
-}
-
-async function stopPipelineSession(ctx: SessionApiContext, sessionId: string): Promise<void> {
-  const stopped = await ctx.manager.stopSession(sessionId);
-  if (stopped) {
-    ctx.scheduleSessionArchive(sessionId, ctx.manager);
-  }
 }
 
 function resolveAgent(ctx: SessionApiContext, value: string | undefined, defaultAgent?: string): AgentType {
