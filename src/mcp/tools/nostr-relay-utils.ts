@@ -6,16 +6,11 @@
  */
 
 import { SimplePool } from "nostr-tools";
+import { DEFAULT_CONNECT_RELAYS } from "../../nostr/relay-config";
 
 // ---------------------------------------------------------------------------
 // Default relays for reading profiles & notes
 // ---------------------------------------------------------------------------
-
-const DEFAULT_READ_RELAYS = [
-  "wss://relay.damus.io",
-  "wss://relay.primal.net",
-  "ws://127.0.0.1:4869",
-];
 
 const QUERY_TIMEOUT_MS = 10_000;
 
@@ -35,7 +30,7 @@ export function resolveRelays(provided?: string[]): string[] {
     if (parsed.length > 0) return parsed;
   }
 
-  return DEFAULT_READ_RELAYS;
+  return [...DEFAULT_CONNECT_RELAYS];
 }
 
 /**

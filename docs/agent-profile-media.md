@@ -2,6 +2,8 @@
 
 Autopilot can own the raster image referenced by an agent's Nostr kind-0 profile. The Agent Profile create/edit forms retain the compatibility URL field and also accept a JPEG, PNG, or static WebP file up to 5 MB.
 
+Kind-0 publication uses `runtime.connect_relays` (the persisted instance setting exposed as the `CONNECT_RELAYS` compatibility value after restart). The recommended public set is `wss://purplepag.es`, `wss://relay.damus.io`, `wss://relay.primal.net`, and the independent best-effort `wss://relay.snort.social`. `ws://127.0.0.1:4869` remains an optional local-development relay, but it never counts as public durability. Autopilot waits up to 20 seconds for each relay's matching NIP-01 `OK true`; missing, mismatched, or negative acknowledgements remain failures, and success still requires exact-event readback from an accepting public relay.
+
 The authenticated import endpoint is:
 
 ```text

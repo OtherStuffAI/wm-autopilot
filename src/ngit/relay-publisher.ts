@@ -38,7 +38,7 @@ export interface PublishOptions {
   WebSocketClass?: typeof WebSocket;
 }
 
-const PUBLISH_TIMEOUT_MS = 10_000;
+export const DEFAULT_PUBLISH_ACK_TIMEOUT_MS = 20_000;
 
 function errorMessage(value: unknown): string {
   if (value instanceof Error) return value.message;
@@ -51,7 +51,7 @@ export function publishToRelayWithAcknowledgement(
   options: PublishOptions = {},
 ): Promise<RelayResult> {
   const WebSocketClass = options.WebSocketClass ?? WebSocket;
-  const timeoutMs = options.timeoutMs ?? PUBLISH_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_PUBLISH_ACK_TIMEOUT_MS;
 
   return new Promise((resolve) => {
     let socket: WebSocket | null = null;

@@ -6,6 +6,7 @@ import {
 } from "./agent-cli-update-policy";
 import { AGENT_TYPES, DEFAULT_AGENT_TYPE, type AgentType } from "./agent-types";
 import { instanceSettingsService } from "./settings/instance-settings-service";
+import { DEFAULT_CONNECT_RELAYS } from "./nostr/relay-config";
 
 export type { AgentType } from "./agent-types";
 
@@ -87,11 +88,6 @@ const DEFAULT_AGENT_PORTS = 3700;
 const DEFAULT_AGENT_MAX = 10;
 const DEFAULT_DIRECTORY = "~/code";
 const DEFAULT_HOST_URL_BASE = "";
-const DEFAULT_CONNECT_RELAYS = [
-  "wss://relay.damus.io",
-  "wss://relay.primal.net",
-  "ws://127.0.0.1:4869",
-];
 const DEFAULT_ALLOWED_ORIGINS = "http://127.0.0.1,http://localhost";
 const DEFAULT_ALLOWED_HOSTS = "localhost,127.0.0.1,[::1]";
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 100;
@@ -511,7 +507,7 @@ export const loadConfig = (): WingmanConfig => {
     agentPortMax,
     defaultWorkingDirectory,
     hostUrlBase,
-    connectRelays: connectRelays.length > 0 ? connectRelays : DEFAULT_CONNECT_RELAYS,
+    connectRelays: connectRelays.length > 0 ? connectRelays : [...DEFAULT_CONNECT_RELAYS],
     allowedDirectories,
     allowedOrigins,
     allowedHosts,

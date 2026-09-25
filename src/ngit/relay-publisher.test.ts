@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
+  DEFAULT_PUBLISH_ACK_TIMEOUT_MS,
   publishToRelayWithAcknowledgement,
   type SignedEvent,
 } from './relay-publisher';
@@ -39,6 +40,10 @@ function mockRelay(reply?: (socket: Bun.ServerWebSocket<unknown>, frame: unknown
 }
 
 describe('publishToRelayWithAcknowledgement', () => {
+  test('allows twenty seconds for a matching acknowledgement by default', () => {
+    expect(DEFAULT_PUBLISH_ACK_TIMEOUT_MS).toBe(20_000);
+  });
+
   test('accepts only a positive OK matching the event id', async () => {
     const relay = mockRelay((socket) => socket.send(JSON.stringify(['OK', event.id, true, 'stored'])));
     expect(await publishToRelayWithAcknowledgement(event, relay, { timeoutMs: 200 })).toEqual({

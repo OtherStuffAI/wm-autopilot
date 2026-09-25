@@ -15,6 +15,7 @@ const ENV_KEYS = [
   "AGENTAPI_BIN",
   "APP_ROUTING",
   "CODEX_CLI",
+  "CONNECT_RELAYS",
   "DEFAULT_AGENT",
   "DIRECTORY_DEF",
   "AGENT_DISPATCH_DIRECTORY",
@@ -140,6 +141,17 @@ describe("resolveAgentLaunchConfig", () => {
 });
 
 describe("loadConfig", () => {
+  test("uses the public profile relay set plus the explicit local development relay by default", () => {
+    applyEnv({ CONNECT_RELAYS: undefined });
+    expect(loadConfig().connectRelays).toEqual([
+      "wss://purplepag.es",
+      "wss://relay.damus.io",
+      "wss://relay.primal.net",
+      "wss://relay.snort.social",
+      "ws://127.0.0.1:4869",
+    ]);
+  });
+
   test("distinguishes the localhost default from an explicitly configured public base URL", () => {
     applyEnv({ WINGMAN_BASE_URL: undefined });
     const defaulted = loadConfig();
