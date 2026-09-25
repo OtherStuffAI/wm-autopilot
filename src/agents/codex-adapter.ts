@@ -26,6 +26,7 @@ import type {
 } from "./agent-adapter";
 import type { AgentRuntimeStatus } from "../types/agent-status";
 import type { AgentMessage, AgentReadyOptions } from "./agent-client";
+import { buildCodexRuntimeEnv } from "./codex-runtime-env";
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -94,15 +95,9 @@ export class CodexAdapter implements AgentAdapter {
     this.workingDirectory = context.workingDirectory ?? process.cwd();
 
     // Build SDK options from session env
-    const env = context.env ?? {};
-    const apiKey =
-      env.CODEX_API_KEY ||
-      env.OPENAI_API_KEY ||
-      process.env.CODEX_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      "";
-    const baseUrl =
-      env.OPENAI_BASE_URL || process.env.OPENAI_BASE_URL || undefined;
+    const env = buildCodexRuntimeEnv(process.env, context.env);
+    const apiKey = env.CODEX_API_KEY || env.OPENAI_API_KEY || "";
+    const baseUrl = env.OPENAI_BASE_URL || undefined;
 
     // Use the same codex binary the agentapi path resolves on PATH (e.g. a
     // pinned ~/.bun/bin/codex), not the older binary bundled inside
@@ -116,10 +111,7 @@ export class CodexAdapter implements AgentAdapter {
       apiKey: apiKey || undefined,
       baseUrl,
       codexPathOverride,
-      env: {
-        ...process.env as Record<string, string>,
-        ...env,
-      },
+      env,
     };
     // `--config` overrides (Wingman MCP server, billing auth, etc.) that the
     // agentapi path would pass as `-c` flags. Without these the native SDK

@@ -3,14 +3,12 @@ import { fileURLToPath } from "node:url";
 import type { AdapterSessionContext } from "./agent-adapter";
 import { AcpAdapter } from "./acp-adapter";
 import type { AcpProcessClient, AcpResponse } from "./acp-process-client";
+import { buildCodexRuntimeEnv } from "./codex-runtime-env";
 
 const DEFAULT_CODEX_ACP_CLI = fileURLToPath(new URL("../../node_modules/.bin/codex-acp", import.meta.url));
 
 export function buildCodexAcpRuntimeEnv(context: AdapterSessionContext): Record<string, string> {
-  const env = {
-    ...(process.env as Record<string, string>),
-    ...(context.env ?? {}),
-  };
+  const env = buildCodexRuntimeEnv(process.env, context.env);
   const codexCli = context.codexCli?.trim() || env.CODEX_CLI?.trim();
   if (codexCli) env.CODEX_PATH = Bun.which(codexCli) ?? codexCli;
 
