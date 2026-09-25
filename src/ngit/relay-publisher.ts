@@ -38,7 +38,7 @@ export interface PublishOptions {
   WebSocketClass?: typeof WebSocket;
 }
 
-export const DEFAULT_PUBLISH_ACK_TIMEOUT_MS = 20_000;
+export const DEFAULT_PUBLISH_ACK_TIMEOUT_MS = 60_000;
 
 function errorMessage(value: unknown): string {
   if (value instanceof Error) return value.message;

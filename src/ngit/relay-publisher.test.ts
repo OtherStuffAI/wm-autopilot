@@ -40,8 +40,8 @@ function mockRelay(reply?: (socket: Bun.ServerWebSocket<unknown>, frame: unknown
 }
 
 describe('publishToRelayWithAcknowledgement', () => {
-  test('allows twenty seconds for a matching acknowledgement by default', () => {
-    expect(DEFAULT_PUBLISH_ACK_TIMEOUT_MS).toBe(20_000);
+  test('allows sixty seconds for a matching acknowledgement by default', () => {
+    expect(DEFAULT_PUBLISH_ACK_TIMEOUT_MS).toBe(60_000);
   });
 
   test('accepts only a positive OK matching the event id', async () => {
