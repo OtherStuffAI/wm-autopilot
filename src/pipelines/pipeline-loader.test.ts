@@ -177,6 +177,19 @@ describe("pipeline definition version paths", () => {
     expect(definition?.spec.version).toBe(2);
   });
 
+  test("seeds the reusable audio understanding definition", async () => {
+    const definition = await getPipelineDefinition("audio-understanding", "tester");
+
+    expect(definition?.spec.version).toBe(1);
+    expect(definition?.spec.steps.map((step) => step.name)).toContain("nemotron-diarization");
+    expect(definition?.spec.steps.map((step) => step.name)).toContain("optional-agent-summary");
+    for (const step of definition?.spec.steps ?? []) {
+      expect(step.description?.trim()).toBeTruthy();
+      expect(step.display?.in?.length).toBeGreaterThan(0);
+      expect(step.display?.out?.length).toBeGreaterThan(0);
+    }
+  });
+
   test("skips invalid definition files instead of failing the whole definitions list", async () => {
     await getPipelineDefinition("fd-agent-dispatch-chat", "tester");
     writeFileSync(join(getSharedPipelineDefinitionsDirectory(), "broken.json"), "{ not valid json\n");

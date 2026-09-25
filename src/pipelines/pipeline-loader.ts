@@ -1324,6 +1324,7 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
   const flightDeckTaskInvocationDefinition = await readBundledDefaultDefinition("fd-task-invocation.json");
   const softwareImplementationReviewLoopDefinition = await readBundledDefaultDefinition("software-implementation-review-loop.json");
   const dailyNoteReviewDefinition = await readBundledDefaultDefinition("daily-note-review.json");
+  const audioUnderstandingDefinition = await readBundledDefaultDefinition("audio-understanding.v1.json");
   const defaultDefinitions = [
     ["fd-agent-dispatch-chat.json", buildFlightDeckPgDefaultDefinition(AGENT_DISPATCH_CHAT_DEFINITION as unknown as DeclarativePipeline, "fd-agent-dispatch-chat")],
     ["fd-agent-dispatch-task-response.json", buildFlightDeckPgDefaultDefinition(AGENT_DISPATCH_TASK_DEFINITION as unknown as DeclarativePipeline, "fd-agent-dispatch-task-response")],
@@ -1336,6 +1337,7 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
     ["research-and-report.json", RESEARCH_AND_REPORT_DEFINITION],
     ["software-implementation-review-loop.json", softwareImplementationReviewLoopDefinition],
     ["daily-note-review.json", dailyNoteReviewDefinition],
+    ["audio-understanding.v1.json", audioUnderstandingDefinition],
   ] as const;
   const renamedBuiltIns = [
     "demo-agent-dispatch-chat-response.json",

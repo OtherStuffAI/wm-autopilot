@@ -1,0 +1,87 @@
+{
+  "name": "audio-understanding",
+  "description": "Produce a canonical local STT plus Nemotron diarization transcript package, persist reusable artifacts, run explicitly selected consumers, and deliver to the exact Flight Deck route.",
+  "version": 1,
+  "tags": ["audio", "local", "flight-deck"],
+  "input": {},
+  "steps": [
+    {
+      "name": "validate-request", "description": "Reject embedded audio and validate the reference, exact return route, and bounded options.",
+      "type": "code", "function": "audio.validateRequest", "assign": "$.request",
+      "display": { "in": [{"label":"Audio Reference","path":"$.audioRef","format":"text"},{"label":"Options","path":"$.options","format":"json"}], "out": [{"label":"Source","path":"$.source.kind","format":"text"},{"label":"Return Thread","path":"$.returnTo.threadId","format":"text"}] }
+    },
+    {
+      "name": "capability-preflight", "description": "Fail early with the missing binary or model configuration needed for local processing.",
+      "type": "code", "function": "audio.preflight", "input": {"pick":{"request":"$.request"}}, "assign": "$.capabilities",
+      "display": { "in": [{"label":"Source","path":"$.request.source.kind","format":"text"}], "out": [{"label":"Ready","path":"$.ready"},{"label":"Engines","path":"$.engines","format":"json"}] }
+    },
+    {
+      "name": "normalise-media", "description": "Resolve authorised storage or local input and create mono 16 kHz PCM with ffmpeg.",
+      "type": "code", "function": "audio.normalise", "input": {"pick":{"source":"$.request.source","returnTo":"$.request.returnTo"}}, "assign": "$.normalised",
+      "display": { "in": [{"label":"Source","path":"$.source.ref","format":"text"}], "out": [{"label":"Format","path":"$.format","format":"text"},{"label":"Size","path":"$.sizeBytes"}] }
+    },
+    {
+      "name": "transcribe", "description": "Run the configured local STT adapter and require timestamped words.",
+      "type": "code", "function": "audio.transcribe", "input": {"pick":{"audio":"$.normalised","options":"$.request.options"}}, "assign": "$.stt",
+      "display": { "in": [{"label":"Language","path":"$.options.language","format":"text"}], "out": [{"label":"Raw Transcript","path":"$.rawTranscript","format":"text"},{"label":"Words","path":"$.words","format":"count"}] }
+    },
+    {
+      "name": "nemotron-diarization", "description": "Run the configured local Nemotron 3 adapter for anonymous speaker timing only.",
+      "type": "code", "function": "audio.diarize", "input": {"pick":{"audio":"$.normalised","options":"$.request.options"}}, "assign": "$.diarization",
+      "display": { "in": [{"label":"Speaker Count","path":"$.options.speakerCount"}], "out": [{"label":"Speakers","path":"$.speakers","format":"list"},{"label":"Segments","path":"$.segments","format":"count"}] }
+    },
+    {
+      "name": "merge-speakers", "description": "Assign words by maximum overlap, document gaps and overlaps, and form deterministic turns.",
+      "type": "code", "function": "audio.merge", "input": {"pick":{"stt":"$.stt","diarization":"$.diarization","options":"$.request.options"}}, "assign": "$.merged",
+      "display": { "in": [{"label":"Words","path":"$.stt.words","format":"count"},{"label":"Segments","path":"$.diarization.segments","format":"count"}], "out": [{"label":"Turns","path":"$.turns","format":"records","limit":8},{"label":"Speakers","path":"$.speakers","format":"list"}] }
+    },
+    {
+      "name": "correct-glossary", "description": "Apply conservative single-token glossary corrections and retain the unchanged raw transcript plus a complete audit.",
+      "type": "code", "function": "audio.correct", "input": {"pick":{"transcript":"$.merged","options":"$.request.options"}}, "assign": "$.corrected",
+      "display": { "in": [{"label":"Glossary","path":"$.options.glossary","format":"list"}], "out": [{"label":"Corrected Transcript","path":"$.correctedTranscript","format":"text"},{"label":"Corrections","path":"$.corrections","format":"records","limit":10}] }
+    },
+    {
+      "name": "proofread", "description": "When requested, produce a constrained proofreader suggestion separately; it never mutates the canonical transcript.",
+      "type": "agent", "when": {"path":"$.request.options.proofreadTranscript","equals":true}, "agent": "codex", "input": {"pick":{"rawTranscript":"$.corrected.rawTranscript","correctedTranscript":"$.corrected.correctedTranscript","corrections":"$.corrected.corrections","glossary":"$.request.options.glossary"}},
+      "prompt": "Proofread conservatively. Do not alter uncertain meaning. Return JSON with suggestedTranscript, suggestions (oldText,newText,reason,confidence), warnings.", "assign": "$.proofread",
+      "display": { "in": [{"label":"Transcript","path":"$.correctedTranscript","format":"text"}], "out": [{"label":"Suggested Transcript","path":"$.suggestedTranscript","format":"text"},{"label":"Suggestions","path":"$.suggestions","format":"records","limit":10}] }
+    },
+    {
+      "name": "optional-agent-summary", "description": "When requested, create a separate summary consumer output without changing the transcript package.",
+      "type": "agent", "when": {"path":"$.request.options.summarise","equals":true}, "agent": "codex", "input": {"pick":{"transcript":"$.corrected.correctedTranscript","turns":"$.corrected.turns"}},
+      "prompt": "Summarise the supplied transcript faithfully. Return JSON with summary, decisions, actions, warnings.", "assign": "$.summary",
+      "display": { "in": [{"label":"Transcript","path":"$.transcript","format":"text"}], "out": [{"label":"Summary","path":"$.summary","format":"text"},{"label":"Actions","path":"$.actions","format":"list"}] }
+    },
+    {
+      "name": "extract-graph", "description": "When requested, extract a separate candidate entity/relationship payload for later graph validation.",
+      "type": "agent", "when": {"path":"$.request.options.extractGraph","equals":true}, "agent": "codex", "input": {"pick":{"transcript":"$.corrected.correctedTranscript"}},
+      "prompt": "Extract candidate entities and relationships without asserting unspoken facts. Return JSON with entities, relationships, warnings.", "assign": "$.graph",
+      "display": { "in": [{"label":"Transcript","path":"$.transcript","format":"text"}], "out": [{"label":"Entities","path":"$.entities","format":"records","limit":10},{"label":"Relationships","path":"$.relationships","format":"records","limit":10}] }
+    },
+    {
+      "name": "package-transcript", "description": "Build the canonical transcript independently from optional consumer outputs.",
+      "type": "code", "function": "audio.package", "input": {"pick":{"request":"$.request","corrected":"$.corrected","normalised":"$.normalised","stt":"$.stt","diarization":"$.diarization"}}, "assign": "$.transcriptPackage",
+      "display": { "in": [{"label":"Turns","path":"$.corrected.turns","format":"count"}], "out": [{"label":"Transcript","path":"$.correctedTranscript","format":"text"},{"label":"Metrics","path":"$.metrics","format":"json"},{"label":"Warnings","path":"$.warnings","format":"list"}] }
+    },
+    {
+      "name": "run-consumers", "description": "Record clean skips or collect optional proofreader, summary, graph, and selected downstream pipeline outcomes.",
+      "type": "code", "function": "audio.consume", "input": {"pick":{"request":"$.request","result":"$.transcriptPackage","proofread":"$.proofread","summary":"$.summary","graph":"$.graph"}}, "assign": "$.downstream",
+      "display": { "in": [{"label":"Options","path":"$.request.options","format":"json"}], "out": [{"label":"Downstream Outcomes","path":"$","format":"json"}] }
+    },
+    {
+      "name": "persist-artifacts", "description": "Write the canonical package plus downstream outcomes as hashed JSON/readable text, publish through a broker when configured, and enforce bounded local retention.",
+      "type": "code", "function": "audio.persist", "input": {"pick":{"request":"$.request","transcriptPackage":"$.transcriptPackage","downstream":"$.downstream"}}, "assign": "$.result",
+      "display": { "in": [{"label":"Transcript","path":"$.transcriptPackage.correctedTranscript","format":"text"},{"label":"Downstream Outcomes","path":"$.downstream","format":"json"}], "out": [{"label":"Artifacts","path":"$.artifacts","format":"records"},{"label":"Persistence","path":"$.artifactPersistence","format":"json"}] }
+    },
+    {
+      "name": "prepare-delivery", "description": "Prepare a concise result and stable idempotency key for the exact supplied Flight Deck route.",
+      "type": "code", "function": "audio.prepareDelivery", "input": {"pick":{"request":"$.request","result":"$.result","downstream":"$.downstream"}}, "assign": "$.delivery",
+      "display": { "in": [{"label":"Artifacts","path":"$.result.artifacts","format":"records"}], "out": [{"label":"Message","path":"$.message","format":"text"},{"label":"Artifacts","path":"$.artifacts","format":"list"}] }
+    },
+    {
+      "name": "deliver-result", "description": "Deliver idempotently through the managed kind-33358 plus exact-body NIP-98 Flight Deck writer; failures remain pipeline failures.",
+      "type": "code", "function": "audio.deliver", "input": "$.delivery", "assign": "$.deliveryResult",
+      "display": { "in": [{"label":"Message","path":"$.message","format":"text"}], "out": [{"label":"Delivered","path":"$.delivered"},{"label":"Message ID","path":"$.messageId","format":"text"}] }
+    }
+  ]
+}

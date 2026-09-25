@@ -62,7 +62,9 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
       if (botIdentity.botNpub !== (trustedAgentNpub || selected.botNpub)) {
         throw new Error("Resolved managed agent identity does not match trusted pipeline context");
       }
-      const channel = await resolveThreadChannel(deps, selected, botIdentity, input.threadId);
+      const channel = input.channelId
+        ? await validateExactThreadRoute(deps, selected, botIdentity, input.scopeId, input.channelId, input.threadId)
+        : await resolveThreadChannel(deps, selected, botIdentity, input.threadId);
       const result = await (deps.createMessage ?? createFlightDeckPgChannelMessage)({
         ...requestBase(selected, botIdentity),
         channelId: channel.id,
@@ -71,8 +73,9 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
         metadata: {
           source: "pipeline",
           format: "markdown",
-          requester_npub: input.frmNpub,
+          ...(input.frmNpub ? { requester_npub: input.frmNpub } : {}),
         },
+        clientRequestId: input.clientRequestId,
       });
       const messageId = result.message?.id;
       if (!messageId) throw new Error("Tower accepted the thread response without returning a message id");
@@ -83,13 +86,35 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
         channelId: channel.id,
         messageId,
         senderNpub: botIdentity.botNpub,
-        requesterNpub: input.frmNpub,
+        requesterNpub: input.frmNpub ?? null,
         format: "markdown",
         signatureProtocol: "flightdeck_pg_message_instruction",
       };
     });
   };
   return { resolve, send };
+}
+
+async function validateExactThreadRoute(
+  deps: ThreadRuntimeDependencies,
+  subscription: WorkspaceSubscriptionRecord,
+  botIdentity: FlightDeckPgBotIdentity,
+  scopeId: string | undefined,
+  channelId: string,
+  threadId: string,
+): Promise<FlightDeckPgChannel> {
+  if (!scopeId) throw new Error("scopeId is required with an exact Flight Deck channel route");
+  const base = requestBase(subscription, botIdentity);
+  const channels = (await (deps.fetchChannels ?? fetchFlightDeckPgScopeChannels)({ ...base, scopeId, limit: 200 })).channels;
+  const channel = channels.find((entry) => entry.id === channelId);
+  if (!channel) throw new Error(`Channel ${channelId} was not found in scope ${scopeId}`);
+  const result = await (deps.fetchMessages ?? fetchFlightDeckPgChannelMessages)({
+    ...base, channelId, threadId, effectiveTranscript: true, limit: 200,
+  });
+  if (!result.messages.some((message) => belongsToThread(message, threadId))) {
+    throw new Error(`Thread ${threadId} was not found in channel ${channelId}`);
+  }
+  return channel;
 }
 
 function selectManagedSubscription(

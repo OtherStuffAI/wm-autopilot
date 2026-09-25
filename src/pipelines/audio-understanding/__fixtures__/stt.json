@@ -1,0 +1,12 @@
+{
+  "language": "en",
+  "text": "Welcome to Nostre. Nemotron overlaps nicely.",
+  "words": [
+    { "text": "Welcome", "start": 0.0, "end": 0.45, "confidence": 0.98 },
+    { "text": "to", "start": 0.46, "end": 0.6, "confidence": 0.99 },
+    { "text": "Nostre.", "start": 0.61, "end": 1.0, "confidence": 0.91 },
+    { "text": "Nemotron", "start": 0.9, "end": 1.35, "confidence": 0.97 },
+    { "text": "overlaps", "start": 1.36, "end": 1.8, "confidence": 0.96 },
+    { "text": "nicely.", "start": 1.81, "end": 2.2, "confidence": 0.95 }
+  ]
+}

@@ -20,7 +20,16 @@ export type FlightDeckInvocationResolver = (
 ) => Promise<FlightDeckInvocationResolution>;
 
 export type FlightDeckThreadSender = (
-  input: FlightDeckPipelineInvocation & { message: string; pipelineRunId?: string },
+  input: {
+    workspaceId: string;
+    threadId: string;
+    frmNpub?: string;
+    scopeId?: string;
+    channelId?: string;
+    message: string;
+    pipelineRunId?: string;
+    clientRequestId?: string;
+  },
 ) => Promise<JsonObject>;
 
 const resolverKey = Symbol.for("wingmen.pipeline.flightDeckInvocationResolver");
@@ -75,6 +84,31 @@ export async function returnPipelineMarkdownToFlightDeckThread(input: JsonObject
   const sender = (globalThis as FlightDeckInvocationGlobal)[senderKey];
   if (!sender) throw new Error("Flight Deck pipeline thread delivery is not configured");
   return await sender({ ...invocation, message, pipelineRunId: typeof input.pipelineRunId === "string" ? input.pipelineRunId : undefined });
+}
+
+export async function deliverPipelineMessageToFlightDeckRoute(input: JsonObject): Promise<JsonObject> {
+  const routeValue = input.route;
+  if (!routeValue || typeof routeValue !== "object" || Array.isArray(routeValue)) throw new Error("route is required");
+  const route = routeValue as Record<string, unknown>;
+  const workspaceId = requiredText(route.workspaceId, "route.workspaceId");
+  const threadId = requiredText(route.threadId, "route.threadId");
+  const scopeId = requiredText(route.scopeId, "route.scopeId");
+  const channelId = requiredText(route.channelId, "route.channelId");
+  if (!isUuid(workspaceId)) throw new Error("route.workspaceId must be a UUID");
+  if (!isUuid(scopeId)) throw new Error("route.scopeId must be a UUID");
+  if (!isUuid(channelId)) throw new Error("route.channelId must be a UUID");
+  if (!isUuid(threadId)) throw new Error("route.threadId must be a UUID");
+  const sender = (globalThis as FlightDeckInvocationGlobal)[senderKey];
+  if (!sender) throw new Error("Flight Deck pipeline thread delivery is not configured");
+  return await sender({
+    workspaceId,
+    scopeId,
+    channelId,
+    threadId,
+    message: requiredText(input.message, "message"),
+    pipelineRunId: typeof input.pipelineRunId === "string" ? input.pipelineRunId : undefined,
+    clientRequestId: requiredText(input.idempotencyKey, "idempotencyKey"),
+  });
 }
 
 function requiredText(value: unknown, name: string): string {

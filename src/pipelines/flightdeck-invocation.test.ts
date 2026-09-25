@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   configureFlightDeckPipelineInvocation,
+  deliverPipelineMessageToFlightDeckRoute,
   normalizeFlightDeckPipelineInvocation,
   resolveFlightDeckPipelineInvocation,
   returnPipelineMarkdownToFlightDeckThread,
@@ -32,5 +33,28 @@ describe("Flight Deck pipeline invocation", () => {
     });
     const result = await returnPipelineMarkdownToFlightDeckThread({ ...valid, message: "# Answer" });
     expect(result).toMatchObject({ delivered: true, requesterNpub: "npub1requester", senderNpub: "npub1managed" });
+  });
+
+  test("delivers with the exact route and stable idempotency key", async () => {
+    let sent: Record<string, unknown> = {};
+    configureFlightDeckPipelineInvocation({
+      resolve: async (input) => ({ ...input, channelId: "unused", senderNpub: "npub1managed" }),
+      send: async (input) => { sent = input; return { delivered: true, messageId: "message-1" }; },
+    });
+    const route = {
+      workspaceId: valid.workspaceId,
+      scopeId: "11111111-1111-4111-8111-111111111111",
+      channelId: "22222222-2222-4222-8222-222222222222",
+      threadId: valid.threadId,
+    };
+    await expect(deliverPipelineMessageToFlightDeckRoute({ route, message: "Done", idempotencyKey: "audio:abc" }))
+      .resolves.toMatchObject({ delivered: true });
+    expect(sent).toMatchObject({ ...route, message: "Done", clientRequestId: "audio:abc" });
+    configureFlightDeckPipelineInvocation({
+      resolve: async (input) => ({ ...input, channelId: "unused", senderNpub: "npub1managed" }),
+      send: async () => { throw new Error("Tower write failed"); },
+    });
+    await expect(deliverPipelineMessageToFlightDeckRoute({ route, message: "Done", idempotencyKey: "audio:abc" }))
+      .rejects.toThrow("Tower write failed");
   });
 });
