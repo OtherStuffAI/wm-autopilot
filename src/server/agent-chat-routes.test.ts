@@ -1219,6 +1219,43 @@ describe('agent-chat routes', () => {
     expect(removed).toEqual({ subscriptionId: 'sub-bad', managerNpub: 'npub1manager' });
   });
 
+  test('refreshes Flight Deck audiences for the authenticated manager', async () => {
+    let managerNpub = '';
+    const manager = {
+      refreshFlightDeckAudiencesForManager: async (npub: string) => {
+        managerNpub = npub;
+        return { subscriptions: [{ subscriptionId: 'sub-1', audienceNpubs: ['npub1piper'] }], failures: [] };
+      },
+    } as unknown as WorkspaceSubscriptionManager;
+    const request = new Request('http://localhost/api/agent-chat/subscriptions/actions/refresh-audiences', { method: 'POST' });
+
+    const response = await handleAgentChatApi(request, new URL(request.url), 'POST', authContext, { manager });
+
+    expect(response?.status).toBe(200);
+    expect(managerNpub).toBe('npub1manager');
+    expect(await response!.json()).toEqual({
+      subscriptions: [{ subscriptionId: 'sub-1', audienceNpubs: ['npub1piper'] }],
+      failures: [],
+    });
+  });
+
+  test('reports Flight Deck audience reconciliation failures to workspace settings', async () => {
+    const manager = {
+      refreshFlightDeckAudiencesForManager: async () => ({
+        subscriptions: [],
+        failures: [{ subscriptionId: 'sub-1', error: 'Tower rejected Piper.' }],
+      }),
+    } as unknown as WorkspaceSubscriptionManager;
+    const request = new Request('http://localhost/api/agent-chat/subscriptions/actions/refresh-audiences', { method: 'POST' });
+
+    const response = await handleAgentChatApi(request, new URL(request.url), 'POST', authContext, { manager });
+    const body = await response!.json();
+
+    expect(response?.status).toBe(502);
+    expect(body.error).toBe('Failed to refresh 1 Flight Deck subscription audience.');
+    expect(body.failures).toEqual([{ subscriptionId: 'sub-1', error: 'Tower rejected Piper.' }]);
+  });
+
   test('sets the explicit default profile used by ordinary Autopilot sessions', async () => {
     const rick = {
       agentId: 'rick', label: 'Rick', botNpub: 'npub1rick', workspaceOwnerNpub: 'npub1manager',

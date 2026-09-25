@@ -1375,6 +1375,44 @@ export class WorkspaceSubscriptionManager {
       .filter((record) => (record.lifecycleStatus ?? 'active') === 'active');
   }
 
+  async refreshFlightDeckAudiencesForManager(npub: string): Promise<{
+    subscriptions: Array<{ subscriptionId: string; audienceNpubs: string[] }>;
+    failures: Array<{ subscriptionId: string; error: string }>;
+  }> {
+    const subscriptions: Array<{ subscriptionId: string; audienceNpubs: string[] }> = [];
+    const failures: Array<{ subscriptionId: string; error: string }> = [];
+    const candidates = this.listForManager(npub).filter((record) => (
+      isFlightDeckPgSubscription(record)
+      && !record.agentProfileId
+      && record.sseStatus !== 'disabled'
+      && !isRevokedWorkspaceSubscription(record)
+    ));
+
+    for (const record of candidates) {
+      const botIdentity = this.getRuntimeBotIdentity(record.subscriptionId);
+      if (!botIdentity) {
+        failures.push({
+          subscriptionId: record.subscriptionId,
+          error: 'The active Flight Deck subscription runtime is unavailable.',
+        });
+        continue;
+      }
+      try {
+        subscriptions.push({
+          subscriptionId: record.subscriptionId,
+          audienceNpubs: await this.reconcileFlightDeckAudience(record, botIdentity),
+        });
+      } catch (error) {
+        failures.push({
+          subscriptionId: record.subscriptionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return { subscriptions, failures };
+  }
+
   listDispatchOutcomesForManager(
     npub: string,
     input: { limit: number; offset: number; includeIgnoredAndSuppressed?: boolean },

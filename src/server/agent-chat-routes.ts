@@ -695,6 +695,19 @@ export async function handleAgentChatApi(
     });
   }
 
+  if (url.pathname === '/api/agent-chat/subscriptions/actions/refresh-audiences' && method === 'POST') {
+    const denied = requireAgentChatManagement(scope);
+    if (denied) return denied;
+    const result = await ctx.manager.refreshFlightDeckAudiencesForManager(scope.managerNpub);
+    if (result.failures.length > 0) {
+      return Response.json({
+        error: `Failed to refresh ${result.failures.length} Flight Deck subscription audience${result.failures.length === 1 ? '' : 's'}.`,
+        ...result,
+      }, { status: 502 });
+    }
+    return Response.json(result);
+  }
+
   if (url.pathname === '/api/agent-chat/agents' && method === 'GET') {
     const defaultAgentProfile = ctx.manager.getDefaultAgentForManager(scope.managerNpub);
     return Response.json({

@@ -3,7 +3,8 @@ import { createTowerTransportCard } from './tower-transport-card.js';
 import Alpine from '/vendor/alpinejs/module.esm.js';
 import {
   importAgentConnectPackage, listAgentChatAgents,
-  listAgentChatBackendConnections, listAgentChatSubscriptions, runAgentChatSubscriptionAction,
+  listAgentChatBackendConnections, listAgentChatSubscriptions, refreshAgentChatSubscriptionAudiences,
+  runAgentChatSubscriptionAction,
 } from '../../services/agent-chat.js';
 import { createAgentConnectImportModal } from './agent-chat-connect-import-card.js';
 import { getWorkspaceSettingsPath, resolveSettingsRoute } from '../settings-routes.js';
@@ -62,11 +63,12 @@ export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
     status.className = 'wm-workspace-error';
   }
 
-  async function refresh() {
+  async function refresh({ reconcileAudiences = false } = {}) {
     if (refreshing || stopped) return;
     refreshing = true;
     container.setAttribute('aria-busy', 'true');
     try {
+      if (reconcileAudiences) await refreshAgentChatSubscriptionAudiences();
       const results = await Promise.allSettled([listAgentChatSubscriptions(), listAgentChatAgents(), listAgentChatBackendConnections()]);
       const [subscriptions, agents, connections] = results;
       // Keep the previous snapshot intact if any source fails; never replace memberships with an empty list.
@@ -141,7 +143,7 @@ export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
     connect.addEventListener('click', () => modal.open());
     const reload = createButton('Refresh', 'workspace-refresh', 'Refresh servers and workspaces');
     reload.disabled = busy;
-    reload.addEventListener('click', () => void refresh());
+    reload.addEventListener('click', () => void refresh({ reconcileAudiences: true }));
     toolbar.append(connect, reload);
     const intro = element('p', 'Add bots to workspaces in Flight Deck. Autopilot picks up trusted Nostr announcements, or you can paste AgentConnect here.', 'wm-workspace-note');
     const layout = element('div', '', 'wm-workspaces-layout');

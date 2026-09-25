@@ -16,4 +16,10 @@ describe('Workspace Settings Autopilot Connect Package card', () => {
     expect(card).toContain("status.setAttribute('aria-live', 'polite')");
     expect(card).toContain("status.textContent = 'Package expired. Generate a new package to continue.'");
   });
+
+  test('reconciles subscription audiences only for an explicit workspace refresh', () => {
+    expect(workspace).toContain('if (reconcileAudiences) await refreshAgentChatSubscriptionAudiences()');
+    expect(workspace).toContain("refresh({ reconcileAudiences: true })");
+    expect(workspace).toContain("setTimeout(() => { if (container.isConnected) void refresh(); }");
+  });
 });

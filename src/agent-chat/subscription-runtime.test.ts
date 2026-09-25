@@ -276,6 +276,7 @@ function saveAgent(agentStore: AgentDefinitionStore, input: Partial<AgentDefinit
     directChat: input.directChat,
     capabilities: input.capabilities ?? ['chat_intercept'],
     enabled: input.enabled ?? true,
+    archived: input.archived ?? false,
     createdAt: now,
     updatedAt: now,
     managedByNpub: input.managedByNpub,
@@ -385,6 +386,53 @@ describe('WorkspaceSubscriptionManager', () => {
     }).resolveStoredBotIdentity('npub1Builder');
     expect(vaultResolutions).toContain('npub1Builder');
     expect(BuilderIdentity?.botNpub).toBe('npub1Builder');
+  });
+
+  test('refreshes active shared Flight Deck audiences idempotently for one manager', async () => {
+    const dbPath = makeTempDb();
+    const reconciledAudiences: string[][] = [];
+    const { manager, store, agentStore } = createTestManager(
+      dbPath,
+      new Map([['npub1base', makeBotKeyRecord('npub1base')]]),
+      undefined,
+      null,
+      undefined,
+      {
+        reconcileFlightDeckPgEventSubscriptionAgents: async ({ agentNpubs }) => {
+          reconciledAudiences.push([...agentNpubs]);
+          return { agent_npubs: [...agentNpubs] };
+        },
+      },
+    );
+    const base = store.save(store.createDefault({
+      managedByNpub: 'npub1manager', workspaceOwnerNpub: 'npub1manager',
+      backendBaseUrl: 'https://tower.example.com', towerServiceNpub: 'npub1tower',
+      workspaceId: 'workspace-1', workspaceServiceNpub: 'npub1workspace',
+      botNpub: 'npub1base', sourceAppNpub: 'npub1app',
+    }));
+    await manager.startupReload();
+    reconciledAudiences.length = 0;
+
+    saveAgent(agentStore, { agentId: 'rick', botNpub: 'npub1rick', managedByNpub: 'npub1manager', directChat: { enabled: true, sessionAgent: 'codex', directory: '/tmp/rick', model: null, idleRetentionMinutes: 60 } });
+    saveAgent(agentStore, { agentId: 'piper', botNpub: 'npub1piper', managedByNpub: 'npub1manager', directChat: { enabled: true, sessionAgent: 'codex', directory: '/tmp/piper', model: null, idleRetentionMinutes: 60 } });
+    saveAgent(agentStore, { agentId: 'disabled', botNpub: 'npub1disabled', managedByNpub: 'npub1manager', enabled: false, directChat: { enabled: true, sessionAgent: 'codex', directory: '/tmp/disabled', model: null, idleRetentionMinutes: 60 } });
+    saveAgent(agentStore, { agentId: 'archived', botNpub: 'npub1archived', managedByNpub: 'npub1manager', archived: true, directChat: { enabled: true, sessionAgent: 'codex', directory: '/tmp/archived', model: null, idleRetentionMinutes: 60 } });
+    saveAgent(agentStore, { agentId: 'no-chat', botNpub: 'npub1nochat', managedByNpub: 'npub1manager', directChat: { enabled: false, sessionAgent: 'codex', directory: '/tmp/no-chat', model: null, idleRetentionMinutes: 60 } });
+    saveAgent(agentStore, { agentId: 'ineligible', botNpub: 'npub1ineligible', managedByNpub: 'npub1manager', capabilities: ['task_dispatch'], directChat: { enabled: true, sessionAgent: 'codex', directory: '/tmp/ineligible', model: null, idleRetentionMinutes: 60 } });
+    saveAgent(agentStore, { agentId: 'other-owner', botNpub: 'npub1other', managedByNpub: 'npub1othermanager', directChat: { enabled: true, sessionAgent: 'codex', directory: '/tmp/other', model: null, idleRetentionMinutes: 60 } });
+
+    const first = await manager.refreshFlightDeckAudiencesForManager('npub1manager');
+    const second = await manager.refreshFlightDeckAudiencesForManager('npub1manager');
+
+    expect(first).toEqual({
+      subscriptions: [{ subscriptionId: base.subscriptionId, audienceNpubs: ['npub1piper', 'npub1rick'] }],
+      failures: [],
+    });
+    expect(second).toEqual(first);
+    expect(reconciledAudiences).toEqual([
+      ['npub1piper', 'npub1rick'],
+      ['npub1piper', 'npub1rick'],
+    ]);
   });
 
   test('continues with Tower accepted profiles and records rejected audience diagnostics', async () => {

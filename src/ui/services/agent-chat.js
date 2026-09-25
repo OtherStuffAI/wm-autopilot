@@ -245,6 +245,22 @@ export async function runAgentChatSubscriptionAction(subscriptionId, action) {
   return payload.subscription ?? null;
 }
 
+export async function refreshAgentChatSubscriptionAudiences() {
+  const response = await fetch('/api/agent-chat/subscriptions/actions/refresh-audiences', {
+    method: 'POST',
+    credentials: 'include',
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = Array.isArray(payload.failures)
+      ? payload.failures.map((failure) => failure?.error).filter(Boolean).join(' ')
+      : '';
+    throw new Error([payload.error || 'Failed to refresh Flight Deck subscription audiences', detail]
+      .filter(Boolean).join(' '));
+  }
+  return payload;
+}
+
 export async function listAgentChatDispatchRoutes(subscriptionId = '') {
   const suffix = subscriptionId ? `?subscriptionId=${encodeURIComponent(subscriptionId)}` : '';
   const response = await fetch(`/api/agent-chat/dispatch-routes${suffix}`, { credentials: 'include' });
