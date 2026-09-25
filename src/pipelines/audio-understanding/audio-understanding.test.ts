@@ -73,10 +73,11 @@ describe("audio understanding deterministic core", () => {
     const sourcePath = join(root, "audio.wav");
     await writeFile(sourcePath, "audio");
     const config = fixtureConfig(root, join(root, "model"));
-    expect(() => validateAudioRequest({ audioRef: "relative.wav" }, config)).toThrow("allowed absolute local path");
-    expect(() => validateAudioRequest({ audioRef: "/etc/passwd" }, config)).toThrow("outside AUDIO_ALLOWED_LOCAL_ROOTS");
-    expect(() => validateAudioRequest({ audioRef: `data:audio/wav;base64,${"A".repeat(300)}` }, config)).toThrow("binary/base64");
-    expect(() => validateAudioRequest({ audioRef: "storage://not-a-uuid" }, config)).toThrow("storage object id must be a UUID");
+    expect(() => validateAudioRequest({ audioRef: "relative.wav", returnTo: fixtureRoute() }, config)).toThrow("allowed absolute local path");
+    expect(() => validateAudioRequest({ audioRef: "/etc/passwd", returnTo: fixtureRoute() }, config)).toThrow("outside AUDIO_ALLOWED_LOCAL_ROOTS");
+    expect(() => validateAudioRequest({ audioRef: `data:audio/wav;base64,${"A".repeat(300)}`, returnTo: fixtureRoute() }, config)).toThrow("binary/base64");
+    expect(() => validateAudioRequest({ audioRef: "storage://not-a-uuid", returnTo: fixtureRoute() }, config)).toThrow("storage object id must be a UUID");
+    expect(() => validateAudioRequest({ audioRef: sourcePath }, config)).toThrow("returnTo is required");
     expect(() => validateAudioRequest({ audioRef: sourcePath }, config)).toThrow("returnTo is required");
     expect(() => validateAudioRequest({ audioRef: sourcePath, returnTo: { workspaceId: fixtureRoute().workspaceId } }, config)).toThrow("returnTo.scopeId");
   });
