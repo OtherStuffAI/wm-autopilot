@@ -108,6 +108,14 @@ describe("scheduled automatic-session cleanup", () => {
     expect(result.details[0]?.reason).toBe("next-action-stop");
   });
 
+  test("preserves sessions whose lifecycle explicitly has outstanding reflection work", async () => {
+    const f = harness([session("pipeline-worker", { ageMinutes: 600, nextAction: "reflect" })]);
+    const result = await f.run();
+    expect(result.matched).toBe(0);
+    expect(result.skipped).toEqual([{ id: "pipeline-worker", reason: "protected" }]);
+    expect(f.stopped).toEqual([]);
+  });
+
   test("reports failed eligible work instead of a zero match", async () => {
     const item = session("failed");
     const result = await cleanupStopNextActionSessions({

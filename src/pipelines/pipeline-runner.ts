@@ -41,6 +41,8 @@ interface PipelineRunnerInput {
   ownerAlias: string | null;
   callbackOrigin: string;
   defaultAgent?: string;
+  initiatingAgentProfileId?: string | null;
+  initiatingAgentNpub?: string | null;
   onRunCreated?: (run: ReturnType<PipelineStore["createRun"]>) => void;
   onRunCompleted?: (run: ReturnType<PipelineStore["completeRun"]>) => void;
 }
@@ -904,7 +906,8 @@ async function runOrResumeAgentStep(input: PipelineRunnerInput & {
     throw new PipelineHalt("needs_input", latest.output ?? latest.result ?? {}, "Agent step needs input");
   }
   if (latest?.wingmanSessionId && input.sessionApiContext.manager.getSession(latest.wingmanSessionId)) {
-    const result = await waitForCallbackResult(input.store, input.stepId, input.callbackTimeoutMs);
+    const result = await waitForCallbackResult(input.store, input.stepId, input.callbackTimeoutMs, () =>
+      Boolean(input.sessionApiContext.manager.getSession(latest.wingmanSessionId!)), latest.wingmanSessionId);
     if (result.status === "error") throw new Error(result.error ?? "Agent step failed");
     if (result.status === "cancelled") throw new PipelineCancelled(input.runId);
     if (result.status === "needs_input") throw new PipelineHalt("needs_input", result.result ?? {}, "Agent step needs input");
@@ -941,6 +944,12 @@ async function runAgentStep(input: PipelineRunnerInput & {
   let lastError: unknown = null;
   const maxAttempts = resolveAgentStepMaxAttempts();
   const profileBinding = resolvePipelineAgentProfileBinding(input.input);
+  const initiatingAgentBinding = input.initiatingAgentNpub
+    ? {
+        ...(input.initiatingAgentProfileId ? { agentProfileId: input.initiatingAgentProfileId } : {}),
+        agentChatBotNpub: input.initiatingAgentNpub,
+      }
+    : {};
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const latest = input.store.getStep(input.stepId);
     if (latest?.status === "ok") {
@@ -971,12 +980,13 @@ async function runAgentStep(input: PipelineRunnerInput & {
           AGENT: true,
           role: "pipeline-step",
           goal: `Pipeline ${input.definition.spec.name}: ${input.stepName}`,
-          nextAction: "stop",
+          nextAction: "reflect",
           bindingType: "flow_run",
           bindingId: input.runId,
           flowRunId: input.runId,
           retryAttempt: attempt,
           ...profileBinding,
+          ...initiatingAgentBinding,
         },
         input.model,
       );
@@ -1008,7 +1018,8 @@ async function runAgentStep(input: PipelineRunnerInput & {
         throw new Error(delivered.message);
       }
 
-      result = await waitForCallbackResult(input.store, input.stepId, input.callbackTimeoutMs);
+      result = await waitForCallbackResult(input.store, input.stepId, input.callbackTimeoutMs, () =>
+        Boolean(sessionCtx.manager.getSession(session!.id)), session.id);
       break;
     } catch (error) {
       lastError = error;
@@ -1027,6 +1038,7 @@ async function runAgentStep(input: PipelineRunnerInput & {
       }
     } finally {
       if (session) {
+        sessionCtx.manager.updateSessionMetadata?.(session.id, { nextAction: "stop" });
         await stopPipelineSession(sessionCtx, session.id).catch(() => undefined);
       }
     }
@@ -1190,12 +1202,17 @@ async function waitForCallbackResult(
   store: PipelineStore,
   stepId: string,
   timeoutMs: number,
+  sessionExists?: () => boolean,
+  sessionId?: string,
 ): Promise<{ status: PipelineStatus; result: JsonObject | null; error: string | null }> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const step = store.getStep(stepId);
     if (step && step.status !== "running") {
       return { status: step.status, result: step.output ?? step.result, error: step.error };
+    }
+    if (sessionExists && !sessionExists()) {
+      throw new Error(`Pipeline agent session ${sessionId ?? "unknown"} disappeared before callback delivery`);
     }
     await new Promise((resolve) => setTimeout(resolve, CALLBACK_POLL_MS));
   }

@@ -76,7 +76,7 @@ export function createPipelineRouterHandler(deps: { store: PipelineStore; getSes
       const started = await (deps.startRun ?? startFlightDeckPipelineRun)({ store: deps.store, sessionApiContext,
         definition: selected, invocation: { workspaceId: request.subscription.workspaceId!, threadId: request.threadId,
           frmNpub: request.message.sender_npub ?? request.message.created_by_actor_npub ?? '', prompt }, ownerNpub, ownerAlias, callbackOrigin: deps.callbackOrigin,
-        initiatingAgentNpub: request.agent.botNpub, sourceMessageId,
+        initiatingAgentProfileId: request.agent.agentId, initiatingAgentNpub: request.agent.botNpub, sourceMessageId,
         onRunCreated: (run) => outcomes.recordPipelineStarted({ ...outcomeBase, runId: run.id, status: run.status,
           details: { ...outcomeBase.details, run_id: run.id, pipeline_name: run.name, status: run.status } }),
         onRunCompleted: (run) => outcomes.recordPipelineCompleted({ ...outcomeBase, runId: run.id, status: run.status,

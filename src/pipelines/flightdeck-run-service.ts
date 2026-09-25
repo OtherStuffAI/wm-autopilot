@@ -9,7 +9,7 @@ import { PipelineStore } from "./pipeline-store";
 export async function startFlightDeckPipelineRun(input: {
   store: PipelineStore; sessionApiContext: SessionApiContext; definition: PipelineDefinitionRecord;
   invocation: FlightDeckPipelineInvocation; ownerNpub: string; ownerAlias: string; callbackOrigin: string;
-  initiatingAgentNpub?: string | null; sourceMessageId?: string | null;
+  initiatingAgentProfileId?: string | null; initiatingAgentNpub?: string | null; sourceMessageId?: string | null;
   onRunCreated?: Parameters<typeof startDeclarativePipeline>[0]["onRunCreated"];
   onRunCompleted?: Parameters<typeof startDeclarativePipeline>[0]["onRunCompleted"];
 }) {
@@ -19,9 +19,12 @@ export async function startFlightDeckPipelineRun(input: {
     definition: input.definition, registry: functions.registry,
     input: { ...(input.definition.spec.input ?? {}), ...resolved.input }, ownerNpub: input.ownerNpub,
     ownerAlias: input.ownerAlias, callbackOrigin: input.callbackOrigin,
+    initiatingAgentProfileId: input.initiatingAgentProfileId,
+    initiatingAgentNpub: input.initiatingAgentNpub,
     onRunCreated: (created) => {
       input.store.addEvent({ runId: created.id, level: "info", type: "flightdeck_invocation_context",
-        message: "Trusted Flight Deck invocation context", data: { initiatingAgentNpub: input.initiatingAgentNpub ?? null,
+        message: "Trusted Flight Deck invocation context", data: { initiatingAgentProfileId: input.initiatingAgentProfileId ?? null,
+          initiatingAgentNpub: input.initiatingAgentNpub ?? null,
           sourceMessageId: input.sourceMessageId ?? null, workspaceId: resolved.input.workspaceId, threadId: resolved.input.threadId } });
       input.onRunCreated?.(created);
     },

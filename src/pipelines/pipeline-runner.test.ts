@@ -699,7 +699,7 @@ describe("runDeclarativePipeline", () => {
       },
     } as unknown as SessionApiContext;
 
-    const run = async (id: string, pipelineInput: Record<string, unknown>) => {
+    const run = async (id: string, pipelineInput: Record<string, unknown>, initiatingAgent?: { profileId: string; botNpub: string }) => {
       const definition: PipelineDefinitionRecord = {
         id,
         slug: id,
@@ -722,6 +722,8 @@ describe("runDeclarativePipeline", () => {
         ownerNpub: "npub-owner",
         ownerAlias: "alpha-beta-gamma",
         callbackOrigin: "http://callback.local",
+        initiatingAgentProfileId: initiatingAgent?.profileId,
+        initiatingAgentNpub: initiatingAgent?.botNpub,
       });
     };
 
@@ -733,7 +735,7 @@ describe("runDeclarativePipeline", () => {
         defaultAgent: "goose",
         model: "brick-model",
       },
-    });
+    }, { profileId: "piper", botNpub: "npub1piper" });
     const unbound = await run("default-profile", {
       agent: { agentId: "legacy-descriptive-agent", workingDirectory: "/tmp/legacy" },
     });
@@ -742,8 +744,9 @@ describe("runDeclarativePipeline", () => {
     expect(unbound.status).toBe("error");
     expect(capturedMetadata[0]).toMatchObject({
       role: "pipeline-step",
-      agentProfileId: "brick",
-      agentChatBotNpub: "npub1brick",
+      nextAction: "reflect",
+      agentProfileId: "piper",
+      agentChatBotNpub: "npub1piper",
     });
     expect(capturedMetadata[1]?.agentProfileId).toBeUndefined();
     expect(capturedMetadata[1]?.agentChatBotNpub).toBeUndefined();
@@ -1401,6 +1404,86 @@ describe("runDeclarativePipeline", () => {
 
     expect(attempts).toBe(2);
     expect(aggregate).toMatchObject({ total: 1, ok: 1, error: 0 });
+  });
+
+  test("relaunches a parallel agent child whose linked session disappears", async () => {
+    process.env.PIPELINE_PARALLEL_POLL_MS = "5";
+    const store = makeStore();
+    const run = store.createRun({ definitionId: "parallel-orphan", name: "parallel-orphan", ownerNpub: "npub-test",
+      ownerAlias: "alpha-beta-gamma", scope: "user", input: { values: ["alpha"] } });
+    let stepIndex = 0;
+    const parent = store.createStep({ runId: run.id, stepIndex: stepIndex++, name: "fan-out", kind: "parallel", input: run.input ?? {} });
+    const liveSessions = new Set<string>();
+    let attempts = 0;
+
+    const aggregate = await runParallelStep({
+      store, registry: builtinPipelineFunctions, runId: run.id, current: run.input ?? {}, nextStepIndex: () => stepIndex++,
+      parentStep: { name: "fan-out", type: "parallel", source: "$.values", maxConcurrency: 1,
+        step: { name: "review", type: "agent", prompt: "Review the value." } },
+      parentStepId: parent.id, parentStepName: "fan-out",
+      shouldRelaunchAgentChild: (child) => !child.wingmanSessionId || !liveSessions.has(child.wingmanSessionId),
+      runAgentChild: async ({ childRecord }) => {
+        attempts += 1;
+        const sessionId = `session-${attempts}`;
+        store.setStepSession(childRecord.id, sessionId);
+        if (attempts === 1) return;
+        liveSessions.add(sessionId);
+        store.completeStep({ id: childRecord.id, status: "ok", result: { recovered: true }, output: { recovered: true }, wingmanSessionId: sessionId });
+      },
+    });
+
+    expect(attempts).toBe(2);
+    expect(aggregate).toMatchObject({ total: 1, ok: 1, error: 0 });
+    expect(store.listChildSteps(parent.id)[0]?.wingmanSessionId).toBe("session-2");
+  });
+
+  test("relaunches an ordinary running agent step when its linked session is missing on resume", async () => {
+    const store = makeStore();
+    const definition: PipelineDefinitionRecord = { id: "orphan-resume", slug: "orphan-resume", name: "orphan-resume",
+      scope: "user", ownerAlias: "alpha-beta-gamma", path: join(tempDir, "orphan-resume.json"),
+      spec: { name: "orphan-resume", input: { topic: "recovery" },
+        steps: [{ name: "agent", type: "agent", prompt: "Recover the work.", assign: "$.agentRaw" }] } };
+    const run = store.createRun({ definitionId: definition.id, definitionPath: definition.path, name: definition.name,
+      ownerNpub: "npub-test", ownerAlias: "alpha-beta-gamma", scope: "user", input: definition.spec.input! });
+    const step = store.createStep({ runId: run.id, stepIndex: 0, name: "agent", kind: "agent", input: run.input ?? {},
+      callbackToken: "orphan-token" });
+    store.setStepSession(step.id, "archived-session");
+    store.setRunActiveStep(run.id, step.id);
+    const replacement = { id: "replacement-session", agent: "codex", port: 49999, name: "replacement", status: "running",
+      startedAt: new Date().toISOString(), workingDirectory: tempDir, command: [], logs: [], metadata: {} } as SessionSnapshot;
+    const adapter = {
+      fetchStatus: async () => "stable",
+      getPromptReadiness: async () => ({ state: "ready", reason: "test", retryAfterMs: 1, observedAt: Date.now() }),
+      sendMessage: async (content: string) => {
+        const callbackUrl = new URL(content.match(/http:\/\/callback\.local\/api\/pipelines\/runs\/[^\s']+/)![0]!);
+        await acceptAgentCallback({ store, runId: run.id, stepId: step.id,
+          token: callbackUrl.searchParams.get("token"), payload: { runId: run.id, stepId: step.id, status: "ok", result: { recovered: true } } });
+      },
+      deliversPromptsDirectly: () => true,
+      fetchMessages: async () => [],
+      waitForReady: async () => {},
+      interruptCurrentTurn: async () => false,
+      getEventsUrl: () => null,
+      dispose: async () => {},
+    } as unknown as AgentAdapter;
+    let replacementLive = false;
+    const sessionApiContext = { manager: {
+      createSession: async () => { replacementLive = true; return replacement; },
+      getSession: (id: string) => replacementLive && id === replacement.id ? replacement : null,
+      getAdapter: (id: string) => id === replacement.id ? adapter : null,
+      updateSessionMetadata: () => replacement,
+      stopSession: async () => { replacementLive = false; return true; },
+    }, agentHost: "localhost", buildAgentUrl: (host: string, port: number, path: string) => new URL(`http://${host}:${port}${path}`),
+    messageStore: { recordSession() {} }, syncSessionMessages: async () => {}, scheduleSessionArchive() {},
+    isAgentType: (value: string) => value === "codex" } as unknown as SessionApiContext;
+
+    const resumed = await resumeDeclarativePipeline({ store, sessionApiContext, definition, registry: builtinPipelineFunctions,
+      input: definition.spec.input!, ownerNpub: "npub-test", ownerAlias: "alpha-beta-gamma", callbackOrigin: "http://callback.local" }, run.id);
+
+    if (resumed?.status !== "ok") throw new Error(resumed?.error ?? "orphan resume failed");
+    expect(resumed?.status).toBe("ok");
+    expect(resumed?.result?.agentRaw).toEqual({ recovered: true });
+    expect(store.getStep(step.id)?.wingmanSessionId).toBe("replacement-session");
   });
 
   test("resumes a run after an agent callback completed during downtime", async () => {

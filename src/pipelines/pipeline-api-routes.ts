@@ -474,6 +474,7 @@ export async function resumeStoredPipelineRun(
   }
   const registry = await ctx.loadRegistryForRun?.({ run, definition })
     ?? (await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions)).registry;
+  const invocationContext = readFlightDeckInvocationContext(ctx.store, run.id);
   await resumeDeclarativePipeline({
     store: ctx.store,
     sessionApiContext: ctx.sessionApiContext,
@@ -483,7 +484,28 @@ export async function resumeStoredPipelineRun(
     ownerNpub: run.ownerNpub,
     ownerAlias,
     callbackOrigin,
+    initiatingAgentProfileId: invocationContext.initiatingAgentProfileId,
+    initiatingAgentNpub: invocationContext.initiatingAgentNpub,
   }, run.id);
+}
+
+function readFlightDeckInvocationContext(store: PipelineStore, runId: string): {
+  initiatingAgentProfileId: string | null;
+  initiatingAgentNpub: string | null;
+} {
+  const event = store.listEvents(runId).find((entry) => entry.type === "flightdeck_invocation_context");
+  if (!event || typeof event.data_json !== "string") {
+    return { initiatingAgentProfileId: null, initiatingAgentNpub: null };
+  }
+  try {
+    const data = JSON.parse(event.data_json) as Record<string, unknown>;
+    return {
+      initiatingAgentProfileId: typeof data.initiatingAgentProfileId === "string" ? data.initiatingAgentProfileId : null,
+      initiatingAgentNpub: typeof data.initiatingAgentNpub === "string" ? data.initiatingAgentNpub : null,
+    };
+  } catch {
+    return { initiatingAgentProfileId: null, initiatingAgentNpub: null };
+  }
 }
 
 export async function resumeStoredErroredPipelineRun(

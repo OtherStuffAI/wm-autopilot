@@ -74,6 +74,10 @@ export async function cleanupStopNextActionSessions(deps: NextActionCleanupDeps)
       skipped.push({ id: listedSession.id, reason: "user-started" });
       continue;
     }
+    if (listedSession.metadata?.nextAction === "reflect") {
+      skipped.push({ id: listedSession.id, reason: "protected" });
+      continue;
+    }
 
     const immediate = listedSession.metadata?.nextAction === "stop";
     let session = listedSession;

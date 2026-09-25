@@ -49,6 +49,7 @@ describe('pipeline router handler', () => {
     expect(starts[0].invocation).toEqual({ workspaceId: '11111111-1111-4111-8111-111111111111',
       threadId: '22222222-2222-4222-8222-222222222222', frmNpub: 'npub1requester', prompt: '@Pipe use the council exactly' });
     expect(starts[0].initiatingAgentNpub).toBe('npub1pipe');
+    expect(starts[0].initiatingAgentProfileId).toBe('pipe');
     expect(published.map((item) => item.body)).toEqual(["I’ve started Pipeline council with your request. Its response will return here."]);
     expect(published[0].botIdentity.botNpub).toBe('npub1pipe');
     expect(dispatchOutcomeStore.listPage(['sub'], { limit: 10, offset: 0 }).rows[0]).toMatchObject({
