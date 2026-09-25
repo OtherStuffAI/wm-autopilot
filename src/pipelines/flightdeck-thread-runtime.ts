@@ -1,4 +1,5 @@
 import type { AgentDefinitionStore } from "../agent-chat/agent-definition-store";
+import type { AgentProfilePolicyStore } from "../agent-chat/agent-profile-policy-store";
 import type { WorkspaceSubscriptionStore } from "../agent-chat/workspace-subscription-store";
 import {
   createFlightDeckPgChannelMessage,
@@ -18,6 +19,7 @@ import type {
 
 interface ThreadRuntimeDependencies {
   agentStore: Pick<AgentDefinitionStore, "getByBotNpub"> & Partial<Pick<AgentDefinitionStore, "getDefaultForManagerNpub">>;
+  profileStore?: Pick<AgentProfilePolicyStore, "listWorkspacesForProfile">;
   subscriptionStore: Pick<WorkspaceSubscriptionStore, "listAll">;
   withAgentIdentity: <T>(agent: AgentDefinitionRecord, operation: (identity: FlightDeckPgBotIdentity) => Promise<T>) => Promise<T>;
   fetchScopes?: typeof fetchFlightDeckPgWorkspaceScopes;
@@ -129,7 +131,15 @@ function selectManagedSubscription(
   );
   const owned = ownerNpub ? active.filter((record) => record.managedByNpub === ownerNpub) : [];
   const candidates = owned.length > 0 ? owned : active;
-  const preferred = preferredBotNpub ? candidates.filter((record) => record.botNpub === preferredBotNpub) : [];
+  const preferredAgent = preferredBotNpub ? deps.agentStore.getByBotNpub(preferredBotNpub) : null;
+  const linkedSubscriptionIds = preferredAgent?.managedByNpub && deps.profileStore
+    ? new Set(deps.profileStore.listWorkspacesForProfile(preferredAgent.agentId, preferredAgent.managedByNpub)
+      .filter((workspace) => workspace.workspaceId === workspaceId)
+      .map((workspace) => workspace.subscriptionId))
+    : new Set<string>();
+  const preferred = preferredBotNpub
+    ? candidates.filter((record) => record.botNpub === preferredBotNpub || linkedSubscriptionIds.has(record.subscriptionId))
+    : [];
   if (preferred.length === 1) return preferred[0]!;
   if (preferredBotNpub && preferred.length !== 1) {
     throw new Error(`Trusted agent ${preferredBotNpub} does not resolve one active subscription for workspace ${workspaceId}`);

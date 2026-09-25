@@ -84,6 +84,80 @@ describe("Flight Deck thread runtime", () => {
     expect(signers).toEqual(['npub1pipe']);
   });
 
+  test("uses an addressed agent profile linked to a shared app subscription", async () => {
+    const sharedSubscription = {
+      workspaceId: invocation.workspaceId,
+      subscriptionId: 'subscription-shared',
+      backendBaseUrl: 'https://tower.test',
+      sourceAppNpub: 'npub1sharedapp',
+      botNpub: 'npub1default',
+      lifecycleStatus: 'active',
+      managedByNpub: 'npub1owner',
+    } as never;
+    const signers: string[] = [];
+    const runtime = createFlightDeckThreadRuntime({
+      agentStore: {
+        getByBotNpub: (npub) => ({
+          agentId: npub === 'npub1piper' ? 'piper' : 'rick',
+          enabled: true,
+          archived: false,
+          botNpub: npub,
+          managedByNpub: 'npub1owner',
+        }) as never,
+      },
+      profileStore: {
+        listWorkspacesForProfile: (profileId) => profileId === 'piper' ? [{
+          profileId: 'piper',
+          managedByNpub: 'npub1owner',
+          subscriptionId: 'subscription-shared',
+          workspaceId: invocation.workspaceId,
+        } as never] : [],
+      },
+      subscriptionStore: { listAll: () => [sharedSubscription] },
+      resolveTrustedAgentNpub: () => 'npub1piper',
+      withAgentIdentity: async (agent, operation) => {
+        signers.push(agent.botNpub);
+        return await operation({ botNpub: agent.botNpub } as never);
+      },
+      fetchChannels: async () => ({ channels: [{ id: 'channel-1' }], next_cursor: null }),
+      fetchMessages: async () => ({ messages: [{ id: invocation.threadId }], next_cursor: null }),
+      createMessage: async () => ({ message: { id: 'message-1' } }),
+    });
+
+    await runtime.send({
+      ...invocation,
+      pipelineRunId: 'run-1',
+      scopeId: 'scope-1',
+      channelId: 'channel-1',
+      message: 'Answer',
+    });
+
+    expect(signers).toEqual(['npub1piper']);
+  });
+
+  test("rejects ambiguous active subscriptions linked to an addressed agent profile", async () => {
+    const runtime = createFlightDeckThreadRuntime({
+      agentStore: {
+        getByBotNpub: (npub) => ({ agentId: 'piper', enabled: true, archived: false, botNpub: npub, managedByNpub: 'npub1owner' }) as never,
+      },
+      profileStore: {
+        listWorkspacesForProfile: () => ['subscription-1', 'subscription-2'].map((subscriptionId) => ({
+          profileId: 'piper', managedByNpub: 'npub1owner', subscriptionId, workspaceId: invocation.workspaceId,
+        })) as never,
+      },
+      subscriptionStore: { listAll: () => ['subscription-1', 'subscription-2'].map((subscriptionId) => ({
+        workspaceId: invocation.workspaceId, subscriptionId, backendBaseUrl: 'https://tower.test',
+        sourceAppNpub: 'npub1sharedapp', botNpub: 'npub1default', lifecycleStatus: 'active', managedByNpub: 'npub1owner',
+      })) as never },
+      resolveTrustedAgentNpub: () => 'npub1piper',
+      withAgentIdentity: async (_agent, operation) => await operation({ botNpub: 'npub1piper' } as never),
+    });
+
+    await expect(runtime.send({ ...invocation, pipelineRunId: 'run-1', message: 'Answer' })).rejects.toThrow(
+      `Trusted agent npub1piper does not resolve one active subscription for workspace ${invocation.workspaceId}`,
+    );
+  });
+
   test("rejects an unresolved workspace or thread", async () => {
     await expect(fixture({ workspaceId: "00000000-0000-4000-8000-000000000000" }).runtime.resolve(invocation)).rejects.toThrow("No active");
     await expect(fixture({ hasThread: false }).runtime.resolve(invocation)).rejects.toThrow("was not found");

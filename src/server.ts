@@ -142,6 +142,7 @@ import { WorkspaceSubscriptionManager } from './agent-chat/subscription-runtime'
 import { agentDefinitionStore } from './agent-chat/agent-definition-store';
 import { ensureDefaultAgentProfileForManager } from './agent-chat/default-agent-profile-bootstrap';
 import { AgentProfileMediaStore } from './agent-chat/agent-profile-media-store';
+import { agentProfilePolicyStore } from './agent-chat/agent-profile-policy-store';
 import { handleAgentProfileMediaPublicRoute } from './server/agent-profile-media-public-route';
 import { DispatchPipelineRuntime } from './agent-chat/dispatch-pipelines/runtime';
 import { AgentCommentSessionRuntime } from './agent-chat/comment-session-runtime';
@@ -1734,6 +1735,7 @@ configurePipelineDirectMessageSender(createPipelineDirectMessageSender({
 }));
 configureFlightDeckPipelineInvocation(createFlightDeckThreadRuntime({
   agentStore: agentDefinitionStore,
+  profileStore: agentProfilePolicyStore,
   subscriptionStore: workspaceSubscriptionStore,
   withAgentIdentity: profileBotIdentityRunner,
   resolveTrustedAgentNpub: (runId) => {
