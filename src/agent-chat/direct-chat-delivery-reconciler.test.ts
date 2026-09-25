@@ -237,10 +237,20 @@ describe('Agent Direct durable delivery reconciler', () => {
   });
 
   test('publishes a frozen reply when the originating session is archived or missing', async () => {
-    const f = fixture(); f.seed(); f.store.freezeReply('turn-1', 'Stored immutable reply.', '2026-07-29T00:00:00.000Z'); f.sessions.clear();
+    const f = fixture();
+    const intercept = f.interceptStore.upsertMessage({ routingKey: f.routingKey, subscriptionId: 'sub-1',
+      agentId: 'exampleAgent', workspaceOwnerNpub: 'npub1owner', sourceAppNpub: 'npub1app',
+      towerServiceNpub: 'npub1tower', workspaceId: 'workspace-1', channelId: 'channel-1', threadId: 'thread-1',
+      botNpub: 'npub1agent', messageId: 'm1', at: '2026-07-29T00:00:00.000Z' }).record;
+    f.interceptStore.save({ ...intercept, sessionId: 'session-1', nativeHistoryCheckpointMessageId: 'm1' });
+    f.seed(); f.store.freezeReply('turn-1', 'Stored immutable reply.', '2026-07-29T00:00:00.000Z'); f.sessions.clear();
     await f.make('boot-1').processTurnNow('turn-1');
     expect(f.calls[0]).toMatchObject({ body: 'Stored immutable reply.', threadId: 'thread-1' });
     expect(f.store.get('turn-1')?.state).toBe('published');
+    expect(f.interceptStore.getByRoutingKey(f.routingKey)).toMatchObject({
+      lastAgentMessageIdPublished: 'tower-message-1',
+      nativeHistoryCheckpointMessageId: 'm1',
+    });
   });
 
   test('uses the saved Builder turn identity even when the shared subscription was created for Example Agent', async () => {

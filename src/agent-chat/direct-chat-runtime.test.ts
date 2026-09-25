@@ -635,12 +635,13 @@ describe('Agent Direct Chat runtime', () => {
     const m2 = f.message('m2', 'follow up'); await f.handle([m1, m2], 'm2'); await f.runtime.waitForIdle();
     expect(f.creates).toHaveLength(1); expect(f.prompts).toHaveLength(1); expect(f.published).toHaveLength(1);
     expect(f.interceptStore.listAll()[0]?.lastHumanMessageIdDelivered).toBe('m1');
-    const a2 = f.message('a2', 'Prior agent reply', false, 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg');
+    const a2 = f.message('agent-message-1', 'Prior agent reply', false, 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg');
     const m3 = f.message('m3', '@Example Agent follow up', true); await f.handle([m1, a2, m2, m3], 'm3'); await f.runtime.waitForIdle();
     expect(f.creates).toHaveLength(1); expect(f.prompts).toHaveLength(2); expect(f.prompts[1]).not.toContain('# Metadata');
     const followUp = f.prompts[1]!;
     expect(followUp).not.toContain(' · m1');
-    expect(followUp).toContain(' · a2');
+    expect(followUp).not.toContain(' · agent-message-1');
+    expect(followUp).not.toContain('Prior agent reply');
     expect(followUp).toContain(' · m2');
     expect(followUp).toContain('Message: m3 · ');
     expect(followUp).toContain('# Prompt\n\n@Example Agent follow up');

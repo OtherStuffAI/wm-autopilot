@@ -172,10 +172,13 @@ export function buildDirectChatFollowUpPrompt(input: {
   history: DirectChatMessage[];
   actionableMessages: DirectChatMessage[];
   historyCheckpointMessageId?: string | null;
+  lastAgentMessageIdPublished?: string | null;
 }): string {
+  const excludedMessageIds = input.actionableMessages.map((message) => message.messageId);
+  if (input.lastAgentMessageIdPublished) excludedMessageIds.push(input.lastAgentMessageIdPublished);
   return buildRehydratedDirectChatEnvelope({
     history: selectMissingDirectChatHistory(input.history, input.historyCheckpointMessageId,
-      input.actionableMessages.map((message) => message.messageId)),
+      excludedMessageIds),
     prompts: input.actionableMessages,
   });
 }

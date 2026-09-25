@@ -101,13 +101,13 @@ describe('Agent Direct Chat contract', () => {
 
     const followUp = buildDirectChatFollowUpPrompt({ routingKey: 'route', threadId: 't1', history: messages,
       actionableMessages: [{ ...messages[1]!, message: 'Carry On', attachments: [{ id: 'file-1', filename: 'brief.pdf', content_type: 'application/pdf', storage_object_id: 'object-1' }], mentions: messages[0]!.mentions }],
-      historyCheckpointMessageId: 'm1' });
+      historyCheckpointMessageId: 'm1', lastAgentMessageIdPublished: 'a1' });
     expect(followUp).toContain('polished response using GitHub-Flavored Markdown');
     expect(followUp).toContain('published verbatim to Flight Deck');
     expect(followUp).not.toContain('FLIGHTDECK_REPLY_BEGIN');
     expect(followUp).not.toContain('# Metadata');
     expect(followUp).toContain('# History');
-    expect(followUp).toContain('## 2026-01-01T00:00:03Z · Rick · a1');
+    expect(followUp).not.toContain('## 2026-01-01T00:00:03Z · Rick · a1');
     expect(followUp).not.toContain(' · m1');
     expect(followUp).toContain('# Prompt\n\nCarry On\n\nMessage: m2 · 2026-01-01T00:00:02Z');
     expect(followUp).toContain('brief.pdf · application/pdf · storage://object-1 · id:file-1');

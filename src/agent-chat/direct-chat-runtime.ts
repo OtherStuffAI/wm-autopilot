@@ -459,7 +459,8 @@ export class AgentDirectChatRuntime {
                 scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery })
             : intercept.lastCompletedTurnId
               ? buildDirectChatFollowUpPrompt({ routingKey, threadId: intercept.threadId, history, actionableMessages: delta,
-                  historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId })
+                  historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId,
+                  lastAgentMessageIdPublished: intercept.lastAgentMessageIdPublished })
               : buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
                   scopeId: input.channel.scope_id ?? null, history, nextMessages: delta });
           const recovered = sessionResolution.bootstrap
@@ -523,7 +524,8 @@ export class AgentDirectChatRuntime {
           ? buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
               scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery })
           : buildDirectChatFollowUpPrompt({ routingKey, threadId: intercept.threadId, history, actionableMessages: delta,
-              historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId });
+              historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId,
+              lastAgentMessageIdPublished: intercept.lastAgentMessageIdPublished });
         const acceptedHistoryCheckpointMessageId = history.at(-1)?.messageId ?? null;
         const onAccepted = () => {
             for (const recordId of sourceMessageIds) {
