@@ -64,6 +64,17 @@ export interface RecordFlightDeckSessionOutcomeInput {
 
 export type RecordFlightDeckSessionQueuedInput = Omit<RecordFlightDeckSessionOutcomeInput, 'sessionId'>;
 
+export interface RecordFlightDeckPipelineOutcomeInput {
+  subscriptionId: string;
+  recordId: string;
+  agentId: string;
+  runId?: string | null;
+  status: string;
+  receivedAt?: string;
+  sourceLabel?: string | null;
+  details?: Record<string, unknown> | null;
+}
+
 export interface RecordFlightDeckSessionRecoveryInput extends RecordFlightDeckSessionOutcomeInput {
   evidence: 'final_turn' | 'flightdeck_delivery';
   publishedMessageId?: string | null;
@@ -151,6 +162,24 @@ export class FlightDeckDispatchOutcomeStore {
       sourceLabel: input.sourceLabel?.trim() || FLIGHT_DECK_SOURCE_LABEL_NOT_RECORDED,
       details: input.details ?? null,
     });
+  }
+
+  recordPipelineStarted(input: RecordFlightDeckPipelineOutcomeInput & { runId: string }): FlightDeckDispatchOutcomeRecord {
+    return this.savePipeline(input, 'launched', 'chat_pipeline_started', null, null);
+  }
+
+  recordPipelineCompleted(input: RecordFlightDeckPipelineOutcomeInput & { runId: string }): FlightDeckDispatchOutcomeRecord {
+    const failed = input.status === 'error' || input.status === 'cancelled';
+    return this.savePipeline(input, failed ? 'failed' : 'launched', 'chat_pipeline_completed',
+      failed ? 'pipeline_failed' : null, failed ? 'Pipeline run failed' : null);
+  }
+
+  recordPipelineNoMatch(input: RecordFlightDeckPipelineOutcomeInput): FlightDeckDispatchOutcomeRecord {
+    return this.savePipeline(input, 'ignored', 'chat_pipeline_no_match', 'pipeline_no_match', 'No suitable pipeline');
+  }
+
+  recordPipelineFailure(input: RecordFlightDeckPipelineOutcomeInput): FlightDeckDispatchOutcomeRecord {
+    return this.savePipeline(input, 'failed', 'chat_pipeline_failed', 'pipeline_start_failed', 'Pipeline start failed');
   }
 
   recordSessionFailure(input: Omit<RecordFlightDeckSessionOutcomeInput, 'sessionId'> & {
@@ -320,6 +349,32 @@ export class FlightDeckDispatchOutcomeStore {
     const row = this.db.query('SELECT * FROM flightdeck_dispatch_outcomes WHERE outcome_key = ?1').get(input.outcomeKey);
     if (!row) throw new Error(`Failed to persist Flight Deck dispatch outcome ${input.outcomeKey}.`);
     return this.mapRow(row as Record<string, string | number | null>);
+  }
+
+  private savePipeline(
+    input: RecordFlightDeckPipelineOutcomeInput,
+    outcome: FlightDeckDispatchOutcome,
+    dispatchAction: string,
+    reasonCode: string | null,
+    reasonLabel: string | null,
+  ): FlightDeckDispatchOutcomeRecord {
+    return this.save({
+      outcomeKey: `${input.subscriptionId}:${input.agentId}:${input.recordId}:pipeline`,
+      subscriptionId: input.subscriptionId,
+      receivedAt: input.receivedAt ?? new Date().toISOString(),
+      trigger: 'chat',
+      outcome,
+      action: input.runId ? 'pipeline' : null,
+      actionId: input.runId ?? null,
+      recordId: input.recordId,
+      agentId: input.agentId,
+      dispatchAction,
+      status: input.status,
+      reasonCode,
+      reasonLabel,
+      sourceLabel: input.sourceLabel?.trim() || FLIGHT_DECK_SOURCE_LABEL_NOT_RECORDED,
+      details: input.details ?? null,
+    });
   }
 
   private mapRow(row: Record<string, string | number | null>): FlightDeckDispatchOutcomeRecord {

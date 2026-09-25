@@ -42,6 +42,7 @@ interface PipelineRunnerInput {
   callbackOrigin: string;
   defaultAgent?: string;
   onRunCreated?: (run: ReturnType<PipelineStore["createRun"]>) => void;
+  onRunCompleted?: (run: ReturnType<PipelineStore["completeRun"]>) => void;
 }
 
 interface PipelineAgentProfileBinding {
@@ -145,18 +146,26 @@ async function executeDeclarativePipeline(input: PipelineRunnerInput, runId: str
       store.updateRunProgress(runId, current, cursor);
     }
 
-    return store.completeRun(runId, "ok", current);
+    const completed = store.completeRun(runId, "ok", current);
+    input.onRunCompleted?.(completed);
+    return completed;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof PipelineHalt) {
-      return store.completeRun(runId, error.status, error.result, error.message);
+      const completed = store.completeRun(runId, error.status, error.result, error.message);
+      input.onRunCompleted?.(completed);
+      return completed;
     }
     if (error instanceof PipelineCancelled) {
-      return store.getRun(runId)!;
+      const cancelled = store.getRun(runId)!;
+      input.onRunCompleted?.(cancelled);
+      return cancelled;
     }
     completeActiveStepOnError(store, runId, current, message);
     store.setRunActiveStep(runId, null);
-    return store.completeRun(runId, "error", current, message);
+    const completed = store.completeRun(runId, "error", current, message);
+    input.onRunCompleted?.(completed);
+    return completed;
   } finally {
     activeRunExecutions.delete(runId);
   }

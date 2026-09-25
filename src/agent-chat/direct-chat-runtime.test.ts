@@ -22,7 +22,8 @@ const ATHENA_BOT_NPUB = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
 
 function fixture(options: {
   publish?: (input: any, attempt: number) => Promise<any>;
-  directChat?: { enabled: boolean; sessionAgent: string | null; directory: string; model: string | null; idleRetentionMinutes: number } | null;
+  directChat?: { enabled: boolean; sessionAgent: string | null; directory: string; model: string | null; idleRetentionMinutes: number;
+    handlerMode?: 'session' | 'pipeline_router' } | null;
   replyRole?: 'assistant' | 'agent';
   includeWorkingMessage?: boolean;
   finalContent?: string;
@@ -41,6 +42,7 @@ function fixture(options: {
   addBuilder?: boolean;
   useDeliveryReconciler?: boolean;
   reconcileNow?: () => number;
+  routePipeline?: (input: any) => Promise<void>;
 } = {}) {
   const db = join(tmpdir(), `agent-direct-${randomUUID()}.sqlite`);
   const agentStore = new AgentDefinitionStore(db);
@@ -128,6 +130,7 @@ function fixture(options: {
     dispatchOutcomeStore,
     deliveryReconciler,
     publicationFilter,
+    routePipeline: options.routePipeline,
     withBotIdentity: async (agent, operation) => operation({
       botNpub: agent.botNpub,
       botPubkeyHex: `${agent.agentId}-pubkey`,
@@ -319,6 +322,24 @@ describe('Agent Direct Chat runtime', () => {
     const state = f.interceptStore.listAll()[0]!;
     expect(state.lastHumanMessageIdDelivered).toBe('m1'); expect(state.nativeHistoryCheckpointMessageId).toBe('m1');
     expect(state.lastAgentMessageIdPublished).toBe('agent-message-1'); expect(state.lastCompletedTurnId).toBeTruthy();
+  });
+
+  test('routes a pipeline with the addressed profile identity without creating a session', async () => {
+    const routed: any[] = [];
+    const f = fixture({
+      directChat: { enabled: true, handlerMode: 'pipeline_router', sessionAgent: null,
+        directory: '/Users/example/wingmen/agent-workspace', model: null, idleRetentionMinutes: 60 },
+      routePipeline: async (input) => { routed.push(input); } });
+    f.botIdentity.botNpub = 'npub1listener';
+    const addressedNpub = f.agentStore.getByAgentId('exampleAgent')!.botNpub;
+    const message = f.message('m1', '@Example Agent route this', { type: 'agent', npub: addressedNpub });
+
+    expect(await f.handle([message], 'm1', {}, [addressedNpub])).toEqual({ handled: true, reason: 'direct_chat_queued' });
+    expect(f.creates).toHaveLength(0);
+    expect(routed).toHaveLength(1);
+    expect(routed[0]).toMatchObject({ agent: { agentId: 'exampleAgent', botNpub: addressedNpub },
+      botIdentity: { botNpub: addressedNpub } });
+    expect(routed[0].sourceLabel).toBeTruthy();
   });
 
   test('does not dispatch branch creation and gives child and nested-child threads fresh sessions', async () => {

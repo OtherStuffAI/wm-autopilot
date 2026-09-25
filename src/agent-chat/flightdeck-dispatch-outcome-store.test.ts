@@ -121,6 +121,22 @@ describe('FlightDeckDispatchOutcomeStore', () => {
     });
   });
 
+  test('advances a routed pipeline outcome from running to its terminal status', () => {
+    const store = makeStore();
+    const input = { subscriptionId: 'sub-1', recordId: 'message-pipeline', agentId: 'Piper', runId: 'run-1',
+      receivedAt: '2026-09-25T02:58:49.005Z', sourceLabel: 'Agent Direct mention' };
+    store.recordPipelineStarted({ ...input, status: 'running', details: { run_id: 'run-1', agent_npub: 'npub1piper' } });
+    expect(store.listPage(['sub-1'], { limit: 10, offset: 0 }).rows[0]).toMatchObject({
+      outcome: 'launched', action: 'pipeline', actionId: 'run-1', agentId: 'Piper', status: 'running',
+      dispatchAction: 'chat_pipeline_started', details: { run_id: 'run-1', agent_npub: 'npub1piper' },
+    });
+    store.recordPipelineCompleted({ ...input, status: 'error', details: { run_id: 'run-1', error: 'Pipeline failed' } });
+    expect(store.listPage(['sub-1'], { limit: 10, offset: 0 }).rows[0]).toMatchObject({
+      outcome: 'failed', action: 'pipeline', actionId: 'run-1', status: 'error',
+      dispatchAction: 'chat_pipeline_completed', reasonCode: 'pipeline_failed', details: { error: 'Pipeline failed' },
+    });
+  });
+
   test('excludes ignored and suppressed outcomes unless explicitly included', () => {
     const store = makeStore();
     store.recordHistory('sub-1', {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { unlinkSync } from 'node:fs';
 import { createPipelineRouterHandler, isChatAddressable } from './pipeline-router-handler';
 import { PipelineStore } from '../pipelines/pipeline-store';
+import { FlightDeckDispatchOutcomeStore } from './flightdeck-dispatch-outcome-store';
 
 const paths: string[] = [];
 afterEach(() => { for (const path of paths.splice(0)) { try { unlinkSync(path); } catch {} } });
@@ -29,13 +30,19 @@ describe('pipeline router handler', () => {
   test('starts the highest-probability choice with the exact source prompt and acknowledges once', async () => {
     const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
     const store = new PipelineStore(path); const published: any[] = []; const starts: any[] = [];
-    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
+    const dispatchOutcomeStore = new FlightDeckDispatchOutcomeStore(path);
+    const handler = createPipelineRouterHandler({ store, dispatchOutcomeStore, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
       userSettingsStore: { getAll: () => ({ openrouter_api_key: 'owner-key' }) },
     }) as any,
       listDefinitions: async () => [definition('council', 4), definition('hidden', 1, false)],
       decide: async (input: any) => ({ model: 'jev-1', usage: { input_tokens: 1, output_tokens: 1 }, latencyMs: 8,
         answers: { pipeline: { type: 'choice', choice: 'council', confidence: .7, probabilities: { council: .8, no_match: .2 } } } }) as any,
-      startRun: async (input: any) => { starts.push(input); return { run: { id: 'run-1' }, input: input.invocation, resolution: {} } as any; },
+      startRun: async (input: any) => {
+        starts.push(input);
+        input.onRunCreated({ id: 'run-1', name: 'Pipeline council', status: 'running' });
+        input.onRunCompleted({ id: 'run-1', name: 'Pipeline council', status: 'ok', completedAt: '2026-09-25T03:10:00.000Z', error: null });
+        return { run: { id: 'run-1' }, input: input.invocation, resolution: {} } as any;
+      },
       publish: async (input: any) => { published.push(input); return { message: { id: 'ack-1' } } as any; } });
     await handler(request()); await handler(request());
     expect(starts).toHaveLength(1);
@@ -43,13 +50,19 @@ describe('pipeline router handler', () => {
       threadId: '22222222-2222-4222-8222-222222222222', frmNpub: 'npub1requester', prompt: '@Pipe use the council exactly' });
     expect(starts[0].initiatingAgentNpub).toBe('npub1pipe');
     expect(published.map((item) => item.body)).toEqual(["I’ve started Pipeline council with your request. Its response will return here."]);
+    expect(published[0].botIdentity.botNpub).toBe('npub1pipe');
+    expect(dispatchOutcomeStore.listPage(['sub'], { limit: 10, offset: 0 }).rows[0]).toMatchObject({
+      action: 'pipeline', actionId: 'run-1', agentId: 'pipe', outcome: 'launched', status: 'ok',
+      dispatchAction: 'chat_pipeline_completed', details: { run_id: 'run-1', pipeline_name: 'Pipeline council', status: 'ok' },
+    });
     expect(JSON.stringify(published)).not.toContain('owner-key');
   });
 
   test('no_match publishes one error and starts nothing', async () => {
     const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
     const store = new PipelineStore(path); const published: any[] = []; let starts = 0;
-    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
+    const dispatchOutcomeStore = new FlightDeckDispatchOutcomeStore(path);
+    const handler = createPipelineRouterHandler({ store, dispatchOutcomeStore, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
       userSettingsStore: { getAll: () => ({ openrouter_api_key: 'owner-key' }) },
     }) as any,
       listDefinitions: async () => [definition('council', 4)],
@@ -58,17 +71,22 @@ describe('pipeline router handler', () => {
       publish: async (input: any) => { published.push(input); return { message: { id: 'error-1' } } as any; } });
     await handler(request());
     expect(starts).toBe(0); expect(published).toHaveLength(1);
+    expect(dispatchOutcomeStore.listPage(['sub'], { limit: 10, offset: 0, includeIgnoredAndSuppressed: true }).rows[0]).toMatchObject({
+      action: null, actionId: null, agentId: 'pipe', outcome: 'ignored', status: 'no_match',
+      dispatchAction: 'chat_pipeline_no_match', reasonCode: 'pipeline_no_match',
+    });
   });
 
   test('publishes a local configuration error without calling Decisions or exposing secrets', async () => {
     const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
     const store = new PipelineStore(path); const published: any[] = []; let decisions = 0; let evidence: unknown;
+    const dispatchOutcomeStore = new FlightDeckDispatchOutcomeStore(path);
     const completeDecision = store.completeFlightDeckRouterDecision.bind(store);
     store.completeFlightDeckRouterDecision = (sourceMessageId, input) => {
       evidence = input.evidence;
       completeDecision(sourceMessageId, input);
     };
-    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
+    const handler = createPipelineRouterHandler({ store, dispatchOutcomeStore, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
       userSettingsStore: { getAll: () => ({ openrouter_api_key: '   ' }) },
       getStoredInstanceSetting: () => null,
     }) as any,
@@ -87,5 +105,9 @@ describe('pipeline router handler', () => {
     expect(JSON.stringify(published)).not.toContain('owner-key');
     expect(JSON.stringify(evidence)).not.toContain('owner-key');
     expect(published[0].body).toContain('Classifier OpenRouter API key is not configured');
+    expect(dispatchOutcomeStore.listPage(['sub'], { limit: 10, offset: 0 }).rows[0]).toMatchObject({
+      agentId: 'pipe', outcome: 'failed', status: 'error', dispatchAction: 'chat_pipeline_failed',
+      reasonCode: 'pipeline_start_failed',
+    });
   });
 });

@@ -10,15 +10,21 @@ export async function startFlightDeckPipelineRun(input: {
   store: PipelineStore; sessionApiContext: SessionApiContext; definition: PipelineDefinitionRecord;
   invocation: FlightDeckPipelineInvocation; ownerNpub: string; ownerAlias: string; callbackOrigin: string;
   initiatingAgentNpub?: string | null; sourceMessageId?: string | null;
+  onRunCreated?: Parameters<typeof startDeclarativePipeline>[0]["onRunCreated"];
+  onRunCompleted?: Parameters<typeof startDeclarativePipeline>[0]["onRunCompleted"];
 }) {
   const resolved = await resolveFlightDeckPipelineInvocation(input.invocation, input.ownerNpub);
   const functions = await loadPipelineFunctionRegistry(input.ownerAlias, builtinPipelineFunctions);
   const run = startDeclarativePipeline({ store: input.store, sessionApiContext: input.sessionApiContext,
     definition: input.definition, registry: functions.registry,
     input: { ...(input.definition.spec.input ?? {}), ...resolved.input }, ownerNpub: input.ownerNpub,
-    ownerAlias: input.ownerAlias, callbackOrigin: input.callbackOrigin });
-  input.store.addEvent({ runId: run.id, level: "info", type: "flightdeck_invocation_context",
-    message: "Trusted Flight Deck invocation context", data: { initiatingAgentNpub: input.initiatingAgentNpub ?? null,
-      sourceMessageId: input.sourceMessageId ?? null, workspaceId: resolved.input.workspaceId, threadId: resolved.input.threadId } });
+    ownerAlias: input.ownerAlias, callbackOrigin: input.callbackOrigin,
+    onRunCreated: (created) => {
+      input.store.addEvent({ runId: created.id, level: "info", type: "flightdeck_invocation_context",
+        message: "Trusted Flight Deck invocation context", data: { initiatingAgentNpub: input.initiatingAgentNpub ?? null,
+          sourceMessageId: input.sourceMessageId ?? null, workspaceId: resolved.input.workspaceId, threadId: resolved.input.threadId } });
+      input.onRunCreated?.(created);
+    },
+    onRunCompleted: input.onRunCompleted });
   return { run, input: resolved.input, resolution: resolved.resolution };
 }

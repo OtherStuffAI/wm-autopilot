@@ -210,9 +210,15 @@ export class AgentDirectChatRuntime {
       if (upsert.wasDuplicate && !this.turnStore.getPending(routingKey)) continue;
       handled = true;
       if (agent.directChat?.handlerMode === 'pipeline_router') {
-        if (!upsert.wasDuplicate) await this.deps.routePipeline?.({ agent, subscription: input.subscription,
-          botIdentity: input.botIdentity, channelId: input.channel.id, threadId,
-          message: input.messages.find((message) => message.id === eventMessage.messageId)! });
+        if (!upsert.wasDuplicate && this.deps.routePipeline) {
+          const route = (botIdentity: RuntimeBotIdentity) => this.deps.routePipeline!({ agent, subscription: input.subscription,
+            botIdentity, channelId: input.channel.id, threadId,
+            sourceLabel: sourceLabelForFlightDeckChat({ event: input.event,
+              message: input.messages.find((message) => message.id === eventMessage.messageId), messages: input.messages }),
+            message: input.messages.find((message) => message.id === eventMessage.messageId)! });
+          if (this.deps.withBotIdentity) await this.deps.withBotIdentity(agent, route);
+          else await route(input.botIdentity);
+        }
         continue;
       }
       if (!upsert.wasDuplicate) {
