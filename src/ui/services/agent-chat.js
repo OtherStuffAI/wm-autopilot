@@ -157,7 +157,11 @@ export async function republishAgentChatProfile(profileId) {
     credentials: 'include',
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || 'Failed to republish agent profile');
+  if (!response.ok) {
+    const error = new Error(payload.error || 'Failed to republish agent profile');
+    error.details = payload;
+    throw error;
+  }
   return payload;
 }
 

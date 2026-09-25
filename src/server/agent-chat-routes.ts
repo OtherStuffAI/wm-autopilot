@@ -38,6 +38,7 @@ import {
 } from '../agent-chat/agent-profile-policy-store';
 import type { DirectChatDeliveryHealth, DirectChatTurnStore } from '../agent-chat/direct-chat-turn-store';
 import type { SignedNostrEvent } from '../identity/bot-identity-publisher';
+import { ProfilePublicationError } from '../identity/bot-profile-publisher';
 import type { AgentProfileRotationResult } from '../agent-chat/agent-profile-key-rotation';
 import {
   handleAgentProfileCreateApi,
@@ -1163,7 +1164,11 @@ export async function handleAgentChatApi(
     try {
       return Response.json({ published: true, publication: await ctx.republishAgentProfile(agent) });
     } catch (error) {
-      return Response.json({ error: error instanceof Error ? error.message : 'Failed to publish agent profile.' }, { status: 400 });
+      return Response.json({
+        published: false,
+        error: error instanceof Error ? error.message : 'Failed to publish agent profile.',
+        ...(error instanceof ProfilePublicationError ? { publication: error.publication } : {}),
+      }, { status: 400 });
     }
   }
   if (profileRotateMatch && method === 'POST') {
@@ -1314,6 +1319,7 @@ export async function handleAgentChatApi(
           error: error instanceof Error ? error.message : 'Failed to publish agent profile.',
           code: 'agent_profile_publication_failed',
           published: false,
+          ...(error instanceof ProfilePublicationError ? { publication: error.publication } : {}),
         }, { status: 502 });
       }
     }

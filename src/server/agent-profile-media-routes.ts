@@ -12,6 +12,7 @@ import {
 import { AgentProfileCreationError } from '../agent-chat/subscription-runtime';
 import type { AgentDefinitionRecord } from '../agent-chat/types';
 import { validateInstructorNpubs } from '../agent-chat/instructor-authority';
+import { ProfilePublicationError } from '../identity/bot-profile-publisher';
 import { buildAgentProfileMediaPublicUrl } from './agent-profile-media-public-route';
 import type { AgentProfileMediaApiContext, AgentProfileMediaRequestScope } from './agent-profile-media-route-types';
 
@@ -382,6 +383,7 @@ export async function handleAgentProfileMediaUploadApi(
       error: error instanceof Error ? error.message : 'Failed to publish agent profile.',
       code: 'agent_profile_publication_failed',
       published: false,
+      ...(error instanceof ProfilePublicationError ? { publication: error.publication } : {}),
       media: mediaStatus(stored, publicUrl, false),
     }, { status: 502 });
   }

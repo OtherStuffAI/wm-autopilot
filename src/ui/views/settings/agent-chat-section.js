@@ -295,8 +295,11 @@ export function createAgentChatSection({
         onCreateAgent: () => agentNameModal.open(selectedSubscription?.profileWorkspace?.workspace?.workspaceTitle || ''),
         onRepublishAgent: async (agent) => {
           statusLine.textContent = 'Republishing public agent profile...';
-          await republishAgentChatProfile(agent.agentId);
-          statusLine.textContent = 'Public agent profile republished without changing identity.';
+          const result = await republishAgentChatProfile(agent.agentId);
+          const relayResults = result.publication?.results || [];
+          const readable = relayResults.filter((relay) => relay.public && relay.readback === 'readable').length;
+          const failed = relayResults.filter((relay) => !relay.ok || relay.readback === 'absent').length;
+          statusLine.textContent = `Public agent profile republished and verified on ${readable} public relay${readable === 1 ? '' : 's'}${failed > 0 ? `; ${failed} relay${failed === 1 ? '' : 's'} failed` : ''}.`;
         },
         onEditAgent: (agent) => {
           editingAgent = agent;

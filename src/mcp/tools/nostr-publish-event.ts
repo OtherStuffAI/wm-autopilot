@@ -6,7 +6,7 @@
  *
  * Two-step flow:
  *   1. POST to the scoped capability broker → get signed event
- *   2. Publish signed event to relays using SimplePool (local)
+ *   2. Publish signed event and await matching NIP-01 OK responses
  *
  * This avoids opening WebSocket connections in the main Wingman server,
  * which caused unhandled promise rejections on relay timeouts that
@@ -14,7 +14,7 @@
  */
 
 import { z } from "zod";
-import { SimplePool } from "nostr-tools";
+import { publishToRelays, type SignedEvent } from "../../ngit/relay-publisher";
 import { resolveRelays, type NostrEvent } from "./nostr-relay-utils";
 import { callCapabilityBroker } from "../capability-client";
 
@@ -77,7 +77,9 @@ export async function handleNostrPublishEvent(
 
     // ---- Step 2: Publish from MCP process directly ----
     const relays = resolveRelays(params.relays);
-    const publishResults = await publishEventToRelays(signedEvent, relays);
+    const publishResults = await publishToRelays(signedEvent as SignedEvent, relays, {
+      timeoutMs: PUBLISH_TIMEOUT_MS,
+    });
 
     const relayLines = publishResults.results.map(
       (r) => `  ${r.ok ? "OK" : "FAIL"} ${r.relay}${r.error ? ` — ${r.error}` : ""}`,
@@ -112,62 +114,4 @@ export async function handleNostrPublishEvent(
       ],
     };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Local relay publisher — runs in MCP child process
-// ---------------------------------------------------------------------------
-
-interface RelayResult {
-  relay: string;
-  ok: boolean;
-  error?: string;
-}
-
-async function publishEventToRelays(
-  event: NostrEvent,
-  relays: string[],
-): Promise<{ successes: number; failures: number; results: RelayResult[] }> {
-  if (relays.length === 0) {
-    return { successes: 0, failures: 0, results: [] };
-  }
-
-  const pool = new SimplePool();
-  const results: RelayResult[] = [];
-
-  try {
-    const promises = relays.map(async (relay) => {
-      try {
-        await Promise.race([
-          pool.publish([relay], event as Parameters<typeof pool.publish>[1]),
-          new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error("Publish timeout")), PUBLISH_TIMEOUT_MS);
-            // Ensure timer doesn't keep the process alive
-            if (typeof timer === "object" && "unref" in timer) {
-              (timer as NodeJS.Timeout).unref();
-            }
-          }),
-        ]);
-        results.push({ relay, ok: true });
-      } catch (err) {
-        results.push({
-          relay,
-          ok: false,
-          error: err instanceof Error ? err.message : "Unknown error",
-        });
-      }
-    });
-
-    await Promise.allSettled(promises);
-  } finally {
-    // Swallow errors from pool.close — stale connections may throw
-    try {
-      pool.close(relays);
-    } catch {
-      // ignore
-    }
-  }
-
-  const successes = results.filter((r) => r.ok).length;
-  return { successes, failures: results.length - successes, results };
 }

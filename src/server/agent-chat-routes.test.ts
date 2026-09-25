@@ -8,6 +8,7 @@ import {
 } from '../agent-chat/subscription-runtime';
 import type { BackendConnectionRecord, WorkspaceSubscriptionRecord } from '../agent-chat/types';
 import type { AgentProfileWorkspaceBundle } from '../agent-chat/agent-profile-policy-store';
+import { ProfilePublicationError } from '../identity/bot-profile-publisher';
 import { handleAgentChatApi } from './agent-chat-routes';
 
 const authContext: RequestAuthContext = {
@@ -1161,11 +1162,27 @@ describe('agent-chat routes', () => {
     });
     const response = await handleAgentChatApi(request, new URL(request.url), 'PATCH', authContext, {
       manager, agentTypes: [{ id: 'codex', label: 'Codex', modelOptions: ['default'] }],
-      republishAgentProfile: async () => { throw new Error('No relay accepted the event.'); },
+      republishAgentProfile: async () => {
+        throw new ProfilePublicationError('No configured public relay exposed the event.', {
+          eventId: 'event-1',
+          relays: ['wss://relay.example'],
+          successes: 1,
+          failures: 0,
+          durable: false,
+          results: [{
+            relay: 'wss://relay.example', ok: true, state: 'accepted', public: true,
+            readback: 'absent', readbackAttempts: 4,
+          }],
+        });
+      },
     });
     const body = await response!.json();
     expect(response?.status).toBe(502);
-    expect(body).toMatchObject({ published: false, code: 'agent_profile_publication_failed' });
+    expect(body).toMatchObject({
+      published: false,
+      code: 'agent_profile_publication_failed',
+      publication: { durable: false, results: [{ state: 'accepted', readback: 'absent' }] },
+    });
     expect(saved).toBe(false);
   });
 

@@ -17,7 +17,7 @@ import {
 } from "./bot-key-manager";
 import { buildDelegateRegistryTemplate, getBotDisplayName, signBotProfileEvent } from "./bot-identity-publisher";
 import { publishDelegateRegistryEvent } from "./delegate-registry-publisher";
-import { getBotProfileStatus, publishBotProfileEvent } from "./bot-profile-publisher";
+import { ProfilePublicationError, getBotProfileStatus, publishBotProfileEvent } from "./bot-profile-publisher";
 import type { SessionSnapshot } from "../agents/process-manager";
 import type { StoredSessionRecord } from "../storage/message-store";
 import { normaliseNpub } from "./npub-utils";
@@ -164,6 +164,9 @@ async function handlePublishDelegateRegistry(deps: BotKeyApiDependencies, reques
     });
     return Response.json({ published: true, ...result });
   } catch (err) {
+    if (err instanceof ProfilePublicationError) {
+      return Response.json({ published: false, error: err.message, publication: err.publication }, { status: 400 });
+    }
     return jsonError((err as Error).message, 400);
   }
 }
