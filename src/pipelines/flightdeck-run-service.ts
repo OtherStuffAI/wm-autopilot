@@ -10,6 +10,7 @@ export async function startFlightDeckPipelineRun(input: {
   store: PipelineStore; sessionApiContext: SessionApiContext; definition: PipelineDefinitionRecord;
   invocation: FlightDeckPipelineInvocation; ownerNpub: string; ownerAlias: string; callbackOrigin: string;
   initiatingAgentProfileId?: string | null; initiatingAgentNpub?: string | null; sourceMessageId?: string | null;
+  trustedLearningContext?: { towerUrl: string; workspaceId: string; goal: string; concept: string; idempotencyKey: string };
   onRunCreated?: Parameters<typeof startDeclarativePipeline>[0]["onRunCreated"];
   onRunCompleted?: Parameters<typeof startDeclarativePipeline>[0]["onRunCompleted"];
 }) {
@@ -17,7 +18,7 @@ export async function startFlightDeckPipelineRun(input: {
   const functions = await loadPipelineFunctionRegistry(input.ownerAlias, builtinPipelineFunctions);
   const run = startDeclarativePipeline({ store: input.store, sessionApiContext: input.sessionApiContext,
     definition: input.definition, registry: functions.registry,
-    input: { ...(input.definition.spec.input ?? {}), ...resolved.input }, ownerNpub: input.ownerNpub,
+    input: { ...(input.definition.spec.input ?? {}), ...resolved.input, ...(input.trustedLearningContext ?? {}) }, ownerNpub: input.ownerNpub,
     ownerAlias: input.ownerAlias, callbackOrigin: input.callbackOrigin,
     initiatingAgentProfileId: input.initiatingAgentProfileId,
     initiatingAgentNpub: input.initiatingAgentNpub,

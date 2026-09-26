@@ -3,13 +3,14 @@ import { unlinkSync } from 'node:fs';
 import { createPipelineRouterHandler, isChatAddressable } from './pipeline-router-handler';
 import { PipelineStore } from '../pipelines/pipeline-store';
 import { FlightDeckDispatchOutcomeStore } from './flightdeck-dispatch-outcome-store';
+import { parseLearningPipelineCommand } from './learning-pipeline-route';
 
 const paths: string[] = [];
 afterEach(() => { for (const path of paths.splice(0)) { try { unlinkSync(path); } catch {} } });
 
 function definition(id: string, version: number, entry = true) {
   return { id, slug: id, name: id, path: `/tmp/${id}.json`, scope: 'user', ownerAlias: 'owner',
-    spec: { name: `Pipeline ${id}`, description: `${id} description`, version,
+    spec: { name: id.startsWith('learning-') ? id : `Pipeline ${id}`, description: `${id} description`, version,
       steps: [{ name: 'entry', type: 'block', block: entry ? 'flightdeck.threadInvocation' : 'flightdeck.returnToThread' }] } } as any;
 }
 
@@ -22,6 +23,12 @@ function request() {
 }
 
 describe('pipeline router handler', () => {
+  test('accepts only a bounded learning command and no learner or answer payload', () => {
+    expect(parseLearningPipelineCommand('@[Piper](mention:agent:npub1pipe) learning lesson moon-phases'))
+      .toEqual({ action: 'lesson', concept: 'moon-phases' });
+    expect(parseLearningPipelineCommand('@Piper learning assessment moon-phases my answer')).toBeNull();
+    expect(parseLearningPipelineCommand('@Piper learning plan npub1anotherlearner')).toBeNull();
+  });
   test('recognises only definitions whose first effective step is the entry block', () => {
     expect(isChatAddressable(definition('yes', 1))).toBe(true);
     expect(isChatAddressable(definition('no', 1, false))).toBe(false);
@@ -76,6 +83,41 @@ describe('pipeline router handler', () => {
       action: null, actionId: null, agentId: 'pipe', outcome: 'ignored', status: 'no_match',
       dispatchAction: 'chat_pipeline_no_match', reasonCode: 'pipeline_no_match',
     });
+  });
+
+  test('routes an explicit learning mention with trusted context after learner grant check', async () => {
+    const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
+    const store = new PipelineStore(path); const published: any[] = []; const starts: any[] = []; let checks = 0;
+    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({}) as any,
+      listDefinitions: async () => [definition('learning-lesson', 1)],
+      decide: async () => { throw new Error('learning route must not use classifier'); },
+      authorizeLearning: async () => { checks += 1; },
+      startRun: async (input: any) => { starts.push(input); return { run: { id: 'learning-run-1' }, input: {}, resolution: {} } as any; },
+      publish: async (input: any) => { published.push(input); return { message: { id: 'ack' } } as any; } });
+    const source = request(); source.message.body = '@Piper learning lesson moon-phases';
+    await handler(source); await handler(source);
+    expect(checks).toBe(1); expect(starts).toHaveLength(1);
+    expect(starts[0].trustedLearningContext).toEqual({ towerUrl: 'https://tower.example',
+      workspaceId: source.subscription.workspaceId, goal: 'moon-phases', concept: 'moon-phases', idempotencyKey: 'flightdeck:message-1' });
+    expect(starts[0].invocation).toMatchObject({ workspaceId: source.subscription.workspaceId,
+      threadId: source.threadId, frmNpub: 'npub1requester' });
+    expect(published[0]).toMatchObject({ channelId: 'channel', threadId: source.threadId });
+    expect(JSON.stringify(published)).not.toContain('learnerNpub');
+  });
+
+  test('fails closed when Piper has no learner grant and does not echo private text', async () => {
+    const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
+    const store = new PipelineStore(path); const published: any[] = []; let starts = 0;
+    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({}) as any,
+      listDefinitions: async () => [definition('learning-assessment', 1)],
+      authorizeLearning: async () => { throw new Error('Tower denied learner access (403)'); },
+      startRun: async () => { starts += 1; throw new Error('unexpected'); },
+      publish: async (input: any) => { published.push(input); return { message: { id: 'ack' } } as any; } });
+    const source = request(); source.message.body = '@Piper learning assessment moon-phases';
+    await handler(source);
+    expect(starts).toBe(0); expect(published).toHaveLength(1);
+    expect(published[0].body).toContain('Check the learner grant');
+    expect(JSON.stringify(published)).not.toContain(source.message.body);
   });
 
   test('publishes a local configuration error without calling Decisions or exposing secrets', async () => {

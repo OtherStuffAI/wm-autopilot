@@ -14,7 +14,8 @@ test('five Space pipeline definitions load with private reference outputs', asyn
     for (const action of ['plan', 'question', 'lesson', 'assessment', 'recall']) {
       const definition = await getPipelineDefinition(`learning-${action}`, null);
       expect(definition?.spec.name).toBe(`learning-${action}`);
-      expect(definition?.spec.steps).toHaveLength(1);
+      expect(definition?.spec.steps).toHaveLength(2);
+      expect(definition?.spec.steps[0]).toMatchObject({ type: 'block', block: 'flightdeck.threadInvocation' });
     }
   } finally {
     if (previous === undefined) delete process.env.WINGMEN_PIPELINES_ROOT;

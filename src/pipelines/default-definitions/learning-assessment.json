@@ -12,6 +12,12 @@
   },
   "steps": [
     {
+      "name": "accept-thread",
+      "description": "Validate the trusted Flight Deck thread invocation.",
+      "type": "block",
+      "block": "flightdeck.threadInvocation"
+    },
+    {
       "name": "run-assessment",
       "description": "Use the reviewed curriculum and learner-scoped Tower route for assessment; return references only.",
       "type": "agent",
