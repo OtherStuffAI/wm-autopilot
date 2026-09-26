@@ -66,6 +66,22 @@ describe("resolveNewSessionAcpPermissionPolicy", () => {
 });
 
 describe("buildBunAgentLaunchCommand", () => {
+  test("clears login-shell provider keys for subscription Codex sessions", () => {
+    expect(buildBunAgentLaunchCommand(["agentapi", "--", "codex"], {
+      agent: "codex",
+      billingMode: "subscription",
+    })[2]).toBe(
+      "unset CODEX_API_KEY OPENAI_API_KEY OPENAI_BASE_URL OPENROUTER_API_KEY OPENROUTER_API PIPELINE_CLASSIFIER_OPENROUTER_API_KEY; exec 'agentapi' '--' 'codex' < /dev/null",
+    );
+  });
+
+  test("preserves session-scoped proxy auth for credits Codex sessions", () => {
+    expect(buildBunAgentLaunchCommand(["agentapi", "--", "codex"], {
+      agent: "codex",
+      billingMode: "credits",
+    })[2]).toBe("exec 'agentapi' '--' 'codex' < /dev/null");
+  });
+
   test("matches the PM2 shell boundary and closes stdin", () => {
     expect(buildBunAgentLaunchCommand([
       "/app/out/agentapi",

@@ -1,7 +1,10 @@
-const PROVIDER_AUTH_ENV_KEYS = [
+export const CODEX_PROVIDER_AUTH_ENV_KEYS = [
   "CODEX_API_KEY",
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
+  "OPENROUTER_API_KEY",
+  "OPENROUTER_API",
+  "PIPELINE_CLASSIFIER_OPENROUTER_API_KEY",
 ] as const;
 
 /** Keep server credentials out of Codex; billing supplies session-scoped auth. */
@@ -13,6 +16,6 @@ export function buildCodexRuntimeEnv(
   for (const [key, value] of Object.entries(parentEnv)) {
     if (typeof value === "string") env[key] = value;
   }
-  for (const key of PROVIDER_AUTH_ENV_KEYS) delete env[key];
+  for (const key of CODEX_PROVIDER_AUTH_ENV_KEYS) delete env[key];
   return { ...env, ...sessionEnv };
 }

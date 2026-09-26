@@ -9,6 +9,8 @@ describe("buildCodexRuntimeEnv", () => {
       CODEX_API_KEY: "server-codex-key",
       OPENAI_API_KEY: "server-openai-key",
       OPENAI_BASE_URL: "https://server.example",
+      PIPELINE_CLASSIFIER_OPENROUTER_API_KEY: "classifier-key",
+      OPENROUTER_API_KEY: "openrouter-key",
     });
 
     expect(env).toEqual({ PATH: "/usr/bin" });

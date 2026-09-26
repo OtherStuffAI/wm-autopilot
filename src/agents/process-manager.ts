@@ -45,6 +45,7 @@ import { injectMcpConfig, cleanupMcpConfig } from "./mcp-injector";
 import { stopManagedSubprocess } from "./process-stop";
 import { buildWingmanIdentityEnv, loadWingmanInstanceIdentity } from "../identity/wingman-instance-identity";
 import { buildInheritedAgentEnvironment, sanitizeInjectedAgentEnvironment } from "./agent-environment";
+import { CODEX_PROVIDER_AUTH_ENV_KEYS } from "./codex-runtime-env";
 import { BROKER_KEY_NOT_PROVISIONED } from "../signing/broker-key-vault";
 import { parseAllowedHosts, pickAgentHost, normaliseHostForUrl, waitForAgentReady } from "./agent-client";
 import { buildSessionGitCredentialEnv } from "../git/credential-env";
@@ -94,9 +95,15 @@ function shellQuoteAgentArgument(value: string): string {
  * a failure where the direct process bridge delivered a Direct Chat bootstrap
  * to Codex twice, while the equivalent PM2 wrapper delivered it once.
  */
-export function buildBunAgentLaunchCommand(command: string[]): string[] {
+export function buildBunAgentLaunchCommand(
+  command: string[],
+  options: { agent?: AgentType; billingMode?: "credits" | "subscription" } = {},
+): string[] {
   const quotedCommand = command.map(shellQuoteAgentArgument).join(" ");
-  return ["bash", "-lc", `exec ${quotedCommand} < /dev/null`];
+  const clearProviderAuth = options.agent === "codex" && options.billingMode !== "credits"
+    ? `unset ${CODEX_PROVIDER_AUTH_ENV_KEYS.join(" ")}; `
+    : "";
+  return ["bash", "-lc", `${clearProviderAuth}exec ${quotedCommand} < /dev/null`];
 }
 
 export function transportSkipsAgentApiSpawn(transport: AgentTransport): boolean {
@@ -1482,7 +1489,10 @@ export class ProcessManager {
   private spawnAgentProcess(session: AgentSession): Bun.Subprocess {
     const env = this.buildAgentProcessEnv(session);
 
-    const launchCommand = buildBunAgentLaunchCommand(session.command);
+    const launchCommand = buildBunAgentLaunchCommand(session.command, {
+      agent: session.agent,
+      billingMode: session.metadata.billingMode,
+    });
 
     const proc = Bun.spawn(launchCommand, {
       cwd: session.workingDirectory,
