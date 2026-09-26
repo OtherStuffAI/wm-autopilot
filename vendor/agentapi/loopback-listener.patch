@@ -13,3 +13,73 @@ diff --git a/lib/httpapi/server.go b/lib/httpapi/server.go
  		Handler: s.router,
  	}
  
+diff --git a/lib/msgfmt/codex_message_box_test.go b/lib/msgfmt/codex_message_box_test.go
+new file mode 100644
+index 0000000..1bcb1f7
+--- /dev/null
++++ b/lib/msgfmt/codex_message_box_test.go
+@@ -0,0 +1,22 @@
++package msgfmt
++
++import "testing"
++
++func TestCodexInitialPromptReadyAcrossComposerLayouts(t *testing.T) {
++	cases := []struct {
++		name   string
++		screen string
++		ready  bool
++	}{
++		{"older", "Codex ready\n› Refactor this Code...\ngpt-5.1-codex-max default · ~/repo", true},
++		{"newer", "Codex ready\n\n› Ask Codex to do anything\n\nGPT-6-Sol medium · ~/repo\n? for shortcuts ⚠ 3 warnings", true},
++		{"working", "Codex ready\n› Ask Codex to do anything\nWorking on the current turn", false},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			if got := IsAgentReadyForInitialPrompt(AgentTypeCodex, tc.screen); got != tc.ready {
++				t.Fatalf("readiness = %t, want %t", got, tc.ready)
++			}
++		})
++	}
++}
+diff --git a/lib/msgfmt/message_box.go b/lib/msgfmt/message_box.go
+index ca86dd7..2b5d065 100644
+--- a/lib/msgfmt/message_box.go
++++ b/lib/msgfmt/message_box.go
+@@ -60,11 +60,33 @@ func removeMessageBox(msg string) string {
+ 
+ func removeCodexMessageBox(msg string) string {
+ 	lines := strings.Split(msg, "\n")
+-	if len(lines) >= 3 && strings.Contains(lines[len(lines)-3], "›") {
+-		idx := len(lines) - 3
+-		lines = append(lines[:idx], lines[idx+2])
++	last := len(lines) - 1
++	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
++		last--
+ 	}
+-	return strings.Join(lines, "\n")
++	for idx := last; idx >= max(last-6, 0); idx-- {
++		if !strings.HasPrefix(strings.TrimSpace(lines[idx]), "› ") {
++			continue
++		}
++		footer := []string{}
++		for _, line := range lines[idx+1 : last+1] {
++			if trimmed := strings.TrimSpace(line); trimmed != "" {
++				footer = append(footer, trimmed)
++			}
++		}
++		if len(footer) < 1 || len(footer) > 2 || !strings.Contains(footer[0], "·") {
++			continue
++		}
++		if len(footer) == 2 && !strings.Contains(footer[1], "for shortcuts") {
++			continue
++		}
++		end := idx + 1
++		for end <= last && strings.TrimSpace(lines[end]) == "" {
++			end++
++		}
++		return strings.Join(append(lines[:idx], lines[end:]...), "\n")
++	}
++	return msg
+ }
+ 
+ func removeOpencodeMessageBox(msg string) string {

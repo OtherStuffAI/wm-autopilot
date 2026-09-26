@@ -10,7 +10,6 @@
 import type { AgentAdapter, AdapterSessionContext, PromptReadiness } from "./agent-adapter";
 import type { AgentRuntimeStatus } from "../types/agent-status";
 import { isAgentRuntimeStatus } from "../types/agent-status";
-import { isCodexPtyAtIdleComposer } from "./codex-pty-readiness";
 import {
   buildAgentUrl,
   fetchAgentMessages,
@@ -95,17 +94,6 @@ export class AgentApiAdapter implements AgentAdapter {
         };
       }
       if (status === "running") {
-        if (this.agent === "codex") {
-          const messages = await this.fetchMessages(timeoutMs).catch(() => []);
-          if (isCodexPtyAtIdleComposer(messages)) {
-            return {
-              state: "ready",
-              reason: "codex-pty-idle-composer",
-              retryAfterMs: 250,
-              observedAt: Date.now(),
-            };
-          }
-        }
         return {
           state: "busy",
           reason: "agentapi-status-running",

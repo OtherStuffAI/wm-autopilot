@@ -3,7 +3,9 @@
 Autopilot's AgentAPI fallback is built from upstream `coder/agentapi` v0.12.2,
 commit `9ff117e231822f670305254ef24f6389f75953f4`. Upstream binds its HTTP server
 to every interface and provides no bind-address option. The patch in this
-directory changes the listener to IPv4 loopback.
+directory changes the listener to IPv4 loopback and recognizes both older and
+Codex 0.157 composer layouts. Without the composer fix, AgentAPI reports an idle
+Codex session as running and rejects `/message` with HTTP 500.
 
 `bun install` prepares the binary when needed, and startup repairs a missing or
 stale binary before accepting sessions. The bootstrap uses a compatible system
