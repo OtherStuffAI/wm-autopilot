@@ -62,4 +62,37 @@ describe("AgentApiAdapter", () => {
       "/messages",
     ]);
   });
+
+  test("treats a running Codex PTY at its idle composer as prompt-ready", async () => {
+    const adapter = new AgentApiAdapter(context);
+    globalThis.fetch = async (input) => String(input).endsWith("/status")
+      ? Response.json({ status: "running", agent_type: "codex" })
+      : Response.json({ messages: [{ role: "agent", content: "╭ Codex ╮\n› Ask Codex to do anything\n  GPT-6-Sol · ~/code\n  ? for shortcuts" }] });
+
+    await expect(adapter.getPromptReadiness()).resolves.toMatchObject({
+      state: "ready",
+      reason: "codex-pty-idle-composer",
+    });
+  });
+
+  test("keeps a running Codex PTY busy without the idle composer", async () => {
+    const adapter = new AgentApiAdapter(context);
+    globalThis.fetch = async (input) => String(input).endsWith("/status")
+      ? Response.json({ status: "running", agent_type: "codex" })
+      : Response.json({ messages: [{ role: "agent", content: "Working on the current turn…" }] });
+
+    await expect(adapter.getPromptReadiness()).resolves.toMatchObject({
+      state: "busy",
+      reason: "agentapi-status-running",
+    });
+  });
+
+  test("does not mistake an old composer in active PTY output for idle", async () => {
+    const adapter = new AgentApiAdapter(context);
+    globalThis.fetch = async (input) => String(input).endsWith("/status")
+      ? Response.json({ status: "running", agent_type: "codex" })
+      : Response.json({ messages: [{ role: "agent", content: "› Ask Codex to do anything\nWorking on the current turn…" }] });
+
+    await expect(adapter.getPromptReadiness()).resolves.toMatchObject({ state: "busy" });
+  });
 });
