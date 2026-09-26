@@ -185,9 +185,11 @@ export class CodexAdapter implements AgentAdapter {
     const abortController = new AbortController();
     this.currentAbort = abortController;
 
-    // Accumulate assistant text per agent_message item so streaming updates
-    // grow a single assistant bubble (matched in the UI by role + createdAt).
-    const agentTextById = new Map<string, string>();
+    // Codex can emit commentary and a final answer as separate agent_message
+    // items. The SDK's run() uses the last completed item as finalResponse.
+    // Keep the current item in the live bubble without joining earlier items.
+    let currentAgentText = "";
+    let finalText = "";
     let assistantCreatedAt: string | null = null;
     let usage: Usage | null = null;
     let turnError: string | null = null;
@@ -196,13 +198,12 @@ export class CodexAdapter implements AgentAdapter {
       if (!assistantCreatedAt) {
         assistantCreatedAt = new Date().toISOString();
       }
-      const text = Array.from(agentTextById.values()).join("");
       // Expose the growing bubble to fetchMessages() so polled snapshots and
       // page refreshes mid-turn include the in-flight assistant text.
-      this.pendingAssistant = { role: "assistant", content: text, createdAt: assistantCreatedAt };
+      this.pendingAssistant = { role: "assistant", content: currentAgentText, createdAt: assistantCreatedAt };
       this.emitStream({
         type: "message",
-        message: { role: "assistant", content: text, createdAt: assistantCreatedAt },
+        message: { role: "assistant", content: currentAgentText, createdAt: assistantCreatedAt },
       });
     };
 
@@ -242,8 +243,9 @@ export class CodexAdapter implements AgentAdapter {
         ) {
           const item = event.item as ThreadItem;
           if (item.type === "agent_message") {
-            agentTextById.set(item.id, (item as AgentMessageItem).text);
-            emitAssistant();
+            currentAgentText = (item as AgentMessageItem).text;
+            if (currentAgentText) emitAssistant();
+            if (event.type === "item.completed") finalText = currentAgentText;
           }
           continue;
         }
@@ -280,7 +282,6 @@ export class CodexAdapter implements AgentAdapter {
 
       // Record the assistant response for fetchMessages() history. Use the same
       // createdAt as the streamed events so the UI dedupes to a single bubble.
-      const finalText = Array.from(agentTextById.values()).join("");
       if (finalText) {
         this.messages.push({
           role: "assistant",

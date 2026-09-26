@@ -133,6 +133,7 @@ describe("CodexAdapter.fetchMessages in-flight assistant", () => {
     expect(snapshot).toHaveLength(2);
     expect(snapshot[1]).toMatchObject({ role: "assistant", content: "Hello" });
 
+    stream.emit({ type: "item.completed", item: { id: "a1", type: "agent_message", text: "Hello" } });
     stream.emit({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
     stream.end();
     await turn;
@@ -142,5 +143,43 @@ describe("CodexAdapter.fetchMessages in-flight assistant", () => {
     const final = await adapter.fetchMessages();
     expect(final).toHaveLength(2);
     expect(final[1]).toMatchObject({ role: "assistant", content: "Hello" });
+  });
+
+  test("publishes the last completed agent message without earlier commentary", async () => {
+    const stream = createControlledStream();
+    const thread = {
+      id: "thread-2",
+      runStreamed: mock(async () => ({ events: stream.events })),
+    };
+    mock.module("@openai/codex-sdk", () => ({
+      Codex: class {
+        startThread() { return thread; }
+        resumeThread() { return thread; }
+      },
+    }));
+
+    const adapter = new CodexAdapter(baseContext());
+    await adapter.waitForReady({ timeoutMs: 1000, pollIntervalMs: 10 });
+    const turn = adapter.sendMessage("What do you think?");
+    await flush();
+
+    stream.emit({ type: "item.completed", item: { id: "commentary-1", type: "agent_message", text: "I’ll check." } });
+    await flush();
+    expect((await adapter.fetchMessages()).at(-1)?.content).toBe("I’ll check.");
+
+    stream.emit({ type: "item.completed", item: { id: "commentary-2", type: "agent_message", text: "I found the details." } });
+    stream.emit({ type: "item.updated", item: { id: "final", type: "agent_message", text: "My answer" } });
+    await flush();
+    expect((await adapter.fetchMessages()).at(-1)?.content).toBe("My answer");
+
+    stream.emit({ type: "item.completed", item: { id: "final", type: "agent_message", text: "My answer." } });
+    stream.emit({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+    stream.end();
+    await turn;
+
+    expect(await adapter.fetchMessages()).toEqual([
+      { role: "user", content: "What do you think?", createdAt: expect.any(String) },
+      { role: "assistant", content: "My answer.", createdAt: expect.any(String) },
+    ]);
   });
 });
