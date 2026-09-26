@@ -67,7 +67,20 @@ export async function sendPromptAndAwaitFinalResponse(
     ? await resolveAuthoritativeSessionMessages(initialSession, initialMessages, { requireNative: true }).catch(() => [])
     : initialMessages;
   const sentAtMs = Date.now();
-  await adapter.sendMessage(prompt, 'user');
+  // The native Codex SDK resolves sendMessage only after the entire turn. Poll
+  // while it runs so commentary reaches Flight Deck as thinking activity now,
+  // rather than being replayed in a burst immediately before the final reply.
+  const sdkTurn = initialSession?.metadata?.agentTransport === 'codex-sdk';
+  let sendError: unknown = null;
+  let sendFailed = false;
+  const send = adapter.sendMessage(prompt, 'user').catch((error: unknown) => {
+    sendError = error;
+    sendFailed = true;
+  });
+  if (!sdkTurn) {
+    await send;
+    if (sendFailed) throw sendError;
+  }
   await manager.captureAgentapiCodexSessionIdFromPrompt?.(sessionId, prompt, { sentAtMs, attempts: 1, retryMs: 0 });
 
   const pollIntervalMs = Math.max(10, waitOptions?.pollIntervalMs ?? ASSISTANT_REPLY_POLL_INTERVAL_MS);
@@ -78,6 +91,7 @@ export async function sendPromptAndAwaitFinalResponse(
   let observedActiveRuntime = false;
   let accepted = false;
   while (Date.now() < deadline) {
+    if (sendFailed) throw sendError;
     let session = manager.getSession(sessionId);
     const currentAdapter = manager.getAdapter(sessionId);
     if (!currentAdapter) throw new Error(`Session ${sessionId} no longer has an adapter.`);
@@ -113,6 +127,7 @@ export async function sendPromptAndAwaitFinalResponse(
         : []
       : messages;
     await waitOptions?.onPoll?.();
+    if (sendFailed) throw sendError;
     const currentNativeSessionId = session?.metadata?.nativeAgentSession?.agent === 'codex'
       ? session.metadata.nativeAgentSession.sessionId
       : null;
@@ -145,6 +160,10 @@ export async function sendPromptAndAwaitFinalResponse(
       .filter((message) => (message.role === 'assistant' || message.role === 'agent') && message.content.trim().length > 0)
       .at(-1);
     if (finalMessage && (nativeCodexReady || runtimeStatus === 'stable')) {
+      if (sdkTurn) {
+        await send;
+        if (sendFailed) throw sendError;
+      }
       return { content: finalMessage.content, createdAt: finalMessage.createdAt };
     }
     if (!session || (session.status !== 'running' && session.status !== 'starting')) {
@@ -220,4 +239,3 @@ export async function inspectAcceptedFinalResponse(
     runtimeStable: runtimeStatus === 'stable',
   };
 }
-

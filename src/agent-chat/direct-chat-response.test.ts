@@ -4,6 +4,55 @@ import type { ProcessManager, SessionSnapshot } from '../agents/process-manager'
 import { sendPromptAndAwaitFinalResponse } from './direct-chat-response';
 
 describe('Direct Chat prompt receipt', () => {
+  test('publishes SDK commentary while sendMessage is still running', async () => {
+    const prompt = 'new Flight Deck question';
+    const session = { id: 'sdk-session', agent: 'codex', status: 'running',
+      metadata: { agentTransport: 'codex-sdk' } } as SessionSnapshot;
+    let progress = '';
+    let final = '';
+    let sent = false;
+    let sawLiveProgress = false;
+    const adapter = {
+      getPromptReadiness: async () => ({ state: 'ready', reason: 'ready', retryAfterMs: 1, observedAt: Date.now() }),
+      deliversPromptsDirectly: () => true,
+      sendMessage: async () => {
+        sent = true;
+        setTimeout(() => { progress = 'Checking the thread.'; }, 10);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        final = 'Here is the answer.';
+      },
+      fetchStatus: async () => final ? 'stable' : 'running',
+      fetchMessages: async () => sent ? [
+        { role: 'user', content: prompt, createdAt: new Date().toISOString() },
+        ...(final ? [{ role: 'assistant', content: final, createdAt: new Date().toISOString() }] : []),
+      ] : [],
+    } as unknown as AgentAdapter;
+    const manager = { getSession: () => session, getAdapter: () => adapter } as unknown as ProcessManager;
+    const reply = await sendPromptAndAwaitFinalResponse(manager, session.id, prompt, {
+      timeoutMs: 200, pollIntervalMs: 5,
+      onPoll: () => { if (progress && !final) sawLiveProgress = true; },
+    });
+    expect(sawLiveProgress).toBe(true);
+    expect(reply.content).toBe('Here is the answer.');
+  });
+
+  test('surfaces an SDK send failure during the live poll', async () => {
+    const prompt = 'new Flight Deck question';
+    const session = { id: 'sdk-failed', agent: 'codex', status: 'running',
+      metadata: { agentTransport: 'codex-sdk' } } as SessionSnapshot;
+    let sent = false;
+    const adapter = {
+      getPromptReadiness: async () => ({ state: 'ready', reason: 'ready', retryAfterMs: 1, observedAt: Date.now() }),
+      deliversPromptsDirectly: () => true,
+      sendMessage: async () => { sent = true; await new Promise((resolve) => setTimeout(resolve, 15)); throw new Error('SDK turn failed'); },
+      fetchStatus: async () => 'running',
+      fetchMessages: async () => sent ? [{ role: 'user', content: prompt, createdAt: new Date().toISOString() }] : [],
+    } as unknown as AgentAdapter;
+    const manager = { getSession: () => session, getAdapter: () => adapter } as unknown as ProcessManager;
+    await expect(sendPromptAndAwaitFinalResponse(manager, session.id, prompt,
+      { timeoutMs: 200, pollIntervalMs: 5 })).rejects.toThrow('SDK turn failed');
+  });
+
   test('an unrelated active goal does not acknowledge a successful transport write', async () => {
     let sent = false;
     let accepted = 0;
