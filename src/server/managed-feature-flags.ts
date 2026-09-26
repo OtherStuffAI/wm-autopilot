@@ -39,7 +39,7 @@ export const MANAGED_FEATURE_FLAG_DEFAULTS: Array<CreateFeatureFlagInput & { sta
   {
     key: CODEX_NATIVE_SDK_FLAG,
     label: "Codex Native SDK",
-    description: "Use @openai/codex-sdk directly instead of agentapi for Codex sessions.",
+    description: "Use @openai/codex-sdk for all new Codex sessions. Agent Direct and scheduled Codex sessions use it by default even when this flag is off.",
     state: "off",
   },
   {

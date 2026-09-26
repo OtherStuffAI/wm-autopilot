@@ -11,6 +11,7 @@ describe("buildCodexRuntimeEnv", () => {
       OPENAI_BASE_URL: "https://server.example",
       PIPELINE_CLASSIFIER_OPENROUTER_API_KEY: "classifier-key",
       OPENROUTER_API_KEY: "openrouter-key",
+      WINGMAN_BROKER_MASTER_KEY: "server-broker-secret",
     });
 
     expect(env).toEqual({ PATH: "/usr/bin" });
@@ -30,5 +31,14 @@ describe("buildCodexRuntimeEnv", () => {
       CODEX_API_KEY: "session-token",
       OPENAI_BASE_URL: "https://proxy.example",
     });
+  });
+
+  test("rejects forbidden server secrets even when injected into a session", () => {
+    const env = buildCodexRuntimeEnv({}, {
+      WINGMAN_BROKER_MASTER_KEY: "server-secret",
+      WINGMAN_CAPABILITY: "session-capability",
+    });
+
+    expect(env).toEqual({ WINGMAN_CAPABILITY: "session-capability" });
   });
 });

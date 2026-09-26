@@ -4,6 +4,7 @@ import {
   resolveAdapterFactory,
   resolveAgentTransport,
   resolveCodexTransport,
+  preferNativeCodexForAutomation,
   resolvePiTransport,
   type AdapterSessionContext,
 } from "./agent-adapter";
@@ -17,6 +18,15 @@ const context: AdapterSessionContext = {
 };
 
 describe("Codex transport resolution", () => {
+  test("uses the native SDK for new Agent Direct and scheduled Codex work", () => {
+    expect(preferNativeCodexForAutomation("codex", "agentapi", undefined, "agent-chat")).toBe("codex-sdk");
+    expect(preferNativeCodexForAutomation("codex", "agentapi", undefined, "scheduler")).toBe("codex-sdk");
+    expect(preferNativeCodexForAutomation("codex", "agentapi", undefined, "manual")).toBe("agentapi");
+    expect(preferNativeCodexForAutomation("codex", "agentapi", "agentapi", "agent-chat")).toBe("agentapi");
+    expect(preferNativeCodexForAutomation("codex", "codex-acp", undefined, "scheduler")).toBe("codex-acp");
+    expect(preferNativeCodexForAutomation("claude", "agentapi", undefined, "scheduler")).toBe("agentapi");
+  });
+
   test("keeps AgentAPI as the default when both flags are off", () => {
     expect(resolveCodexTransport(false, false)).toBe("agentapi");
     expect(resolveAdapterFactory("codex", "agentapi")(context).constructor.name).toBe("AgentApiAdapter");

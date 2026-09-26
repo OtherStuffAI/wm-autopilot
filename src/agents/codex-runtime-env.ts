@@ -12,10 +12,8 @@ export function buildCodexRuntimeEnv(
   parentEnv: Record<string, string | undefined>,
   sessionEnv: Record<string, string> = {},
 ): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(parentEnv)) {
-    if (typeof value === "string") env[key] = value;
-  }
+  const env = buildInheritedAgentEnvironment(parentEnv);
   for (const key of CODEX_PROVIDER_AUTH_ENV_KEYS) delete env[key];
-  return { ...env, ...sessionEnv };
+  return { ...env, ...sanitizeInjectedAgentEnvironment(sessionEnv) };
 }
+import { buildInheritedAgentEnvironment, sanitizeInjectedAgentEnvironment } from "./agent-environment";

@@ -15,6 +15,7 @@ import type { AgentAdapter, AdapterSessionContext, AgentTransport } from "./agen
 import {
   resolveAdapterFactory,
   resolveAgentTransport,
+  preferNativeCodexForAutomation,
   OPENCODE_NATIVE_SDK_FLAG,
 } from "./agent-adapter";
 import {
@@ -638,7 +639,12 @@ export class ProcessManager {
     }
 
     let sessionMetadata = normaliseSessionMetadata(metadata);
-    const agentTransport = resolveAgentTransport(agent, sessionMetadata.agentTransport);
+    const agentTransport = preferNativeCodexForAutomation(
+      agent,
+      resolveAgentTransport(agent, sessionMetadata.agentTransport),
+      sessionMetadata.agentTransport,
+      origin?.type,
+    );
     const acpPermissionPolicy = resolveNewSessionAcpPermissionPolicy(
       agentTransport,
       metadata?.acpPermissionPolicy,
