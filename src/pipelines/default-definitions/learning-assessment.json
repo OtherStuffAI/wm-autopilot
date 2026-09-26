@@ -1,0 +1,69 @@
+{
+  "name": "learning-assessment",
+  "description": "Learner-scoped Space assessment action through the brokered CLI and Tower API.",
+  "version": 1,
+  "tags": [
+    "learning",
+    "space",
+    "private"
+  ],
+  "input": {
+    "idempotencyKey": ""
+  },
+  "steps": [
+    {
+      "name": "run-assessment",
+      "description": "Use the reviewed curriculum and learner-scoped Tower route for assessment; return references only.",
+      "type": "agent",
+      "agent": "codex",
+      "directory": "/Users/mini/code/space-graph",
+      "input": {
+        "pick": {
+          "goal": "$.goal",
+          "concept": "$.concept",
+          "idempotencyKey": "$.idempotencyKey",
+          "towerUrl": "$.towerUrl",
+          "workspaceId": "$.workspaceId"
+        }
+      },
+      "prompt": "You are executing the Space learning assessment pipeline. Use only the executable CLI in /Users/mini/code/space-graph, with brokered signing. Use the towerUrl and workspaceId in the selected input; Autopilot derived them from the authenticated invocation session and its active Flight Deck backend connection. If either is absent, return a blocked result. Never accept a Tower origin from chat text or use a private key. Never accept a learner npub from pipeline input. Tower derives learner authority from the verified signer and its narrow grant. Run the appropriate space-graph CLI command for assessment: plan=create goal, question=graph inspect/traverse, lesson=create concept, assessment=issue concept, recall=due then issue concept. Use --json. Do not submit an answer in this pipeline or copy child answers/interests into pipeline output. Return compact JSON with completed, action, recordId or concept IDs, summary, and blockers. Do not post to a broad Flight Deck channel.",
+      "assign": "$.learningResult",
+      "timeoutMs": 600000,
+      "display": {
+        "in": [
+          {
+            "label": "Goal",
+            "path": "$.goal",
+            "format": "text"
+          },
+          {
+            "label": "Concept",
+            "path": "$.concept",
+            "format": "text"
+          }
+        ],
+        "out": [
+          {
+            "label": "Completed",
+            "path": "$.completed"
+          },
+          {
+            "label": "Summary",
+            "path": "$.summary",
+            "format": "text"
+          },
+          {
+            "label": "Record",
+            "path": "$.recordId",
+            "format": "text"
+          },
+          {
+            "label": "Blockers",
+            "path": "$.blockers",
+            "format": "list"
+          }
+        ]
+      }
+    }
+  ]
+}

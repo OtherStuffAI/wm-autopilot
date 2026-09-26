@@ -1325,6 +1325,9 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
   const softwareImplementationReviewLoopDefinition = await readBundledDefaultDefinition("software-implementation-review-loop.json");
   const dailyNoteReviewDefinition = await readBundledDefaultDefinition("daily-note-review.json");
   const audioUnderstandingDefinition = await readBundledDefaultDefinition("audio-understanding.v1.json");
+  const learningDefinitions = await Promise.all(
+    ['plan', 'question', 'lesson', 'assessment', 'recall'].map(action => readBundledDefaultDefinition(`learning-${action}.json`)),
+  );
   const defaultDefinitions = [
     ["fd-agent-dispatch-chat.json", buildFlightDeckPgDefaultDefinition(AGENT_DISPATCH_CHAT_DEFINITION as unknown as DeclarativePipeline, "fd-agent-dispatch-chat")],
     ["fd-agent-dispatch-task-response.json", buildFlightDeckPgDefaultDefinition(AGENT_DISPATCH_TASK_DEFINITION as unknown as DeclarativePipeline, "fd-agent-dispatch-task-response")],
@@ -1338,6 +1341,7 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
     ["software-implementation-review-loop.json", softwareImplementationReviewLoopDefinition],
     ["daily-note-review.json", dailyNoteReviewDefinition],
     ["audio-understanding.v1.json", audioUnderstandingDefinition],
+    ...learningDefinitions.map((definition, index) => [`learning-${['plan', 'question', 'lesson', 'assessment', 'recall'][index]}.json`, definition] as const),
   ] as const;
   const renamedBuiltIns = [
     "demo-agent-dispatch-chat-response.json",

@@ -143,6 +143,25 @@ export class PipelineStore {
     this.migrate();
   }
 
+  reserveLearningRun(ownerNpub: string, definitionId: string, key: string, inputHash: string): { state: 'new' | 'pending' | 'existing' | 'conflict'; runId?: string } {
+    const inserted = this.db.query(`INSERT OR IGNORE INTO pipeline_learning_idempotency
+      (owner_npub, definition_id, idempotency_key, input_hash, created_at)
+      VALUES (?, ?, ?, ?, ?)`).run(ownerNpub, definitionId, key, inputHash, now());
+    const row = this.db.query(`SELECT input_hash, run_id FROM pipeline_learning_idempotency
+      WHERE owner_npub = ? AND definition_id = ? AND idempotency_key = ?`).get(ownerNpub, definitionId, key) as { input_hash: string; run_id: string | null };
+    if (row.input_hash !== inputHash) return { state: 'conflict' };
+    if (row.run_id) return { state: 'existing', runId: row.run_id };
+    return { state: inserted.changes > 0 ? 'new' : 'pending' };
+  }
+
+  bindLearningRun(ownerNpub: string, definitionId: string, key: string, runId: string): void {
+    this.db.query(`UPDATE pipeline_learning_idempotency SET run_id = ? WHERE owner_npub = ? AND definition_id = ? AND idempotency_key = ? AND run_id IS NULL`).run(runId, ownerNpub, definitionId, key);
+  }
+
+  releaseLearningRun(ownerNpub: string, definitionId: string, key: string): void {
+    this.db.query(`DELETE FROM pipeline_learning_idempotency WHERE owner_npub = ? AND definition_id = ? AND idempotency_key = ? AND run_id IS NULL`).run(ownerNpub, definitionId, key);
+  }
+
   createRun(input: {
     definitionId: string;
     definitionPath?: string | null;
@@ -484,7 +503,7 @@ export class PipelineStore {
       filters[0] = "status IN ('ok', 'cancelled', 'skipped', 'needs_input', 'error')";
     }
     if (options.ownerNpub) {
-      filters.push("(owner_npub = ? OR (? = 1 AND scope = 'shared'))");
+      filters.push("(owner_npub = ? OR (? = 1 AND scope = 'shared' AND name NOT LIKE 'learning-%'))");
       args.push(options.ownerNpub, options.includeShared ? 1 : 0);
     }
     if (options.definitionId) {
@@ -648,6 +667,11 @@ export class PipelineStore {
   }
 
   private migrate(): void {
+    this.db.run(`CREATE TABLE IF NOT EXISTS pipeline_learning_idempotency (
+      owner_npub TEXT NOT NULL, definition_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+      input_hash TEXT NOT NULL, run_id TEXT, created_at TEXT NOT NULL,
+      PRIMARY KEY (owner_npub, definition_id, idempotency_key)
+    )`);
     this.db.run(`
       CREATE TABLE IF NOT EXISTS pipeline_runs (
         id TEXT PRIMARY KEY,

@@ -1,4 +1,5 @@
 import { readFile, realpath } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { basename, join, sep } from "node:path";
 import type { AccessAction } from "../auth/access-control";
 import type { RequestAuthContext } from "../auth/request-context";
@@ -45,6 +46,7 @@ export interface PipelineApiContext {
   defaultAgent: string;
   callbackOrigin?: string;
   sharedInstanceAccess?: boolean;
+  resolveLearningTowerContext?: (input: { authContext: RequestAuthContext; ownerNpub: string }) => { towerUrl: string; workspaceId: string } | null;
   loadRegistryForRun?: (input: {
     run: PipelineRunRecord;
     definition: PipelineDefinitionRecord;
@@ -219,8 +221,36 @@ export async function handlePipelineApi(
     const submittedInput = body.input && typeof body.input === "object" && !Array.isArray(body.input)
       ? body.input as JsonObject
       : {};
-    const input = { ...(definition.spec.input ?? {}), ...submittedInput };
-    const functions = await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions);
+    const isLearning = /^learning-(plan|question|lesson|assessment|recall)$/.test(definition.spec.name);
+    let learningKey: string | null = null;
+    if (isLearning) {
+      const allowed = new Set(['idempotencyKey', 'goal', 'concept']);
+      if (Object.keys(submittedInput).some(key => !allowed.has(key))) {
+        return Response.json({ error: 'Unsupported learning input', code: 'learning_input_denied' }, { status: 400 });
+      }
+      learningKey = typeof submittedInput.idempotencyKey === 'string' ? submittedInput.idempotencyKey.trim() : '';
+      if (!learningKey || learningKey.length > 200) return Response.json({ error: 'idempotencyKey required', code: 'idempotency_key_required' }, { status: 400 });
+      const inputHash = createHash('sha256').update(JSON.stringify(Object.keys(submittedInput).sort().map(key => [key, submittedInput[key]]))).digest('hex');
+      const reservation = ctx.store.reserveLearningRun(ownerNpub, definition.spec.name, learningKey, inputHash);
+      if (reservation.state === 'conflict') return Response.json({ error: 'Idempotency key reused with different input', code: 'idempotency_conflict' }, { status: 409 });
+      if (reservation.state === 'pending') return Response.json({ error: 'Learning run is being created', code: 'idempotency_pending' }, { status: 409 });
+      if (reservation.state === 'existing') {
+        const existing = ctx.store.getRun(reservation.runId!);
+        return Response.json({ run: existing, steps: [], replayed: true }, { status: 200 });
+      }
+    }
+    const towerContext = isLearning ? ctx.resolveLearningTowerContext?.({ authContext, ownerNpub }) : null;
+    if (isLearning && !towerContext) {
+      if (learningKey) ctx.store.releaseLearningRun(ownerNpub, definition.spec.name, learningKey);
+      return Response.json({ error: 'An authorized Flight Deck Tower binding is required', code: 'learning_tower_binding_required' }, { status: 403 });
+    }
+    const input = { ...(definition.spec.input ?? {}), ...submittedInput, ...(towerContext ?? {}) };
+    let functions;
+    try { functions = await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions); }
+    catch (error) {
+      if (learningKey) ctx.store.releaseLearningRun(ownerNpub, definition.spec.name, learningKey);
+      throw error;
+    }
     const runnerInput = {
       store: ctx.store,
       sessionApiContext: ctx.sessionApiContext,
@@ -232,11 +262,23 @@ export async function handlePipelineApi(
       callbackOrigin: ctx.callbackOrigin ?? url.origin,
     };
     if (url.searchParams.get("async") === "1") {
-      const run = startDeclarativePipeline(runnerInput);
-      return Response.json({ run, steps: [] }, { status: 202 });
+      try {
+        const run = startDeclarativePipeline(runnerInput);
+        if (learningKey) ctx.store.bindLearningRun(ownerNpub, definition.spec.name, learningKey, run.id);
+        return Response.json({ run, steps: [] }, { status: 202 });
+      } catch (error) {
+        if (learningKey) ctx.store.releaseLearningRun(ownerNpub, definition.spec.name, learningKey);
+        throw error;
+      }
     }
-    const run = await runDeclarativePipeline(runnerInput);
-    return Response.json({ run, steps: ctx.store.listSteps(run.id) });
+    try {
+      const run = await runDeclarativePipeline(runnerInput);
+      if (learningKey) ctx.store.bindLearningRun(ownerNpub, definition.spec.name, learningKey, run.id);
+      return Response.json({ run, steps: ctx.store.listSteps(run.id) });
+    } catch (error) {
+      if (learningKey) ctx.store.releaseLearningRun(ownerNpub, definition.spec.name, learningKey);
+      throw error;
+    }
   }
 
   const flightDeckRunMatch = pathname.match(/^\/api\/pipelines\/definitions\/([^/]+)\/flightdeck-runs$/);
@@ -323,7 +365,7 @@ export async function handlePipelineApi(
     });
     const includeDefinitionMeta = url.searchParams.get("includeDefinitionMeta") !== "0";
     const definitions = includeDefinitionMeta ? await listLatestPipelineDefinitions(ownerAlias) : [];
-    return Response.json({ runs: runs.map((run) => serializeRunSummary(run, definitions)) });
+    return Response.json({ runs: runs.filter(run => canAccessPipelineRun(run, ownerNpub, ctx)).map((run) => serializeRunSummary(run, definitions)) });
   }
 
   if (pathname === "/api/pipelines/runs/compact-completed" && method === "POST") {
@@ -612,11 +654,12 @@ function serializeDefinitionSummary(definition: PipelineDefinitionRecord): JsonO
 }
 
 function canAccessPipelineRun(
-  run: Pick<PipelineRunRecord | PipelineRunSummary, "ownerNpub" | "scope">,
+  run: Pick<PipelineRunRecord | PipelineRunSummary, "ownerNpub" | "scope" | "name">,
   ownerNpub: string,
   ctx: PipelineApiContext,
 ): boolean {
   if (run.ownerNpub === ownerNpub) return true;
+  if (/^learning-(plan|question|lesson|assessment|recall)$/.test(run.name)) return false;
   return Boolean(ctx.sharedInstanceAccess && run.scope === "shared");
 }
 

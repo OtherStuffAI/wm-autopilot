@@ -2994,6 +2994,19 @@ const handleApi = createApiRouteHandler({
     defaultAgent: config.defaultAgent,
     callbackOrigin: `http://127.0.0.1:${config.port}`,
     sharedInstanceAccess: sharedInstanceAccessEnabled,
+    resolveLearningTowerContext: ({ authContext, ownerNpub }) => {
+      const sessionId = authContext.capabilitySessionId;
+      if (!sessionId) return null;
+      const session = manager.getSession(sessionId);
+      if (!session || session.status !== 'running' || session.npub !== ownerNpub) return null;
+      const connectionId = session.metadata?.flightdeckBackendConnectionId;
+      const workspaceId = session.metadata?.flightdeckWorkspaceId;
+      if (!connectionId || !workspaceId) return null;
+      const available = backendConnectionStore.listAvailableForManagerNpub(ownerNpub)
+        .find(connection => connection.backendConnectionId === connectionId);
+      if (!available?.backendBaseUrl) return null;
+      return { towerUrl: available.backendBaseUrl, workspaceId };
+    },
     loadRegistryForRun: ({ run, definition }) =>
       dispatchPipelineRuntime.loadRegistryForStoredRun({ run, definition, sessionApiContext }),
     ensureApiAccess,

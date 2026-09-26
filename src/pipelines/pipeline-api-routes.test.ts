@@ -126,6 +126,26 @@ async function waitForRunStatus(store: PipelineStore, runId: string, statuses: s
 }
 
 describe("pipeline run API visibility", () => {
+  test("learning run requires a session-bound Tower connection and rejects learner overrides", async () => {
+    const store = makeStore();
+    const ctx = makeContext(store, true);
+    const path = '/api/pipelines/definitions/learning-plan/runs?async=1';
+    const override = await handlePostJson(path, ctx, { input: { goal: 'moon-phases', idempotencyKey: 'one', learnerNpub: 'npub1other' } });
+    expect(override.status).toBe(400);
+    const missing = await handlePostJson(path, ctx, { input: { goal: 'moon-phases', idempotencyKey: 'one' } });
+    expect(missing.status).toBe(403);
+    expect((await missing.json() as { code: string }).code).toBe('learning_tower_binding_required');
+    expect(store.listRuns({ ownerNpub: 'npub1viewer' })).toHaveLength(0);
+  });
+  test("keeps learning run history private even on shared instances", async () => {
+    const store = makeStore();
+    const run = store.createRun({ definitionId: 'learning-plan', name: 'learning-plan', ownerNpub: 'npub1learnerA', scope: 'shared', input: { goal: 'moon-phases' } });
+    const ctx = makeContext(store, true);
+    const list = await handleGet('/api/pipelines/runs?includeDefinitionMeta=0', ctx, 'npub1learnerB');
+    expect((await list.json() as { runs: unknown[] }).runs).toHaveLength(0);
+    expect((await handleGet(`/api/pipelines/runs/${run.id}`, ctx, 'npub1learnerB')).status).toBe(404);
+    expect((await handleGet(`/api/pipelines/runs/${run.id}`, ctx, 'npub1learnerA')).status).toBe(200);
+  });
   test("starts arbitrary selected pipelines through the same Flight Deck contract", async () => {
     const store = makeStore();
     const input = {
