@@ -3,7 +3,7 @@
   "description": "Bounded primary-source research for the public Space graph; stages candidates for independent curator review and never publishes.",
   "version": 1,
   "tags": ["space", "research", "public-corpus", "review-gated"],
-  "input": { "subjectIds": ["moon-phases-research"] },
+  "input": { "subjectIds": ["moon-phases"] },
   "steps": [
     {
       "name": "read-published-subjects",
