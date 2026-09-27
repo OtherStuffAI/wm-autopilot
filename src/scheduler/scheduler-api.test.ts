@@ -72,6 +72,35 @@ describe("scheduler bot identity binding", () => {
   });
 });
 
+describe("disabled schedule creation", () => {
+  test("persists a disabled pipeline job without enabling it", async () => {
+    const store = new SchedulerStore(join(tempDir, "wingman.db"));
+    const handler = createHandler(store);
+    const request = new Request("http://wingman.test/api/scheduler/jobs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Space research", actionType: "pipeline", pipelineDefinitionId: "space-research.v1", pipelineInput: { subjectIds: ["moon-phases-research"] }, cronExpression: "0 9 * * 1", timezone: "Australia/Perth", botNpub: "npub-current-bot", enabled: false }),
+    });
+    const response = await handler(request, new URL(request.url), "POST");
+    expect(response.status).toBe(201);
+    const payload = await response.json() as { job: { id: string; enabled: boolean } };
+    expect(payload.job.enabled).toBe(false);
+    expect(store.getJob(payload.job.id)?.enabled).toBe(false);
+  });
+
+  test("rejects a string false that would otherwise enable the job", async () => {
+    const store = new SchedulerStore(join(tempDir, "wingman.db"));
+    const handler = createHandler(store);
+    const request = new Request("http://wingman.test/api/scheduler/jobs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Space research", actionType: "pipeline", pipelineDefinitionId: "space-research.v1", cronExpression: "0 9 * * 1", botNpub: "npub-current-bot", enabled: "false" }),
+    });
+    expect((await handler(request, new URL(request.url), "POST")).status).toBe(400);
+    expect(store.listJobs()).toHaveLength(0);
+  });
+});
+
 describe("scheduler agent model selection", () => {
   test("persists model overrides and normalises the default option", async () => {
     const store = new SchedulerStore(join(tempDir, "wingman.db"));

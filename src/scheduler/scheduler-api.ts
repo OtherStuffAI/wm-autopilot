@@ -119,6 +119,10 @@ async function handleCreateJob(
     : "";
   const requestedBotNpub = typeof body.botNpub === "string" ? body.botNpub.trim() : "";
 
+  if (body.enabled !== undefined && typeof body.enabled !== "boolean") {
+    return Response.json({ error: "enabled must be a boolean" }, { status: 400 });
+  }
+
   if (!name) return Response.json({ error: "name is required" }, { status: 400 });
   if (actionType === "pipeline") {
     if (!pipelineDefinitionId) return Response.json({ error: "pipelineDefinitionId is required" }, { status: 400 });
@@ -204,6 +208,7 @@ async function handleCreateJob(
     pipelineInputJson: actionType === "pipeline" && pipelineInput.ok ? pipelineInput.json : null,
     pipelineAgent: actionType === "pipeline" ? (pipelineAgent || null) : null,
     wappActivityInstallationId: actionType === "session" ? (wappActivityInstallationId || null) : null,
+    enabled: body.enabled === false ? false : true,
   });
 
   // Schedule it

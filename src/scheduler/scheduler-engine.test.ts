@@ -103,6 +103,14 @@ function createCleanupEngine(
 }
 
 describe("SchedulerEngine pipeline job bookkeeping", () => {
+  test("does not schedule a disabled pipeline job", () => {
+    const store = new SchedulerStore(join(tempDir, "wingman.db"));
+    const active = createPipelineJob(store);
+    const job = store.updateJob(active.id, { enabled: false })!;
+    const engine = createEngine(store, async () => ({ pipelineRunId: "unexpected" }));
+    engine.scheduleJob(job);
+    expect(store.getJob(job.id)?.nextRunAt).toBeNull();
+  });
   test("links the scheduled run to the pipeline run before completion and finalizes success", async () => {
     const store = new SchedulerStore(join(tempDir, "wingman.db"));
     const job = createPipelineJob(store);

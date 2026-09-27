@@ -94,6 +94,7 @@ export interface CreateJobInput {
   pipelineInputJson?: string | null;
   pipelineAgent?: string | null;
   wappActivityInstallationId?: string | null;
+  enabled?: boolean;
 }
 
 export interface UpdateJobInput {
@@ -245,7 +246,7 @@ class SchedulerStore {
            action_type, pipeline_definition_id, pipeline_input_json,
            pipeline_agent, wapp_activity_installation_id, enabled, last_run_at, next_run_at,
            created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, 1, NULL, NULL, ?25, ?26)`,
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, NULL, NULL, ?26, ?27)`,
       )
       .run(
         id,
@@ -272,6 +273,7 @@ class SchedulerStore {
         input.pipelineInputJson ?? null,
         input.pipelineAgent ?? null,
         input.wappActivityInstallationId ?? null,
+        input.enabled === false ? 0 : 1,
         now,
         now,
       );

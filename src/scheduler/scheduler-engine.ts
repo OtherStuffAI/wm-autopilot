@@ -160,6 +160,8 @@ class SchedulerEngine {
     // Remove existing schedule if present
     this.unscheduleJob(job.id);
 
+    if (!job.enabled) return;
+
     if (job.triggerType === "unsupported") {
       console.warn(`[scheduler] Job "${job.name}" (${job.id}) is inert: ${job.unsupportedReason}`);
       return;
