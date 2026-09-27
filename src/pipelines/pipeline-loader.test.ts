@@ -34,6 +34,15 @@ afterEach(() => {
 });
 
 describe("pipeline definition version paths", () => {
+  test("loads the review-gated Space research definition", async () => {
+    const definition = await getPipelineDefinition("space-research.v1", "tester");
+    expect(definition?.spec.steps.map(step => step.name)).toEqual([
+      "read-published-subjects", "bound-topic-selection", "propose-supporting-concepts", "validate-source-plan",
+      "retrieve-primary-sources", "extract-claims-and-links", "validate-citations-and-cycles", "stage-candidate", "independent-review-gate",
+    ]);
+    expect(definition?.spec.steps.at(-1)?.name).toBe("independent-review-gate");
+    expect(definition?.spec.steps.every(step => Boolean(step.display?.in?.length && step.display?.out?.length))).toBe(true);
+  });
   test("creates stable slugs from prompts", () => {
     expect(makePipelineSlug("Split paragraphs, analyse #2, then finalise!")).toBe("split-paragraphs-analyse-2-then-finalise");
   });

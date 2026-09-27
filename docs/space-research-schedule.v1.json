@@ -1,0 +1,10 @@
+{
+  "name": "Space public research review",
+  "actionType": "pipeline",
+  "pipelineDefinitionId": "space-research.v1",
+  "pipelineInput": { "subjectIds": ["moon-phases-research"] },
+  "triggerType": "cron",
+  "cronExpression": "0 9 * * 1",
+  "timezone": "Australia/Perth",
+  "enabled": false
+}

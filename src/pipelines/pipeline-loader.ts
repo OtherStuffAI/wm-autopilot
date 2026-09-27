@@ -1325,6 +1325,7 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
   const softwareImplementationReviewLoopDefinition = await readBundledDefaultDefinition("software-implementation-review-loop.json");
   const dailyNoteReviewDefinition = await readBundledDefaultDefinition("daily-note-review.json");
   const audioUnderstandingDefinition = await readBundledDefaultDefinition("audio-understanding.v1.json");
+  const spaceResearchDefinition = await readBundledDefaultDefinition("space-research.v1.json");
   const learningDefinitions = await Promise.all(
     ['plan', 'question', 'lesson', 'assessment', 'recall'].map(action => readBundledDefaultDefinition(`learning-${action}.json`)),
   );
@@ -1341,6 +1342,7 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
     ["software-implementation-review-loop.json", softwareImplementationReviewLoopDefinition],
     ["daily-note-review.json", dailyNoteReviewDefinition],
     ["audio-understanding.v1.json", audioUnderstandingDefinition],
+    ["space-research.v1.json", spaceResearchDefinition],
     ...learningDefinitions.map((definition, index) => [`learning-${['plan', 'question', 'lesson', 'assessment', 'recall'][index]}.json`, definition] as const),
   ] as const;
   const renamedBuiltIns = [

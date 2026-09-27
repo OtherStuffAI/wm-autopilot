@@ -13,6 +13,7 @@ import { generateSpeechAudio, resolveSpeechExtension } from "../server/audio-spe
 import { userSettingsStore } from "../storage/user-settings-store";
 import { indexCorpusSequentially, indexRepositoryForPipeline } from "../code-intelligence/pipeline";
 import { composeJevRerank } from "./jev-reranker";
+import { normalizeSpaceResearchCandidate, retrieveSpacePrimarySources, selectSpaceResearchTopics, spaceResearchReviewGate, validateSpaceSourcePlan } from "./space-research";
 
 interface MemoryEntity {
   name: string;
@@ -1205,6 +1206,11 @@ function latestThreadText(chatContext: Record<string, unknown>, fallback: unknow
 }
 
 export const builtinPipelineFunctions: FunctionRegistry = {
+  "spaceResearch.selectTopics": selectSpaceResearchTopics,
+  "spaceResearch.validateSourcePlan": validateSpaceSourcePlan,
+  "spaceResearch.retrievePrimarySources": retrieveSpacePrimarySources,
+  "spaceResearch.normalizeCandidate": normalizeSpaceResearchCandidate,
+  "spaceResearch.reviewGate": spaceResearchReviewGate,
   async "jev.composeRerank"(input) {
     return composeJevRerank(input);
   },

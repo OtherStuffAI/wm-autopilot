@@ -1,0 +1,67 @@
+{
+  "name": "space-research",
+  "description": "Bounded primary-source research for the public Space graph; stages candidates for independent curator review and never publishes.",
+  "version": 1,
+  "tags": ["space", "research", "public-corpus", "review-gated"],
+  "input": { "subjectIds": ["moon-phases-research"] },
+  "steps": [
+    {
+      "name": "read-published-subjects",
+      "description": "Read the current public corpus version and bounded neighbourhood through signed Tower routes.",
+      "type": "agent", "agent": "codex", "directory": "/Users/mini/code/wm/autopilot", "timeoutMs": 180000,
+      "input": { "pick": { "subjectIds": "$.subjectIds" } },
+      "prompt": "Run bun clis/space-research.ts subjects --ids <comma-separated subjectIds> using the brokered capability and the configured PIPELINE_TOWER_URL. Only one or two IDs are permitted. Return its JSON object exactly: graphVersion, topics and existingPrerequisites. Do not use keys, owner identity overrides, learner records or chat content. If the CLI fails, report the error so the step fails.",
+      "assign": "$.snapshot",
+      "display": { "in": [{ "label": "Subjects", "path": "$.subjectIds", "format": "list" }], "out": [{ "label": "Concepts", "path": "$.topics", "format": "records", "limit": 2 }, { "label": "Graph Version", "path": "$.graphVersion", "format": "text" }] }
+    },
+    {
+      "name": "bound-topic-selection", "description": "Limit each run to two published topics, one hop and three proposed concepts.",
+      "type": "code", "function": "spaceResearch.selectTopics", "input": { "pick": { "graphVersion": "$.snapshot.graphVersion", "topics": "$.snapshot.topics" } }, "assign": "$.selection",
+      "display": { "in": [{ "label": "Concepts", "path": "$.topics", "format": "records", "limit": 2 }], "out": [{ "label": "Selected Concepts", "path": "$.topics", "format": "records", "limit": 2 }, { "label": "Graph Version", "path": "$.graphVersion", "format": "text" }] }
+    },
+    {
+      "name": "propose-supporting-concepts", "description": "Propose useful gaps and at most three primary URLs for the selected published topics.",
+      "type": "agent", "agent": "codex", "directory": "/Users/mini/code/wm/autopilot", "timeoutMs": 300000,
+      "input": { "pick": { "selection": "$.selection" } },
+      "prompt": "For the selected Space concepts, propose up to three useful supporting concepts at depth one. Research primary publisher URLs (NASA or ESA) that could substantiate them. Return JSON only: {concepts:[{id,title,subjectId,reason}],sources:[{url,reason}]}. Use stable kebab-case IDs. Do not claim source content you have not read. No learner data or chat output.",
+      "assign": "$.proposal",
+      "display": { "in": [{ "label": "Concepts", "path": "$.selection.topics", "format": "records", "limit": 2 }], "out": [{ "label": "Proposed Concepts", "path": "$.concepts", "format": "records", "limit": 3 }, { "label": "Source URLs", "path": "$.sources", "format": "records", "limit": 3 }] }
+    },
+    {
+      "name": "validate-source-plan", "description": "Reject excess fanout, unknown subjects and non-primary or duplicate source URLs.",
+      "type": "code", "function": "spaceResearch.validateSourcePlan", "input": { "pick": { "selection": "$.selection", "plan": "$.proposal", "existingConceptIds": "$.snapshot.existingConceptIds" } }, "assign": "$.sourcePlan",
+      "display": { "in": [{ "label": "Proposed Concepts", "path": "$.plan.concepts", "format": "records", "limit": 3 }, { "label": "Sources", "path": "$.plan.sources", "format": "records", "limit": 3 }], "out": [{ "label": "Concepts", "path": "$.concepts", "format": "records", "limit": 3 }, { "label": "Source URLs", "path": "$.sourceUrls", "format": "list", "limit": 3 }] }
+    },
+    {
+      "name": "retrieve-primary-sources", "description": "Fetch at most three allowlisted primary pages with bounded response text.",
+      "type": "code", "function": "spaceResearch.retrievePrimarySources", "input": { "pick": { "plan": "$.sourcePlan" } }, "assign": "$.retrieval",
+      "display": { "in": [{ "label": "Source URLs", "path": "$.plan.sourceUrls", "format": "list", "limit": 3 }], "out": [{ "label": "Sources", "path": "$.sourceSummaries", "format": "records", "limit": 3 }] }
+    },
+    {
+      "name": "extract-claims-and-links", "description": "Extract short claims, typed concept links and exact source excerpts with section locators.",
+      "type": "agent", "agent": "codex", "directory": "/Users/mini/code/wm/autopilot", "timeoutMs": 300000,
+      "input": { "pick": { "topics": "$.selection.topics", "concepts": "$.sourcePlan.concepts", "documents": "$.retrieval.documents" } },
+      "prompt": "Use only the supplied retrieved primary-source text. Return JSON only: {sources:[{url,title,publisher}],concepts:[{id,cluster,title,claim}],relations:[{from,to,type}],supports:[{targetType,targetId,sourceUrl,locator,excerpt,summary}]}. Use only proposed concept IDs and selected subject IDs. Type is prerequisite, supports, explains or related. A relation ID is from--to--type. Every new concept and relation needs its own support; excerpt must be an exact contiguous passage of at least 20 characters in the retrieved text, locator a named section, and summary a short paraphrase. Reject unsupported facts by omitting them. Never use learner data.",
+      "assign": "$.draft",
+      "display": { "in": [{ "label": "Concepts", "path": "$.concepts", "format": "records", "limit": 3 }, { "label": "Sources", "path": "$.documents", "format": "records", "limit": 3 }], "out": [{ "label": "Claims", "path": "$.concepts", "format": "records", "limit": 3 }, { "label": "Links", "path": "$.relations", "format": "records", "limit": 6 }, { "label": "Citations", "path": "$.supports", "format": "records", "limit": 12 }] }
+    },
+    {
+      "name": "validate-citations-and-cycles", "description": "Require exact retrieved excerpts, locators and support for every claim and link; reject prerequisite cycles.",
+      "type": "code", "function": "spaceResearch.normalizeCandidate", "input": { "pick": { "selection": "$.selection", "plan": "$.sourcePlan", "retrieval": "$.retrieval", "draft": "$.draft", "existingPrerequisites": "$.snapshot.existingPrerequisites" } }, "assign": "$.candidate",
+      "display": { "in": [{ "label": "Claims", "path": "$.draft.concepts", "format": "records", "limit": 3 }, { "label": "Citations", "path": "$.draft.supports", "format": "records", "limit": 12 }], "out": [{ "label": "Sources", "path": "$.graph.sources", "format": "records", "limit": 3 }, { "label": "Claims", "path": "$.graph.concepts", "format": "records", "limit": 3 }, { "label": "Review Status", "path": "$.reviewStatus", "format": "text" }] }
+    },
+    {
+      "name": "stage-candidate", "description": "Stage the validated addition with a signed curator capability; return only its candidate ID and status.",
+      "type": "agent", "agent": "codex", "directory": "/Users/mini/code/wm/autopilot", "timeoutMs": 180000,
+      "input": { "pick": { "candidate": "$.candidate" } },
+      "prompt": "Write the exact candidate input JSON to an ignored file under tmp/docs/handoffs after verifying git check-ignore. Run bun clis/space-research.ts stage --file <that-file> through the brokered agent capability and configured PIPELINE_TOWER_URL. Return the CLI JSON exactly: candidateId, reviewStatus, idempotent, issues. Do not call review or publish routes. Do not use keys, owner overrides or learner records. Any CLI error must fail this step.",
+      "assign": "$.staged",
+      "display": { "in": [{ "label": "Claims", "path": "$.candidate.graph.concepts", "format": "records", "limit": 3 }, { "label": "Sources", "path": "$.candidate.graph.sources", "format": "records", "limit": 3 }], "out": [{ "label": "Candidate", "path": "$.candidateId", "format": "text" }, { "label": "Review Status", "path": "$.reviewStatus", "format": "text" }] }
+    },
+    {
+      "name": "independent-review-gate", "description": "Stop after staging; an independent curator must review and publish outside this pipeline.",
+      "type": "code", "function": "spaceResearch.reviewGate", "input": { "pick": { "staged": "$.staged" } }, "assign": "$.review",
+      "display": { "in": [{ "label": "Candidate", "path": "$.staged.candidateId", "format": "text" }], "out": [{ "label": "Candidate", "path": "$.candidateId", "format": "text" }, { "label": "Review Status", "path": "$.reviewStatus", "format": "text" }, { "label": "Published", "path": "$.published" }] }
+    }
+  ]
+}
