@@ -57,8 +57,8 @@ that is optional hardening, not required for normal Autopilot operation.
 | Nostr event | Explicit named kind allowlist; the default includes common profile/social/app-release kinds plus Flight Deck PG instruction kind `33358` | Kind, broker-owned timestamp, content/tag byte limits, tag count and optional tag constraints |
 | NIP-44 encrypt/decrypt | Stable bot identity; separate operations, not event kinds | Direction, valid peer pubkey, payload byte limits, and decryption errors; no instance fallback |
 | Blossom authorization | Configured server origin | Method, SHA-256 object hash, object size and optional exact-hash list |
-| Wallet read | No production default | Separate adapter and allowlisted methods required |
-| Wallet spend | No production default | Separate operation, method, per-call and cumulative msat budgets |
+| Wallet read | No permission by default | Explicit per-bot grant; own bot Coco wallet and allowlisted local reads |
+| Wallet spend | No permission by default | Explicit grant; verified input/fee bound, per-call and cumulative session budgets, exclusive wallet lock |
 | Raw key/export/arbitrary Schnorr | Never | No broker operation exists |
 
 The default peer policy currently permits any valid NIP-44 peer because normal
@@ -181,7 +181,9 @@ scope/policy, expiry, replay nonces, rate state, and wallet budget state—not t
 bearer token or private key—and is atomically replaced with mode `0600`.
 Unrevoked verifier records remain after access expiry so a live session can use
 the refresh-only recovery path. Stopping, erroring, or deleting the session
-revokes and removes its renewal authority. Managed Autopilot restarts stop agent
+revokes and removes its renewal authority. Revoked records with wallet spend
+remain as accounting tombstones so a restart followed by reissue cannot reset
+the same session budget. Managed Autopilot restarts stop agent
 processes and issue new session capabilities to the resumed or fresh replacements.
 
 The child environment starts from a documented base allowlist. Controlled
@@ -438,3 +440,13 @@ closed for agent raw-key resolution; the Signal daemon and two reusable legacy
 dispatch/repair helpers are retired until they have dedicated broker-aware
 authority. A plaintext historical 64-hex fallback was removed. The archived
 files were not bulk-rewritten because doing so would alter historical evidence.
+
+## Persistent Cashu custody
+
+Production wallet wiring uses the maintained Coco Bun SQLite adapter with separate
+stable-bot wallet databases, encrypted seeds and explicit operator grants. See
+[Persistent bot Cashu wallets](bot-cashu-wallets.md) for commands, permissions,
+backup/recovery, conservative fee reservations and the same-OS-user custody
+limitation. Wallet payment classification does not depend on an agent amount
+claim. Verified reservations survive ambiguous errors, broker restart and session
+capability replacement. Balance size does not affect per-operation/session limits.

@@ -5,7 +5,7 @@ import {
   resolveSessionCapabilityProfileScope,
 } from "../agents/session-capability-binding";
 import type { SessionCapabilityBotRecord } from "../agents/session-capability-identity";
-import { CapabilityBroker, buildDefaultAgentCapabilityPolicy, type IssuedSessionCapability } from "./capability-broker";
+import { CapabilityBroker, buildDefaultAgentCapabilityPolicy, type WalletConstraint, type IssuedSessionCapability } from "./capability-broker";
 import type { AgentSigningMode } from "./agent-signing-policy";
 import type { SigningPolicyRegistry } from "./signing-policy-registry";
 
@@ -23,6 +23,7 @@ interface BindingManager {
 
 export interface SessionCapabilityIssuerDependencies {
   broker: CapabilityBroker;
+  getWalletPolicy?: (botNpub: string) => WalletConstraint | undefined;
   registry: SigningPolicyRegistry;
   getManager: () => BindingManager;
   sharedAgentDispatch: boolean;
@@ -85,6 +86,12 @@ export class SessionCapabilityIssuer {
       mode: this.deps.getSigningMode(),
     });
     const resolved = this.deps.registry.resolve({ profileId, workspaceId }, baseline);
+    const wallet = this.deps.getWalletPolicy?.(record.botNpub);
+    if (wallet) {
+      resolved.policy.wallet = wallet;
+      if (wallet.readMethods.length) resolved.policy.operations.push("wallet.read");
+      if (wallet.spendMethods.length) resolved.policy.operations.push("wallet.spend");
+    }
     return this.deps.broker.issueSessionCapability({
       sessionId: input.sessionId,
       ownerNpub: input.ownerNpub,

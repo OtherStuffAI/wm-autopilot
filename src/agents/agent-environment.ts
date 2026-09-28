@@ -44,6 +44,12 @@ export const FORBIDDEN_AGENT_ENV_KEYS = new Set([
   "NOSTR_SECRET_KEY",
   "NWC_CONNECTION_STRING",
   "NWC_SECRET",
+  "WINGMAN_WALLET_DIR",
+  "CASHU_SEED",
+  "CASHU_TOKEN",
+  "CASHU_MNEMONIC",
+  "CASHU_API_KEY",
+  "CASHU_AUTH_TOKEN",
 ]);
 
 export function buildInheritedAgentEnvironment(
@@ -62,7 +68,7 @@ export function sanitizeInjectedAgentEnvironment(
 ): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
-    if (FORBIDDEN_AGENT_ENV_KEYS.has(key) || typeof value !== "string") continue;
+    if (FORBIDDEN_AGENT_ENV_KEYS.has(key) || /^(?:CASHU|COCO|WINGMAN_WALLET)_/.test(key) || typeof value !== "string") continue;
     result[key] = value;
   }
   return result;

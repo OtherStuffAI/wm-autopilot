@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { generateSecretKey, getPublicKey, nip19, verifyEvent } from "nostr-tools";
 
 import { nip44Decrypt, nip44Encrypt } from "../nostr/nip44-crypto";
@@ -67,6 +67,9 @@ const policy: SessionCapabilityPolicy = {
 let now = 1_800_000_000_000;
 const audit: CapabilityAuditEntry[] = [];
 const walletCalls: unknown[] = [];
+let verifiedSpend = 1_000;
+let failAfterReservation = false;
+let beforeReservation: (() => void) | undefined;
 const testKeyVault: CapabilityBrokerDependencies["keyVault"] = {
   withKey: async (record, operation) => {
     const source = record.userNpub === ownerA ? botSecretA : botSecretB;
@@ -74,7 +77,7 @@ const testKeyVault: CapabilityBrokerDependencies["keyVault"] = {
     try { return await operation(copy); } finally { copy.fill(0); }
   },
 };
-const broker = new CapabilityBroker({
+const createBroker = (overrides: Partial<CapabilityBrokerDependencies> = {}) => new CapabilityBroker({
   botKeyStore,
   keyVault: testKeyVault,
   getSession: (sessionId) => sessions.get(sessionId),
@@ -82,9 +85,13 @@ const broker = new CapabilityBroker({
   audit: (entry) => audit.push(entry),
   wallet: {
     read: async (input) => ({ balanceMsats: 5_000, method: input.method }),
-    spend: async (input) => { walletCalls.push(input); return { paid: true }; },
+    spend: async (input) => { beforeReservation?.(); await input.reserve(verifiedSpend); walletCalls.push(input); if (failAfterReservation) throw new Error("private token mint error"); return { paid: true }; },
   },
+  ...overrides,
 });
+
+let broker = createBroker();
+beforeEach(() => { broker = createBroker(); verifiedSpend = 1_000; failAfterReservation = false; beforeReservation = undefined; });
 
 function issue(sessionId = "session-a", ownerNpub = ownerA, override: Partial<SessionCapabilityPolicy> = {}) {
   return broker.issueSessionCapability({ sessionId, ownerNpub, policy: { ...policy, ...override }, ttlMs: 60_000 });
@@ -184,7 +191,7 @@ describe("CapabilityBroker", () => {
       policy,
     });
     const identityUrl = new URL("http://localhost/api/mcp/capabilities/identity?sessionId=session-a");
-    const identityRequest = new Request(identityUrl, {
+    const identityRequest = new Request(identityUrl.toString(), {
       headers: {
         authorization: `Bearer ${issued.token}`,
         "x-wingman-capability-nonce": crypto.randomUUID(),
@@ -839,6 +846,71 @@ describe("CapabilityBroker", () => {
       sessionId: "session-a", method: "pay_invoice", amountMsats, params: {},
     })));
     expect(responses.map((response) => response.status).sort()).toEqual([200, 403]);
+  });
+
+  test("amount claims cannot downgrade a spend to a wallet read", async () => {
+    const issued = issue("session-a", ownerA, { operations: ["wallet.read"] });
+    for (const amountMsats of [undefined, 0, -1, 1000]) {
+      expect((await call("/api/mcp/capabilities/wallet", issued.token, { sessionId: "session-a", method: "pay_invoice", amountMsats, params: {} })).status).toBe(403);
+    }
+    expect(walletCalls).toHaveLength(0);
+  });
+
+  test("verified fees and amounts override understated agent claims", async () => {
+    const issued = issue();
+    verifiedSpend = 1001;
+    expect((await call("/api/mcp/capabilities/wallet", issued.token, { sessionId: "session-a", method: "pay_invoice", amountMsats: 1000, params: {} })).status).toBe(403);
+    verifiedSpend = 500;
+    expect((await call("/api/mcp/capabilities/wallet", issued.token, { sessionId: "session-a", method: "pay_invoice", amountMsats: 100, params: {} })).status).toBe(403);
+    expect(walletCalls).toHaveLength(0);
+  });
+
+  test("ambiguous spend failure retains durable budget and hides remote error", async () => {
+    const issued = issue();
+    failAfterReservation = true;
+    const response = await call("/api/mcp/capabilities/wallet", issued.token, { sessionId: "session-a", method: "pay_invoice", amountMsats: 1000, params: {} });
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain("private token");
+    failAfterReservation = false;
+    expect((await call("/api/mcp/capabilities/wallet", issued.token, { sessionId: "session-a", method: "pay_invoice", amountMsats: 1000, params: {} })).status).toBe(403);
+  });
+
+  test("ambiguous reservation survives broker restart", async () => {
+    let saved: PersistedCapabilityRecord[] = [];
+    const stateStore = { load: () => structuredClone(saved), save: (records: PersistedCapabilityRecord[]) => { saved = structuredClone(records); } };
+    broker = createBroker({ stateStore });
+    const issued = issue();
+    failAfterReservation = true;
+    expect((await call("/api/mcp/capabilities/wallet", issued.token, { sessionId: "session-a", method: "pay_invoice", amountMsats: 1000, params: {} })).status).toBe(503);
+    expect(saved[0]?.spentMsats).toBe(1000);
+    broker.revokeSession("session-a");
+    expect(saved[0]?.spentMsats).toBe(1000);
+    broker = createBroker({ stateStore });
+    const replacement = issue();
+    failAfterReservation = false;
+    expect((await call("/api/mcp/capabilities/wallet", replacement.token, { sessionId: "session-a", method: "pay_invoice", amountMsats: 1000, params: {} })).status).toBe(403);
+  });
+
+  test("multiple capabilities and reissue share the cumulative session budget", async () => {
+    const first = issue();
+    const second = issue();
+    const responses = await Promise.all([first, second].map(issued => call("/api/mcp/capabilities/wallet", issued.token, { sessionId: "session-a", method: "pay_invoice", amountMsats: 1000, params: {} })));
+    expect(responses.map(response => response.status).sort()).toEqual([200, 403]);
+    const replacement = broker.reissueSessionCapability("session-a", () => issue());
+    expect((await call("/api/mcp/capabilities/wallet", replacement.token, { sessionId: "session-a", method: "pay_invoice", amountMsats: 1000, params: {} })).status).toBe(403);
+  });
+
+  test("a stopped session cannot reserve after payment preparation", async () => {
+    const issued = issue();
+    beforeReservation = () => { sessions.get("session-a")!.status = "stopped"; };
+    expect((await call("/api/mcp/capabilities/wallet", issued.token, { sessionId: "session-a", method: "pay_invoice", amountMsats: 1000, params: {} })).status).toBe(403);
+    expect(walletCalls).toHaveLength(0);
+  });
+
+  test("spends bind the adapter to the capability bot despite foreign params", async () => {
+    const issued = issue();
+    await call("/api/mcp/capabilities/wallet", issued.token, { sessionId: "session-a", method: "pay_invoice", amountMsats: 1000, params: { botNpub: records.get(ownerB)!.botNpub } });
+    expect(walletCalls[0]).toHaveProperty("botNpub", records.get(ownerA)!.botNpub);
   });
 
   test("audit records contain metadata but never tokens, plaintext, ciphertext or wallet params", async () => {

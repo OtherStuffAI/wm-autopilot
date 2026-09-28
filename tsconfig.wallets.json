@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "allowJs": false },
+  "include": ["src/wallets/**/*.ts", "src/signing/wallet-*.ts", "clis/cashu-wallet.ts"],
+  "exclude": ["node_modules", "tmp", "data", "out"]
+}

@@ -1,3 +1,6 @@
+import type { WalletConstraint, WalletBrokerAdapter } from "./wallet-types.ts";
+export type { WalletConstraint, WalletBrokerAdapter } from "./wallet-types.ts";
+import { executeWalletSpend, WALLET_READ_METHODS, WALLET_SPEND_METHODS, WalletBudgetError } from "./wallet-capability.ts";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { finalizeEvent } from "nostr-tools";
@@ -105,13 +108,6 @@ export interface BlossomConstraint {
   objectHashes?: string[];
 }
 
-export interface WalletConstraint {
-  readMethods: string[];
-  spendMethods: string[];
-  maxSpendMsats: number;
-  maxTotalSpendMsats: number;
-}
-
 export interface SessionCapabilityPolicy {
   mode?: AgentSigningMode;
   operations: BrokerOperation[];
@@ -166,11 +162,6 @@ export interface CapabilityAuditEntry {
     windowResetsAt: string;
   };
   at: string;
-}
-
-export interface WalletBrokerAdapter {
-  read(input: { method: string; params: unknown; botNpub: string }): Promise<unknown>;
-  spend(input: { method: string; params: unknown; amountMsats: number; botNpub: string }): Promise<unknown>;
 }
 
 export interface GitCredentialBrokerAdapter {
@@ -347,7 +338,8 @@ export class CapabilityBroker {
   constructor(private readonly deps: CapabilityBrokerDependencies) {
     this.now = deps.now ?? Date.now;
     for (const persisted of deps.stateStore?.load() ?? []) {
-      if (!persisted || persisted.revokedAtMs !== null) continue;
+      // Retain revoked spend records as accounting tombstones, never authority.
+      if (!persisted || (persisted.revokedAtMs !== null && persisted.spentMsats === 0)) continue;
       const record: CapabilityRecord = {
         ...persisted,
         policy: clonePolicy(persisted.policy),
@@ -367,7 +359,7 @@ export class CapabilityBroker {
   private persist(): void {
     if (!this.deps.stateStore) return;
     const records = [...this.capabilitiesByHash.values()]
-      .filter((record) => record.revokedAtMs === null)
+      .filter((record) => record.revokedAtMs === null || record.spentMsats > 0)
       .map((record) => ({
         ...record,
         policy: clonePolicy(record.policy),
@@ -447,7 +439,8 @@ export class CapabilityBroker {
       revokedAtMs: null,
       usedNonces: new Set(),
       callTimestamps: [],
-      spentMsats: 0,
+      spentMsats: Math.max(0, ...[...this.capabilitiesByHash.values()]
+        .filter(record => record.sessionId === input.sessionId).map(record => record.spentMsats)),
       usedChallenges: new Set(),
     };
     this.capabilitiesByHash.set(hash, record);
@@ -1156,39 +1149,54 @@ export class CapabilityBroker {
   private async handleWallet(request: Request): Promise<Response> {
     const body = await parseBody(request);
     const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
-    const amountMsats = typeof body.amountMsats === "number" ? body.amountMsats : 0;
-    const operation: BrokerOperation = amountMsats > 0 ? "wallet.spend" : "wallet.read";
+    const walletMethod = typeof body.method === "string" ? body.method.trim() : "";
+    const operation: BrokerOperation = WALLET_SPEND_METHODS.has(walletMethod) ? "wallet.spend" : "wallet.read";
     const authorized = await this.authorize(request, operation, sessionId);
     if (authorized instanceof Response) return authorized;
-    if (!this.deps.wallet) return this.denied(authorized.capability, operation, "Wallet broker is not configured", 501);
-    const walletMethod = typeof body.method === "string" ? body.method.trim() : "";
-    const constraint = authorized.capability.policy.wallet;
-    if (!constraint) return this.denied(authorized.capability, operation, "Wallet policy is missing");
-    if (operation === "wallet.read") {
-      if (!constraint.readMethods.includes(walletMethod)) return this.denied(authorized.capability, operation, "Wallet read method is not allowed");
-      const result = await this.deps.wallet.read({ method: walletMethod, params: body.params, botNpub: authorized.capability.botNpub });
-      this.audit(authorized.capability, operation, "allowed");
-      return Response.json({ result });
-    }
-    if (!Number.isSafeInteger(amountMsats) || amountMsats <= 0 || amountMsats > constraint.maxSpendMsats || authorized.capability.spentMsats + amountMsats > constraint.maxTotalSpendMsats) {
-      return this.denied(authorized.capability, operation, "Wallet spend exceeds capability budget");
-    }
-    if (!constraint.spendMethods.includes(walletMethod)) return this.denied(authorized.capability, operation, "Wallet spend method is not allowed");
-    // Reserve the budget before awaiting the adapter so concurrent requests
-    // cannot both pass the cumulative limit. Roll back only when the adapter
-    // reports failure.
-    authorized.capability.spentMsats += amountMsats;
-    this.persist();
-    let result: unknown;
+    const capability = authorized.capability;
+    if (!this.deps.wallet) return this.denied(capability, operation, "Wallet broker is not configured", 501);
+    const constraint = capability.policy.wallet;
+    if (!constraint) return this.denied(capability, operation, "Wallet policy is missing");
     try {
-      result = await this.deps.wallet.spend({ method: walletMethod, params: body.params, amountMsats, botNpub: authorized.capability.botNpub });
+      if (operation === "wallet.read") {
+        if (!WALLET_READ_METHODS.has(walletMethod) || !constraint.readMethods.includes(walletMethod)) {
+          return this.denied(capability, operation, "Wallet read method is not allowed");
+        }
+        const result = await this.deps.wallet.read({ method: walletMethod, params: body.params, botNpub: capability.botNpub });
+        this.audit(capability, operation, "allowed");
+        return Response.json({ result });
+      }
+      if (!constraint.spendMethods.includes(walletMethod)) return this.denied(capability, operation, "Wallet spend method is not allowed");
+      const result = await executeWalletSpend({
+        adapter: this.deps.wallet, method: walletMethod, params: body.params,
+        botNpub: capability.botNpub, amountMsats: body.amountMsats, constraint,
+        getSpent: () => capability.spentMsats,
+        stillAuthorized: async () => {
+          const session = this.deps.getSession(sessionId);
+          const bot = this.deps.botKeyStore.getActiveKeyForBotNpub?.(capability.botNpub);
+          return capability.revokedAtMs === null && capability.expiresAtMs > this.now()
+            && !!session && session.npub === capability.ownerNpub && session.status !== "stopped" && session.status !== "error"
+            && !!bot && bot.botPubkeyHex === capability.botPubkeyHex && bot.userNpub === (capability.identityManagerNpub ?? capability.ownerNpub);
+        },
+        reserve: amount => {
+          // Every verifier for this session carries the same total, including
+          // replacements. Refresh/reissue must not reset a session's budget.
+          const records = [...this.capabilitiesByHash.values()].filter(record => record.sessionId === sessionId);
+          const total = Math.max(...records.map(record => record.spentMsats)) + amount;
+          const previous = records.map(record => record.spentMsats);
+          records.forEach(record => { record.spentMsats = total; });
+          try { this.persist(); }
+          catch (error) { records.forEach((record, index) => { record.spentMsats = previous[index]!; }); throw error; }
+        },
+      });
+      this.audit(capability, operation, "allowed");
+      return Response.json({ result, remainingMsats: constraint.maxTotalSpendMsats - capability.spentMsats });
     } catch (error) {
-      authorized.capability.spentMsats -= amountMsats;
-      this.persist();
-      throw error;
+      // Mint errors may contain request bodies, bearer proofs or credentials.
+      // Return only locally controlled policy errors; keep remote details out.
+      if (error instanceof WalletBudgetError) return this.denied(capability, operation, error.message);
+      return this.denied(capability, operation, "Wallet operation failed; operator must inspect pending state before retrying", 503);
     }
-    this.audit(authorized.capability, operation, "allowed");
-    return Response.json({ result, remainingMsats: constraint.maxTotalSpendMsats - authorized.capability.spentMsats });
   }
 
   private async withBotKey<T>(record: BotKeyRecord, operation: (secretKey: Uint8Array) => T | Promise<T>): Promise<T> {

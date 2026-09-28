@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { SessionSnapshot } from "../agents/process-manager";
-import { CapabilityBroker } from "./capability-broker";
+import { CapabilityBroker, type PersistedCapabilityRecord, type WalletConstraint } from "./capability-broker";
 import type { AgentSigningMode } from "./agent-signing-policy";
 import { SessionCapabilityIssuer } from "./session-capability-issuer";
 import { FileSigningPolicyStore, SigningPolicyRegistry } from "./signing-policy-registry";
@@ -20,8 +20,11 @@ describe("SessionCapabilityIssuer", () => {
     const root = mkdtempSync(join(tmpdir(), "wingman-session-capability-issuer-"));
     roots.push(root);
     let mode: AgentSigningMode = "standard-agent";
+    let walletGrant: WalletConstraint | undefined;
+    let saved: PersistedCapabilityRecord[] = [];
     const ownerNpub = "npub1owner";
     const botRecord = {
+      id: "fixture-bot-record", displayName: "Fixture", encryptedToUser: "fixture", encryptedEscrow: "fixture", escrowUuid: "fixture", isActive: 1 as const, createdAt: "2026-01-01", updatedAt: "2026-01-01",
       userNpub: ownerNpub,
       botNpub: "npub1bot",
       botPubkeyHex: "ab".repeat(32),
@@ -42,6 +45,7 @@ describe("SessionCapabilityIssuer", () => {
       },
     };
     const broker = new CapabilityBroker({
+      stateStore: { load: () => [], save: records => { saved = structuredClone(records); } },
       botKeyStore: {
         getActiveKeyForUser: () => botRecord,
         getActiveKeyForBotNpub: (botNpub) => botNpub === botRecord.botNpub ? botRecord : null,
@@ -51,6 +55,7 @@ describe("SessionCapabilityIssuer", () => {
     });
     const issuer = new SessionCapabilityIssuer({
       broker,
+      getWalletPolicy: npub => { expect(npub).toBe(botRecord.botNpub); return walletGrant; },
       registry: new SigningPolicyRegistry(new FileSigningPolicyStore(join(root, "policies.json")), {
         forgejoCompletionUrl: "https://tower.example/api/v4/git/oidc/authorize/complete",
       }),
@@ -68,8 +73,15 @@ describe("SessionCapabilityIssuer", () => {
     });
 
     issuer.issue({ sessionId: "session-a", ownerNpub });
+    expect(saved[0]?.policy.operations).not.toContain("wallet.read");
+    expect(saved[0]?.policy.operations).not.toContain("wallet.spend");
+    walletGrant = { readMethods: ["get_balance"], spendMethods: ["pay_invoice"], maxSpendMsats: 1000, maxTotalSpendMsats: 2000 };
     mode = "full-agent";
     issuer.issue({ sessionId: "session-b", ownerNpub });
+
+    expect(saved.find(record => record.sessionId === "session-b")?.policy.wallet).toEqual(walletGrant);
+    expect(saved.find(record => record.sessionId === "session-b")?.policy.operations).toContain("wallet.read");
+    expect(saved.find(record => record.sessionId === "session-b")?.policy.operations).toContain("wallet.spend");
 
     expect(broker.listActiveCapabilities().map((capability) => ({
       sessionId: capability.sessionId,

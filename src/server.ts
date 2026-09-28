@@ -1,3 +1,4 @@
+import { createWalletRuntime } from "./wallets/wallet-runtime.ts";
 import { flightDeckSessionTransportBinding } from "./agent-chat/flightdeck-session-transport";
 import { createWorkerContextValidator } from "./session-dispatch/worker-context";
 import { createActivityProfileRecovery, createReconciledActivityPublisher } from './agent-chat/agent-activity-lifecycle-recovery';
@@ -833,6 +834,7 @@ let manager: ProcessManager;
 const towerGitCredentialBroker = new TowerGitCredentialBroker({
   servers: nativeForgejoServersFromEnv(process.env.WINGMAN_FORGEJO_SERVERS),
 });
+const walletRuntime = createWalletRuntime(wingmanDataDir);
 const capabilityBroker = new CapabilityBroker({
   botKeyStore,
   keyVault: brokerKeyVault,
@@ -845,9 +847,11 @@ const capabilityBroker = new CapabilityBroker({
   audit: (entry) => writeServerLog("INFO", "[capability-broker]", entry),
   stateStore: capabilityStateStore,
   gitCredential: towerGitCredentialBroker,
+  wallet: walletRuntime.adapter,
 });
 const sessionCapabilityIssuer = new SessionCapabilityIssuer({
   broker: capabilityBroker,
+  getWalletPolicy: walletRuntime.getPolicy,
   registry: signingPolicyRegistry,
   getManager: () => manager,
   sharedAgentDispatch: sharedAgentDispatchEnabled,

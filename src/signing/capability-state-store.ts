@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import type { CapabilityBrokerStateStore, PersistedCapabilityRecord } from "./capability-broker";
@@ -24,10 +24,11 @@ export class FileCapabilityBrokerStateStore implements CapabilityBrokerStateStor
   save(records: PersistedCapabilityRecord[]): void {
     mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
     const temporary = `${this.filePath}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify({ version: 1, records } satisfies CapabilityStateEnvelope)}\n`, {
-      mode: 0o600,
-      flag: "w",
-    });
+    const fd = openSync(temporary, "w", 0o600);
+    try {
+      writeFileSync(fd, `${JSON.stringify({ version: 1, records } satisfies CapabilityStateEnvelope)}\n`);
+      fsyncSync(fd);
+    } finally { closeSync(fd); }
     renameSync(temporary, this.filePath);
     chmodSync(this.filePath, 0o600);
   }

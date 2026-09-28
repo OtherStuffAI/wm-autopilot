@@ -20,7 +20,7 @@ Commands:
   decrypt --peer <hex-pubkey> --ciphertext <value>
   blossom-auth --server <url> --method <upload|delete|list> --hash <sha256> --size <bytes>
   blossom-upload --server <url> --file <path> [--content-type <mime>]
-  wallet --method <read-method> [--params-json <json>]
+  wallet --method <method> [--params-json <json>] [--amount-msats <maximum>]
 
 Direct NAK --sec/NOSTR_SECRET_KEY use is intentionally unsupported. The event
 output is NAK-compatible and can be piped to 'nak verify'.`);
@@ -120,7 +120,7 @@ async function run(): Promise<void> {
   if (command === "wallet") {
     console.log(JSON.stringify(await callCapabilityBroker(
       "/api/mcp/capabilities/wallet",
-      { method: required(args, "--method"), params: jsonFlag(args, "--params-json", {}) },
+      { method: required(args, "--method"), params: jsonFlag(args, "--params-json", {}), amountMsats: flag(args, "--amount-msats") ? Number(flag(args, "--amount-msats")) : undefined },
     ), null, 2));
     return;
   }
