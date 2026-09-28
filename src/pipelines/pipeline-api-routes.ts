@@ -37,10 +37,13 @@ import { type JsonObject, PipelineStore, type PipelineRunRecord, type PipelineRu
 import { startPipelineWizardSession } from "./pipeline-wizard";
 import { startPipelineAnalysisSession } from "./pipeline-analysis";
 import { startFlightDeckPipelineRun } from "./flightdeck-run-service";
+import { handleSpaceExplainApi } from "./space-explain-routes";
+import type { SpaceExplainService } from "./space-explain-service";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
 export interface PipelineApiContext {
+  spaceExplainService?: SpaceExplainService;
   store: PipelineStore;
   sessionApiContext: SessionApiContext;
   defaultAgent: string;
@@ -63,6 +66,8 @@ export async function handlePipelineApi(
   ctx: PipelineApiContext,
 ): Promise<Response | null> {
   const pathname = url.pathname;
+  const explanation = await handleSpaceExplainApi(request, url, authContext, ctx);
+  if (explanation) return explanation;
 
   const callbackMatch = pathname.match(/^\/api\/pipelines\/runs\/([^/]+)\/steps\/([^/]+)\/callback$/);
   if (callbackMatch && method === "POST") {
