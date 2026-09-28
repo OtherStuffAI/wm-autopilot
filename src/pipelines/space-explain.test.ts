@@ -159,6 +159,7 @@ test("unsupported and partial responses have explicit labels and no fabricated c
   expect(() => validateExplainOutput({ ...output(), status: "no_supported_match" }, evidence, input)).toThrow();
   expect(() => validateExplainOutput({ ...output(), status: "partial" }, evidence, input)).toThrow("partial_without_labels");
   expect(validateExplainOutput({ ...output(), status: "partial", unknowns: ["Cause is not supported here."] }, evidence, input).status).toBe("partial");
+  expect(validateExplainOutput({ ...output(), status: "supported", unknowns: ["Cause is not supported here."] }, evidence, input).status).toBe("partial");
 });
 
 test("missing support avoids model cost; mismatched graph and source failures surface", async () => {

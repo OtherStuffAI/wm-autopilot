@@ -76,9 +76,12 @@ export function validateExplainOutput(raw: unknown, evidence: ExplainEvidence, i
     if (output.claims.length || output.inferences.length || output.citations.length || !output.unknowns.length) throw new Error("invalid_unsupported_response");
   } else if (!output.claims.length || !used.length) throw new Error("missing_support");
   if (output.status === "partial" && !output.unknowns.length && !output.inferences.length) throw new Error("partial_without_labels");
-  if (output.status === "supported" && (output.inferences.length || output.unknowns.length)) throw new Error("unlabelled_partial_response");
+  // A model may label an inference/unknown correctly yet overstate the status.
+  // Downgrade that single field; never remove the labels or promote a response.
+  const status = output.status === "supported" && (output.inferences.length || output.unknowns.length)
+    ? "partial" : output.status;
   // The UI renders claims and explicitly labelled inference/unknown sections; no uncited free prose.
-  return { ...output, contract: "space-explain.v1", requestId: input.requestId, mode: input.mode,
+  return { ...output, status, contract: "space-explain.v1", requestId: input.requestId, mode: input.mode,
     graphVersion: input.graphVersion, graphHash: input.graphHash,
     disclaimer: "Generated explanation; assessment evidence unchanged." };
 }
