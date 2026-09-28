@@ -4,6 +4,36 @@ import type { ProcessManager, SessionSnapshot } from '../agents/process-manager'
 import { sendPromptAndAwaitFinalResponse } from './direct-chat-response';
 
 describe('Direct Chat prompt receipt', () => {
+  test('waits for the completed SDK answer after native session capture and streaming commentary', async () => {
+    const prompt = 'new Flight Deck question';
+    const session = { id: 'sdk-captured', agent: 'codex', status: 'running', metadata: {
+      agentTransport: 'codex-sdk', nativeAgentSession: { agent: 'codex', sessionId: 'native-sdk' },
+    } } as SessionSnapshot;
+    let sent = false;
+    let completed = false;
+    let content = '';
+    const adapter = {
+      getPromptReadiness: async () => ({ state: 'ready', reason: 'ready', retryAfterMs: 1, observedAt: Date.now() }),
+      deliversPromptsDirectly: () => true,
+      sendMessage: async () => {
+        sent = true;
+        content = 'I’ll check the latest thread.';
+        await new Promise(resolve => setTimeout(resolve, 40));
+        content = 'The complete answer for Flight Deck.';
+        completed = true;
+      },
+      fetchStatus: async () => completed ? 'stable' : 'running',
+      fetchMessages: async () => sent ? [
+        { role: 'user', content: prompt, createdAt: new Date().toISOString() },
+        { role: 'assistant', content, createdAt: new Date().toISOString() },
+      ] : [],
+    } as unknown as AgentAdapter;
+    const manager = { getSession: () => session, getAdapter: () => adapter } as unknown as ProcessManager;
+    const reply = await sendPromptAndAwaitFinalResponse(manager, session.id, prompt, { timeoutMs: 200, pollIntervalMs: 5 });
+    expect(completed).toBe(true);
+    expect(reply.content).toBe('The complete answer for Flight Deck.');
+  });
+
   test('publishes SDK commentary while sendMessage is still running', async () => {
     const prompt = 'new Flight Deck question';
     const session = { id: 'sdk-session', agent: 'codex', status: 'running',

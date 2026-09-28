@@ -1,4 +1,5 @@
 import type { AgentType } from '../config';
+import { isDirectChatFinalReady } from './direct-chat-final-readiness';
 import { resolveAuthoritativeSessionMessages } from '../agents/authoritative-session-messages';
 import { matchesCodexPrompt } from '../agents/codex-session-discovery';
 import type { ProcessManager, SessionOrigin, SessionSnapshot } from '../agents/process-manager';
@@ -177,7 +178,9 @@ export async function awaitAcceptedFinalResponse(
     const finalMessage = (boundaryIndex >= 0 ? authoritativeMessages.slice(boundaryIndex + 1) : [])
       .filter((message) => (message.role === 'assistant' || message.role === 'agent') && message.content.trim().length > 0)
       .at(-1);
-    if (finalMessage && (nativeCodexReady || runtimeStatus === 'stable')) {
+    if (finalMessage && isDirectChatFinalReady({
+      nativeCodexReady: Boolean(nativeCodexReady), agentTransport: session.metadata?.agentTransport, runtimeStatus,
+    })) {
       return { content: finalMessage.content, createdAt: finalMessage.createdAt };
     }
     if (!adapter && session.status !== 'running' && session.status !== 'starting') {

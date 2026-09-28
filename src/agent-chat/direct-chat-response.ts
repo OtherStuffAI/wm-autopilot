@@ -3,6 +3,7 @@ import { resolveAuthoritativeSessionMessages } from '../agents/authoritative-ses
 import { matchesCodexPrompt } from '../agents/codex-session-discovery';
 import { waitForSessionPromptReadiness } from '../server/session-readiness';
 import type { AssistantReplyResult, AssistantReplyWaitOptions } from './session-runtime-session-ops';
+import { isDirectChatFinalReady } from './direct-chat-final-readiness';
 
 const SESSION_READY_TIMEOUT_MS = 120_000;
 const ASSISTANT_REPLY_TIMEOUT_MS = 300_000;
@@ -73,7 +74,10 @@ export async function sendPromptAndAwaitFinalResponse(
   const sdkTurn = initialSession?.metadata?.agentTransport === 'codex-sdk';
   let sendError: unknown = null;
   let sendFailed = false;
-  const send = adapter.sendMessage(prompt, 'user').catch((error: unknown) => {
+  let sendCompleted = false;
+  const send = adapter.sendMessage(prompt, 'user').then(() => {
+    sendCompleted = true;
+  }).catch((error: unknown) => {
     sendError = error;
     sendFailed = true;
   });
@@ -159,11 +163,9 @@ export async function sendPromptAndAwaitFinalResponse(
     const finalMessage = turnMessages
       .filter((message) => (message.role === 'assistant' || message.role === 'agent') && message.content.trim().length > 0)
       .at(-1);
-    if (finalMessage && (nativeCodexReady || runtimeStatus === 'stable')) {
-      if (sdkTurn) {
-        await send;
-        if (sendFailed) throw sendError;
-      }
+    if (finalMessage && (!sdkTurn || sendCompleted) && isDirectChatFinalReady({
+      nativeCodexReady: Boolean(nativeCodexReady), agentTransport: session?.metadata?.agentTransport, runtimeStatus,
+    })) {
       return { content: finalMessage.content, createdAt: finalMessage.createdAt };
     }
     if (!session || (session.status !== 'running' && session.status !== 'starting')) {
@@ -229,7 +231,9 @@ export async function inspectAcceptedFinalResponse(
   const finalMessage = turnMessages
     .filter((message) => (message.role === 'assistant' || message.role === 'agent') && message.content.trim().length > 0)
     .at(-1);
-  if (finalMessage && (nativeCodexReady || runtimeStatus === 'stable')) {
+  if (finalMessage && isDirectChatFinalReady({
+    nativeCodexReady: Boolean(nativeCodexReady), agentTransport: session.metadata?.agentTransport, runtimeStatus,
+  })) {
     return { reply: { content: finalMessage.content, createdAt: finalMessage.createdAt }, sessionState: 'active' };
   }
   return {
