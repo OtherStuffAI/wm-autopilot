@@ -32,6 +32,7 @@ export interface CaproverAppDefinition {
   customDomain?: CaproverCustomDomain[];
   isAppBuilding?: boolean;
   deployedVersion?: number;
+  versions?: { version: number; timeStamp: string; deployedImageName?: string; gitHash?: string }[];
 }
 
 export interface CaproverEnvVar {

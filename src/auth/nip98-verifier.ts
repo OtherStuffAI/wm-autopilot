@@ -32,6 +32,7 @@ export async function verifyNip98Request(input: {
   configuredBaseUrl: string;
   replayCache: Nip98ReplayCache;
   now?: number;
+  allowedSignerNpub?: string;
 }): Promise<Nip98Verification | null> {
   const authHeader = input.request.headers.get("authorization");
   if (!authHeader?.startsWith("Nostr ")) return null;
@@ -39,6 +40,8 @@ export async function verifyNip98Request(input: {
   try {
     const event = JSON.parse(atob(authHeader.slice(6))) as Event;
     if (!verifyEvent(event) || event.kind !== 27235) return null;
+    const signerNpub = nip19.npubEncode(event.pubkey);
+    if (input.allowedSignerNpub && signerNpub !== input.allowedSignerNpub) return null;
 
     const signedUrl = singleTag(event, "u");
     const signedMethod = singleTag(event, "method");
@@ -61,7 +64,7 @@ export async function verifyNip98Request(input: {
 
     const expiresAt = event.created_at + NIP98_MAX_AGE_SECONDS + NIP98_CLOCK_SKEW_SECONDS + 1;
     if (!input.replayCache.accept(event.id, expiresAt, now)) return null;
-    return { signerNpub: nip19.npubEncode(event.pubkey), event };
+    return { signerNpub, event };
   } catch {
     return null;
   }

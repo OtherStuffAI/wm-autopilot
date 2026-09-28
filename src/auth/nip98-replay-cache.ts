@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 
 import { Database } from "bun:sqlite";
 
-import { databaseFile } from "../storage/message-store";
+import { databaseFile } from "../storage/database-path";
 
 export const NIP98_REPLAY_CACHE_LIMIT = 10_000;
 

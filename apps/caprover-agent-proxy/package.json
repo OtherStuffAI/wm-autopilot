@@ -1,0 +1,10 @@
+{
+  "name": "caprover-agent-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run ../../src/caprover/agent-proxy/main.ts",
+    "build": "bun build ../../src/caprover/agent-proxy/main.ts --target bun --outdir ../../tmp/build/caprover-agent-proxy",
+    "test": "bun test ../../src/caprover/agent-proxy"
+  }
+}

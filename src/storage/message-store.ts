@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 
 import { Database } from "bun:sqlite";
 
+import { databaseFile } from "./database-path";
+
 import type { AgentRuntimeStatus } from "../types/agent-status";
 import type { SessionOrigin } from "../agents/process-manager";
 import {
@@ -110,7 +112,7 @@ export interface StoredSessionRecord {
   metadata: SessionMetadata;
 }
 
-export const databaseFile = new URL("../../data/wingman.db", import.meta.url).pathname;
+export { databaseFile } from "./database-path";
 
 const parseStoredOrigin = (value: string | null): SessionOrigin | null => {
   if (!value) {
