@@ -18,7 +18,7 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 function fixture(options: { publish?: (input: any, attempt: number) => Promise<any>; auth?: boolean;
-  runtimeStatus?: 'stable' | 'running'; resolvedNpub?: string; identityError?: Error; reconcileActivity?: () => Promise<void> } = {}) {
+  runtimeStatus?: 'stable' | 'running'; fetchMessages?: (messages: any[]) => Promise<any[]>; resolvedNpub?: string; identityError?: Error; reconcileActivity?: () => Promise<void> } = {}) {
   const routingKey = buildDirectChatRoutingKey({ towerServiceNpub: 'npub1tower', workspaceId: 'workspace-1',
     channelId: 'channel-1', threadId: 'thread-1', agentNpub: 'npub1agent' });
   const root = mkdtempSync(join(tmpdir(), 'agent-direct-delivery-'));
@@ -39,7 +39,7 @@ function fixture(options: { publish?: (input: any, attempt: number) => Promise<a
   ] } as any;
   const sessions = new Map([[session.id, session]]);
   const manager = { getSession: (id: string) => sessions.get(id), getAdapter: (id: string) => sessions.has(id) ? ({
-    deliversPromptsDirectly: () => true, fetchMessages: async () => [...sessions.get(id)!.messages], fetchStatus: async () => options.runtimeStatus ?? 'stable',
+    deliversPromptsDirectly: () => true, fetchMessages: async () => options.fetchMessages ? await options.fetchMessages([...sessions.get(id)!.messages]) : [...sessions.get(id)!.messages], fetchStatus: async () => options.runtimeStatus ?? 'stable',
   }) : undefined, captureAgentapiCodexSessionIdFromPrompt: mock(async () => false) } as unknown as ProcessManager;
   const calls: any[] = [];
   const publish = mock(async (input: any) => {
@@ -298,6 +298,25 @@ describe('Agent Direct durable delivery reconciler', () => {
     const reconciler = f.make('boot-1');
     const first = reconciler.processTurnNow('turn-1'); const second = reconciler.processTurnNow('turn-1');
     await Bun.sleep(0); release(); await Promise.all([first, second]);
+    expect(f.calls).toHaveLength(1);
+  });
+
+  test('a slow reconciler inspection resumes a final frozen by the live runtime', async () => {
+    let started!: () => void;
+    let release!: () => void;
+    const inspecting = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const f = fixture({ fetchMessages: async (messages) => { started(); await gate; return messages; } });
+    f.seed();
+    f.session.messages.push({ role: 'assistant', content: 'Older inspected reply.', createdAt: '2026-07-29T00:00:00.000Z' });
+    const reconciler = f.make('boot-1');
+    const inspection = reconciler.processTurnNow('turn-1');
+    await inspecting;
+    f.store.freezeReply('turn-1', 'Live authoritative reply.', '2026-07-29T00:00:00.000Z');
+    await reconciler.processTurnNow('turn-1');
+    release();
+    await inspection;
+    expect(f.store.get('turn-1')).toMatchObject({ state: 'published', replyBody: 'Live authoritative reply.', publishedMessageId: 'tower-message-1' });
     expect(f.calls).toHaveLength(1);
   });
 

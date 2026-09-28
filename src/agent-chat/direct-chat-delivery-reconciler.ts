@@ -14,6 +14,7 @@ import { BROKER_KEY_IDENTITY_MISMATCH, BROKER_KEY_NOT_PROVISIONED } from '../sig
 import type { RuntimeBotIdentity } from './types';
 import type { DuplicateCallbackPublicationFilter } from './duplicate-callback-publication-filter';
 import type { FlightDeckDispatchOutcomeStore } from './flightdeck-dispatch-outcome-store';
+import { directChatPublicationIntegrityError } from './direct-chat-publication-observation';
 
 export interface AgentDirectDeliveryTransport {
   backendBaseUrl: string;
@@ -107,7 +108,7 @@ export class AgentDirectDeliveryReconciler {
 
   async processTurnNow(turnId: string): Promise<DirectChatTurnRecord | null> {
     let current = this.store.get(turnId);
-    if (!current || ['completed', 'published', 'suppressed', 'integrity_halt'].includes(current.state)) return current;
+    if (!current || ['completed', 'published', 'suppressed', 'integrity_halt', 'failed'].includes(current.state)) return current;
     if (!this.hasBinding(current)) {
       this.store.markIntegrityHalt(turnId, 'missing_immutable_binding', 'Agent Direct delivery lacks immutable subscription/workspace/channel/thread/agent binding.');
       return this.store.get(turnId);
@@ -157,7 +158,11 @@ export class AgentDirectDeliveryReconciler {
       return this.store.get(record.turnId);
     }
     this.store.releaseAwaiting(record.turnId, owner, this.isoNow());
-    this.store.freezeReply(record.turnId, inspection.reply.content, inspection.reply.createdAt || this.isoNow());
+    // Inspection awaits the adapter: the live runtime may have frozen a final
+    // while we were reading. Resume that request without taking its lease.
+    if (!this.store.get(record.turnId)?.publicationPayload) {
+      this.store.freezeReply(record.turnId, inspection.reply.content, inspection.reply.createdAt || this.isoNow());
+    }
     return await this.processTurnNow(record.turnId);
   }
 
@@ -207,7 +212,8 @@ export class AgentDirectDeliveryReconciler {
       if (!messageId) throw Object.assign(new Error('Tower accepted Agent Direct publication without returning a message id.'), { status: 502 });
       const publishedAt = this.isoNow();
       const published = this.store.markPublished(record.turnId, owner, messageId, publishedAt);
-      if (published) await this.deps.withProfileIdentity(published, async (botIdentity) => {
+      if (!published) return this.store.get(record.turnId);
+      await this.deps.withProfileIdentity(published, async (botIdentity) => {
         await this.deps.terminalizeActivity?.(published, botIdentity, transport);
       });
       this.deps.publicationFilter?.recordPublished({ decisionId: record.turnId, routingKey: record.routingKey,
@@ -312,6 +318,8 @@ export class AgentDirectDeliveryReconciler {
   }
 
   private validateBinding(record: DirectChatTurnRecord): { errorClass: string; message: string } | null {
+    const publicationError = directChatPublicationIntegrityError(record);
+    if (publicationError) return { errorClass: 'immutable_payload_mismatch', message: publicationError };
     const expectedRoutingKey = buildDirectChatRoutingKey({ towerServiceNpub: record.towerServiceNpub!,
       workspaceId: record.workspaceId!, channelId: record.channelId!, threadId: record.threadId!, agentNpub: record.agentNpub! });
     if (expectedRoutingKey !== record.routingKey) {

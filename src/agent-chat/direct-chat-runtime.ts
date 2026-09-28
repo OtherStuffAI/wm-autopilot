@@ -22,6 +22,7 @@ import {
   selectUndeliveredActionableMessages,
 } from './direct-chat-contract';
 import { getDirectChatTurnStore, type DirectChatTurnStore } from './direct-chat-turn-store';
+import { freezeOrResumeDirectChatReply } from './direct-chat-publication-observation';
 import { AgentActivityPublisher, type AgentActivityContext } from './agent-activity-publisher';
 import { AgentDirectLifecycleController } from './agent-direct-lifecycle-controller';
 import { awaitAcceptedFinalResponse, PromptBoundaryNotObservedError, sendPromptAndAwaitFinalResponse } from './session-runtime-session-ops';
@@ -377,9 +378,9 @@ export class AgentDirectChatRuntime {
             this.createActivityPublisher(activityContext));
           await activity.working((pending.sessionId ?? intercept.sessionId ?? activityContext.sessionId));
           await activity.commentary();
-          await this.publishTurn(input, intercept, agent, pending.turnId, pending.sourceMessageIds, pending.clientRequestId,
+          const published = await this.publishTurn(input, intercept, agent, pending.turnId, pending.sourceMessageIds, pending.clientRequestId,
             pending.replyBody, pending.replyReadyAt ?? undefined);
-          await activity.finish('completed');
+          if (published) await activity.finish('completed');
           continue;
         }
         const history = orderDirectChatMessages(input.messages);
@@ -607,6 +608,19 @@ export class AgentDirectChatRuntime {
         if (published) await activity.finish('completed');
       } catch (error) {
         const awaiting = activeTurnId ? this.turnStore.get(activeTurnId) : null;
+        // A late waiter error cannot downgrade an authoritative delivery.
+        if (awaiting && ['published', 'completed', 'suppressed'].includes(awaiting.state)) {
+          await activity?.finish('completed');
+          continue;
+        }
+        if (awaiting?.publicationPayload && this.deps.deliveryReconciler
+          && !['failed', 'integrity_halt'].includes(awaiting.state)) {
+          this.log.warn('[agent-chat] late observation error; frozen delivery remains recoverable', {
+            turnId: awaiting.turnId, state: awaiting.state,
+          });
+          this.deps.deliveryReconciler.notify(awaiting.turnId);
+          continue;
+        }
         if (awaiting?.state === 'awaiting_reply' && isSessionWaitTimeout(error)) {
           if (this.deps.deliveryReconciler && awaiting.leaseOwner === this.deps.deliveryReconciler.runtimeLeaseOwner) {
             this.turnStore.releaseAwaiting(awaiting.turnId, this.deps.deliveryReconciler.runtimeLeaseOwner, new Date().toISOString());
@@ -636,8 +650,9 @@ export class AgentDirectChatRuntime {
           : 'dispatch_failed';
         if (activeTurnId) {
           const failedTurn = this.turnStore.get(activeTurnId);
-          if (failedTurn) this.turnStore.save({ ...failedTurn, state: 'failed', updatedAt: new Date().toISOString(),
-            nextAttemptAt: null, lastError: errorMessage, lastErrorClass: errorCode });
+          if (failedTurn?.publicationPayload && !this.deps.deliveryReconciler) {
+            this.turnStore.markIntegrityHalt(activeTurnId, errorCode, errorMessage);
+          } else if (failedTurn) this.turnStore.markFailed(activeTurnId, errorCode, errorMessage);
         }
         const status = Number((error as { status?: unknown })?.status ?? 0);
         this.deps.interceptStore.save({ ...intercept, state: status === 401 || status === 403 ? 'blocked_auth' : 'pending',
@@ -735,13 +750,18 @@ export class AgentDirectChatRuntime {
       towerServiceNpub: input.subscription.towerServiceNpub, workspaceId: input.subscription.workspaceId,
       sourceAppNpub: input.subscription.sourceAppNpub, channelId: intercept.channelId, threadId: intercept.threadId,
       agentId: agent.agentId, agentNpub: intercept.botNpub, sessionId: intercept.sessionId, promptType: 'direct_chat' });
-    record = this.turnStore.freezeReply(turnId, body, candidateAt);
+    record = this.deps.deliveryReconciler
+      ? freezeOrResumeDirectChatReply(this.turnStore, turnId, body, candidateAt, this.log)
+      : this.turnStore.freezeReply(turnId, body, candidateAt);
     let messageId: string | null;
     let suppressed = false;
     if (this.deps.deliveryReconciler) {
       record = await this.deps.deliveryReconciler.processTurnNow(turnId) ?? record;
       messageId = record.state === 'published' ? record.publishedMessageId ?? null : null;
       suppressed = record.state === 'suppressed';
+      if (record.state === 'failed' || record.state === 'integrity_halt') {
+        throw new Error(record.lastError ?? `Agent Direct delivery ${turnId} failed.`);
+      }
       if (!messageId && !suppressed) return false;
     } else {
       const readyAt = record.replyReadyAt ?? '';

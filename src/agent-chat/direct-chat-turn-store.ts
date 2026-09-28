@@ -30,6 +30,13 @@ export interface DirectChatPublicationPayload {
   };
 }
 
+export class DirectChatPublicationObservationConflict extends Error {
+  constructor(readonly turnId: string, readonly candidateHash: string, readonly frozenHash: string) {
+    super(`Agent Direct delivery ${turnId} publication payload is immutable.`);
+    this.name = "DirectChatPublicationObservationConflict";
+  }
+}
+
 export interface DirectChatTurnRecord {
   turnId: string;
   routingKey: string;
@@ -91,7 +98,7 @@ const deliveryColumns: Record<string, string> = {
   last_error_class: 'TEXT', received_at: 'TEXT', accepted_at: 'TEXT', reply_ready_at: 'TEXT', published_at: 'TEXT',
 };
 
-function payloadHash(payload: DirectChatPublicationPayload): string {
+export function directChatPublicationPayloadHash(payload: DirectChatPublicationPayload): string {
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 
@@ -145,6 +152,8 @@ export class DirectChatTurnStore {
   }
 
   save(record: DirectChatTurnRecord): DirectChatTurnRecord {
+    // After freezing, only lease-aware delivery methods own state transitions.
+    // Generic runtime snapshots must not rewind retries or publication binding.
     this.db.query(`INSERT INTO agent_direct_chat_turns
       (turn_id,routing_key,source_message_ids_json,client_request_id,reply_body,published_message_id,state,created_at,updated_at,
        subscription_id,backend_base_url,tower_service_npub,workspace_id,source_app_npub,channel_id,thread_id,agent_id,agent_npub,
@@ -167,7 +176,10 @@ export class DirectChatTurnStore {
         next_attempt_at=excluded.next_attempt_at, lease_owner=excluded.lease_owner, lease_expires_at=excluded.lease_expires_at,
         last_error=excluded.last_error,last_error_class=excluded.last_error_class,received_at=COALESCE(agent_direct_chat_turns.received_at,excluded.received_at),
         accepted_at=COALESCE(agent_direct_chat_turns.accepted_at,excluded.accepted_at),reply_ready_at=COALESCE(agent_direct_chat_turns.reply_ready_at,excluded.reply_ready_at),
-        published_at=COALESCE(agent_direct_chat_turns.published_at,excluded.published_at)`)
+        published_at=COALESCE(agent_direct_chat_turns.published_at,excluded.published_at)
+      WHERE agent_direct_chat_turns.publication_payload_json IS NULL
+        OR (agent_direct_chat_turns.state='reply_ready' AND agent_direct_chat_turns.lease_owner IS NULL
+          AND excluded.state IN ('completed','suppressed'))`)
       .run(record.turnId, record.routingKey, JSON.stringify(record.sourceMessageIds), record.clientRequestId, record.replyBody,
         record.publishedMessageId, record.state, record.createdAt, record.updatedAt, record.subscriptionId ?? null,
         record.backendBaseUrl ?? null, record.towerServiceNpub ?? null, record.workspaceId ?? null, record.sourceAppNpub ?? null,
@@ -185,14 +197,17 @@ export class DirectChatTurnStore {
     const current = this.get(turnId);
     if (!current) throw new Error(`Unknown Agent Direct delivery ${turnId}.`);
     const payload = buildDirectChatPublicationPayload(current, body);
-    const hash = payloadHash(payload);
+    const hash = directChatPublicationPayloadHash(payload);
     if (current.payloadHash && current.payloadHash !== hash) {
-      this.markIntegrityHalt(turnId, 'immutable_payload_mismatch', 'Attempted to replace a frozen Agent Direct publication payload.', at);
-      throw new Error(`Agent Direct delivery ${turnId} publication payload is immutable.`);
+      // A competing observation is not a failed delivery. In particular, do not
+      // revoke a publisher's lease while its immutable request is in flight.
+      throw new DirectChatPublicationObservationConflict(turnId, hash, current.payloadHash);
     }
+    if (current.publicationPayload && current.payloadHash) return current;
     this.db.query(`UPDATE agent_direct_chat_turns SET reply_body=?2,publication_payload_json=?3,payload_hash=?4,
       state='reply_ready',reply_ready_at=COALESCE(reply_ready_at,?5),next_attempt_at=?5,lease_owner=NULL,lease_expires_at=NULL,
-      last_error=NULL,last_error_class=NULL,updated_at=?5 WHERE turn_id=?1 AND state NOT IN ('completed','published','suppressed','integrity_halt')`)
+      last_error=NULL,last_error_class=NULL,updated_at=?5 WHERE turn_id=?1 AND publication_payload_json IS NULL
+        AND state NOT IN ('completed','published','suppressed','integrity_halt','failed')`)
       .run(turnId, body, JSON.stringify(payload), hash, at);
     return this.get(turnId)!;
   }
@@ -216,7 +231,9 @@ export class DirectChatTurnStore {
 
   markFailed(turnId: string, errorClass: string, error: string, at = new Date().toISOString(), owner?: string): void {
     this.db.query(`UPDATE agent_direct_chat_turns SET state='failed',next_attempt_at=NULL,lease_owner=NULL,lease_expires_at=NULL,
-      last_error=?3,last_error_class=?2,updated_at=?4 WHERE turn_id=?1 ${owner ? 'AND lease_owner=?5' : ''}`)
+      last_error=?3,last_error_class=?2,updated_at=?4 WHERE turn_id=?1
+        AND state NOT IN ('completed','published','suppressed','integrity_halt')
+        ${owner ? 'AND lease_owner=?5' : 'AND publication_payload_json IS NULL'}`)
       .run(...(owner ? [turnId, errorClass, error, at, owner] : [turnId, errorClass, error, at]));
   }
 
@@ -227,10 +244,10 @@ export class DirectChatTurnStore {
   }
 
   markPublished(turnId: string, owner: string, messageId: string, at = new Date().toISOString()): DirectChatTurnRecord | null {
-    this.db.query(`UPDATE agent_direct_chat_turns SET state='published',published_message_id=?3,published_at=?2,
+    const row = this.db.query(`UPDATE agent_direct_chat_turns SET state='published',published_message_id=?3,published_at=?2,
       lease_owner=NULL,lease_expires_at=NULL,next_attempt_at=NULL,last_error=NULL,last_error_class=NULL,updated_at=?2
-      WHERE turn_id=?1 AND lease_owner=?4`).run(turnId, at, messageId, owner);
-    return this.get(turnId);
+      WHERE turn_id=?1 AND lease_owner=?4 AND state='publishing' RETURNING *`).get(turnId, at, messageId, owner);
+    return row ? this.map(row as Record<string, unknown>) : null;
   }
 
   markSuppressed(turnId: string, owner: string, at = new Date().toISOString()): DirectChatTurnRecord | null {
@@ -244,7 +261,8 @@ export class DirectChatTurnStore {
 
   markIntegrityHalt(turnId: string, errorClass: string, error: string, at = new Date().toISOString(), owner?: string): void {
     this.db.query(`UPDATE agent_direct_chat_turns SET state='integrity_halt',last_error=?3,last_error_class=?2,
-      lease_owner=NULL,lease_expires_at=NULL,next_attempt_at=NULL,updated_at=?4 WHERE turn_id=?1 ${owner ? 'AND lease_owner=?5' : ''}`)
+      lease_owner=NULL,lease_expires_at=NULL,next_attempt_at=NULL,updated_at=?4 WHERE turn_id=?1
+        AND state NOT IN ('completed','published','suppressed') ${owner ? 'AND lease_owner=?5' : ''}`)
       .run(...(owner ? [turnId, errorClass, error, at, owner] : [turnId, errorClass, error, at]));
   }
 

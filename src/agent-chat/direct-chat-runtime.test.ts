@@ -43,6 +43,7 @@ function fixture(options: {
   useDeliveryReconciler?: boolean;
   reconcileNow?: () => number;
   routePipeline?: (input: any) => Promise<void>;
+  observeReply?: (reply: { content: string; createdAt: string }) => Promise<{ content: string; createdAt: string }>;
 } = {}) {
   const db = join(tmpdir(), `agent-direct-${randomUUID()}.sqlite`);
   const agentStore = new AgentDefinitionStore(db);
@@ -118,7 +119,8 @@ function fixture(options: {
       await args[3]?.onAccepted?.();
       throw new PromptBoundaryNotObservedError(args[1]);
     }
-    return await sendPromptAndAwaitFinalResponse(...args);
+    const reply = await sendPromptAndAwaitFinalResponse(...args);
+    return options.observeReply ? await options.observeReply(reply) : reply;
   };
   const deliveryReconciler = options.useDeliveryReconciler
     ? new AgentDirectDeliveryReconciler({ manager, store: turnStore, interceptStore, instanceId: 'runtime-test', now: options.reconcileNow,
@@ -433,6 +435,78 @@ describe('Agent Direct Chat runtime', () => {
     await f.runtime.waitForIdle();
     expect(f.activities.slice(0, 2).map((activity) => activity.label)).toEqual(['Message received', 'Agent started']);
     expect(new Set(f.activities.map((activity) => activity.activityId)).size).toBe(1);
+  });
+
+  test('stale live reply cannot fail or duplicate a reconciler publication in flight', async () => {
+    let started!: () => void;
+    let release!: () => void;
+    const publishing = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let recovery!: Promise<unknown>;
+    const f = fixture({ useDeliveryReconciler: true,
+      publish: async () => { started(); await gate; return { message: { id: 'confirmed-final' } }; },
+      observeReply: async (reply) => {
+        const turn = f.turnStore.listRecoverable()[0]!;
+        f.turnStore.releaseAwaiting(turn.turnId, f.deliveryReconciler!.runtimeLeaseOwner, new Date().toISOString());
+        f.turnStore.freezeReply(turn.turnId, reply.content, reply.createdAt);
+        recovery = f.deliveryReconciler!.processTurnNow(turn.turnId);
+        await publishing;
+        return { ...reply, content: 'An older competing observation.' };
+      },
+    });
+    const message = f.message('m1', '@Example Agent answer', true);
+    await f.handle([message], message.id);
+    await f.runtime.waitForIdle();
+    const turnId = f.published[0].metadata.turn_id;
+    expect(f.turnStore.get(turnId)?.state).toBe('publishing');
+    expect(f.activities.some((activity) => activity.state === 'failed')).toBe(false);
+    release();
+    await recovery;
+    expect(f.turnStore.get(turnId)).toMatchObject({ state: 'published', publishedMessageId: 'confirmed-final' });
+    await f.handle([message], message.id);
+    await f.runtime.waitForIdle();
+    expect(f.published).toHaveLength(1);
+    expect(f.prompts).toHaveLength(1);
+    expect(f.dispatchOutcomeStore.listPage(['sub1'], { limit: 10, offset: 0 }).rows[0]?.outcome).toBe('launched');
+  });
+
+  test('keeps a real Tower payload conflict failed and does not retry it', async () => {
+    const f = fixture({ useDeliveryReconciler: true, publish: async () => {
+      throw Object.assign(new Error('Tower payload conflict'), { status: 409, detailCode: 'idempotency_conflict' });
+    } });
+    const message = f.message('m1', '@Example Agent answer', true);
+    await f.handle([message], message.id);
+    await f.runtime.waitForIdle();
+    const turn = f.turnStore.get(f.published[0].metadata.turn_id)!;
+    expect(turn).toMatchObject({ state: 'integrity_halt', lastErrorClass: 'idempotency_payload_conflict' });
+    expect(f.activities.at(-1)).toMatchObject({ state: 'failed' });
+    expect(f.dispatchOutcomeStore.listPage(['sub1'], { limit: 10, offset: 0 }).rows[0]?.outcome).toBe('failed');
+    await f.deliveryReconciler!.processTurnNow(turn.turnId);
+    expect(f.published).toHaveLength(1);
+  });
+
+  test('a saved reply retry stays pending until Tower confirms delivery', async () => {
+    let clockOffset = 0;
+    const f = fixture({ useDeliveryReconciler: true, reconcileNow: () => Date.now() + clockOffset,
+      publish: async (_input, attempt) => {
+        if (attempt === 1) throw Object.assign(new Error('Tower unavailable'), { status: 503 });
+        return { message: { id: 'recovered-final' } };
+      },
+    });
+    const message = f.message('m1', '@Example Agent answer', true);
+    await f.handle([message], message.id);
+    await f.runtime.waitForIdle();
+    const turnId = f.published[0].metadata.turn_id;
+    const waiting = f.turnStore.get(turnId)!;
+    await f.handle([message], message.id);
+    await f.runtime.waitForIdle();
+    expect(f.turnStore.get(turnId)).toMatchObject({ state: 'retry_wait', nextAttemptAt: waiting.nextAttemptAt, attemptCount: 1 });
+    expect(f.activities.some((activity) => ['failed', 'completed'].includes(activity.state))).toBe(false);
+    clockOffset = 10_000;
+    await f.deliveryReconciler!.processTurnNow(turnId);
+    expect(f.turnStore.get(turnId)).toMatchObject({ state: 'published', publishedMessageId: 'recovered-final' });
+    expect(f.published[1]).toEqual(f.published[0]);
+    expect(f.prompts).toHaveLength(1);
   });
 
   test('replay stays on one activity row and session-create failure clears receipt with failed state', async () => {
