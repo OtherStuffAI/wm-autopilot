@@ -1,0 +1,21 @@
+{
+  "name": "@wingmanbefree/setup",
+  "version": "0.1.0",
+  "description": "Install the Wingman first-setup skill for a personal agent",
+  "type": "module",
+  "bin": {
+    "wingman-setup": "./bin/wingman-setup.mjs"
+  },
+  "files": [
+    "bin/",
+    "skill/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}

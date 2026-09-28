@@ -1,0 +1,3 @@
+interface:
+  display_name: "Wingman First Setup"
+  short_description: "Set up and verify a Wingman workspace and bot"
