@@ -3,7 +3,7 @@ export const FLIGHT_DECK_PG_ACCESS_FAILED_CODE = 'flightdeck_pg_access_failed';
 
 export function isRetryableTowerAccessError(error: unknown): boolean {
   const candidate = error && typeof error === 'object'
-    ? error as { status?: unknown; statusCode?: unknown; name?: unknown }
+    ? error as { status?: unknown; statusCode?: unknown; name?: unknown; code?: unknown }
     : null;
   const status = typeof candidate?.status === 'number'
     ? candidate.status
@@ -17,12 +17,17 @@ export function isRetryableTowerAccessError(error: unknown): boolean {
     return false;
   }
 
+  if (typeof candidate?.code === 'string'
+    && /^(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|ENETUNREACH|EHOSTUNREACH|EAI_AGAIN)$/i.test(candidate.code)) {
+    return true;
+  }
+
   const name = typeof candidate?.name === 'string' ? candidate.name : '';
   if (/^(AbortError|TimeoutError)$/i.test(name)) {
     return true;
   }
   const message = error instanceof Error ? error.message : String(error ?? '');
-  return /"retryable"\s*:\s*true|bad gateway|gateway timeout|service unavailable|cannot find module|module not found|failed to resolve|import failed|fetch failed|network error|unable to connect|computer able to access the url|typo in the url or port|connection refused|econnreset|econnrefused|etimedout|operation (?:was )?(?:aborted|timed out)|request (?:was )?(?:aborted|timed out)|aborterror|timeouterror/i.test(message);
+  return /"retryable"\s*:\s*true|bad gateway|gateway timeout|service unavailable|cannot find module|module not found|failed to resolve|import failed|fetch failed|network error|unable to connect|computer able to access the url|typo in the url or port|connection refused|socket connection was closed unexpectedly|econnreset|econnrefused|etimedout|operation (?:was )?(?:aborted|timed out)|request (?:was )?(?:aborted|timed out)|aborterror|timeouterror/i.test(message);
 }
 
 export function flightDeckPgReconnectDelayMs(

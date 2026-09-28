@@ -2069,7 +2069,10 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(saved?.lastErrorCode).toBeNull();
   });
 
-  test('recovers the missed stable Rick mention once after poll timeout and transient access abort', async () => {
+  test.each([
+    'The operation was aborted.',
+    'The socket connection was closed unexpectedly.',
+  ])('recovers the missed Rick mention once after poll timeout and %s', async (accessError) => {
     const dbPath = makeTempDb();
     const instanceIdentity = makeInstanceIdentity();
     const workspaceId = '2e5caefd-dd65-45d2-b747-ee874e8e5fc9';
@@ -2116,7 +2119,7 @@ describe('WorkspaceSubscriptionManager', () => {
         fetchFlightDeckPgWorkspaceMe: async () => {
           accessChecks += 1;
           if (accessChecks === 2) {
-            throw new Error('The operation was aborted.');
+            throw new Error(accessError);
           }
           return { actor: { actor_id: 'actor-rick' }, membership: { role: 'member' }, permissions: ['workspace.read'] };
         },
@@ -2468,7 +2471,11 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(next.lastAuthResult?.details?.retryable).toBe(true);
   });
 
-  for (const message of ['The operation was aborted.', 'The operation timed out.']) {
+  for (const message of [
+    'The operation was aborted.',
+    'The operation timed out.',
+    'The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()',
+  ]) {
     test(`keeps Flight Deck PG workspace access retryable after ${message}`, async () => {
       const dbPath = makeTempDb();
       const instanceIdentity = makeInstanceIdentity();
