@@ -432,8 +432,9 @@ export function registerChatComponent() {
       if (!message?.sessionId || !message?.promptId || message.deleting) return;
       message.deleting = true;
       try {
-        await deleteQueuedPrompt(message.sessionId, message.promptId);
-        showToast("Queued prompt deleted", { type: "success" });
+        if (await deleteQueuedPrompt(message.sessionId, message.promptId)) {
+          showToast("Queued prompt deleted", { type: "success" });
+        }
       } catch (error) {
         console.error("[chat] Failed to delete queued prompt:", error);
         showToast(error instanceof Error ? error.message : "Failed to delete queued prompt", { type: "error" });
@@ -921,7 +922,7 @@ export function getChatTemplate(sessionId) {
                     data-testid="queued-prompt-delete"
                     aria-label="Delete queued prompt"
                     title="Delete queued prompt"
-                    :disabled="message.deleting"
+                    :disabled="message.deleting === true"
                     @click.stop="$store.chat.deleteQueuedPrompt(message)">
               <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM8 4l1-1h6l1 1h4v2H4V4h4z"/></svg>
             </button>
