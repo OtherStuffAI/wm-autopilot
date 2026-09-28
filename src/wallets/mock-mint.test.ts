@@ -1,3 +1,5 @@
+import { transferToBot } from "./wallet-transfers.ts";
+import { pendingTransfers } from "./wallet-transfer-store.ts";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -19,6 +21,8 @@ function mockMint() {
   const spent = new Set<string>();
   let timeout = false;
   let meltTimeout = false;
+  let loseSwapAfter = 0;
+  let swapCalls = 0;
   function sign(outputs: Array<{ amount: number; B_: string }>) {
     return outputs.map(out => { const sig = { amount: out.amount, id, C_: out.B_ }; signed.set(out.B_, sig); return sig; });
   }
@@ -46,8 +50,11 @@ function mockMint() {
       return Response.json({ signatures });
     }
     if (path === "/v1/swap") {
+      swapCalls += 1;
       for (const proof of body.inputs) spent.add(hashToCurve(new TextEncoder().encode(proof.secret)).toHex(true));
-      return Response.json({ signatures: sign(body.outputs) });
+      const signatures = sign(body.outputs);
+      if (loseSwapAfter > 0 && --loseSwapAfter === 0) throw new Error("Simulated lost swap response");
+      return Response.json({ signatures });
     }
     if (path === "/v1/melt/bolt11") {
       const quote = quotes.get(body.quote)!;
@@ -63,7 +70,7 @@ function mockMint() {
     }
     throw new Error(`Unsupported fixture endpoint: ${path}`);
   };
-  return { mint, fetchImpl, loseNextMintResponse: () => { timeout = true; }, loseNextMeltResponse: () => { meltTimeout = true; } };
+  return { mint, fetchImpl, loseNextMintResponse: () => { timeout = true; }, loseNextMeltResponse: () => { meltTimeout = true; }, loseSecondSwapResponse: () => { loseSwapAfter = 2; }, swapCount: () => swapCalls };
 }
 
 test("mock mint funding, lost-response recovery, token transfer and broker payment use durable Coco operations", async () => {
@@ -125,5 +132,26 @@ test("mock mint funding, lost-response recovery, token transfer and broker payme
     await store.withWallet(botB, async wallet => {
       expect((await wallet.manager.ops.melt.refresh(ambiguousPayment)).state).toBe("finalized");
     });
+    fixture.loseSecondSwapResponse();
+    await expect(store.withWallet(botA, source => transferToBot(source, store, { recipient: botB, mint: fixture.mint, amount: "4" }))).rejects.toThrow();
+    let transferId = "";
+    await store.withWallet(botA, async wallet => {
+      const pending = pendingTransfers(wallet.database);
+      expect(pending).toHaveLength(1);
+      transferId = pending[0]!.id;
+      expect(pending[0]?.receiveId).toBeTruthy();
+      expect(JSON.stringify(pending)).not.toMatch(/proofs|token|secret/);
+    });
+    const swapsBeforeResume = fixture.swapCount();
+    const transfer = await store.withWallet(botA, source => transferToBot(source, store, { id: transferId }));
+    expect(transfer.state).toBe("completed");
+    expect(JSON.stringify(transfer)).not.toMatch(/proofs|token|secret/);
+    expect(fixture.swapCount()).toBe(swapsBeforeResume);
+    await store.withWallet(botA, async wallet => { expect(pendingTransfers(wallet.database)).toEqual([]); });
+    // Repeating resume must reuse the exact receive, never create new value.
+    await store.withWallet(botA, source => transferToBot(source, store, { id: transferId }));
+    expect(fixture.swapCount()).toBe(swapsBeforeResume);
+    await expect(store.withWallet(botA, source => transferToBot(source, store, { recipient: botA, mint: fixture.mint, amount: "1" }))).rejects.toThrow("another bot");
+
   } finally { globalThis.fetch = oldFetch; rmSync(root, { recursive: true, force: true }); }
 });

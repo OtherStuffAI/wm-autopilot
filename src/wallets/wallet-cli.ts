@@ -1,3 +1,4 @@
+import { transferToBot } from "./wallet-transfers.ts";
 import { existsSync, copyFileSync, chmodSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { BotWalletStore, type OpenBotWallet } from "./bot-wallet.ts";
@@ -16,6 +17,8 @@ const HELP = `Operator Cashu wallet (Bun + Coco). --bot <npub> required.
   mint --mint <url> --quote <id>       Prepare/execute paid funding quote
   send --mint <url> --amount <integer> --token-out <new-private-file>
   token-export --id <send-operation> --token-out <new-private-file>
+  transfer-to-bot --to-bot <npub> --mint <url> --amount <integer>
+  transfer-resume --id <transfer-id>   Reconcile a journaled bot transfer
   receive --token-file <private-file>  Persist and redeem token
   pay --mint <url> --invoice-file <file> --max-msats <integer>
   check --kind send|receive|mint|melt --id <operation>
@@ -112,6 +115,8 @@ async function command(wallet: OpenBotWallet, store: BotWalletStore, name: strin
     await Bun.write(resolve(out), manager.wallet.encodeToken(op.token));
     return { ...operationSummary(op), tokenFile: resolve(out) };
   }
+  if (name === "transfer-to-bot") return await transferToBot(wallet, store, { recipient: required(args, "to-bot"), mint: required(args, "mint"), amount: required(args, "amount") });
+  if (name === "transfer-resume") return await transferToBot(wallet, store, { id: required(args, "id") });
   if (name === "receive") {
     const token = readPrivate(resolve(required(args, "token-file"))).toString().trim();
     const decoded = await manager.wallet.decodeToken(token);

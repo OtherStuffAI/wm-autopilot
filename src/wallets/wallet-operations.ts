@@ -1,3 +1,4 @@
+import { pendingTransfers } from "./wallet-transfer-store.ts";
 import { Amount, type MintQuote, type MeltQuote, type SendOperation, type ReceiveOperation, type MintOperation, type MeltOperation } from "@cashu/coco-core";
 import type { OpenBotWallet } from "./bot-wallet.ts";
 
@@ -57,7 +58,7 @@ export async function walletStatus(wallet: OpenBotWallet) {
     Promise.all([manager.ops.melt.listInFlight(), manager.ops.melt.listPrepared()]).then(([active, prepared]) => [...active, ...prepared]),
     manager.quotes.mint.listPending(), manager.quotes.melt.listPending(),
   ]);
-  return { botNpub: config.botNpub, unit: config.unit, balance,
+  return { botNpub: config.botNpub, unit: config.unit, balance, transfers: pendingTransfers(wallet.database),
     pending: { send: send.map(operationSummary), receive: receive.map(operationSummary), mint: mint.map(operationSummary), melt: melt.map(operationSummary) },
     quotes: { mint: mintQuotes.map(q => quoteSummary(q)), melt: meltQuotes.map(q => quoteSummary(q)) },
   };

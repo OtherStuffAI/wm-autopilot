@@ -1,3 +1,5 @@
+import { transferToBot } from "./wallet-transfers.ts";
+import { pendingTransfers } from "./wallet-transfer-store.ts";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -111,4 +113,19 @@ test("CLI no-funds create/open/recover and consistent backup restore", async () 
 test("operation summaries never serialize tokens, input proofs, secrets or mint errors", () => {
   const op = { id: "fixture", state: "init" as const, mintUrl: mint, unit: "sat", amount: Amount.from(1), inputProofs: [], createdAt: 1, updatedAt: 2, error: "private-error", token: "private-token" };
   expect(JSON.stringify(operationSummary(op))).not.toMatch(/private|inputProof/);
+});
+
+
+test("bot transfer fails before creating a send when recipient is locked or unit differs", async () => {
+  const store = new BotWalletStore(root);
+  await store.withWallet(botA, async () => {}, "sat");
+  await store.withWallet(botB, async () => {}, "msat");
+  await store.withWallet(botB, async () => {
+    await expect(store.withWallet(botA, source => transferToBot(source, store, { recipient: botB, mint, amount: "1" }))).rejects.toThrow("locked");
+  });
+  await expect(store.withWallet(botA, source => transferToBot(source, store, { recipient: botB, mint, amount: "1" }))).rejects.toThrow("same unit");
+  await store.withWallet(botA, async wallet => {
+    expect(pendingTransfers(wallet.database)).toEqual([]);
+    expect(await wallet.manager.ops.send.listInFlight()).toEqual([]);
+  });
 });

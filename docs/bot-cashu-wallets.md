@@ -73,6 +73,9 @@ bun clis/cashu-wallet.ts fund-quote --bot <npub> --mint https://mint.example --a
 bun clis/cashu-wallet.ts fund-check --bot <npub> --mint https://mint.example --quote <quote-id>
 bun clis/cashu-wallet.ts mint --bot <npub> --mint https://mint.example --quote <quote-id>
 
+bun clis/cashu-wallet.ts transfer-to-bot --bot <sender-npub> --to-bot <recipient-npub> --mint https://mint.example --amount 100
+bun clis/cashu-wallet.ts transfer-resume --bot <sender-npub> --id <transfer-id>
+
 bun clis/cashu-wallet.ts send --bot <sender-npub> --mint https://mint.example --amount 100 --token-out /private/new-token.cashu
 bun clis/cashu-wallet.ts receive --bot <recipient-npub> --token-file /private/new-token.cashu
 bun clis/cashu-wallet.ts check --bot <sender-npub> --kind send --id <send-operation-id>
@@ -100,6 +103,24 @@ original file failed. It exports the same token, not new funds. It can still
 export a previously redeemed token; check state before using it. Never share a
 token in agent chat. Remove unneeded token files through an operator's secure
 storage policy after confirming redemption.
+
+`transfer-to-bot` is the simpler same-machine operator path: both wallets must
+already exist, use the same unit, and trust the mint. It locks both wallets before
+preparing a send, persists a transfer journal, and redeems the persisted token
+into the recipient without exporting it to a file or stdout. Output gives only
+transfer/send/receive IDs and public summaries. Mint fees can reduce the amount
+credited to the recipient. A failure does not make the transfer atomic across
+mints or databases; `pending` on the sender lists its durable transfer journal.
+Use `transfer-resume --id <transfer-id>` to reconcile that journal. Resume reuses
+the exact persisted send and recipient receive; it never blindly creates a new
+payment after an uncertain response. If a crash happened before the sender
+operation ID was journaled, it identifies the new matching operation relative
+to the recorded pre-operation IDs and refuses ambiguous matches. Avoid unrelated
+source-wallet mutations until the pending transfer is resolved. Missing or
+inconsistent operations require operator inspection. Back up **both** wallets
+after resolving transfers; restoring one wallet's stale snapshot cannot recreate
+the other wallet's received proofs. This command is operator-only; brokered
+agent transfers are not granted in this release.
 
 Routine JSON includes balance, public mint/unit, quote/operation identifiers,
 state and fee/amount summaries. It excludes seeds, proof secrets, token content,

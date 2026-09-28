@@ -1,3 +1,4 @@
+import { initializeWalletTransfers } from "./wallet-transfer-store.ts";
 import { WalletInputError } from "./wallet-errors.ts";
 import { existsSync, chmodSync } from "node:fs";
 import { join } from "node:path";
@@ -39,6 +40,7 @@ export class BotWalletStore {
       chmodSync(dbPath, 0o600);
       const repo = new SqliteRepositories({ database });
       await repo.init();
+      initializeWalletTransfers(database);
       const watchers: CocoConfig["watchers"] = {
         mintOperationWatcher: { disabled: true }, proofStateWatcher: { disabled: true }, meltQuoteWatcher: { disabled: true },
       };
