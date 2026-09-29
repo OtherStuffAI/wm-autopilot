@@ -65,6 +65,7 @@ import { scheduleSessionArchive, cancelPendingArchive } from "./storage/session-
 import { sessionArchiveStore } from "./storage/session-archive-store";
 import { cleanupStopNextActionSessions } from "./sessions/next-action-cleanup";
 import { shouldArchiveStoppedSession } from "./sessions/stopped-session-archive";
+import { recoverStoppedAutoSessionArchives } from "./sessions/stopped-session-recovery";
 import { isDirectChatSessionProtected } from "./agent-chat/direct-chat-lifecycle";
 import { chatInterceptStateStore } from "./agent-chat/chat-intercept-state-store";
 import { createFlightDeckTriggerResolver } from "./agent-chat/flightdeck-trigger-resolver";
@@ -3340,6 +3341,17 @@ const server = Bun.serve<WingmanWebSocketData>({
 
 // Wire up the request-IP resolver now that the server object exists.
 serverRef.current = server;
+
+// A stop can occur while an Agent Direct turn still protects its session. Once
+// the turn advances, retry the archive; also recover deferred stops after a restart.
+const recoverStoppedArchives = () => recoverStoppedAutoSessionArchives(
+  manager.listSessions(),
+  (sessionId) => isDirectChatSessionProtected(sessionId, chatInterceptStateStore, directChatTurnStore),
+  (sessionId) => scheduleSessionArchive(sessionId, manager),
+);
+recoverStoppedArchives();
+const stoppedArchiveRecoveryTimer = setInterval(recoverStoppedArchives, 60_000);
+stoppedArchiveRecoveryTimer.unref?.();
 
 
 const stopAllSessions = async () => {
