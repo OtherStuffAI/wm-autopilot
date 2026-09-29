@@ -44,6 +44,7 @@ import {
 } from "./pm2-wrapper";
 import { injectMcpConfig, cleanupMcpConfig } from "./mcp-injector";
 import { stopManagedSubprocess } from "./process-stop";
+import { waitForAgentApiLaunchReady } from "./agentapi-launch-readiness";
 import { buildWingmanIdentityEnv, loadWingmanInstanceIdentity } from "../identity/wingman-instance-identity";
 import { buildInheritedAgentEnvironment, sanitizeInjectedAgentEnvironment } from "./agent-environment";
 import { CODEX_PROVIDER_AUTH_ENV_KEYS } from "./codex-runtime-env";
@@ -1004,7 +1005,10 @@ export class ProcessManager {
         },
         recordUsage: this.buildRecordUsageCallback(session),
       });
-      if (transportRequiresEagerReadiness(agentTransport)) {
+      if (agentTransport === "agentapi") {
+        await waitForAgentApiLaunchReady(session.adapter, session.port, session.logs);
+        this.appendLog(session, `[manager] ${session.definition.label} AgentAPI ready on port ${session.port}`);
+      } else if (transportRequiresEagerReadiness(agentTransport)) {
         await session.adapter.waitForReady({ timeoutMs: 30_000 });
         this.appendLog(
           session,
@@ -1021,12 +1025,15 @@ export class ProcessManager {
           `botKey=${botKeyLookupMs}ms mcp=${mcpInjectMs}ms gitea=${giteaInjectMs}ms billing=${billingInjectMs}ms spawn=${spawnMs}ms`,
       );
     } catch (error) {
+      session.status = "error";
+      if (session.process && agentTransport === "agentapi") {
+        await stopManagedSubprocess(session.process).catch(() => {});
+      }
       if (session.tmuxSession && session.tmuxWindow) {
         await stopTmuxWindow(session.tmuxSession, session.tmuxWindow).catch(() => false);
         session.tmuxSession = undefined;
         session.tmuxWindow = undefined;
       }
-      session.status = "error";
       this.revokeSessionCapabilities?.(session.id);
       this.appendLog(session, `[manager] failed to launch session: ${(error as Error).message}`);
       this.releasePort(session.port);

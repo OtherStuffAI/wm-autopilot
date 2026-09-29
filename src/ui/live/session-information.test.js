@@ -46,6 +46,11 @@ describe("empty session information", () => {
       metadata: { agentTransport: "agentapi" },
     })?.agent).toBe("Codex (Agent API)");
     expect(buildEmptySessionInformation({
+      agent: "codex",
+      workingDirectory: "/repo",
+      metadata: { agentTransport: "codex-sdk" },
+    })?.agent).toBe("Codex (SDK)");
+    expect(buildEmptySessionInformation({
       agent: "claude",
       workingDirectory: "/repo",
       metadata: { agentTransport: "agentapi" },

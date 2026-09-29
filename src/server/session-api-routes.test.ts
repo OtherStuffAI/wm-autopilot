@@ -228,6 +228,38 @@ describe("handleSessionApi", () => {
     expect(explicitNpub).toBe("npub1owner");
   });
 
+  test("POST /api/sessions persists a pinned Codex SDK choice before reading messages", async () => {
+    const events: string[] = [];
+    let capturedMetadata: Record<string, unknown> | undefined;
+    const ctx = buildCtx({
+      manager: {
+        createSession: async (
+          _agent: string, _directory: string, _name?: string, _origin?: unknown,
+          _target?: string, _npub?: string, metadata?: Record<string, unknown>,
+        ) => {
+          events.push("ready");
+          capturedMetadata = metadata;
+          return { ...baseSession, metadata: { ...baseSession.metadata, ...metadata } };
+        },
+      } as any,
+      syncSessionMessages: async () => {
+        events.push("messages");
+        return [];
+      },
+    });
+    const url = new URL("http://localhost:3021/api/sessions");
+    const response = await handleSessionApi(new Request(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "codex", metadata: { agentTransport: "codex-sdk" } }),
+    }), url, "POST", makeAuth(), ctx);
+
+    expect(response?.status).toBe(201);
+    expect(capturedMetadata?.agentTransport).toBe("codex-sdk");
+    expect((await response!.json()).metadata.agentTransport).toBe("codex-sdk");
+    expect(events).toEqual(["ready", "messages"]);
+  });
+
   test("session creation endpoints reject absolute and escaping target files", async () => {
     const workingDirectory = await mkdtemp(join(tmpdir(), "wingman-session-target-"));
     tempPaths.push(workingDirectory);

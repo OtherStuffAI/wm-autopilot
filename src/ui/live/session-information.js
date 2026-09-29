@@ -1,19 +1,12 @@
 import { getSessionModelDisplay } from "../sessions/session-model-display.js";
+import { getSessionAgentLabel } from "../sessions/session-agent-label.js";
 
 function readText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
 export function buildEmptySessionInformation(session) {
-  const agent = readText(session?.agent).toLowerCase();
-  const transport = readText(session?.metadata?.agentTransport).toLowerCase();
-  const agentLabel = agent === "goose" && transport === "goose-acp"
-    ? "Goose (ACP)"
-    : agent === "codex" && transport === "codex-acp"
-      ? "Codex (ACP)"
-      : agent === "codex" && transport === "agentapi"
-        ? "Codex (Agent API)"
-        : null;
+  const agentLabel = getSessionAgentLabel(session);
   if (!agentLabel) {
     return null;
   }

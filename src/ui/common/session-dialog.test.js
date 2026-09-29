@@ -66,4 +66,29 @@ describe('session dialog model options', () => {
 
     expect(controller.collectValues().metadata).toEqual({ acpPermissionPolicy: 'ask' });
   });
+
+  test('pins Codex SDK for one launch and ignores the choice for other agents', () => {
+    const agentSelect = { value: 'codex', addEventListener: () => {} };
+    const transportSelect = { value: 'codex-sdk' };
+    const controller = createSessionDialogController({
+      agentSelect,
+      codexTransportSelect: transportSelect,
+      directoryInput: { value: '/tmp/project', addEventListener: () => {} },
+      directoryFavoritesSelect: { value: '', addEventListener: () => {} },
+      modelSelect: { value: '' },
+      sessionNameInput: { value: 'Transport test' },
+      onSubmit: () => {},
+      isAuthenticated: () => true,
+      getConfig: () => null,
+      getFallbackDirectory: () => '/tmp/project',
+    });
+    expect(controller.collectValues().metadata).toEqual({ agentTransport: 'codex-sdk' });
+    agentSelect.value = 'claude';
+    expect(controller.collectValues().metadata).toBeNull();
+    agentSelect.value = 'codex';
+    transportSelect.value = 'agentapi';
+    expect(controller.collectValues().metadata).toEqual({ agentTransport: 'agentapi' });
+    transportSelect.value = '';
+    expect(controller.collectValues().metadata).toBeNull();
+  });
 });

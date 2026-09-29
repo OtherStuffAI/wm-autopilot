@@ -1,4 +1,5 @@
 import { getSessionModelDisplay } from "../sessions/session-model-display.js";
+import { getSessionAgentLabel } from "../sessions/session-agent-label.js";
 import {
   HOME_SESSION_STATUS_ORDER,
   resolveHomeSessionStatus,
@@ -277,7 +278,7 @@ export function createSessionTable(orderedSessions, deps) {
       <td title="${escapeHtml(session.startedAt ?? "")}">${escapeHtml(formatSessionStartedAt(session.startedAt))}</td>
       <td title="${escapeHtml(session.lastUpdatedAt ?? "")}">${escapeHtml(formatSessionStartedAt(session.lastUpdatedAt))}</td>
       <td class="directory-cell"></td>
-      <td>${escapeHtml(session.agent)}</td>
+      <td>${escapeHtml(getSessionAgentLabel(session) ?? session.agent)}</td>
       <td class="model-cell"></td>
       <td class="session-status-cell">
         <span class="session-status" data-status="${escapeHtml(statusPresentation.key)}" title="${escapeHtml(statusPresentation.description)}" aria-label="${escapeHtml(statusPresentation.description)}">

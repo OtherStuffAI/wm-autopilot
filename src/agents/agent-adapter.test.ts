@@ -45,6 +45,8 @@ describe("Codex transport resolution", () => {
   test("honors a transport pinned on an existing session", () => {
     expect(resolveAgentTransport("codex", "agentapi")).toBe("agentapi");
     expect(resolveAgentTransport("codex", "codex-acp")).toBe("codex-acp");
+    expect(resolveAgentTransport("codex", "codex-sdk")).toBe("codex-sdk");
+    expect(resolveAdapterFactory("codex", "codex-sdk")(context).constructor.name).toBe("CodexAdapter");
   });
 
   test("does not apply a transport pinned for a different agent", () => {

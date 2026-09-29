@@ -84,6 +84,7 @@ describe("createStaticRouteHandler", () => {
       "/scheduler/form-support.js",
       "/sessions/actions-core.js",
       "/sessions/session-attention.js",
+      "/sessions/session-agent-label.js",
       "/sessions/session-completion-indicator.js",
       "/notifications/completion-sound.js",
       "/views/settings/completion-notifications-section.js",

@@ -43,6 +43,8 @@ export const createSessionDialogController = (options) => {
     targetFileInput,
     targetFileField,
     modelSelect: providedModelSelect,
+    codexTransportSelect,
+    codexTransportField,
     isAuthenticated,
     getConfig,
     getFavouriteDirectories,
@@ -185,6 +187,7 @@ export const createSessionDialogController = (options) => {
     if (acpPermissionPolicySelect) {
       acpPermissionPolicySelect.value = "";
     }
+    if (codexTransportSelect) codexTransportSelect.value = "";
     if (nextActionSelect) {
       nextActionSelect.value = "";
     }
@@ -234,6 +237,9 @@ export const createSessionDialogController = (options) => {
     if (acpPermissionPolicy) {
       metadata.acpPermissionPolicy = acpPermissionPolicy;
     }
+    if (agentId === "codex" && codexTransportSelect?.value) {
+      metadata.agentTransport = codexTransportSelect.value;
+    }
     if (nextAction) {
       metadata.nextAction = nextAction;
     }
@@ -254,6 +260,7 @@ export const createSessionDialogController = (options) => {
   };
 
   const updateModelOptions = () => {
+    if (codexTransportField) codexTransportField.hidden = agentSelect?.value !== "codex";
     if (!modelSelect) return;
     const agentId = (agentSelect?.value ?? "").trim().toLowerCase();
     const availableModels = getModelOptionsForAgent(getConfig?.(), agentId);

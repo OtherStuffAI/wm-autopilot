@@ -705,6 +705,8 @@ const sessionWriterModeCheckbox = document.getElementById("session-writer-mode")
 const sessionTargetFileInput = document.getElementById("session-target-file");
 const sessionTargetFileField = document.getElementById("session-target-file-field");
 const sessionModelSelect = document.getElementById("session-model");
+const sessionCodexTransportSelect = document.getElementById("session-codex-transport");
+const sessionCodexTransportField = document.getElementById("session-codex-transport-field");
 const directoryInput = document.getElementById("working-directory");
 const directorySuggestions = document.getElementById("directory-suggestions");
 const browseDirectoryButton = document.getElementById("browse-directory");
@@ -1629,6 +1631,8 @@ sessionDialogController = createSessionDialogController({
   targetFileInput: sessionTargetFileInput,
   targetFileField: sessionTargetFileField,
   modelSelect: sessionModelSelect,
+  codexTransportSelect: sessionCodexTransportSelect,
+  codexTransportField: sessionCodexTransportField,
   isAuthenticated: () => Boolean(state.identity.authenticated),
   getConfig: () => state.config,
   getFallbackDirectory: getSessionFallbackDirectory,

@@ -108,6 +108,15 @@
               Optional model override for the selected harness.
             </p>
           </div>
+          <div class="wm-session-dialog__field" id="session-codex-transport-field" hidden>
+            <label for="session-codex-transport">Codex connection</label>
+            <select id="session-codex-transport" aria-label="Codex connection" data-testid="session-codex-transport">
+              <option value="">Use configured default</option>
+              <option value="codex-sdk">Codex SDK</option>
+              <option value="agentapi">Agent API</option>
+            </select>
+            <p class="wm-session-dialog__hint">Applies to this session only.</p>
+          </div>
           <div class="wm-session-dialog__field">
             <label for="working-directory">Root Project Folder</label>
             <div class="working-directory-field">

@@ -55,4 +55,20 @@ describe("createSessionLauncher", () => {
       agent: "codex",
     });
   });
+
+  test("sends the selected Codex SDK transport in the create request", async () => {
+    const handleSessionStart = mock(async () => {});
+    globalThis.fetch = mock(async () => Response.json({ id: "sdk-session", agent: "codex" }));
+    const launchSession = createSessionLauncher({ handleSessionStart });
+    await launchSession("codex", "/tmp/project", "SDK session", null, {
+      metadata: { agentTransport: "codex-sdk" },
+    });
+
+    const request = globalThis.fetch.mock.calls[0];
+    expect(request[0]).toBe("/api/sessions");
+    expect(JSON.parse(request[1].body)).toMatchObject({
+      agent: "codex",
+      metadata: { agentTransport: "codex-sdk" },
+    });
+  });
 });
