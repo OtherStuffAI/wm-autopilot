@@ -18,9 +18,10 @@ const context: AdapterSessionContext = {
 };
 
 describe("Codex transport resolution", () => {
-  test("uses the native SDK for new Agent Direct and scheduled Codex work", () => {
+  test("uses the native SDK for automated Codex work", () => {
     expect(preferNativeCodexForAutomation("codex", "agentapi", undefined, "agent-chat")).toBe("codex-sdk");
     expect(preferNativeCodexForAutomation("codex", "agentapi", undefined, "scheduler")).toBe("codex-sdk");
+    expect(preferNativeCodexForAutomation("codex", "agentapi", undefined, "session-dispatch")).toBe("codex-sdk");
     expect(preferNativeCodexForAutomation("codex", "agentapi", undefined, "manual")).toBe("agentapi");
     expect(preferNativeCodexForAutomation("codex", "agentapi", "agentapi", "agent-chat")).toBe("agentapi");
     expect(preferNativeCodexForAutomation("codex", "codex-acp", undefined, "scheduler")).toBe("codex-acp");

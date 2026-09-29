@@ -224,7 +224,8 @@ export function preferNativeCodexForAutomation(
   // Automated turns need structured delivery; AgentAPI gates sends on Codex's
   // terminal layout, which changes independently of Autopilot.
   if (agent !== "codex" || transport !== "agentapi" || pinnedTransport) return transport;
-  return originType === "agent-chat" || originType === "scheduler" ? "codex-sdk" : transport;
+  return originType === "agent-chat" || originType === "scheduler" || originType === "session-dispatch"
+    ? "codex-sdk" : transport;
 }
 
 export function resolvePiTransport(acpEnabled: boolean): AgentTransport {
