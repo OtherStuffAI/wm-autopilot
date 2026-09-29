@@ -225,6 +225,21 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 500): Promise<voi
 }
 
 describe('Agent Direct Chat runtime', () => {
+  test('accepts a verified explicit self-mention without an instructor grant', async () => {
+    const f = fixture();
+    const agent = f.agentStore.getByAgentId('exampleAgent')!;
+    f.agentStore.save({ ...agent, instructorNpubs: ['npub1human'] });
+    const selfMention = f.message('m1', '@Example Agent start a tracked task', true, f.subscription.botNpub);
+
+    expect(await f.handle([selfMention], 'm1')).toEqual({ handled: true, reason: 'direct_chat_queued' });
+    await f.runtime.waitForIdle();
+    expect(f.creates).toHaveLength(1);
+
+    const unmentioned = f.message('m2', 'Progress update', false, f.subscription.botNpub);
+    expect(await f.handle([selfMention, unmentioned], 'm2')).toEqual({ handled: false, reason: 'not_activated' });
+    expect(f.creates).toHaveLength(1);
+  });
+
   test('denies invalid signatures and removed or wrong-agent grants before dispatch', async () => {
     const f = fixture({ addBuilder: true });
     const message = f.message('m1', '@Builder do this', { npub: 'npub1Builder' });

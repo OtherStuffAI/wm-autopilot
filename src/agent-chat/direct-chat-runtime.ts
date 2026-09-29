@@ -191,7 +191,10 @@ export class AgentDirectChatRuntime {
           input.instructionAuthorization.reason || 'invalid_instruction_signature');
         continue;
       }
-      if (!this.deps.agentStore.canInstruct(agent.agentId, input.instructionAuthorization.authorNpub)) {
+      const signedSelfMention = explicitlyMentioned
+        && eventMessage.userNpub === agent.botNpub
+        && input.instructionAuthorization.authorNpub === agent.botNpub;
+      if (!signedSelfMention && !this.deps.agentStore.canInstruct(agent.agentId, input.instructionAuthorization.authorNpub)) {
         this.recordAuthorizationSuppression(input, agent, eventMessage.messageId, 'instructor_not_allowed');
         continue;
       }
