@@ -161,7 +161,7 @@ import { AgentWorkSessionIdleRetention } from './agent-work/session-idle-retenti
 import { MemoryStore } from "./mcp/memory-store";
 import { userSettingsStore } from "./storage/user-settings-store";
 import { artifactsStore } from "./storage/artifacts-store";
-import { resumeRunningPipelineRuns } from "./pipelines/pipeline-api-routes";
+import { startPublicPipelineRuntime } from "./pipelines/public-call-runtime";
 import { type JsonObject, PipelineStore } from "./pipelines/pipeline-store";
 import { PipelineBindingStore } from "./pipelines/pipeline-binding-store";
 import { getPipelineDefinition, listLatestPipelineDefinitions } from "./pipelines/pipeline-loader";
@@ -2699,7 +2699,7 @@ new AgentActivityRecovery((request) => workspaceSubscriptionManager.resolveAgent
     }), withProfileIdentity: directChatProfileIdentityRunner })).start();
 agentDirectDeliveryReconciler.start();
 
-void resumeRunningPipelineRuns({
+const resultWebhooks = startPublicPipelineRuntime({
   store: pipelineStore,
   sessionApiContext,
   callbackOrigin: `http://127.0.0.1:${config.port}`,
@@ -2708,9 +2708,7 @@ void resumeRunningPipelineRuns({
     dispatchPipelineRuntime.loadRegistryForStoredRun({ run, definition, sessionApiContext }),
   ensureApiAccess,
   AccessActions,
-}, `http://127.0.0.1:${config.port}`).catch((error) => {
-  console.warn("[pipelines] failed to resume running pipeline runs:", error instanceof Error ? error.message : String(error));
-});
+}, wingmanInstanceIdentity, error => writeServerLog("ERROR", "[pipelines] public runtime failed", error instanceof Error ? error.message : String(error)));
 
 const docsApiContext: DocsApiContext = {
   resolveWorkspace,
@@ -2994,6 +2992,7 @@ const handleApi = createApiRouteHandler({
   },
   pipelineApiContext: {
     store: pipelineStore,
+    resultWebhooks,
     sessionApiContext,
     defaultAgent: config.defaultAgent,
     callbackOrigin: `http://127.0.0.1:${config.port}`,

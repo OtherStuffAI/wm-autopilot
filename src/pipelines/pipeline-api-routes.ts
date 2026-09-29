@@ -1,6 +1,11 @@
-import { readFile, realpath } from "node:fs/promises";
-import { createHash } from "node:crypto";
-import { basename, join, sep } from "node:path";
+import { join } from "node:path";
+import { handlePipelineIngress } from "./pipeline-ingress-routes";
+import { resumeStoredPipelineRun } from "./stored-run-resume";
+export { resumeStoredPipelineRun, resumeStoredErroredPipelineRun, resumeRunningPipelineRuns } from "./stored-run-resume";
+import { canAccessPipelineRun, serializeDefinitionSummary, serializeRunSummary, normaliseOptionalString, normalisePositiveInteger, readCancelReason, stopPipelineStepSessions, readAllowedPipelineFunctionSource } from "./pipeline-route-helpers";
+import { handlePublicPipelineCall } from "./public-call-routes";
+import { publicDelivery, runEnvelope, responseSteps } from "./public-call-contract";
+import type { ResultWebhookService } from "./result-webhook-service";
 import type { AccessAction } from "../auth/access-control";
 import type { RequestAuthContext } from "../auth/request-context";
 import { getEffectiveOwnerNpub } from "../auth/effective-owner";
@@ -25,15 +30,8 @@ import {
   nextVersionedFunctionPath,
   type PipelineDefinitionRecord,
 } from "./pipeline-loader";
-import {
-  acceptAgentCallback,
-  resumeDeclarativePipeline,
-  resumeErroredDeclarativePipeline,
-  runDeclarativePipeline,
-  startDeclarativePipeline,
-} from "./pipeline-runner";
 import type { FunctionRegistry } from "./declarative";
-import { type JsonObject, PipelineStore, type PipelineRunRecord, type PipelineRunSummary } from "./pipeline-store";
+import { PipelineStore, type PipelineRunRecord } from "./pipeline-store";
 import { startPipelineWizardSession } from "./pipeline-wizard";
 import { startPipelineAnalysisSession } from "./pipeline-analysis";
 import { startFlightDeckPipelineRun } from "./flightdeck-run-service";
@@ -45,6 +43,8 @@ type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEA
 export interface PipelineApiContext {
   spaceExplainService?: SpaceExplainService;
   store: PipelineStore;
+  resultWebhooks?: ResultWebhookService;
+  publicWaitClock?: { now: () => number; sleep: (ms: number) => Promise<void> };
   sessionApiContext: SessionApiContext;
   defaultAgent: string;
   callbackOrigin?: string;
@@ -59,9 +59,7 @@ export interface PipelineApiContext {
 }
 
 export async function handlePipelineApi(
-  request: Request,
-  url: URL,
-  method: HttpMethod,
+  request: Request, url: URL, method: HttpMethod,
   authContext: RequestAuthContext,
   ctx: PipelineApiContext,
 ): Promise<Response | null> {
@@ -69,69 +67,8 @@ export async function handlePipelineApi(
   const explanation = await handleSpaceExplainApi(request, url, authContext, ctx);
   if (explanation) return explanation;
 
-  const callbackMatch = pathname.match(/^\/api\/pipelines\/runs\/([^/]+)\/steps\/([^/]+)\/callback$/);
-  if (callbackMatch && method === "POST") {
-    const payload = await request.json().catch(() => null);
-    const result = await acceptAgentCallback({
-      store: ctx.store,
-      runId: decodeURIComponent(callbackMatch[1]!),
-      stepId: decodeURIComponent(callbackMatch[2]!),
-      token: request.headers.get("x-wingmen-pipeline-token") ?? url.searchParams.get("token"),
-      payload,
-    });
-    if (result.ok) {
-      const runId = decodeURIComponent(callbackMatch[1]!);
-      void resumeStoredPipelineRun(ctx, runId, ctx.callbackOrigin ?? url.origin).catch((error) => {
-        ctx.store.addEvent({
-          runId,
-          level: "error",
-          type: "run_resume_failed",
-          message: error instanceof Error ? error.message : String(error),
-        });
-      });
-    }
-    return Response.json(result.body, { status: result.status });
-  }
-
-  const httpTriggerMatch = pathname.match(/^\/api\/pipelines\/triggers\/http\/([^/]+)$/);
-  if (httpTriggerMatch && method === "POST") {
-    const triggerTokenAuthorized = isHttpPipelineTriggerTokenAuthorized(request);
-    if (!triggerTokenAuthorized) {
-      const denied = await ctx.ensureApiAccess(ctx.AccessActions.SessionsManage, request, url, authContext);
-      if (denied) return denied;
-    }
-    const key = decodeURIComponent(httpTriggerMatch[1]!);
-    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-    const submittedInput = body.input && typeof body.input === "object" && !Array.isArray(body.input)
-      ? body.input as JsonObject
-      : {};
-    const ownerNpub = triggerTokenAuthorized
-      ? normaliseOptionalString(body.ownerNpub)
-      : getEffectiveOwnerNpub(authContext);
-    const ownerAlias = triggerTokenAuthorized
-      ? normaliseOptionalString(body.ownerAlias)
-      : ownerNpub ? generateIdentityAlias(ownerNpub) : null;
-    const definition = await getHttpTriggerPipelineDefinition(key, ownerAlias);
-    if (!definition) return Response.json({ error: "Pipeline definition not found" }, { status: 404 });
-    const input = { ...(definition.spec.input ?? {}), ...submittedInput };
-    const functions = await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions);
-    const run = startDeclarativePipeline({
-      store: ctx.store,
-      sessionApiContext: ctx.sessionApiContext,
-      definition,
-      registry: functions.registry,
-      input,
-      ownerNpub,
-      ownerAlias,
-      callbackOrigin: ctx.callbackOrigin ?? url.origin,
-    });
-    return Response.json({
-      ok: true,
-      trigger: "http",
-      definition: serializeDefinitionSummary(definition),
-      run,
-    }, { status: 202 });
-  }
+  const ingress = await handlePipelineIngress(request, url, method, authContext, ctx);
+  if (ingress) return ingress;
 
   if (!pathname.startsWith("/api/pipelines")) return null;
 
@@ -222,68 +159,7 @@ export async function handlePipelineApi(
     const id = decodeURIComponent(definitionRunMatch[1]!);
     const definition = await getPipelineDefinition(id, ownerAlias);
     if (!definition) return Response.json({ error: "Pipeline definition not found" }, { status: 404 });
-    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-    const submittedInput = body.input && typeof body.input === "object" && !Array.isArray(body.input)
-      ? body.input as JsonObject
-      : {};
-    const isLearning = /^learning-(plan|question|lesson|assessment|recall)$/.test(definition.spec.name);
-    let learningKey: string | null = null;
-    if (isLearning) {
-      const allowed = new Set(['idempotencyKey', 'goal', 'concept']);
-      if (Object.keys(submittedInput).some(key => !allowed.has(key))) {
-        return Response.json({ error: 'Unsupported learning input', code: 'learning_input_denied' }, { status: 400 });
-      }
-      learningKey = typeof submittedInput.idempotencyKey === 'string' ? submittedInput.idempotencyKey.trim() : '';
-      if (!learningKey || learningKey.length > 200) return Response.json({ error: 'idempotencyKey required', code: 'idempotency_key_required' }, { status: 400 });
-      const inputHash = createHash('sha256').update(JSON.stringify(Object.keys(submittedInput).sort().map(key => [key, submittedInput[key]]))).digest('hex');
-      const reservation = ctx.store.reserveLearningRun(ownerNpub, definition.spec.name, learningKey, inputHash);
-      if (reservation.state === 'conflict') return Response.json({ error: 'Idempotency key reused with different input', code: 'idempotency_conflict' }, { status: 409 });
-      if (reservation.state === 'pending') return Response.json({ error: 'Learning run is being created', code: 'idempotency_pending' }, { status: 409 });
-      if (reservation.state === 'existing') {
-        const existing = ctx.store.getRun(reservation.runId!);
-        return Response.json({ run: existing, steps: [], replayed: true }, { status: 200 });
-      }
-    }
-    const towerContext = isLearning ? ctx.resolveLearningTowerContext?.({ authContext, ownerNpub }) : null;
-    if (isLearning && !towerContext) {
-      if (learningKey) ctx.store.releaseLearningRun(ownerNpub, definition.spec.name, learningKey);
-      return Response.json({ error: 'An authorized Flight Deck Tower binding is required', code: 'learning_tower_binding_required' }, { status: 403 });
-    }
-    const input = { ...(definition.spec.input ?? {}), ...submittedInput, ...(towerContext ?? {}) };
-    let functions;
-    try { functions = await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions); }
-    catch (error) {
-      if (learningKey) ctx.store.releaseLearningRun(ownerNpub, definition.spec.name, learningKey);
-      throw error;
-    }
-    const runnerInput = {
-      store: ctx.store,
-      sessionApiContext: ctx.sessionApiContext,
-      definition,
-      registry: functions.registry,
-      input,
-      ownerNpub,
-      ownerAlias,
-      callbackOrigin: ctx.callbackOrigin ?? url.origin,
-    };
-    if (url.searchParams.get("async") === "1") {
-      try {
-        const run = startDeclarativePipeline(runnerInput);
-        if (learningKey) ctx.store.bindLearningRun(ownerNpub, definition.spec.name, learningKey, run.id);
-        return Response.json({ run, steps: [] }, { status: 202 });
-      } catch (error) {
-        if (learningKey) ctx.store.releaseLearningRun(ownerNpub, definition.spec.name, learningKey);
-        throw error;
-      }
-    }
-    try {
-      const run = await runDeclarativePipeline(runnerInput);
-      if (learningKey) ctx.store.bindLearningRun(ownerNpub, definition.spec.name, learningKey, run.id);
-      return Response.json({ run, steps: ctx.store.listSteps(run.id) });
-    } catch (error) {
-      if (learningKey) ctx.store.releaseLearningRun(ownerNpub, definition.spec.name, learningKey);
-      throw error;
-    }
+    return handlePublicPipelineCall(request, url, authContext, ctx, definition, ownerNpub, ownerAlias);
   }
 
   const flightDeckRunMatch = pathname.match(/^\/api\/pipelines\/definitions\/([^/]+)\/flightdeck-runs$/);
@@ -415,7 +291,7 @@ export async function handlePipelineApi(
     return Response.json({
       ok: true,
       run: summary ? serializeRunSummary(summary, definitions) : reopened,
-      steps: ctx.store.listStepSummaries(id),
+      steps: responseSteps(ctx.store, id),
     }, { status: 202 });
   }
 
@@ -438,7 +314,7 @@ export async function handlePipelineApi(
     return Response.json({
       ok: true,
       run: summary ? serializeRunSummary(summary, definitions) : cancelled,
-      steps: ctx.store.listStepSummaries(id),
+      steps: responseSteps(ctx.store, id),
     });
   }
 
@@ -473,7 +349,7 @@ export async function handlePipelineApi(
       return Response.json({ error: "Pipeline run not found" }, { status: 404 });
     }
     const includePayload = url.searchParams.get("includePayload") === "1";
-    return Response.json({ steps: includePayload ? ctx.store.listSteps(run.id) : ctx.store.listStepSummaries(run.id) });
+    return Response.json({ steps: responseSteps(ctx.store, run.id, includePayload) });
   }
 
   const stepMatch = pathname.match(/^\/api\/pipelines\/runs\/([^/]+)\/steps\/([^/]+)$/);
@@ -484,11 +360,23 @@ export async function handlePipelineApi(
       return Response.json({ error: "Pipeline step not found" }, { status: 404 });
     }
     return Response.json({
-      step,
+      step: ctx.store.publicCalls.isPublic(run.id) ? { ...step, callbackToken: null } : step,
       events: ctx.store.listEventsForStep(step.id),
-      callbacks: ctx.store.listCallbacksForStep(step.id),
+      callbacks: ctx.store.publicCalls.isPublic(run.id) ? [] : ctx.store.listCallbacksForStep(step.id),
       previousSteps: ctx.store.listStepSummaries(run.id).filter((entry) => entry.stepIndex < step.stepIndex),
     });
+  }
+
+  if (pathname === "/api/pipelines/webhook-signer" && method === "GET") {
+    return Response.json({ pubkey: ctx.resultWebhooks?.pubkey ?? null, scheme: "NIP-98" });
+  }
+
+  const deliveryMatch = pathname.match(/^\/api\/pipelines\/runs\/([^/]+)\/delivery$/);
+  if (deliveryMatch && method === "GET") {
+    const run = ctx.store.getRun(decodeURIComponent(deliveryMatch[1]!));
+    if (!run || run.ownerNpub !== ownerNpub) return Response.json({ error: "Pipeline run not found" }, { status: 404 });
+    return Response.json({ ...runEnvelope(run), delivery: publicDelivery(ctx.store.publicCalls.getDelivery(run.id)) },
+      { headers: { "Cache-Control": "no-store" } });
   }
 
   const runMatch = pathname.match(/^\/api\/pipelines\/runs\/([^/]+)$/);
@@ -500,227 +388,11 @@ export async function handlePipelineApi(
       return Response.json({ error: "Pipeline run not found" }, { status: 404 });
     }
     const includePayload = url.searchParams.get("includePayload") === "1";
-    return Response.json({ run, steps: includePayload ? ctx.store.listSteps(run.id) : ctx.store.listStepSummaries(run.id) });
+    const fullRun = ctx.store.getRun(id)!;
+    return Response.json({ ...runEnvelope(fullRun), run,
+      steps: responseSteps(ctx.store, run.id, includePayload),
+    }, { headers: { "Cache-Control": "no-store" } });
   }
 
   return Response.json({ error: "Not found" }, { status: 404 });
-}
-
-export async function resumeStoredPipelineRun(
-  ctx: PipelineApiContext,
-  runId: string,
-  callbackOrigin: string,
-): Promise<void> {
-  const run = ctx.store.getRun(runId);
-  if (!run || run.status !== "running") return;
-  const ownerAlias = run.ownerAlias;
-  const definition = await getPipelineDefinition(run.definitionId, ownerAlias);
-  if (!definition) {
-    ctx.store.completeRun(run.id, "error", run.current, `Pipeline definition not found: ${run.definitionId}`);
-    return;
-  }
-  const registry = await ctx.loadRegistryForRun?.({ run, definition })
-    ?? (await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions)).registry;
-  const invocationContext = readFlightDeckInvocationContext(ctx.store, run.id);
-  await resumeDeclarativePipeline({
-    store: ctx.store,
-    sessionApiContext: ctx.sessionApiContext,
-    definition,
-    registry,
-    input: run.input,
-    ownerNpub: run.ownerNpub,
-    ownerAlias,
-    callbackOrigin,
-    initiatingAgentProfileId: invocationContext.initiatingAgentProfileId,
-    initiatingAgentNpub: invocationContext.initiatingAgentNpub,
-  }, run.id);
-}
-
-function readFlightDeckInvocationContext(store: PipelineStore, runId: string): {
-  initiatingAgentProfileId: string | null;
-  initiatingAgentNpub: string | null;
-} {
-  const event = store.listEvents(runId).find((entry) => entry.type === "flightdeck_invocation_context");
-  if (!event || typeof event.data_json !== "string") {
-    return { initiatingAgentProfileId: null, initiatingAgentNpub: null };
-  }
-  try {
-    const data = JSON.parse(event.data_json) as Record<string, unknown>;
-    return {
-      initiatingAgentProfileId: typeof data.initiatingAgentProfileId === "string" ? data.initiatingAgentProfileId : null,
-      initiatingAgentNpub: typeof data.initiatingAgentNpub === "string" ? data.initiatingAgentNpub : null,
-    };
-  } catch {
-    return { initiatingAgentProfileId: null, initiatingAgentNpub: null };
-  }
-}
-
-export async function resumeStoredErroredPipelineRun(
-  ctx: PipelineApiContext,
-  runId: string,
-  callbackOrigin: string,
-): Promise<PipelineRunRecord | null> {
-  const run = ctx.store.getRun(runId);
-  if (!run || run.status !== "error") return run;
-  const ownerAlias = run.ownerAlias;
-  const definition = await getPipelineDefinition(run.definitionId, ownerAlias);
-  if (!definition) {
-    const reopened = ctx.store.reopenErroredRun(run.id);
-    if (!reopened || reopened.status !== "running") return reopened;
-    return ctx.store.completeRun(run.id, "error", run.current, `Pipeline definition not found: ${run.definitionId}`);
-  }
-  const registry = await ctx.loadRegistryForRun?.({ run, definition })
-    ?? (await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions)).registry;
-  return await resumeErroredDeclarativePipeline({
-    store: ctx.store,
-    sessionApiContext: ctx.sessionApiContext,
-    definition,
-    registry,
-    input: run.input,
-    ownerNpub: run.ownerNpub,
-    ownerAlias,
-    callbackOrigin,
-  }, run.id);
-}
-
-export async function resumeRunningPipelineRuns(
-  ctx: PipelineApiContext,
-  callbackOrigin: string,
-): Promise<void> {
-  for (const run of ctx.store.listRunningRuns()) {
-    await resumeStoredPipelineRun(ctx, run.id, callbackOrigin);
-  }
-}
-
-function isHttpPipelineTriggerTokenAuthorized(request: Request): boolean {
-  const configured = process.env.WINGMEN_PIPELINE_HTTP_TRIGGER_TOKEN?.trim();
-  if (!configured) return process.env.WINGMEN_PIPELINE_HTTP_TRIGGER_ALLOW_UNAUTH === "1";
-  const authorization = request.headers.get("authorization") ?? "";
-  const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
-  const headerToken = request.headers.get("x-wingmen-pipeline-trigger-token")?.trim();
-  return bearer === configured || headerToken === configured;
-}
-
-async function getHttpTriggerPipelineDefinition(key: string, ownerAlias: string | null): Promise<PipelineDefinitionRecord | null> {
-  const definitions = await listPipelineDefinitions(ownerAlias);
-  return definitions.find((definition) =>
-    definition.id === key ||
-    definition.slug === key ||
-    definition.name === key ||
-    definition.spec.name === key
-  ) ?? null;
-}
-
-function normaliseOptionalString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function normalisePositiveInteger(value: unknown): number | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function readCancelReason(payload: unknown): string {
-  const reason = payload && typeof payload === "object" && !Array.isArray(payload)
-    ? (payload as Record<string, unknown>).reason
-    : null;
-  return typeof reason === "string" && reason.trim()
-    ? reason.trim()
-    : "Pipeline run stopped by user";
-}
-
-async function stopPipelineStepSessions(ctx: PipelineApiContext, sessionIds: Array<string | null>): Promise<void> {
-  const uniqueIds = [...new Set(sessionIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0))];
-  await Promise.all(uniqueIds.map(async (sessionId) => {
-    const stopped = await ctx.sessionApiContext.manager.stopSession(sessionId).catch(() => false);
-    if (stopped) {
-      ctx.sessionApiContext.scheduleSessionArchive(sessionId, ctx.sessionApiContext.manager);
-    }
-  }));
-}
-
-function serializeDefinitionSummary(definition: PipelineDefinitionRecord): JsonObject {
-  return {
-    id: definition.id,
-    slug: definition.slug,
-    name: definition.name,
-    description: typeof definition.spec.description === "string" ? definition.spec.description : "",
-    version: definition.spec.version ?? null,
-    supersedes: typeof definition.spec.supersedes === "string" ? definition.spec.supersedes : null,
-    default: definition.spec.default === true,
-    tags: normalizeTags(definition.spec.tags),
-    scope: definition.scope,
-    ownerAlias: definition.ownerAlias,
-    path: definition.path,
-    input: definition.spec.input ?? {},
-    steps: definition.spec.steps,
-  };
-}
-
-function canAccessPipelineRun(
-  run: Pick<PipelineRunRecord | PipelineRunSummary, "ownerNpub" | "scope" | "name">,
-  ownerNpub: string,
-  ctx: PipelineApiContext,
-): boolean {
-  if (run.ownerNpub === ownerNpub) return true;
-  if (/^learning-(plan|question|lesson|assessment|recall)$/.test(run.name)) return false;
-  return Boolean(ctx.sharedInstanceAccess && run.scope === "shared");
-}
-
-function serializeRunSummary(
-  run: PipelineRunSummary,
-  definitions: PipelineDefinitionRecord[],
-): JsonObject {
-  const definition = definitions.find((entry) => (
-    entry.id === run.definitionId
-    || entry.slug === run.definitionId
-    || entry.name === run.definitionId
-    || entry.path === run.definitionPath
-    || pipelineSupersedes(entry, run.definitionId)
-  ));
-  return {
-    ...run,
-    definitionSlug: definition?.slug ?? fallbackDefinitionSlug(run),
-    definitionDefault: definition?.spec.default === true,
-    tags: definition ? normalizeTags(definition.spec.tags) : [],
-  };
-}
-
-function pipelineSupersedes(definition: PipelineDefinitionRecord, id: string): boolean {
-  return typeof definition.spec.supersedes === "string" && definition.spec.supersedes === id;
-}
-
-function fallbackDefinitionSlug(run: PipelineRunSummary): string | null {
-  const fromPath = typeof run.definitionPath === "string" && run.definitionPath.trim()
-    ? basename(run.definitionPath.trim(), ".json")
-    : "";
-  if (fromPath) return fromPath;
-  const definitionId = typeof run.definitionId === "string" ? run.definitionId.trim() : "";
-  return definitionId || null;
-}
-
-function normalizeTags(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value
-    .map((entry) => typeof entry === "string" ? entry.trim().toLowerCase() : "")
-    .filter(Boolean))]
-    .sort();
-}
-
-async function readAllowedPipelineFunctionSource(path: string, ownerAlias: string, allowBuiltin: boolean): Promise<string> {
-  const allowedRoots = [
-    getSharedPipelineFunctionsDirectory(),
-    getUserPipelineFunctionsDirectory(ownerAlias),
-  ];
-  if (allowBuiltin) {
-    allowedRoots.push(join(process.cwd(), "src/pipelines"));
-  }
-  const realPath = await realpath(path);
-  const realRoots = await Promise.all(allowedRoots.map((root) => realpath(root).catch(() => null)));
-  const allowed = realRoots.some((root) => root && (realPath === root || realPath.startsWith(`${root}${sep}`)));
-  if (!allowed) {
-    throw new Error("Pipeline function source path is outside allowed roots");
-  }
-  return readFile(realPath, "utf8");
 }

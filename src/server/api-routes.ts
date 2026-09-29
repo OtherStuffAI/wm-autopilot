@@ -3,6 +3,7 @@
  * Extracted from server.ts to reduce file size.
  */
 
+import { handleApiDocs } from "../api-docs/routes";
 import { runWithRequestContext, type RequestAuthContext } from "../auth/request-context";
 import type { AccessAction } from "../auth/access-control";
 import type { WorkspaceScope } from "../workspaces/workspace-scope";
@@ -34,7 +35,8 @@ import {
 import { handleDelegationApi, type DelegationRoutesContext } from "./delegation-routes";
 import { handleOwnerSpaceApi } from "./owner-space-routes";
 import { handleWappsApi, type WappsApiContext } from "./wapps-api-routes";
-import { handlePipelineApi, type PipelineApiContext } from "../pipelines/pipeline-api-routes";
+import { handlePipelineHttp } from "./pipeline-http";
+import { type PipelineApiContext } from "../pipelines/pipeline-api-routes";
 import type { WorkspaceDelegationStore } from "../storage/workspace-delegation-store";
 import { getEffectiveOwnerNpub } from "../auth/effective-owner";
 import { handleSigningApi, type SigningApiContext } from "../signing/signing-api";
@@ -297,6 +299,8 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     };
 
     const pathname = url.pathname;
+    const apiDocsResponse = handleApiDocs(request, url);
+    if (apiDocsResponse) return apiDocsResponse;
     const workspaceScope = ctx.resolveWorkspace(authContext);
     const viewerIsAdmin = workspaceScope.isAdmin;
     const projectsFlag = ctx.resolveFeatureFlagStateForViewer(ctx.PROJECTS_FLAG_KEY, viewerIsAdmin, "on_admin");
@@ -446,12 +450,7 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     }
 
     if (pathname.startsWith("/api/pipelines") && ctx.pipelineApiContext) {
-      const pipelineApiContext = ctx.pipelineApiContext;
-      const pipelineAuthContext = await ctx.resolveNip98AuthContext(request, url, authContext);
-      const pipelineResponse = await runWithRequestContext(
-        pipelineAuthContext,
-        () => handlePipelineApi(request, url, method, pipelineAuthContext, pipelineApiContext),
-      );
+      const pipelineResponse = await handlePipelineHttp(request, url, authContext, ctx.pipelineApiContext, ctx.resolveNip98AuthContext, undefined, ctx.config.baseUrl);
       if (pipelineResponse) return pipelineResponse;
     }
 

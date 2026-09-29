@@ -81,13 +81,16 @@
     "pi-acp": "0.0.33",
     "pm2": "^7.0.3",
     "rxjs": "^7.8.2",
+    "swagger-ui-dist": "5.33.0",
     "ws": "^8.21.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "12.1.0",
     "@biomejs/biome": "^2.5.14",
     "@cashu/cashu-ts": "5.0.0-rc.4",
     "@types/bun": "latest",
+    "ajv": "8.20.0",
     "node-gyp": "^13.0.2"
   },
   "peerDependencies": {

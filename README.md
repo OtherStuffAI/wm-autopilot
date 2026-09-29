@@ -375,3 +375,10 @@ Direct Bun spawning remains the default. PM2 and tmux agent spawn modes are comp
   repository-local `tmp/docs-local/` directory, which Git ignores.
 - When a local design is implemented, write or update an as-built guide rather
   than publishing the planning document.
+
+## Public pipeline API
+
+See [Calling Autopilot pipelines](docs/public-pipeline-api.md) for wait, polling,
+signed result webhooks, NIP-98 signing and browser CORS configuration. Hosted
+Swagger UI is available at `/api/docs`, with OpenAPI JSON at
+`/api/docs/openapi.json`.

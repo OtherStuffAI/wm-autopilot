@@ -1,3 +1,4 @@
+import { PublicCallStore } from "./public-call-store";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
@@ -132,6 +133,7 @@ function tryDecodeJsonObject(value: unknown): JsonObject {
 
 export class PipelineStore {
   readonly path: string;
+  readonly publicCalls: PublicCallStore;
   private readonly db: Database;
 
   constructor(path = process.env.WINGMEN_PIPELINES_DB || DEFAULT_DB_PATH) {
@@ -141,6 +143,7 @@ export class PipelineStore {
     this.db.run("PRAGMA journal_mode = WAL");
     this.db.run("PRAGMA foreign_keys = ON");
     this.migrate();
+    this.publicCalls = new PublicCallStore(this.db);
   }
 
   reserveLearningRun(ownerNpub: string, definitionId: string, key: string, inputHash: string): { state: 'new' | 'pending' | 'existing' | 'conflict'; runId?: string } {
@@ -503,7 +506,7 @@ export class PipelineStore {
       filters[0] = "status IN ('ok', 'cancelled', 'skipped', 'needs_input', 'error')";
     }
     if (options.ownerNpub) {
-      filters.push("(owner_npub = ? OR (? = 1 AND scope = 'shared' AND name NOT LIKE 'learning-%'))");
+      filters.push("(owner_npub = ? OR (? = 1 AND scope = 'shared' AND name NOT LIKE 'learning-%' AND NOT EXISTS (SELECT 1 FROM pipeline_public_calls c WHERE c.run_id = pipeline_runs.id)))");
       args.push(options.ownerNpub, options.includeShared ? 1 : 0);
     }
     if (options.definitionId) {
