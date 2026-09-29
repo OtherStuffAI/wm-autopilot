@@ -63,7 +63,7 @@ The legacy `activation: mention_then_continue` configuration value remains accep
 - malformed or multi-party DMs, DMs missing this agent, and messages authored outside the declared pair require a canonical mention;
 - an existing binding or live session never makes an otherwise ineligible message actionable;
 - target agent or its mapped workspace/session key authored the message without canonically mentioning the target: ignore;
-- an explicit canonical self-mention is actionable, so an agent can deliberately dispatch a new turn to itself;
+- an explicit canonical self-mention is eligible to dispatch a new turn when the agent's own npub has an instructor grant in its profile;
 - another agent alone is mentioned: do not activate this agent;
 - Agent Direct Chat is disabled on the channel: ignore;
 - duplicate event/message: acknowledge internally without another turn.
@@ -426,7 +426,7 @@ The existing native session/process-manager implementation is the MVP adapter. A
 2. Literal mention-like text without canonical mention metadata does not activate an unbound thread.
 3. The bootstrap prompt contains channel context, source coordinates, complete ordered history, and a clearly marked next message.
 4. A completed final response produces exactly one Tower message authored by the workspace agent, with Markdown preserved verbatim.
-5. An unmentioned workspace-agent-authored message event does not retrigger the workspace agent; an explicit canonical self-mention does.
+5. An unmentioned workspace-agent-authored message event does not retrigger the workspace agent; an explicit canonical self-mention does when the agent's own npub has an instructor grant.
 6. A later unmentioned shared-channel reply is ignored and leaves the existing session binding intact; a later mentioned reply reuses it.
 7. An unmentioned message from the sole other participant in a strict two-party DM creates or reuses the session.
 8. A strict two-party DM works without `metadata.agent_chat`; its legacy `metadata.basePrompt` supplies context when no Direct context prompt exists.
