@@ -4,8 +4,10 @@ Autopilot hosts its API reference at `/api/docs` and machine-readable OpenAPI at
 `/api/docs/openapi.json`. URLs use the current installation origin. The maintained
 specification is generated from `src/api-docs/openapi.ts`, schemas and the curated
 endpoint catalog; tests parse it and check examples, routes and authority metadata.
-Swagger UI assets are served locally. Interactive requests require a NIP-07 browser
-signer; each request gets a fresh signature. No private key is sent to Autopilot.
+The reference, OpenAPI definition and locally served Swagger UI assets are public;
+reading them requires no signer, including on mobile browsers. Protected interactive
+requests require a NIP-07 browser signer; each request gets a fresh signature,
+including identical retries within one second. No private key is sent to Autopilot.
 
 ## One start endpoint, three modes
 

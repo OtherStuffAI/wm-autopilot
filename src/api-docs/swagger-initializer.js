@@ -1,15 +1,28 @@
 /* Every interactive request signs its exact final URL and serialized body. */
+const publicDocsPaths = new Set([
+  "/api/docs",
+  "/api/docs/openapi.json",
+  "/api/docs/swagger-ui-bundle.js",
+  "/api/docs/swagger-ui.css",
+  "/api/docs/swagger-initializer.js",
+]);
+
 window.addEventListener("load", () => {
   window.SwaggerUIBundle({
     url: "/api/docs/openapi.json", dom_id: "#swagger-ui", deepLinking: true,
     validatorUrl: null, persistAuthorization: false,
     requestInterceptor: async request => {
       const target = new URL(request.url, window.location.origin);
-      if (target.pathname.startsWith("/api/docs/") && request.method === "GET") return request;
       if (target.origin !== window.location.origin) throw new Error("Interactive API calls must use this Autopilot origin");
+      // Swagger's spec loader omits method; Fetch defaults it to GET.
+      const method = (request.method ?? "GET").toUpperCase();
+      request.method = method;
+      request.url = target.href;
+      if (publicDocsPaths.has(target.pathname) && (method === "GET" || method === "HEAD")) return request;
       request.credentials = "omit";
       if (!window.nostr?.signEvent) throw new Error("Enable a NIP-07 browser signer to sign each API request");
-      const tags = [["u", target.href], ["method", request.method.toUpperCase()]];
+      // Distinguish identical retries within one second for replay protection.
+      const tags = [["u", target.href], ["method", method], ["nonce", crypto.randomUUID()]];
       const body = request.body ?? "";
       if (typeof body !== "string") throw new Error("Interactive signing requires a serialized text body");
       if (body.length) {
