@@ -58,6 +58,7 @@ export function createSessionRuntimeActions(deps) {
     resumeNativeSessionAction,
     showToast,
     postSessionMessageApi,
+    interruptSessionApi,
     updateIdentityState,
     addToPromptQueue,
     updateAgentStatusIndicators,
@@ -387,13 +388,22 @@ export function createSessionRuntimeActions(deps) {
     if (!session || !action || typeof action.sequence !== "string") {
       return;
     }
+    const interruptsCodex = action.id === "terminal-esc" && session.metadata?.agentTransport === "codex-sdk";
     try {
+      if (interruptsCodex) {
+        await interruptSessionApi(sessionId);
+        showToast("Interrupted Codex turn");
+        return;
+      }
       await postSessionMessage(sessionId, action.sequence, "raw");
       showToast(`Sent ${action.toastLabel}`);
       await fetchLogs(sessionId);
     } catch (error) {
       console.error(`Failed to send control command (${action.toastLabel})`, error);
-      showToast(`Failed to send ${action.toastLabel}`, { variant: "error" });
+      const message = interruptsCodex
+        ? (error instanceof Error && error.message ? error.message : "Failed to interrupt Codex turn")
+        : `Failed to send ${action.toastLabel}`;
+      showToast(message, { variant: "error" });
     }
   }
 

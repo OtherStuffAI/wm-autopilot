@@ -19,6 +19,7 @@ describe("session runtime actions", () => {
   let refreshLiveTabsBar;
   let syncMenuTabs;
   let postSessionMessageApi;
+  let interruptSessionApi;
   let addToPromptQueue;
   let updateAgentStatusIndicators;
   let isSessionBusy;
@@ -49,6 +50,7 @@ describe("session runtime actions", () => {
       syncMenuTabs,
       showToast,
       postSessionMessageApi,
+      interruptSessionApi,
       updateIdentityState: mock(() => {}),
       isSessionBusy,
       addToPromptQueue,
@@ -82,6 +84,7 @@ describe("session runtime actions", () => {
     refreshLiveTabsBar = mock(() => {});
     syncMenuTabs = mock(() => {});
     postSessionMessageApi = mock(async () => ({}));
+    interruptSessionApi = mock(async () => ({ interrupted: true }));
     addToPromptQueue = mock(async () => false);
     updateAgentStatusIndicators = mock(() => {});
     isSessionBusy = mock(() => false);
@@ -454,5 +457,30 @@ describe("session runtime actions", () => {
     expect(state.messageDrafts.get("session-1")).toBe("");
     expect(result).toEqual({ sent: false, queued: true, busy: true });
     expect(showToast).not.toHaveBeenCalledWith("Agent working", expect.anything());
+  });
+
+  test("Escape interrupts a Codex SDK turn through the session API", async () => {
+    sessions = [{ id: "session-1", metadata: { agentTransport: "codex-sdk" } }];
+    const actions = buildActions();
+
+    await actions.sendControlCommand("session-1", {
+      id: "terminal-esc", toastLabel: "Esc", sequence: "\u001b",
+    });
+
+    expect(interruptSessionApi).toHaveBeenCalledWith("session-1");
+    expect(postSessionMessageApi).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith("Interrupted Codex turn");
+  });
+
+  test("Escape keeps terminal input for Agent API sessions", async () => {
+    sessions = [{ id: "session-1", metadata: { agentTransport: "agentapi" } }];
+    const actions = buildActions();
+
+    await actions.sendControlCommand("session-1", {
+      id: "terminal-esc", toastLabel: "Esc", sequence: "\u001b",
+    });
+
+    expect(postSessionMessageApi).toHaveBeenCalledWith("session-1", "\u001b", "raw");
+    expect(interruptSessionApi).not.toHaveBeenCalled();
   });
 });

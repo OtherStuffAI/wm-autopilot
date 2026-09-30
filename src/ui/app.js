@@ -116,6 +116,7 @@ import {
   fetchSessionApi,
   bulkCloseStaleAutoSessionsApi,
   postSessionMessageApi,
+  interruptSessionApi,
   setPinnedArtifactApi,
   updateSessionMetadataApi,
 } from "./services/sessions.js";
@@ -1716,6 +1717,7 @@ const sessionRuntimeActions = createSessionRuntimeActions({
   openTextPromptDialog,
   showToast,
   postSessionMessageApi,
+  interruptSessionApi,
   updateIdentityState,
   isSessionBusy: (...args) => isSessionBusy(...args),
   addToPromptQueue: (...args) => addToPromptQueue(...args),

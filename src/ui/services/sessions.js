@@ -281,6 +281,17 @@ export async function postSessionMessageApi(sessionId, content, type = "user") {
   return body ?? {};
 }
 
+export async function interruptSessionApi(sessionId) {
+  const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/interrupt`, {
+    method: "POST",
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body?.error || response.statusText || "Failed to interrupt agent");
+  }
+  return body;
+}
+
 /**
  * Fetches the prompt queue for a session.
  * @param {string} sessionId - The session ID
