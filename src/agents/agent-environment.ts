@@ -52,6 +52,27 @@ export const FORBIDDEN_AGENT_ENV_KEYS = new Set([
   "CASHU_AUTH_TOKEN",
 ]);
 
+export const CLAUDE_OAUTH_TOKEN_ENV_KEY = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/**
+ * Give subscription-billed Claude sessions a long-lived OAuth token so they do
+ * not depend on the macOS Keychain, which differs between GUI and SSH logins.
+ * Credits sessions authenticate through the billing proxy and must never
+ * carry the subscription token.
+ */
+export function applyClaudeSubscriptionAuth(
+  env: Record<string, string> | undefined,
+  options: { agent: string; billingMode: "credits" | "subscription"; oauthToken: string | null },
+): Record<string, string> {
+  const next = { ...env };
+  delete next[CLAUDE_OAUTH_TOKEN_ENV_KEY];
+  const token = options.oauthToken?.trim();
+  if (options.agent === "claude" && options.billingMode === "subscription" && token) {
+    next[CLAUDE_OAUTH_TOKEN_ENV_KEY] = token;
+  }
+  return next;
+}
+
 export function buildInheritedAgentEnvironment(
   parentEnv: Record<string, string | undefined>,
 ): Record<string, string> {

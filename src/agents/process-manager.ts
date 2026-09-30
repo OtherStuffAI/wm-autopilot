@@ -46,7 +46,12 @@ import { injectMcpConfig, cleanupMcpConfig } from "./mcp-injector";
 import { stopManagedSubprocess } from "./process-stop";
 import { waitForAgentApiLaunchReady } from "./agentapi-launch-readiness";
 import { buildWingmanIdentityEnv, loadWingmanInstanceIdentity } from "../identity/wingman-instance-identity";
-import { buildInheritedAgentEnvironment, sanitizeInjectedAgentEnvironment } from "./agent-environment";
+import {
+  applyClaudeSubscriptionAuth,
+  buildInheritedAgentEnvironment,
+  CLAUDE_OAUTH_TOKEN_ENV_KEY,
+  sanitizeInjectedAgentEnvironment,
+} from "./agent-environment";
 import { CODEX_PROVIDER_AUTH_ENV_KEYS } from "./codex-runtime-env";
 import { BROKER_KEY_NOT_PROVISIONED } from "../signing/broker-key-vault";
 import { parseAllowedHosts, pickAgentHost, normaliseHostForUrl, waitForAgentReady } from "./agent-client";
@@ -934,6 +939,23 @@ export class ProcessManager {
       this.appendLog(
         session,
         `[manager] billing launch setup failed (fallback subscription): ${(billingError as Error).message}`,
+      );
+    }
+
+    session.definition = {
+      ...session.definition,
+      env: applyClaudeSubscriptionAuth(session.definition.env, {
+        agent,
+        billingMode: session.metadata.billingMode === "credits" ? "credits" : "subscription",
+        oauthToken: agent === "claude" ? instanceSettingsService.get("agents.claude_oauth_token") : null,
+      }),
+    };
+    if (agent === "claude") {
+      this.appendLog(
+        session,
+        session.definition.env?.[CLAUDE_OAUTH_TOKEN_ENV_KEY]
+          ? "[manager] Claude auth: configured OAuth token"
+          : "[manager] Claude auth: local Claude login (no OAuth token configured)",
       );
     }
 

@@ -364,6 +364,20 @@ export const INSTANCE_SETTING_DEFINITIONS: InstanceSettingDefinition[] = [
     compatibilityEnvName: "CLAUDE_CLI",
   },
   {
+    // No compatibilityEnvName: exporting this into the Autopilot process env
+    // would leak it to every PM2 child. It is injected per Claude session only.
+    key: "agents.claude_oauth_token",
+    label: "Claude OAuth Token",
+    description: "Long-lived Claude subscription token from `claude setup-token`, used by managed Claude sessions instead of the macOS Keychain.",
+    category: "agents",
+    type: "secret",
+    envAliases: ["CLAUDE_CODE_OAUTH_TOKEN", "WINGMAN_CLAUDE_CODE_OAUTH_TOKEN"],
+    secret: true,
+    autoImport: true,
+    requiresRestart: false,
+    cleanupAllowed: true,
+  },
+  {
     key: "agents.goose_cli",
     label: "Goose CLI",
     description: "Path or command used to launch Goose.",

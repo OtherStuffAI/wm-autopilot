@@ -286,6 +286,39 @@ describe("agent ecosystem config concurrency", () => {
     }
   });
 
+  test("passes only the injected Claude OAuth token to subscription Claude sessions", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-pm2-claude-token-"));
+    try {
+      const base = makeSessionConfig(dir, 4);
+      const options = createAgentPm2StartOptions({
+        ...base,
+        agent: "claude",
+        billingMode: "subscription",
+        envOverride: { CLAUDE_CODE_OAUTH_TOKEN: "session-token" },
+        config: {
+          agents: {
+            claude: {
+              label: "Claude",
+              command: () => ["agentapi", "server", "--port", "4704", "--", "claude"],
+            },
+          },
+        } as unknown as WingmanConfig,
+      });
+
+      expect(options.filterEnv).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+      expect(options.env?.WINGMAN_LOCKED_CLAUDE_CODE_OAUTH_TOKEN).toBe("session-token");
+      // Any inherited copy is unset first, then the per-session value is restored.
+      const script = options.args[1] ?? "";
+      const unsetIndex = script.search(/unset [^;]*CLAUDE_CODE_OAUTH_TOKEN/);
+      const exportIndex = script.indexOf('export CLAUDE_CODE_OAUTH_TOKEN="$WINGMAN_LOCKED_CLAUDE_CODE_OAUTH_TOKEN"');
+      expect(unsetIndex).toBeGreaterThanOrEqual(0);
+      expect(exportIndex).toBeGreaterThan(unsetIndex);
+      expect(script).not.toContain("session-token");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("rejects executable ecosystem configuration instead of evaluating it", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ecosystem-untrusted-"));
     const path = getEcosystemPath(dir, false);
