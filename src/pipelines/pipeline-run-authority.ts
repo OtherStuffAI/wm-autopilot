@@ -19,6 +19,7 @@ export function assertPipelineAncestorsRunning(store: PipelineStore, runId: stri
   let parent = store.composition.parent(runId);
   while (parent) {
     if (store.getRun(parent.parentRunId)?.status !== "running") throw new Error("Parent pipeline is no longer running");
+    if (Date.now() >= parent.deadline) throw new Error("Child pipeline timeout");
     parent = store.composition.parent(parent.parentRunId);
   }
 }

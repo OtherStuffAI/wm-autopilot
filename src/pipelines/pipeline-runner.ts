@@ -165,6 +165,7 @@ async function executeDeclarativePipeline(input: PipelineRunnerInput, runId: str
       store.updateRunProgress(runId, current, cursor);
     }
 
+    assertPipelineAncestorsRunning(store, runId);
     const completed = store.completeRun(runId, "ok", current);
     input.onRunCompleted?.(completed);
     return completed;
@@ -225,6 +226,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
   trackActive?: boolean;
 }): Promise<{ current: JsonObject; jumpTo?: number }> {
   const { store, registry, step } = input;
+  assertPipelineAncestorsRunning(store, input.runId);
   throwIfRunCancelled(store, input.runId);
   const stepName = input.namePrefix ? `${input.namePrefix} / ${step.name}` : step.name;
   if (!shouldRunStep(input.current, step.when)) {
@@ -269,6 +271,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     const result = await fn(step.function === "flightdeck.returnToThread"
       ? { ...selected, pipelineRunId: input.runId }
       : selected);
+    assertPipelineAncestorsRunning(store, input.runId);
     throwIfRunCancelled(store, input.runId);
     assertObject(result, `step ${stepName} result`);
     const current = assignOutput(input.current, result, step.assign);

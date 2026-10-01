@@ -281,6 +281,56 @@ test("late synchronous completion enforces deadline for fail and record_error", 
   }
 });
 
+test.each(["async", "sync"] as const)("expired %s child cannot dispatch code, agent or child steps", async mode => {
+  for (const next of [
+    { name: "side-effect", type: "code", function: "sideEffect" },
+    { name: "agent-effect", type: "agent", prompt: "Must not dispatch" },
+    { ...call("grandchild"), name: "nested-effect" },
+  ] as DeclarativeStep[]) {
+    let called = false;
+    const run = await runDeclarativePipeline(runner(
+      definition("p", [call("child", { timeoutMs: 5 })]),
+      [definition("child", [echo, next]), definition("grandchild", [echo])],
+      {
+        echo: async () => {
+          if (mode === "async") await Bun.sleep(15);
+          else { const until = Date.now() + 15; while (Date.now() < until) {} }
+          return { late: true };
+        },
+        sideEffect: () => { called = true; return {}; },
+      },
+    ));
+    expect(called).toBe(false);
+    expect(run.status).toBe("error");
+    expect(run.error).toContain("timeout");
+    const childId = store.composition.children(run.id)[0]!.childRunId;
+    expect(store.listSteps(childId).map(step => step.name)).toEqual(["echo"]);
+    expect(store.composition.children(childId)).toHaveLength(0);
+    expect(store.getRun(childId)!.result).not.toEqual({ late: true });
+  }
+});
+
+test("outer ancestor deadline limits a grandchild with a longer local timeout", async () => {
+  let called = false;
+  const run = await runDeclarativePipeline(runner(
+    definition("p", [call("child", { timeoutMs: 10 })]),
+    [definition("child", [call("grandchild", { timeoutMs: 1000 })]),
+      definition("grandchild", [echo, { name: "side-effect", type: "code", function: "sideEffect" }])],
+    {
+      echo: async () => { await Bun.sleep(15); return { late: true }; },
+      sideEffect: () => { called = true; return {}; },
+    },
+  ));
+  expect(called).toBe(false);
+  expect(run.status).toBe("error");
+  expect(run.error).toContain("timeout");
+  const childId = store.composition.children(run.id)[0]!.childRunId;
+  const grandchildId = store.composition.children(childId)[0]!.childRunId;
+  expect(store.getRun(grandchildId)!.status).toBe("error");
+  expect(store.getRun(grandchildId)!.error).toBe("Child pipeline timeout");
+  expect(store.listSteps(grandchildId).map(step => step.name)).toEqual(["echo"]);
+});
+
 test("recovery accepts on-time completion even when parent resumes after deadline", async () => {
   const { p, c, parentDef } = storedWait();
   store.completeRun(c.id, "ok", { onTime: true });
