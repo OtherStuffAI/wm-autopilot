@@ -21,6 +21,9 @@ export function buildPipelineStepMetadata(step: DeclarativeStep, options: {
 }
 
 function buildExecutorMetadata(step: DeclarativeStep): JsonObject {
+  if (step.type === "pipeline") {
+    return { kind: "pipeline", target: step.pipeline, version: step.version ?? null, timeoutMs: step.timeoutMs ?? null, failurePolicy: step.failurePolicy ?? "fail" };
+  }
   if (step.type === "code") {
     return compactObject({
       kind: "function",

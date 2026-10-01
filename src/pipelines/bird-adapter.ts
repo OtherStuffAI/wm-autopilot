@@ -1,7 +1,13 @@
+import { isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import type { JsonObject } from "./pipeline-store";
 
-export const BIRD_EXECUTABLE = "/opt/homebrew/bin/bird";
+export const BIRD_EXECUTABLE = "bird";
+export function birdExecutable(env: Record<string, string | undefined> = process.env): string {
+  const path = env.BIRD_EXECUTABLE?.trim() || BIRD_EXECUTABLE;
+  if (path !== "bird" && (!isAbsolute(path) || /[\x00-\x1f]/.test(path))) throw new Error("invalid_bird_executable");
+  return path;
+}
 export const BIRD_LIMITS = { executions: 3, elapsedMs: 60_000, cliTimeoutMs: 12_000, outputBytes: 1_000_000, requestChars: 2_000, modelRequests: 6 };
 export type BirdOperation = "following" | "for_you" | "user_tweets" | "search" | "mentions";
 export interface BirdAction { operation: BirdOperation; count: number; handle?: string; query?: string; cursor?: string }
@@ -34,11 +40,11 @@ export function birdArgv(action: BirdAction): string[] {
   // End option parsing before every untrusted positional value.
   if (action.operation === "search") args.push("--", action.query!);
   if (action.operation === "user_tweets") args.push("--", action.handle!);
-  return [BIRD_EXECUTABLE, "--timeout", "10000", "--cookie-timeout", "3000", ...args];
+  return [birdExecutable(), "--timeout", "10000", "--cookie-timeout", "3000", ...args];
 }
 
 export function birdEnvironment(env: Record<string, string | undefined> = process.env): Record<string, string> {
-  const result: Record<string, string> = { HOME: homedir(), PATH: "/opt/homebrew/bin:/usr/bin:/bin", NO_COLOR: "1" };
+  const result: Record<string, string> = { HOME: homedir(), PATH: env.PATH || "/usr/local/bin:/usr/bin:/bin", NO_COLOR: "1" };
   for (const key of ["AUTH_TOKEN", "CT0", "TMPDIR"]) if (env[key]) result[key] = env[key]!;
   return result;
 }

@@ -1,6 +1,6 @@
 import type { AgentRuntimeStatus } from "../types/agent-status";
 import type { SessionApiContext } from "../server/session-api-routes";
-import type { PipelineStatus, PipelineStore } from "./pipeline-store";
+import type { PipelineStatus, PipelineStore, PipelineStepRecord } from "./pipeline-store";
 
 export const PIPELINE_AGENT_SUCCESS_GRACE_MS = 60_000;
 const PIPELINE_AGENT_GRACE_POLL_MS = 250;
@@ -137,4 +137,13 @@ async function readRuntimeStatus(
   if (!adapter) return ctx.manager.getSession(sessionId)?.agentRuntimeStatus ?? null;
   const timeoutMs = Math.max(1, Math.min(750, remainingMs));
   return await adapter.fetchStatus(timeoutMs).catch(() => null);
+}
+
+/** A callback may have arrived while this runner was down but its agent is still live. */
+export async function finalizeRecoveredPipelineAgentSession(input: {
+  ctx: SessionApiContext; store: PipelineStore; runId: string; step: PipelineStepRecord;
+}): Promise<void> {
+  const sessionId = input.step.wingmanSessionId;
+  if (!sessionId || !input.ctx.manager.getSession(sessionId)) return;
+  await finalizePipelineAgentSession({ ...input, stepId: input.step.id, sessionId, callbackStatus: input.step.status });
 }

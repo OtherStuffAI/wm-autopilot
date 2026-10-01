@@ -1,8 +1,10 @@
+import { cancelPipelineTree } from "./child-pipeline";
+import { rootPipelineRunId, assertPipelineAncestorsRunning } from "./pipeline-run-authority";
 import { join } from "node:path";
 import { handlePipelineIngress } from "./pipeline-ingress-routes";
 import { resumeStoredPipelineRun } from "./stored-run-resume";
 export { resumeStoredPipelineRun, resumeStoredErroredPipelineRun, resumeRunningPipelineRuns } from "./stored-run-resume";
-import { canAccessPipelineRun, serializeDefinitionSummary, serializeRunSummary, normaliseOptionalString, normalisePositiveInteger, readCancelReason, stopPipelineStepSessions, readAllowedPipelineFunctionSource } from "./pipeline-route-helpers";
+import { canAccessPipelineRun, serializeDefinitionSummary, serializeRunSummary, normaliseOptionalString, normalisePositiveInteger, readCancelReason, readAllowedPipelineFunctionSource } from "./pipeline-route-helpers";
 import { handlePublicPipelineCall } from "./public-call-routes";
 import { publicDelivery, runEnvelope, responseSteps } from "./public-call-contract";
 import type { ResultWebhookService } from "./result-webhook-service";
@@ -274,6 +276,8 @@ export async function handlePipelineApi(
     if (run.status !== "error") {
       return Response.json({ error: "Only errored pipeline runs can be resumed from failure", run }, { status: 409 });
     }
+    try { assertPipelineAncestorsRunning(ctx.store, id); }
+    catch (error) { return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 409 }); }
     const reopened = ctx.store.reopenErroredRun(id);
     if (!reopened || reopened.status !== "running") {
       return Response.json({ error: "Pipeline run could not be reopened", run: reopened }, { status: 409 });
@@ -305,10 +309,9 @@ export async function handlePipelineApi(
     if (run.status !== "running") {
       return Response.json({ error: "Only running pipeline runs can be stopped", run }, { status: 409 });
     }
-    const runningSteps = ctx.store.listSteps(id).filter((step) => step.status === "running" || step.status === "queued");
     const reason = readCancelReason(await request.json().catch(() => null));
-    const cancelled = ctx.store.cancelRun(id, reason);
-    await stopPipelineStepSessions(ctx, runningSteps.map((step) => step.wingmanSessionId));
+    await cancelPipelineTree(ctx.store, ctx.sessionApiContext, id, reason);
+    const cancelled = ctx.store.getRun(id);
     const summary = ctx.store.getRunSummary(id);
     const definitions = await listLatestPipelineDefinitions(ownerAlias);
     return Response.json({
@@ -360,9 +363,9 @@ export async function handlePipelineApi(
       return Response.json({ error: "Pipeline step not found" }, { status: 404 });
     }
     return Response.json({
-      step: ctx.store.publicCalls.isPublic(run.id) ? { ...step, callbackToken: null } : step,
+      step: ctx.store.publicCalls.isPublic(rootPipelineRunId(ctx.store, run.id)) ? { ...step, callbackToken: null } : step,
       events: ctx.store.listEventsForStep(step.id),
-      callbacks: ctx.store.publicCalls.isPublic(run.id) ? [] : ctx.store.listCallbacksForStep(step.id),
+      callbacks: ctx.store.publicCalls.isPublic(rootPipelineRunId(ctx.store, run.id)) ? [] : ctx.store.listCallbacksForStep(step.id),
       previousSteps: ctx.store.listStepSummaries(run.id).filter((entry) => entry.stepIndex < step.stepIndex),
     });
   }
@@ -390,6 +393,12 @@ export async function handlePipelineApi(
     const includePayload = url.searchParams.get("includePayload") === "1";
     const fullRun = ctx.store.getRun(id)!;
     return Response.json({ ...runEnvelope(fullRun), run,
+      composition: {
+        parent: ctx.store.composition.parent(id),
+        children: ctx.store.composition.children(id),
+        definitionHash: ctx.store.composition.snapshot(id)?.hash ?? null,
+        definitionVersion: ctx.store.composition.snapshot(id)?.definition.spec.version ?? null,
+      },
       steps: responseSteps(ctx.store, run.id, includePayload),
     }, { headers: { "Cache-Control": "no-store" } });
   }

@@ -1,3 +1,4 @@
+import { runtimeFunctionHash } from "./pipeline-function-pins";
 import { readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -142,6 +143,8 @@ async function loadFunctionFile(input: {
         hash,
       };
     }
+    const helperHash = (mod.default as unknown as Record<symbol, unknown>)[runtimeFunctionHash];
+    if (typeof helperHash === "string") hash = createHash("sha256").update(`${hash}:${helperHash}`).digest("hex");
     input.registry[name] = async (stepInput: JsonObject): Promise<JsonObject> => {
       const result = await (mod.default as (value: JsonObject) => unknown | Promise<unknown>)(stepInput);
       if (!result || typeof result !== "object" || Array.isArray(result)) {
@@ -149,6 +152,7 @@ async function loadFunctionFile(input: {
       }
       return result as JsonObject;
     };
+    Object.defineProperty(input.registry[name], runtimeFunctionHash, { value: hash });
     return {
       name,
       description,

@@ -15,13 +15,13 @@ export function isActivePipelineRunStatus(status) {
 export async function getCachedRunDetail(runId) {
   if (!runId) return null;
   const cached = await pipelinesDb.runDetails.get(runId).catch(() => null);
-  if (!cached || isActivePipelineRunStatus(cached.status)) return null;
+  if (!cached || isActivePipelineRunStatus(cached.status) || !cached.payload?.run?.input) return null;
   return cached.payload ?? null;
 }
 
 export async function cacheRunDetail(payload) {
   const run = payload?.run;
-  if (!run?.id || isActivePipelineRunStatus(run.status)) return;
+  if (!run?.id) throw new Error("Pipeline run response is missing its ID");
   await pipelinesDb.runDetails.put({
     id: run.id,
     status: run.status,
@@ -34,4 +34,10 @@ export async function cacheRunDetail(payload) {
 export async function clearCachedRunDetail(runId) {
   if (!runId) return;
   await pipelinesDb.runDetails.delete(runId).catch(() => undefined);
+}
+
+export async function getStoredRunDetail(runId) {
+  const cached = await pipelinesDb.runDetails.get(runId);
+  if (!cached?.payload) throw new Error("Pipeline run was not persisted in IndexedDB");
+  return cached.payload;
 }

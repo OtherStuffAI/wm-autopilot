@@ -1,3 +1,4 @@
+import { rootPipelineRunId } from "./pipeline-run-authority";
 import { readFile, realpath } from "node:fs/promises";
 import { basename, join, sep } from "node:path";
 import type { PipelineApiContext } from "./pipeline-api-routes";
@@ -75,6 +76,11 @@ export function canAccessPipelineRun(
   ownerNpub: string,
   ctx: PipelineApiContext,
 ): boolean {
+  const rootId = rootPipelineRunId(ctx.store, run.id);
+  if (rootId !== run.id) {
+    const root = ctx.store.getRun(rootId);
+    return Boolean(root && canAccessPipelineRun(root, ownerNpub, ctx));
+  }
   if (run.ownerNpub === ownerNpub) return true;
   if (ctx.store.publicCalls.isPublic(run.id)) return false;
   if (/^learning-(plan|question|lesson|assessment|recall)$/.test(run.name)) return false;

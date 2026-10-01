@@ -1,3 +1,4 @@
+import { renderPipelineComposition } from "./child-run-links.js";
 import {
   RUN_FILTERS,
   collectTags,
@@ -171,6 +172,7 @@ function renderRunDetail(state) {
           <span class="wm-pipeline-status-chip" data-status="${escapeAttribute(run.status)}">${escapeHtml(statusLabel(run.status))}</span>
         </div>
       </header>
+      ${renderPipelineComposition(state.selectedRun.composition)}
       <dl class="wm-pipeline-facts">
         <div><dt>Started</dt><dd>${escapeHtml(formatDateTime(run.startedAt ?? run.started_at))}</dd></div>
         <div><dt>Completed</dt><dd>${escapeHtml(formatDateTime(run.completedAt ?? run.completed_at))}</dd></div>

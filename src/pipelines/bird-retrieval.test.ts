@@ -8,7 +8,7 @@ import type { JsonObject } from "./pipeline-store";
 import { PipelineStore } from "./pipeline-store";
 import { runDeclarativePipeline } from "./pipeline-runner";
 import { birdRetrievalFunctions, prepareBirdRetrieval, executeBirdDecision } from "./bird-retrieval";
-import { birdArgv, birdEnvironment, parseBirdPage, executeBird, BIRD_LIMITS } from "./bird-adapter";
+import { birdArgv, birdEnvironment, parseBirdPage, executeBird, BIRD_LIMITS, birdExecutable } from "./bird-adapter";
 import type { BirdAction, BirdExecutor } from "./bird-adapter";
 
 const nativeFetch = globalThis.fetch;
@@ -49,7 +49,7 @@ test("real runner chooses and executes once; exact results and usage preserved",
 });
 test("clarifies ambiguous source without CLI", async () => {
   const { state, calls } = await compose("Get the last 20 tweets", [answers("clarify")], async () => { throw new Error("must_not_execute"); });
-  expect(state.verdict).toBe("needs_clarification"); expect(state.attempt).toBe(0); expect(calls).toBe(1);
+  expect(state.verdict).toBe("needs_clarification"); expect(state.attempt).toBe(0); expect(calls).toBe(0);
 });
 test("missing handles and queries clarify; invalid counts avoid even model calls", async () => {
   for (const [request, action] of [["Get 20 user tweets", "user_tweets"], ["Search 20 tweets", "search"]]) {
@@ -105,7 +105,7 @@ test("few records with no cursor yields truthful partial", async () => {
 test("shell injection and option injection stay positional argv; env excludes identity secrets", () => {
   const query = "--auth-token $(touch /tmp/pwned); `echo bad`";
   const argv = birdArgv({ operation: "search", count: 2, query });
-  expect(argv.slice(-2)).toEqual(["--", query]); expect(argv[0]).toBe("/opt/homebrew/bin/bird");
+  expect(argv.slice(-2)).toEqual(["--", query]); expect(argv[0]).toBe(process.env.BIRD_EXECUTABLE || "bird");
   expect(() => birdArgv({ operation: "user_tweets", count: 2, handle: "alice;id" })).toThrow("invalid_handle");
   expect(() => birdArgv({ operation: "following", count: 2, query: "unexpected" })).toThrow("unexpected_query");
   expect(() => birdArgv({ operation: "tweet" as never, count: 2 })).toThrow("operation_not_allowed");
@@ -175,4 +175,14 @@ test("real adapter kills child on timeout and streamed output overflow", async (
       expect(killed).toBe(true);
     } finally { mock.mockRestore(); }
   }
+});
+
+
+test("executable configuration is server-owned, portable and excludes caller command overrides", () => {
+  expect(birdExecutable({})).toBe("bird");
+  expect(birdExecutable({ BIRD_EXECUTABLE: "/usr/local/bin/bird" })).toBe("/usr/local/bin/bird");
+  expect(() => birdExecutable({ BIRD_EXECUTABLE: "./caller-script" })).toThrow("invalid_bird_executable");
+  expect(() => birdExecutable({ BIRD_EXECUTABLE: "/bin/bird\nother" })).toThrow("invalid_bird_executable");
+  expect(birdEnvironment({ PATH: "/trusted/bin", PRIVATE_KEY: "secret", OPENROUTER_API_KEY: "secret" })).toMatchObject({ PATH: "/trusted/bin" });
+  expect(JSON.stringify(birdEnvironment({ PRIVATE_KEY: "secret" }))).not.toContain("secret");
 });

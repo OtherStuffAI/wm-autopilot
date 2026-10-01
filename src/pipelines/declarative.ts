@@ -51,6 +51,20 @@ export type DeclarativeStep =
       name: string;
       description?: string;
       display?: StepDisplaySpec;
+      type: "pipeline";
+      pipeline: string;
+      version?: string | number;
+      input?: SelectorSpec;
+      assign?: string;
+      when?: EqualsCondition;
+      timeoutMs?: number;
+      failurePolicy?: "fail" | "record_error";
+    }
+  | {
+      id?: string;
+      name: string;
+      description?: string;
+      display?: StepDisplaySpec;
       type: "block";
       block: "memory.graphContext" | "jev.rerankCandidates" | "flightdeck.sendDirectMessage" | "flightdeck.threadInvocation" | "flightdeck.returnToThread";
       input?: SelectorSpec;
@@ -133,7 +147,7 @@ export type DeclarativeStep =
       agentStartupRetryBackoffMs?: number | string;
       itemKey?: string;
       itemInput?: SelectorSpec;
-      step: Exclude<DeclarativeStep, { type: "parallel" | "loop" | "block" }>;
+      step: Exclude<DeclarativeStep, { type: "parallel" | "loop" | "block" | "pipeline" }>;
       input?: SelectorSpec;
       assign?: string;
       when?: EqualsCondition;

@@ -1,3 +1,4 @@
+import { rootPipelineRunId } from "../pipelines/pipeline-run-authority";
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
 import { flightDeckDocumentBase } from "../agent-chat/flightdeck-document-base";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
@@ -1226,6 +1227,8 @@ function resolveFlightDeckMcpContext(
   if (!session) return jsonError("Caller session not found", 404);
   const runId = resolveFlightDeckRunId(session);
   const run = runId && deps.pipelineStore ? deps.pipelineStore.getRun(runId) : null;
+  const coordinationRun = runId && deps.pipelineStore
+    ? deps.pipelineStore.getRun(rootPipelineRunId(deps.pipelineStore, runId)) : null;
   const binding = deps.documentDirectStore?.getBySession(sessionId) ?? null;
   const metadata = session.metadata ?? { AGENT: false, billingMode: 'subscription' };
   const towerServiceNpub = asString(metadata.flightdeckTowerServiceNpub);
@@ -1258,7 +1261,7 @@ function resolveFlightDeckMcpContext(
     runtime: { mode: 'direct_chat' },
     agent: { botNpub: directAgentNpub, agentId: asString(metadata.agentChatAgentId) },
   } : null;
-  const root = asObject(run?.current ?? run?.input ?? (binding ? {
+  const root = asObject(coordinationRun?.current ?? coordinationRun?.input ?? (binding ? {
     workspace: {
       subscriptionId: binding.subscriptionId,
       workspaceId: binding.workspaceId,

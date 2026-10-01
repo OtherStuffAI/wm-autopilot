@@ -1,3 +1,4 @@
+import { PipelineCompositionStore } from "./pipeline-composition-store";
 import { PublicCallStore } from "./public-call-store";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { dirname, resolve } from "node:path";
@@ -5,7 +6,7 @@ import { mkdirSync } from "node:fs";
 
 export type JsonObject = Record<string, unknown>;
 export type PipelineScope = "shared" | "user";
-export type StepKind = "code" | "agent" | "classifier" | "loop" | "block" | "parallel";
+export type StepKind = "code" | "agent" | "classifier" | "loop" | "block" | "parallel" | "pipeline";
 export type PipelineStatus = "queued" | "running" | "ok" | "needs_input" | "error" | "skipped" | "cancelled";
 
 export interface PipelineRunRecord {
@@ -134,6 +135,7 @@ function tryDecodeJsonObject(value: unknown): JsonObject {
 export class PipelineStore {
   readonly path: string;
   readonly publicCalls: PublicCallStore;
+  readonly composition: PipelineCompositionStore;
   private readonly db: Database;
 
   constructor(path = process.env.WINGMEN_PIPELINES_DB || DEFAULT_DB_PATH) {
@@ -144,6 +146,7 @@ export class PipelineStore {
     this.db.run("PRAGMA foreign_keys = ON");
     this.migrate();
     this.publicCalls = new PublicCallStore(this.db);
+    this.composition = new PipelineCompositionStore(this.db);
   }
 
   reserveLearningRun(ownerNpub: string, definitionId: string, key: string, inputHash: string): { state: 'new' | 'pending' | 'existing' | 'conflict'; runId?: string } {
@@ -198,7 +201,7 @@ export class PipelineStore {
 
   completeRun(id: string, status: PipelineStatus, result: JsonObject | null, error?: string | null): PipelineRunRecord {
     this.db.run(
-      `UPDATE pipeline_runs SET status = ?, result_json = ?, error = ?, active_step_id = NULL, completed_at = ? WHERE id = ?`,
+      `UPDATE pipeline_runs SET status = ?, result_json = ?, error = ?, active_step_id = NULL, completed_at = ? WHERE id = ? AND status = 'running'`,
       [status, result ? encodeJson(result) : null, error ?? null, now(), id],
     );
     return this.getRun(id)!;
@@ -207,6 +210,7 @@ export class PipelineStore {
   cancelRun(id: string, reason = "Pipeline run cancelled"): PipelineRunRecord | null {
     const run = this.getRun(id);
     if (!run || run.status !== "running") return run;
+    for (const child of this.composition.children(id)) this.cancelRun(child.childRunId, reason);
     const completedAt = now();
     const runningSteps = this.listSteps(id).filter((step) => step.status === "running" || step.status === "queued");
     this.db.transaction(() => {
@@ -345,7 +349,7 @@ export class PipelineStore {
     this.db.run(
       `UPDATE pipeline_steps
        SET status = ?, result_json = ?, output_json = COALESCE(?, output_json), error = ?, wingman_session_id = COALESCE(?, wingman_session_id), completed_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND status != 'cancelled'`,
       [
         input.status,
         input.result ? encodeJson(input.result) : null,

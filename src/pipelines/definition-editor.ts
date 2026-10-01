@@ -1,3 +1,4 @@
+import { validateChildPipelineSteps } from "./child-pipeline";
 import { writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import type { DeclarativePipeline, DeclarativeStep } from "./declarative";
@@ -52,6 +53,7 @@ function buildEditedDefinition(
   } else {
     delete spec.description;
   }
+  validateChildPipelineSteps(spec);
   return spec;
 }
 

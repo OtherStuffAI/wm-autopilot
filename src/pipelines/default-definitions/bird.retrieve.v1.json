@@ -14,7 +14,7 @@
     {
       "name": "prepare",
       "type": "code",
-      "function": "bird.prepare",
+      "function": "bird.prepare.v1",
       "input": {
         "pick": {
           "request": "$.request"
@@ -62,7 +62,7 @@
         {
           "name": "action-state",
           "type": "code",
-          "function": "bird.modelState",
+          "function": "bird.modelState.v1",
           "input": {
             "pick": {
               "state": "$.retrieval"
@@ -194,7 +194,7 @@
         {
           "name": "execute",
           "type": "code",
-          "function": "bird.executeDecision",
+          "function": "bird.executeDecision.v1",
           "input": {
             "pick": {
               "state": "$.retrieval",
@@ -247,7 +247,7 @@
         {
           "name": "evidence-state",
           "type": "code",
-          "function": "bird.modelState",
+          "function": "bird.modelState.v1",
           "input": {
             "pick": {
               "state": "$.retrieval"
@@ -338,7 +338,7 @@
         {
           "name": "check",
           "type": "code",
-          "function": "bird.checkEvidence",
+          "function": "bird.checkEvidence.v1",
           "input": {
             "pick": {
               "state": "$.retrieval",

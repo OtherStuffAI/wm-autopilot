@@ -1,3 +1,4 @@
+import { renderPipelineRunLink } from "./child-run-links.js";
 import {
   escapeAttribute,
   escapeHtml,
@@ -135,6 +136,7 @@ function renderStepCard(state, run, step, options) {
             <small>${escapeHtml(formatStepMeta(step, dataSize))}</small>
           </div>
           <div class="wm-pipeline-step-card-actions">
+            ${renderPipelineRunLink(step.childRunId, "Open child run")}
             <span class="wm-pipeline-status-chip" data-status="${escapeAttribute(step.status)}">${escapeHtml(statusLabel(step.status))}</span>
             <button
               type="button"

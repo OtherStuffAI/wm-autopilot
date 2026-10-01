@@ -2,7 +2,7 @@ import {
   cacheRunDetail,
   clearCachedRunDetail,
   getCachedRunDetail,
-  isActivePipelineRunStatus,
+  getStoredRunDetail,
 } from "./db.js";
 
 export async function fetchPipelineRoot() {
@@ -167,14 +167,8 @@ export async function fetchPipelineRun(id, options = {}) {
   const res = await fetch(`/api/pipelines/runs/${encodeURIComponent(id)}${query ? `?${query}` : ""}`, { credentials: "include" });
   if (!res.ok) throw new Error(`Failed to fetch pipeline run: ${res.status}`);
   const payload = await res.json();
-  if (includeRunPayload) {
-    if (isActivePipelineRunStatus(payload?.run?.status)) {
-      await clearCachedRunDetail(id);
-    } else {
-      await cacheRunDetail(payload);
-    }
-  }
-  return payload;
+  await cacheRunDetail(payload);
+  return await getStoredRunDetail(id);
 }
 
 export async function fetchPipelineStep(runId, stepId) {

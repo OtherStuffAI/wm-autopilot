@@ -608,3 +608,20 @@ describe("wingman-api Flight Deck helpers", () => {
     expect(body.items).toHaveLength(5);
   });
 });
+
+test("child pipeline agents inherit root Flight Deck context instead of mapped input authority", async () => {
+  const store = new PipelineStore(join(tmpdir(), `child-mcp-${randomUUID()}.sqlite`));
+  const p = store.createRun({ definitionId: "parent", name: "parent", scope: "user", input: {
+    workspace: { workspaceId: "trusted-workspace", backendBaseUrl: "https://trusted-tower", sourceAppNpub: "npub1app" },
+    chat: { channelId: "trusted-channel", threadId: "trusted-thread" }, runtime: { mode: "flightdeck_pg" }, agent: { botNpub: "npub1trusted" } } });
+  const ps = store.createStep({ runId: p.id, stepIndex: 0, name: "child", kind: "pipeline", input: {} });
+  const c = store.createRun({ definitionId: "child", name: "child", scope: "user", input: { workspace: { workspaceId: "spoofed" }, chat: { threadId: "spoofed" }, agent: { botNpub: "npub1spoofed" } } });
+  store.composition.link({ parentRunId: p.id, parentStepId: ps.id, childRunId: c.id, deadline: Date.now() + 1000 });
+  const sessions = new Map([["child-agent", buildSession({ id: "child-agent", metadata: { AGENT: true, flowRunId: c.id } })]]);
+  const handler = createWingmanMcpApiHandler(makeDeps(sessions, { pipelineStore: store }));
+  const url = new URL("http://localhost/api/mcp/wingman/flightdeck");
+  const response = await handler(new Request(url, { method: "POST", body: JSON.stringify({ sessionId: "child-agent", action: "context" }) }), url, "POST");
+  const body = await response!.json();
+  expect(body.runId).toBe(c.id); expect(body.workspace.workspaceId).toBe("trusted-workspace");
+  expect(body.chat).toMatchObject({ channelId: "trusted-channel", threadId: "trusted-thread" }); expect(body.bot.npub).toBe("npub1trusted");
+});

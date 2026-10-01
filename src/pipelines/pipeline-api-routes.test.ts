@@ -487,3 +487,41 @@ describe("pipeline run API visibility", () => {
     expect(body.error).toContain("Only running");
   });
 });
+
+test("child run API exposes pinned composition, inherits access and propagates cancellation", async () => {
+  const store = makeStore();
+  const p = store.createRun({ definitionId: "parent", name: "parent", ownerNpub: "npub1viewer", ownerAlias: "viewer", scope: "user", input: {} });
+  const ps = store.createStep({ runId: p.id, stepIndex: 0, name: "child", kind: "pipeline", input: {} });
+  const c = store.createRun({ definitionId: "child", name: "child", ownerNpub: "npub1viewer", ownerAlias: "viewer", scope: "shared", input: {} });
+  store.composition.pin(c.id, { id: "child", slug: "child", name: "child", scope: "shared", ownerAlias: null, path: "child.json", spec: { name: "child", version: 3, steps: [] } }, {});
+  store.composition.link({ parentRunId: p.id, parentStepId: ps.id, childRunId: c.id, deadline: Date.now() + 1000 });
+  const cs = store.createStep({ runId: c.id, stepIndex: 0, name: "agent", kind: "agent", input: {} }); store.setStepSession(cs.id, "nested-agent-session");
+  const stoppedSessions: string[] = [];
+  const ctx = makeContext(store, true, { stoppedSessions });
+  expect((await handleGet(`/api/pipelines/runs/${c.id}`, ctx, "npub1stranger")).status).toBe(404);
+  const detail = await (await handleGet(`/api/pipelines/runs/${c.id}`, ctx)).json();
+  expect(detail.composition).toMatchObject({ definitionVersion: 3, parent: { parentRunId: p.id, parentStepId: ps.id } });
+  expect(detail.composition.definitionHash).toHaveLength(64);
+  const parent = await (await handleGet(`/api/pipelines/runs/${p.id}`, ctx)).json();
+  expect(parent.steps[0].childRunId).toBe(c.id);
+  expect((await handlePost(`/api/pipelines/runs/${p.id}/cancel`, ctx)).status).toBe(200);
+  expect(store.getRun(c.id)!.status).toBe("cancelled"); expect(stoppedSessions).toEqual(["nested-agent-session"]);
+});
+
+test("child API redacts inherited public callback credentials and rejects revival after parent completion", async () => {
+  const store = makeStore();
+  const p = store.publicCalls.create({ owner: "npub1viewer", definitionId: "parent", key: null, fingerprint: "fixture", webhookUrl: null },
+    () => store.createRun({ definitionId: "parent", name: "parent", ownerNpub: "npub1viewer", scope: "shared", input: {} }));
+  const ps = store.createStep({ runId: p.id, stepIndex: 0, name: "child", kind: "pipeline", input: {} });
+  const c = store.createRun({ definitionId: "child", name: "child", ownerNpub: "npub1viewer", scope: "shared", input: {} });
+  store.composition.link({ parentRunId: p.id, parentStepId: ps.id, childRunId: c.id, deadline: Date.now() + 1000 });
+  const cs = store.createStep({ runId: c.id, stepIndex: 0, name: "agent", kind: "agent", input: {}, callbackToken: "private-token" });
+  store.addCallback({ stepId: cs.id, accepted: false, payload: { private: "private-token" } });
+  const ctx = makeContext(store, true);
+  const detail = await (await handleGet(`/api/pipelines/runs/${c.id}/steps/${cs.id}`, ctx)).json();
+  expect(detail.step.callbackToken).toBeNull(); expect(detail.callbacks).toEqual([]);
+  expect((await handleGet(`/api/pipelines/runs/${c.id}`, ctx, "npub1stranger")).status).toBe(404);
+  store.completeRun(c.id, "error", {}, "failed"); store.completeRun(p.id, "ok", {});
+  expect((await handlePost(`/api/pipelines/runs/${c.id}/resume-from-failure`, ctx)).status).toBe(409);
+  expect(store.getRun(c.id)!.status).toBe("error");
+});

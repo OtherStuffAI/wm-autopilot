@@ -32,16 +32,21 @@ export function prepareBirdRetrieval(input: JsonObject): JsonObject {
   const counts = [...countText.matchAll(/(?<![A-Za-z0-9_])[-+]?\d+(?:\.\d+)?(?![A-Za-z0-9_])/g)].map(m => Number(m[0]));
   const state: RetrievalState = { request, count: counts[0] ?? 20, handles, queries, startedAt: Date.now(), attempt: 0, modelCalls: 0, verdict: "running", reason: "", active: true, semanticNeeded: false, source: null, handle: null, query: null, cursor: null, actions: [], tweets: [], evidence: [], usage: [], latencyMs: 0, resultCount: 0 };
   if (/\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\b/i.test(countText) || !request || request.length > BIRD_LIMITS.requestChars || counts.length > 1 || !Number.isInteger(state.count) || state.count < 1 || state.count > 100 || handles.length > 4 || queries.length > 4) return stop(state, "needs_clarification", "Specify one source, a count from 1 to 100, and at most four handle/query candidates.");
+  const sourceRequest = requestWithoutArguments(request);
+  if (/\b(?:timeline|latest|last|recent|home|feed)\b/i.test(sourceRequest)
+    && !/\bfollowing\b|\bfor you\b|\bmentions\b|\bsearch\b/i.test(sourceRequest) && !handles.length && !queries.length) {
+    return stop(state, "needs_clarification", "Would you like your Following feed or your For You feed?");
+  }
   return json(state);
 }
 function probability(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1; }
-function choice(answer: unknown, allowed: string[]): string {
+function choice(answer: unknown, allowed: string[], enforceConfidence = true): string {
   const a = answer as Record<string, unknown> | null;
   if (!a || a.type !== "choice" || typeof a.choice !== "string" || !allowed.includes(a.choice) || !probability(a.confidence)) throw new Error("invalid_choice");
   const probabilities = a.probabilities as Record<string, unknown> | null;
   if (!probabilities || typeof probabilities !== "object" || Array.isArray(probabilities) || Object.keys(probabilities).length !== allowed.length || allowed.some(key => !probability(probabilities[key]))) throw new Error("invalid_probabilities");
   if (Math.abs(Object.values(probabilities).reduce<number>((sum, p) => sum + Number(p), 0) - 1) > 0.02) throw new Error("invalid_probability_sum");
-  if (a.confidence < 0.75 || Number(probabilities[a.choice]) < 0.8) throw new Error("uncertain_choice");
+  if (enforceConfidence && (a.confidence < 0.75 || Number(probabilities[a.choice]) < 0.8)) throw new Error("uncertain_choice");
   return a.choice;
 }
 function noul(answer: unknown): number {
@@ -73,11 +78,15 @@ export async function executeBirdDecision(input: JsonObject, executor: BirdExecu
   try {
     const answers = recordDecision(state, input.decision, ["action", "handle", "query", "supported"]);
     if (state.attempt >= BIRD_LIMITS.executions || state.modelCalls > BIRD_LIMITS.modelRequests || Date.now() - state.startedAt >= BIRD_LIMITS.elapsedMs) return stop(state, state.tweets.length ? "partial" : "blocked", "budget_exhausted");
-    const operation = choice(answers.action, choices);
-    // Validate every expected question, even unused branch answers.
-    const h = choice(answers.handle, candidateChoices);
-    const q = choice(answers.query, candidateChoices);
+    // Validate every expected question before applying branch-specific uncertainty policy.
+    choice(answers.action, choices, false);
+    choice(answers.handle, candidateChoices, false);
+    choice(answers.query, candidateChoices, false);
     const supported = noul(answers.supported);
+    const operation = choice(answers.action, choices);
+    const source = state.source ?? operation;
+    const h = ["user_tweets", "mentions"].includes(source) ? choice(answers.handle, candidateChoices) : "none";
+    const q = source === "search" ? choice(answers.query, candidateChoices) : "none";
     if (operation === "clarify" || supported < 0.9) return stop(state, "needs_clarification", "Specify an unambiguous supported source and required handle or quoted search query; extra filters are unsupported.");
     if (operation === "partial") return stop(state, state.tweets.length ? "partial" : "blocked", "model_stopped");
     if (state.source) {
@@ -141,5 +150,5 @@ export function birdModelState(input: JsonObject): JsonObject {
   return { phase: state.source ? "continuation" : "initial", request: state.request, count: state.count, handles: state.handles, queries: state.queries, source: state.source, handle: state.handle, query: state.query, resultCount: state.tweets.length, attempt: state.attempt, hasCursor: !!state.cursor, active: state.active, remainingMs: Math.max(1, Math.min(10_000, BIRD_LIMITS.elapsedMs - (Date.now() - state.startedAt))) };
 }
 export function birdRetrievalFunctions(executor: BirdExecutor = executeBird): FunctionRegistry {
-  return { "bird.prepare": prepareBirdRetrieval, "bird.modelState": birdModelState, "bird.executeDecision": input => executeBirdDecision(input, executor), "bird.checkEvidence": checkBirdEvidence };
+  return { "bird.prepare.v1": prepareBirdRetrieval, "bird.modelState.v1": birdModelState, "bird.executeDecision.v1": input => executeBirdDecision(input, executor), "bird.checkEvidence.v1": checkBirdEvidence };
 }

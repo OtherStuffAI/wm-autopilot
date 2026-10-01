@@ -1,3 +1,4 @@
+import { rootPipelineRunId } from "./pipeline-run-authority";
 import { createHash } from "node:crypto";
 import type { PipelineRunRecord, PipelineStore } from "./pipeline-store";
 import type { ResultDelivery } from "./public-call-store";
@@ -55,8 +56,9 @@ export async function waitForPublicRun(store: PipelineStore, runId: string, wait
 }
 
 export function responseSteps(store: PipelineStore, runId: string, includePayload = false) {
-  const steps = includePayload ? store.listSteps(runId) : store.listStepSummaries(runId);
-  return store.publicCalls.isPublic(runId) ? steps.map(step => ({ ...step, callbackToken: null })) : steps;
+  const steps = (includePayload ? store.listSteps(runId) : store.listStepSummaries(runId))
+    .map(step => ({ ...step, childRunId: store.composition.child(step.id)?.childRunId ?? null }));
+  return store.publicCalls.isPublic(rootPipelineRunId(store, runId)) ? steps.map(step => ({ ...step, callbackToken: null })) : steps;
 }
 
 export function callResponse(store: PipelineStore, run: PipelineRunRecord, options: { status: number; timedOut?: boolean; replayed?: boolean }) {

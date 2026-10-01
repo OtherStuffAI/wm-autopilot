@@ -1,3 +1,6 @@
+import { pipelineFunctionHashes, assertPipelineFunctionPins } from "./pipeline-function-pins";
+import { pipelineAuthorityInput, assertPipelineReplyContext, assertPipelineAncestorsRunning } from "./pipeline-run-authority";
+import { executeChildPipeline, validateChildPipelineSteps } from "./child-pipeline";
 import type { AgentType } from "../config";
 import type { SessionSnapshot } from "../agents/process-manager";
 import { deliverSessionAgentMessage } from "../server/session-agent-message";
@@ -18,7 +21,7 @@ import type { PipelineDefinitionRecord } from "./pipeline-loader";
 import { buildPipelineStepMetadata } from "./pipeline-step-metadata";
 import { buildShadowDecisionsError, runOpenRouterDecisions } from "./openrouter-decisions";
 import { resolveClassifierOpenRouterApiKey } from "./classifier-openrouter-credentials";
-import { finalizePipelineAgentSession } from "./agent-session-finalization";
+import { finalizePipelineAgentSession, finalizeRecoveredPipelineAgentSession } from "./agent-session-finalization";
 import { type JsonObject, PipelineStore, type PipelineStatus, type PipelineStepRecord, type StepKind } from "./pipeline-store";
 
 const CALLBACK_POLL_MS = 1000;
@@ -32,7 +35,8 @@ const DEFAULT_CLASSIFIER_ATTEMPTS = 3;
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
 const activeRunExecutions = new Set<string>();
 
-interface PipelineRunnerInput {
+export interface PipelineRunnerInput {
+  resolveChildDefinition?: (target: string, version: string | number | undefined, ownerAlias: string | null) => Promise<PipelineDefinitionRecord>;
   store: PipelineStore;
   sessionApiContext: SessionApiContext;
   definition: PipelineDefinitionRecord;
@@ -93,6 +97,7 @@ export async function resumeDeclarativePipeline(input: PipelineRunnerInput, runI
 }
 
 export async function resumeErroredDeclarativePipeline(input: PipelineRunnerInput, runId: string) {
+  assertPipelineAncestorsRunning(input.store, runId);
   const run = input.store.reopenErroredRun(runId);
   if (!run || run.status !== "running") return run;
   return await executeDeclarativePipeline(input, runId);
@@ -100,17 +105,21 @@ export async function resumeErroredDeclarativePipeline(input: PipelineRunnerInpu
 
 function createPipelineRun(input: PipelineRunnerInput) {
   const { store, definition } = input;
-  const run = store.createRun({
-    definitionId: definition.id,
-    definitionPath: definition.path,
-    name: definition.spec.name,
-    ownerNpub: input.ownerNpub,
-    ownerAlias: input.ownerAlias,
-    scope: definition.scope,
-    input: input.input,
+  validateChildPipelineSteps(definition.spec);
+  return store.composition.transaction(() => {
+    const run = store.createRun({
+      definitionId: definition.id,
+      definitionPath: definition.path,
+      name: definition.spec.name,
+      ownerNpub: input.ownerNpub,
+      ownerAlias: input.ownerAlias,
+      scope: definition.scope,
+      input: input.input,
+    });
+    store.composition.pin(run.id, definition, { initiatingAgentProfileId: input.initiatingAgentProfileId ?? null, initiatingAgentNpub: input.initiatingAgentNpub ?? null, functionHashes: pipelineFunctionHashes(definition, input.registry) });
+    input.onRunCreated?.(run);
+    return run;
   });
-  input.onRunCreated?.(run);
-  return run;
 }
 
 async function executeDeclarativePipeline(input: PipelineRunnerInput, runId: string) {
@@ -118,6 +127,10 @@ async function executeDeclarativePipeline(input: PipelineRunnerInput, runId: str
     return input.store.getRun(runId)!;
   }
   activeRunExecutions.add(runId);
+  const snapshot = input.store.composition.snapshot(runId);
+  const saved = input.store.getRun(runId)!;
+  input = { ...input, ...(snapshot?.context ?? {}), definition: snapshot?.definition ?? input.definition,
+    ownerNpub: saved.ownerNpub, ownerAlias: saved.ownerAlias };
   const { store, definition } = input;
   const persisted = store.getRun(runId);
   let current = persisted?.current ?? input.input;
@@ -128,7 +141,10 @@ async function executeDeclarativePipeline(input: PipelineRunnerInput, runId: str
   const stepTargetIndex = buildStepTargetIndex(topLevelSteps);
 
   try {
+    assertPipelineAncestorsRunning(store, runId);
+    assertPipelineFunctionPins(snapshot?.context.functionHashes, input.registry);
     while (cursor < topLevelSteps.length) {
+      assertPipelineAncestorsRunning(store, runId);
       throwIfRunCancelled(store, runId);
       executedSteps += 1;
       if (executedSteps > MAX_PIPELINE_EXECUTED_STEPS) {
@@ -159,7 +175,7 @@ async function executeDeclarativePipeline(input: PipelineRunnerInput, runId: str
       input.onRunCompleted?.(completed);
       return completed;
     }
-    if (error instanceof PipelineCancelled) {
+    if (error instanceof PipelineCancelled || store.getRun(runId)?.status === "cancelled") {
       const cancelled = store.getRun(runId)!;
       input.onRunCompleted?.(cancelled);
       return cancelled;
@@ -224,6 +240,10 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     return { current: input.current };
   }
 
+  if (step.type === "pipeline") {
+    return executeChildPipeline({ ...input, step }, { start: startDeclarativePipeline, resume: resumeDeclarativePipeline });
+  }
+
   if (step.type === "code") {
     const selected = selectInput(input.current, step.input);
     const activeStep = getActiveStep(store, input.runId, stepName, "code");
@@ -245,6 +265,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     if (!fn) {
       throw new Error(`Unknown pipeline function: ${step.function}`);
     }
+    if (step.function === "flightdeck.returnToThread") assertPipelineReplyContext(store, input.runId, selected);
     const result = await fn(step.function === "flightdeck.returnToThread"
       ? { ...selected, pipelineRunId: input.runId }
       : selected);
@@ -407,7 +428,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
             prompt: childStep.prompt,
             callbackToken: token,
             agent: resolveStringTemplate(input.current, childStep.agent),
-            model: resolveStringTemplate(input.current, childStep.model) ?? resolvePipelineAgentModel(input.input),
+            model: resolveStringTemplate(input.current, childStep.model) ?? resolvePipelineAgentModel(pipelineAuthorityInput(input.store, input.runId)),
             directory: resolveStringTemplate(input.current, childStep.directory),
             callbackTimeoutMs: resolveDurationMs(input.current, childStep.timeoutMs, CALLBACK_TIMEOUT_MS),
           });
@@ -546,6 +567,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
   const selected = selectInput(input.current, step.input);
   const activeStep = getActiveStep(store, input.runId, stepName, "agent");
   if (activeStep?.status === "ok") {
+    await finalizeRecoveredPipelineAgentSession({ ctx: input.sessionApiContext, store, runId: input.runId, step: activeStep });
     const raw = activeStep.output ?? activeStep.result ?? {};
     const current = assignOutput(input.current, raw, step.assign);
     store.completeStep({
@@ -587,7 +609,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       prompt: step.prompt,
       callbackToken: token,
       agent: resolveStringTemplate(input.current, step.agent),
-      model: resolveStringTemplate(input.current, step.model) ?? resolvePipelineAgentModel(input.input),
+      model: resolveStringTemplate(input.current, step.model) ?? resolvePipelineAgentModel(pipelineAuthorityInput(input.store, input.runId)),
       directory: resolveStringTemplate(input.current, step.directory),
       callbackTimeoutMs: resolveDurationMs(input.current, step.timeoutMs, CALLBACK_TIMEOUT_MS),
     });
@@ -968,7 +990,7 @@ async function runAgentStep(input: PipelineRunnerInput & {
   let result: { status: PipelineStatus; result: JsonObject | null; error: string | null } | null = null;
   let lastError: unknown = null;
   const maxAttempts = resolveAgentStepMaxAttempts();
-  const profileBinding = resolvePipelineAgentProfileBinding(input.input);
+  const profileBinding = resolvePipelineAgentProfileBinding(pipelineAuthorityInput(input.store, input.runId));
   const initiatingAgentBinding = input.initiatingAgentNpub
     ? {
         ...(input.initiatingAgentProfileId ? { agentProfileId: input.initiatingAgentProfileId } : {}),
@@ -1016,6 +1038,8 @@ async function runAgentStep(input: PipelineRunnerInput & {
         input.model,
       );
       input.store.setStepSession(input.stepId, session.id);
+      throwIfRunCancelled(input.store, input.runId);
+      assertPipelineAncestorsRunning(input.store, input.runId);
       await recordLiveSession(sessionCtx, session);
 
       await waitForSessionPromptReadiness({
@@ -1029,6 +1053,8 @@ async function runAgentStep(input: PipelineRunnerInput & {
         requestTimeoutMs: 750,
       });
 
+      throwIfRunCancelled(input.store, input.runId);
+      assertPipelineAncestorsRunning(input.store, input.runId);
       const delivered = await deliverSessionAgentMessage({
         agentHost: sessionCtx.agentHost,
         buildAgentUrl: sessionCtx.buildAgentUrl,

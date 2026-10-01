@@ -1,3 +1,4 @@
+import { validateChildPipelineSteps } from "./child-pipeline";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -1325,6 +1326,7 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
   const softwareImplementationReviewLoopDefinition = await readBundledDefaultDefinition("software-implementation-review-loop.json");
   const dailyNoteReviewDefinition = await readBundledDefaultDefinition("daily-note-review.json");
   const audioUnderstandingDefinition = await readBundledDefaultDefinition("audio-understanding.v1.json");
+  const birdChatDefinition = await readBundledDefaultDefinition("bird.timeline.chat.v1.json");
   const birdRetrievalDefinition = await readBundledDefaultDefinition("bird.retrieve.v1.json");
   const spaceResearchDefinition = await readBundledDefaultDefinition("space-research.v1.json");
   const learningDefinitions = await Promise.all(
@@ -1345,6 +1347,7 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
     ["audio-understanding.v1.json", audioUnderstandingDefinition],
     ["space-research.v1.json", spaceResearchDefinition],
     ["bird.retrieve.v1.json", birdRetrievalDefinition],
+    ["bird.timeline.chat.v1.json", birdChatDefinition],
     ...learningDefinitions.map((definition, index) => [`learning-${['plan', 'question', 'lesson', 'assessment', 'recall'][index]}.json`, definition] as const),
   ] as const;
   const renamedBuiltIns = [
@@ -1486,6 +1489,7 @@ async function readDefinitionDirectory(
     let spec: DeclarativePipeline;
     try {
       spec = JSON.parse(raw) as DeclarativePipeline;
+      validateChildPipelineSteps(spec);
     } catch (error) {
       console.warn("[pipelines] skipping invalid pipeline definition", path, error instanceof Error ? error.message : String(error));
       continue;

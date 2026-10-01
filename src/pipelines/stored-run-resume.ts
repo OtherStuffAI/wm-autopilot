@@ -13,14 +13,15 @@ export async function resumeStoredPipelineRun(
   const run = ctx.store.getRun(runId);
   if (!run || run.status !== "running") return;
   const ownerAlias = run.ownerAlias;
-  const definition = await getPipelineDefinition(run.definitionId, ownerAlias);
+  const snapshot = ctx.store.composition.snapshot(run.id);
+  const definition = snapshot?.definition ?? await getPipelineDefinition(run.definitionId, ownerAlias);
   if (!definition) {
     ctx.store.completeRun(run.id, "error", run.current, `Pipeline definition not found: ${run.definitionId}`);
     return;
   }
   const registry = await ctx.loadRegistryForRun?.({ run, definition })
     ?? (await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions)).registry;
-  const invocationContext = readFlightDeckInvocationContext(ctx.store, run.id);
+  const invocationContext = snapshot?.context ?? readFlightDeckInvocationContext(ctx.store, run.id);
   await resumeDeclarativePipeline({
     store: ctx.store,
     sessionApiContext: ctx.sessionApiContext,
@@ -33,6 +34,8 @@ export async function resumeStoredPipelineRun(
     initiatingAgentProfileId: invocationContext.initiatingAgentProfileId,
     initiatingAgentNpub: invocationContext.initiatingAgentNpub,
   }, run.id);
+  const parent = ctx.store.composition.parent(run.id);
+  if (parent) await resumeStoredPipelineRun(ctx, parent.parentRunId, callbackOrigin);
 }
 
 function readFlightDeckInvocationContext(store: PipelineStore, runId: string): {
@@ -62,7 +65,8 @@ export async function resumeStoredErroredPipelineRun(
   const run = ctx.store.getRun(runId);
   if (!run || run.status !== "error") return run;
   const ownerAlias = run.ownerAlias;
-  const definition = await getPipelineDefinition(run.definitionId, ownerAlias);
+  const snapshot = ctx.store.composition.snapshot(run.id);
+  const definition = snapshot?.definition ?? await getPipelineDefinition(run.definitionId, ownerAlias);
   if (!definition) {
     const reopened = ctx.store.reopenErroredRun(run.id);
     if (!reopened || reopened.status !== "running") return reopened;
@@ -79,6 +83,7 @@ export async function resumeStoredErroredPipelineRun(
     ownerNpub: run.ownerNpub,
     ownerAlias,
     callbackOrigin,
+    ...(snapshot?.context ?? readFlightDeckInvocationContext(ctx.store, run.id)),
   }, run.id);
 }
 
@@ -87,6 +92,6 @@ export async function resumeRunningPipelineRuns(
   callbackOrigin: string,
 ): Promise<void> {
   for (const run of ctx.store.listRunningRuns()) {
-    await resumeStoredPipelineRun(ctx, run.id, callbackOrigin);
+    if (!ctx.store.composition.parent(run.id)) await resumeStoredPipelineRun(ctx, run.id, callbackOrigin);
   }
 }
