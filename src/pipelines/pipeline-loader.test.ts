@@ -34,6 +34,23 @@ afterEach(() => {
 });
 
 describe("pipeline definition version paths", () => {
+  test("loads bounded Bird retrieval with display metadata on every child", async () => {
+    const definition = await getPipelineDefinition("bird.retrieve.v1", "tester");
+    expect(definition?.spec.name).toBe("bird.retrieve.v1");
+    const loop = definition?.spec.steps[1];
+    expect(loop?.type).toBe("loop");
+    if (loop?.type !== "loop") throw new Error("Missing Bird loop");
+    expect(loop.iterations).toBe(3);
+    for (const step of [...definition!.spec.steps, ...loop.steps!]) {
+      expect(step.description).toBeTruthy();
+      expect(step.display?.in?.length).toBeGreaterThan(0);
+      expect(step.display?.out?.length).toBeGreaterThan(0);
+      if (step.type === "classifier") {
+        expect(step.mode).toBe("decisions");
+        expect(step.retries).toBe(1);
+      }
+    }
+  });
   test("loads the review-gated Space research definition", async () => {
     const definition = await getPipelineDefinition("space-research.v1", "tester");
     expect(definition?.spec.steps.map(step => step.name)).toEqual([

@@ -12,6 +12,7 @@ import { signWithWingmanKey } from "../mcp/wingman-signer";
 import { generateSpeechAudio, resolveSpeechExtension } from "../server/audio-speech";
 import { userSettingsStore } from "../storage/user-settings-store";
 import { indexCorpusSequentially, indexRepositoryForPipeline } from "../code-intelligence/pipeline";
+import { birdRetrievalFunctions } from "./bird-retrieval";
 import { composeJevRerank } from "./jev-reranker";
 import { normalizeSpaceResearchCandidate, retrieveSpacePrimarySources, selectSpaceResearchTopics, spaceResearchReviewGate, validateSpaceSourcePlan } from "./space-research";
 
@@ -1206,6 +1207,7 @@ function latestThreadText(chatContext: Record<string, unknown>, fallback: unknow
 }
 
 export const builtinPipelineFunctions: FunctionRegistry = {
+  ...birdRetrievalFunctions(),
   "spaceResearch.selectTopics": selectSpaceResearchTopics,
   "spaceResearch.validateSourcePlan": validateSpaceSourcePlan,
   "spaceResearch.retrievePrimarySources": retrieveSpacePrimarySources,
