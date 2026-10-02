@@ -50,6 +50,7 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
         workspaceId: input.workspaceId,
         threadId: input.threadId,
         channelId: channel.id,
+        scopeId: channel.scope_id,
         senderNpub: botIdentity.botNpub,
         towerServiceNpub: selected.towerServiceNpub ?? null,
         appNpub: selected.sourceAppNpub,

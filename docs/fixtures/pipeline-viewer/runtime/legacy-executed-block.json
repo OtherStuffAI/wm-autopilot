@@ -1,0 +1,333 @@
+{
+  "version": 1,
+  "serviceId": "autopilot_runtime_fixture",
+  "run": {
+    "id": "f285d961-f15a-41be-a380-4c009758d6c1",
+    "serviceId": "autopilot_runtime_fixture",
+    "definitionId": "runtime",
+    "definitionVersion": null,
+    "definitionHash": "c4d59ec0ff887fd787d63ddcf6e993b414790ab6ebab785cc4f944d90309351f",
+    "name": "runtime",
+    "status": "ok",
+    "startedAt": "2026-10-02T05:07:31.258Z",
+    "completedAt": "2026-10-02T05:07:31.259Z",
+    "parentRunId": null,
+    "parentStepId": null
+  },
+  "definition": {
+    "id": "runtime",
+    "name": "runtime",
+    "title": "runtime",
+    "description": "",
+    "version": null,
+    "hash": "c4d59ec0ff887fd787d63ddcf6e993b414790ab6ebab785cc4f944d90309351f",
+    "availability": "unavailable",
+    "steps": [
+      {
+        "logicalKey": "accept-id",
+        "name": "accept-name",
+        "title": "accept-name",
+        "description": "",
+        "type": "block",
+        "inputs": [],
+        "outputs": [],
+        "children": []
+      }
+    ],
+    "wiring": []
+  },
+  "steps": [
+    {
+      "itemKey": null,
+      "id": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+      "logicalKey": "accept-id",
+      "parentStepId": null,
+      "attempt": 1,
+      "status": "ok",
+      "title": "accept-name",
+      "description": "",
+      "kind": "block",
+      "startedAt": "2026-10-02T05:07:31.258Z",
+      "completedAt": "2026-10-02T05:07:31.259Z",
+      "error": null,
+      "skipReason": null,
+      "continuationReason": null,
+      "exitReason": null,
+      "childRunId": null,
+      "inputs": [],
+      "outputs": [],
+      "evidence": [
+        {
+          "id": "7c2fba35-1753-4f15-abf7-4fe156d7cefc",
+          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
+          "stepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+          "attempt": 1,
+          "kind": "resolved_input",
+          "scope": "selected_step_input",
+          "contentType": "application/json",
+          "bytes": 2,
+          "availability": "complete",
+          "preview": {
+            "value": {},
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.258Z",
+          "expiresAt": null
+        },
+        {
+          "id": "8b717fa2-8dc8-4e28-8bce-fa4b3181f0f9",
+          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
+          "stepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+          "attempt": 1,
+          "kind": "returned_output",
+          "scope": "wrapper_output_child_evidence_separate",
+          "contentType": "application/json",
+          "bytes": 82,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "blocks": {
+                "accept_name": {
+                  "input": {}
+                }
+              },
+              "flightDeckInvocation": {
+                "normalized": true
+              }
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.259Z",
+          "expiresAt": null
+        },
+        {
+          "id": "48820f32-0e2e-49b4-974c-fafe7e3f360d",
+          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
+          "stepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+          "attempt": 1,
+          "kind": "state_write",
+          "scope": "state_after_assignment",
+          "contentType": "application/json",
+          "bytes": 82,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "blocks": {
+                "accept_name": {
+                  "input": {}
+                }
+              },
+              "flightDeckInvocation": {
+                "normalized": true
+              }
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.259Z",
+          "expiresAt": null
+        },
+        {
+          "id": "not-captured:2f5724c4-1bf1-43f3-ac86-af360834f859:executor_request",
+          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
+          "stepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+          "attempt": 1,
+          "kind": "executor_request",
+          "scope": "legacy_not_captured",
+          "contentType": "application/json",
+          "bytes": 0,
+          "availability": "not_captured",
+          "redacted": false,
+          "capturedAt": null,
+          "expiresAt": null
+        },
+        {
+          "id": "not-captured:2f5724c4-1bf1-43f3-ac86-af360834f859:side_effect_confirmation",
+          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
+          "stepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+          "attempt": 1,
+          "kind": "side_effect_confirmation",
+          "scope": "legacy_not_captured",
+          "contentType": "application/json",
+          "bytes": 0,
+          "availability": "not_captured",
+          "redacted": false,
+          "capturedAt": null,
+          "expiresAt": null
+        }
+      ]
+    },
+    {
+      "itemKey": null,
+      "id": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+      "logicalKey": "accept-id/accept-name / normalise-thread-invocation",
+      "parentStepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+      "attempt": 1,
+      "status": "ok",
+      "title": "accept-name / normalise-thread-invocation",
+      "description": "Validate and normalise the reusable four-field Flight Deck thread invocation contract.",
+      "kind": "code",
+      "startedAt": "2026-10-02T05:07:31.258Z",
+      "completedAt": "2026-10-02T05:07:31.259Z",
+      "error": null,
+      "skipReason": null,
+      "continuationReason": null,
+      "exitReason": null,
+      "childRunId": null,
+      "inputs": [
+        {
+          "label": "Thread",
+          "path": "$.threadId",
+          "format": "text"
+        },
+        {
+          "label": "Chat Message",
+          "path": "$.prompt",
+          "format": "text"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "Thread",
+          "path": "$.threadId",
+          "format": "text"
+        },
+        {
+          "label": "Chat Message",
+          "path": "$.prompt",
+          "format": "text"
+        }
+      ],
+      "evidence": [
+        {
+          "id": "4fed6ebd-b258-4280-a14b-ff0d8ea1525c",
+          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
+          "stepId": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+          "attempt": 1,
+          "kind": "resolved_input",
+          "scope": "selected_step_input",
+          "contentType": "application/json",
+          "bytes": 2,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "workspaceId": null,
+              "threadId": null,
+              "frmNpub": null,
+              "prompt": null
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.258Z",
+          "expiresAt": null
+        },
+        {
+          "id": "e8b88b3a-3e24-4c70-b116-a42802b4b0c9",
+          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
+          "stepId": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+          "attempt": 1,
+          "kind": "executor_request",
+          "scope": "code_function_arguments",
+          "contentType": "application/json",
+          "bytes": 57,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "function": "flightdeck.threadInvocation",
+              "arguments": {
+                "workspaceId": null,
+                "threadId": null,
+                "frmNpub": null,
+                "prompt": null
+              }
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.259Z",
+          "expiresAt": null
+        },
+        {
+          "id": "56215955-1c21-4e25-8179-d6e1816ef12f",
+          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
+          "stepId": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+          "attempt": 1,
+          "kind": "returned_output",
+          "scope": "executor_return",
+          "contentType": "application/json",
+          "bytes": 19,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "normalized": true
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.259Z",
+          "expiresAt": null
+        },
+        {
+          "id": "eecc191e-551f-4877-a2b6-e8908a137941",
+          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
+          "stepId": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+          "attempt": 1,
+          "kind": "state_write",
+          "scope": "state_after_assignment",
+          "contentType": "application/json",
+          "bytes": 82,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "blocks": {
+                "accept_name": {
+                  "input": {}
+                }
+              },
+              "flightDeckInvocation": {
+                "normalized": true
+              }
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.259Z",
+          "expiresAt": null
+        },
+        {
+          "id": "not-captured:c124c752-f50e-4e59-8e0f-2a25aa5d3fca:side_effect_confirmation",
+          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
+          "stepId": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+          "attempt": 1,
+          "kind": "side_effect_confirmation",
+          "scope": "legacy_not_captured",
+          "contentType": "application/json",
+          "bytes": 0,
+          "availability": "not_captured",
+          "redacted": false,
+          "capturedAt": null,
+          "expiresAt": null
+        }
+      ]
+    }
+  ],
+  "children": [],
+  "revision": "c8b01b5ba8a56ab916460a756918e53a8140a6f401b5e81dc55043cd9a05660c"
+}

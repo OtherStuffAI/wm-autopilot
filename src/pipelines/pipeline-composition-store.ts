@@ -2,7 +2,10 @@ import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
 
+import { snapshotPipelineBlocks, type PipelineBlockSnapshots } from "./pipeline-block-snapshot";
+
 export interface PipelineRunContext {
+  blockExpansions?: PipelineBlockSnapshots;
   functionHashes?: Record<string, string>;
   initiatingAgentProfileId?: string | null;
   initiatingAgentNpub?: string | null;
@@ -35,10 +38,12 @@ export class PipelineCompositionStore {
   }
 
   pin(runId: string, definition: PipelineDefinitionRecord, context: PipelineRunContext): void {
+    if (this.db.query("SELECT 1 FROM pipeline_run_snapshots WHERE run_id = ?").get(runId)) return;
     const json = JSON.stringify(definition);
-    const hash = createHash("sha256").update(JSON.stringify(definition.spec)).digest("hex");
+    const blockExpansions = context.blockExpansions ?? snapshotPipelineBlocks(definition.spec.steps);
+    const hash = createHash("sha256").update(JSON.stringify({ spec: definition.spec, blockExpansions })).digest("hex");
     this.db.query(`INSERT OR IGNORE INTO pipeline_run_snapshots VALUES (?, ?, ?, ?)`)
-      .run(runId, json, hash, JSON.stringify(context));
+      .run(runId, json, hash, JSON.stringify({ ...context, blockExpansions }));
   }
 
   snapshot(runId: string): { definition: PipelineDefinitionRecord; hash: string; context: PipelineRunContext } | null {

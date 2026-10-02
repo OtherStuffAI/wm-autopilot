@@ -2,6 +2,7 @@ import { beforeEach, afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { assertRuntimeViewer } from "./pipeline-viewer-runtime-test-support";
 import { PipelineStore } from "./pipeline-store";
 import { getPipelineDefinition, listLatestPipelineDefinitions } from "./pipeline-loader";
 import { loadPipelineFunctionRegistry } from "./function-loader";
@@ -52,6 +53,8 @@ for (const version of [1, 2]) for (const verdict of ["complete", "partial", "cla
     ownerNpub: "npub1owner", ownerAlias: "owner", sessionApiContext: {} as never, callbackOrigin: "http://localhost", initiatingAgentProfileId: "piper", initiatingAgentNpub: "npub1piper",
     onRunCreated: created => store.addEvent({ runId: created.id, level: "info", type: "flightdeck_invocation_context", data: { ...invocation, initiatingAgentNpub: "npub1piper" } }) });
   expect(run.status).toBe("ok"); expect(posts).toHaveLength(1);
+  if (version === 2) { await assertRuntimeViewer(`bird-wrapper-${verdict}`, store, run.id);
+    for (const child of store.composition.children(run.id)) await assertRuntimeViewer(`bird-child-${verdict}`, store, child.childRunId); }
   expect(posts[0]!.clientRequestId).toBe(`pipeline:${run.id}:thread-reply:reply / return-to-thread`);
   const confirmations = store.evidence.list(run.id).filter(ref => ref.kind === "side_effect_confirmation");
   expect(confirmations).toHaveLength(1);

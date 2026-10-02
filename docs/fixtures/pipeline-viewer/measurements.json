@@ -1,10 +1,11 @@
 {
   "fixture": "synthetic 35 tweets and long request",
-  "captureMs": 9.18,
-  "readAndWriteFixtureMs": 2.18,
+  "captureMs": 12.7,
+  "readAndWriteFixtureMs": 2.62,
   "evidenceRecords": 28,
   "redactedJsonBytes": 322601,
-  "lazyValueReadMs": 0.59,
-  "sqliteBytes": 1093632,
+  "previewJsonBytes": 7792,
+  "lazyValueReadMs": 0.63,
+  "sqliteBytes": 1114112,
   "walBytes": 0
 }

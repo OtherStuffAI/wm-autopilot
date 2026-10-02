@@ -2,12 +2,12 @@ const credentialKey = /^(?:authorization|proxyauthorization|cookie|setcookie|pas
 
 export function redactPipelineValue(value: unknown, secrets: string[] = []): { value: unknown; redacted: boolean } {
   let redacted = false;
-  const knownSecrets = [...secrets];
+  const knownSecrets = [...pipelineProviderSecrets(), ...secrets];
   function collect(item: unknown): void {
     if (Array.isArray(item)) { item.forEach(collect); return; }
     if (!item || typeof item !== "object") return;
     for (const [key, child] of Object.entries(item)) {
-      if ((credentialKey.test(key.replace(/[-_]/g, "")) || /(?:secret|privatekey|apikey|callbacktoken)$/i.test(key.replace(/[-_]/g, ""))) && typeof child === "string" && child) knownSecrets.push(child);
+      if (isCredentialKey(key) && typeof child === "string" && child) knownSecrets.push(child);
       else collect(child);
     }
   }
@@ -25,13 +25,24 @@ export function redactPipelineValue(value: unknown, secrets: string[] = []): { v
     }
     if (Array.isArray(item)) return item.map(visit);
     if (item && typeof item === "object") return Object.fromEntries(Object.entries(item).map(([key, child]) => {
-      if (credentialKey.test(key.replace(/[-_]/g, "")) || /(?:secret|privatekey|apikey|callbacktoken)$/i.test(key.replace(/[-_]/g, ""))) {
+      if (isCredentialKey(key)) {
         redacted = true;
-        return [key, "[REDACTED]"];
+        return [visit(key), "[REDACTED]"];
       }
-      return [key, visit(child)];
+      return [visit(key), visit(child)];
     }));
     return item;
   }
   return { value: visit(value), redacted };
+}
+
+/** Only provider credentials already available to execution; never identity keys. */
+export function pipelineProviderSecrets(): string[] {
+  return ["PIPELINE_CLASSIFIER_OPENROUTER_API_KEY", "OPENROUTER_API_KEY", "OPENROUTER_API", "OPENAI_API_KEY", "PIPELINE_MEMORY_EMBEDDING_API_KEY"]
+    .map(key => process.env[key]?.trim()).filter((value): value is string => Boolean(value));
+}
+
+function isCredentialKey(key: string): boolean {
+  const normalized = key.replace(/[-_]/g, "");
+  return credentialKey.test(normalized) || /(?:secret|privatekey|apikey|callbacktoken)$/i.test(normalized);
 }

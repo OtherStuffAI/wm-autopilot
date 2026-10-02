@@ -2,17 +2,25 @@
   "version": 1,
   "serviceId": "autopilot_79bd7d7fd684b399857c582b1b7172dd",
   "evidence": {
-    "id": "5a91e2e0-91b4-47d2-abac-e4d1c4e37aa4",
-    "runId": "82f90ae2-fc96-4534-aafa-20cb3f8ccfc8",
-    "stepId": "fa831475-07ed-4997-8089-d3a2f4ac0e4a",
+    "id": "b6a22f4e-8f20-4d70-aa9d-a7c51bd37c23",
+    "runId": "8e942d44-4275-452c-bc1a-8c26aaf385b8",
+    "stepId": "cc65436e-9858-4c2e-a059-9c0b13ec6bba",
     "attempt": 1,
     "kind": "resolved_input",
     "scope": "selected_step_input",
     "contentType": "application/json",
     "bytes": 30658,
     "availability": "complete",
+    "preview": {
+      "value": {
+        "request": "Retrieve 35 tweets from my Following feed.\nSynthetic long request for exact-copy inspection.\nSynthetic long request for exact-copy inspection.\nSynthetic long request for exact-copy inspection.\nSynthetic long request for exact-copy inspection.\nSynthetic lon"
+      },
+      "truncated": true,
+      "count": null,
+      "counts": {}
+    },
     "redacted": false,
-    "capturedAt": "2026-10-02T04:20:52.925Z",
+    "capturedAt": "2026-10-02T05:02:49.843Z",
     "expiresAt": null
   },
   "value": {

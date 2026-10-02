@@ -1,3 +1,4 @@
+import { blockMissingPipelineHistory } from "./pipeline-history-resume";
 import { buildAgentPrompt } from "./agent-invocation-prompt";
 import { runClassifierStep } from "./classifier-executor";
 import { prepareClassifierInput } from "./classifier-input";
@@ -19,11 +20,10 @@ import {
   type FunctionRegistry,
 } from "./declarative";
 import { runParallelStep } from "./parallel-runner";
-import { expandPipelineBlock } from "./pipeline-blocks";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
 import { buildPipelineStepMetadata } from "./pipeline-step-metadata";
 import { buildShadowDecisionsError, runOpenRouterDecisions } from "./openrouter-decisions";
-import { resolveClassifierOpenRouterApiKey } from "./classifier-openrouter-credentials";
+import { resolveClassifierOpenRouterApiKey, classifierOpenRouterSecrets } from "./classifier-openrouter-credentials";
 import { finalizePipelineAgentSession, finalizeRecoveredPipelineAgentSession } from "./agent-session-finalization";
 import { type JsonObject, PipelineStore, type PipelineStatus, type PipelineStepRecord, type StepKind } from "./pipeline-store";
 
@@ -131,9 +131,14 @@ async function executeDeclarativePipeline(input: PipelineRunnerInput, runId: str
   activeRunExecutions.add(runId);
   const snapshot = input.store.composition.snapshot(runId);
   const saved = input.store.getRun(runId)!;
-  input = { ...input, ...(snapshot?.context ?? {}), definition: snapshot?.definition ?? input.definition,
+  if (!snapshot) {
+    activeRunExecutions.delete(runId);
+    return blockMissingPipelineHistory(input.store, saved);
+  }
+  input = { ...input, ...(snapshot?.context ?? {}), definition: snapshot.definition,
     ownerNpub: saved.ownerNpub, ownerAlias: saved.ownerAlias };
   const { store, definition } = input;
+  for (const secret of classifierOpenRouterSecrets(input)) store.evidence.registerSecret(secret);
   const persisted = store.getRun(runId);
   let current = persisted?.current ?? input.input;
   let cursor = persisted?.cursorIndex ?? 0;
@@ -300,11 +305,14 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       ...(step.config ?? {}),
       ...selected,
     };
-    const expansion = expandPipelineBlock(step);
     const activeStep = getActiveStep(store, input.runId, stepName, "block");
     if (activeStep?.status === "ok") {
-      return { current: activeStep.result ?? input.current };
+      if (!activeStep.result) throw new Error(`Completed historical block state is unavailable: ${stepName}`);
+      return { current: activeStep.result };
     }
+    const key = `${input.logicalPrefix ?? ""}${step.id ?? step.name}`;
+    const expansion = store.composition.snapshot(input.runId)?.context.blockExpansions?.[key];
+    if (!expansion) throw new Error(`Historical block expansion was not captured: ${key}. Operator review is required before new execution.`);
     const stepRecord = activeStep ?? store.createStep({
       runId: input.runId,
       stepIndex: input.nextStepIndex(),
@@ -486,6 +494,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
         let result: JsonObject;
         try {
           const prepared = await prepareClassifierInput(selectedInput, childStep.inputFunction, registry);
+          const requestAttemptBase = store.evidence.nextExecutorAttempt(childRecord.id) - 1;
           const classifierInput = {
             selectedInput: prepared,
             prompt: childStep.prompt,
@@ -493,10 +502,10 @@ async function executePipelineStep(input: PipelineRunnerInput & {
             model: requestedModel,
             timeoutMs: resolveDurationMs(childStep.inputFunction ? prepared : input.current, childStep.timeoutMs, DEFAULT_CLASSIFIER_TIMEOUT_MS),
             attempts: resolveClassifierAttempts(input.current, childStep.retries),
-            apiKey: resolveClassifierOpenRouterApiKey(input),
+            apiKey: store.evidence.registerSecret(resolveClassifierOpenRouterApiKey(input)),
             captureRequest: (value: JsonObject, attempt: number) => store.evidence.capture({
               runId: input.runId, stepId: childRecord.id, kind: "executor_request", scope: "assembled_model_request",
-              value, attempt }),
+              value, attempt: requestAttemptBase + attempt }),
           };
           result = childStep.mode === "decisions"
             ? await runOpenRouterDecisions({
@@ -552,6 +561,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     setActiveStep(input, stepRecord.id);
     let result: JsonObject;
     try {
+      const requestAttemptBase = store.evidence.nextExecutorAttempt(stepRecord.id) - 1;
       const classifierInput = {
         selectedInput: selected,
         prompt: step.prompt,
@@ -559,10 +569,10 @@ async function executePipelineStep(input: PipelineRunnerInput & {
         model: resolveStringTemplate(input.current, step.model) ?? DEFAULT_CLASSIFIER_MODEL,
         timeoutMs: resolveDurationMs(step.inputFunction ? selected : input.current, step.timeoutMs, DEFAULT_CLASSIFIER_TIMEOUT_MS),
         attempts: resolveClassifierAttempts(input.current, step.retries),
-        apiKey: resolveClassifierOpenRouterApiKey(input),
+        apiKey: store.evidence.registerSecret(resolveClassifierOpenRouterApiKey(input)),
         captureRequest: (value: JsonObject, attempt: number) => store.evidence.capture({
           runId: input.runId, stepId: stepRecord.id, kind: "executor_request", scope: "assembled_model_request",
-          value, attempt }),
+          value, attempt: requestAttemptBase + attempt }),
       };
       result = step.mode === "decisions"
         ? await runOpenRouterDecisions({
@@ -631,6 +641,8 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     stepIndex: input.nextStepIndex(),
     name: stepName,
     kind: "agent",
+    parentStepId: input.parentStepId ?? null,
+    logicalKey: `${input.logicalPrefix ?? ""}${step.id ?? step.name}`,
     input: selected,
     callbackToken: token,
     metadata: buildPipelineStepMetadata(step),
@@ -891,6 +903,7 @@ async function runAgentStep(input: PipelineRunnerInput & {
   let result: { status: PipelineStatus; result: JsonObject | null; error: string | null } | null = null;
   let lastError: unknown = null;
   const maxAttempts = resolveAgentStepMaxAttempts();
+  const attemptBase = input.store.evidence.nextExecutorAttempt(input.stepId) - 1;
   const profileBinding = resolvePipelineAgentProfileBinding(pipelineAuthorityInput(input.store, input.runId));
   const initiatingAgentBinding = input.initiatingAgentNpub
     ? {
@@ -932,7 +945,7 @@ async function runAgentStep(input: PipelineRunnerInput & {
           bindingType: "flow_run",
           bindingId: input.runId,
           flowRunId: input.runId,
-          retryAttempt: attempt,
+          retryAttempt: attemptBase + attempt,
           ...profileBinding,
           ...initiatingAgentBinding,
         },
@@ -956,7 +969,7 @@ async function runAgentStep(input: PipelineRunnerInput & {
 
       throwIfRunCancelled(input.store, input.runId);
       assertPipelineAncestorsRunning(input.store, input.runId);
-      input.store.evidence.capture({ runId: input.runId, stepId: input.stepId, attempt,
+      input.store.evidence.capture({ runId: input.runId, stepId: input.stepId, attempt: attemptBase + attempt,
         kind: "executor_request", scope: "agent_invocation_prompt_persistent_session_not_full_conversation",
         value: { prompt, agent: session.agent, model: input.model ?? null, sessionId: session.id, type: "user" },
         secrets: [input.callbackToken] });

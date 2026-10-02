@@ -2,17 +2,44 @@
   "version": 1,
   "serviceId": "autopilot_79bd7d7fd684b399857c582b1b7172dd",
   "evidence": {
-    "id": "2e4fdea5-5b74-4313-8572-cc755f3333a5",
-    "runId": "82f90ae2-fc96-4534-aafa-20cb3f8ccfc8",
-    "stepId": "e5ee34b2-a5ce-4a6d-945b-c60b9bc630d8",
+    "id": "3b5c35f1-85b9-4ea6-bb20-b590dc7f9c49",
+    "runId": "8e942d44-4275-452c-bc1a-8c26aaf385b8",
+    "stepId": "d94db43e-5246-495a-b713-d34983b51510",
     "attempt": 1,
     "kind": "returned_output",
     "scope": "synthetic_record_collection",
     "contentType": "application/json",
     "bytes": 5347,
     "availability": "complete",
+    "preview": {
+      "value": [
+        {
+          "id": "1000",
+          "text": "Synthetic exact tweet 1\nSecond line.",
+          "author": {
+            "username": "example",
+            "name": "Example"
+          },
+          "url": "https://x.com/example/status/1000"
+        },
+        {
+          "id": "1001",
+          "text": "Synthetic exact tweet 2\nSecond line.",
+          "author": {
+            "username": "example",
+            "name": "Example"
+          },
+          "url": "https://x.com/example/status/1001"
+        }
+      ],
+      "truncated": true,
+      "count": 35,
+      "counts": {
+        "$": 35
+      }
+    },
     "redacted": false,
-    "capturedAt": "2026-10-02T04:20:52.938Z",
+    "capturedAt": "2026-10-02T05:02:49.857Z",
     "expiresAt": null
   },
   "value": [

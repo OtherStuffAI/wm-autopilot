@@ -59,6 +59,8 @@ store.completeRun(run.id, "ok", {});
 const captureMs = performance.now() - started;
 store.compactCompletedRunPayloads({});
 const readStart = performance.now();
+const retrieveStep = store.listSteps(run.id).find(step => step.name === "retrieve")!;
+const arrayRef = store.evidence.capture({ runId: run.id, stepId: retrieveStep.id, kind: "returned_output", scope: "synthetic_record_collection", value: tweets });
 const snapshot = viewerSnapshot(run.id, store, serviceId);
 save("definitions.json", { ...envelope, definitions: [viewerDefinition(chat), viewerDefinition(retrieve)], nextCursor: null });
 save("completed-run.json", { ...envelope, ...snapshot });
@@ -68,8 +70,6 @@ for (const kind of ["resolved_input", "side_effect_confirmation"] as const) {
   const ref = store.evidence.list(run.id).find(ref => ref.kind === kind)!;
   save(`${kind}.json`, { ...envelope, ...store.evidence.get(run.id, ref.id), nextOffset: null });
 }
-const retrieveStep = store.listSteps(run.id).find(step => step.name === "retrieve")!;
-const arrayRef = store.evidence.capture({ runId: run.id, stepId: retrieveStep.id, kind: "returned_output", scope: "synthetic_record_collection", value: tweets });
 save("tweets-page-1.json", { ...envelope, evidence: arrayRef, value: tweets.slice(0, 20), nextOffset: 20 });
 save("tweets-page-2.json", { ...envelope, evidence: arrayRef, value: tweets.slice(20), nextOffset: null });
 const readMs = performance.now() - readStart;
@@ -81,6 +81,7 @@ const checkpoint = new Database(store.path);
 checkpoint.run("PRAGMA wal_checkpoint(TRUNCATE)"); checkpoint.close();
 const metrics = { fixture: "synthetic 35 tweets and long request", captureMs: Math.round(captureMs * 100) / 100,
   readAndWriteFixtureMs: Math.round(readMs * 100) / 100, evidenceRecords: refs.length, redactedJsonBytes: refs.reduce((sum, ref) => sum + ref.bytes, 0),
+  previewJsonBytes: refs.reduce((sum, ref) => sum + Buffer.byteLength(JSON.stringify(ref.preview ?? null)), 0),
   lazyValueReadMs: Math.round(lazyValueReadMs * 100) / 100, sqliteBytes: statSync(store.path).size, walBytes: statSync(`${store.path}-wal`).size };
 save("measurements.json", metrics);
 rmSync(directory, { recursive: true, force: true });

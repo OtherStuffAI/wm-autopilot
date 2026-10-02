@@ -1,9 +1,9 @@
 import type { PipelineApiContext } from "./pipeline-api-routes";
-import { getPipelineDefinition } from "./pipeline-loader";
+import { blockMissingPipelineHistory, MISSING_PIPELINE_HISTORY_REASON } from "./pipeline-history-resume";
 import { resumeDeclarativePipeline, resumeErroredDeclarativePipeline } from "./pipeline-runner";
 import { loadPipelineFunctionRegistry } from "./function-loader";
 import { builtinPipelineFunctions } from "./functions";
-import { PipelineStore, type PipelineRunRecord } from "./pipeline-store";
+import type { PipelineRunRecord } from "./pipeline-store";
 
 export async function resumeStoredPipelineRun(
   ctx: PipelineApiContext,
@@ -14,14 +14,11 @@ export async function resumeStoredPipelineRun(
   if (!run || run.status !== "running") return;
   const ownerAlias = run.ownerAlias;
   const snapshot = ctx.store.composition.snapshot(run.id);
-  const definition = snapshot?.definition ?? await getPipelineDefinition(run.definitionId, ownerAlias);
-  if (!definition) {
-    ctx.store.completeRun(run.id, "error", run.current, `Pipeline definition not found: ${run.definitionId}`);
-    return;
-  }
+  if (!snapshot) { blockMissingPipelineHistory(ctx.store, run); return; }
+  const definition = snapshot.definition;
   const registry = await ctx.loadRegistryForRun?.({ run, definition })
     ?? (await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions)).registry;
-  const invocationContext = snapshot?.context ?? readFlightDeckInvocationContext(ctx.store, run.id);
+  const invocationContext = snapshot.context;
   await resumeDeclarativePipeline({
     store: ctx.store,
     sessionApiContext: ctx.sessionApiContext,
@@ -38,25 +35,6 @@ export async function resumeStoredPipelineRun(
   if (parent) await resumeStoredPipelineRun(ctx, parent.parentRunId, callbackOrigin);
 }
 
-function readFlightDeckInvocationContext(store: PipelineStore, runId: string): {
-  initiatingAgentProfileId: string | null;
-  initiatingAgentNpub: string | null;
-} {
-  const event = store.listEvents(runId).find((entry) => entry.type === "flightdeck_invocation_context");
-  if (!event || typeof event.data_json !== "string") {
-    return { initiatingAgentProfileId: null, initiatingAgentNpub: null };
-  }
-  try {
-    const data = JSON.parse(event.data_json) as Record<string, unknown>;
-    return {
-      initiatingAgentProfileId: typeof data.initiatingAgentProfileId === "string" ? data.initiatingAgentProfileId : null,
-      initiatingAgentNpub: typeof data.initiatingAgentNpub === "string" ? data.initiatingAgentNpub : null,
-    };
-  } catch {
-    return { initiatingAgentProfileId: null, initiatingAgentNpub: null };
-  }
-}
-
 export async function resumeStoredErroredPipelineRun(
   ctx: PipelineApiContext,
   runId: string,
@@ -66,12 +44,8 @@ export async function resumeStoredErroredPipelineRun(
   if (!run || run.status !== "error") return run;
   const ownerAlias = run.ownerAlias;
   const snapshot = ctx.store.composition.snapshot(run.id);
-  const definition = snapshot?.definition ?? await getPipelineDefinition(run.definitionId, ownerAlias);
-  if (!definition) {
-    const reopened = ctx.store.reopenErroredRun(run.id);
-    if (!reopened || reopened.status !== "running") return reopened;
-    return ctx.store.completeRun(run.id, "error", run.current, `Pipeline definition not found: ${run.definitionId}`);
-  }
+  if (!snapshot) throw new Error(MISSING_PIPELINE_HISTORY_REASON);
+  const definition = snapshot.definition;
   const registry = await ctx.loadRegistryForRun?.({ run, definition })
     ?? (await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions)).registry;
   return await resumeErroredDeclarativePipeline({
@@ -83,7 +57,7 @@ export async function resumeStoredErroredPipelineRun(
     ownerNpub: run.ownerNpub,
     ownerAlias,
     callbackOrigin,
-    ...(snapshot?.context ?? readFlightDeckInvocationContext(ctx.store, run.id)),
+    ...snapshot.context,
   }, run.id);
 }
 

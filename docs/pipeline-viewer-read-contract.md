@@ -17,7 +17,11 @@ owner-scoped, read-only control-plane surface instead:
 Every read requires NIP-98 owner authority or an active `control-plane:read`
 delegation, plus explicit `workspace_id`, `tower_service_npub`, and `app_npub`.
 Run reads resolve the root run's durable `flightdeck_invocation_context` and
-match that context, root owner, and delegated agent filters. Missing trusted
+match that context, root owner, and delegated agent, workspace and scope filters.
+Restricted scope reads require a scopeId from the resolved Tower channel; missing
+scope denies access. Scope-restricted catalogue reads additionally require an
+authorized durable invocation in that workspace/Tower/app context, with no scan
+ceiling; catalogue bindings remain independent of run access. Missing trusted
 workspace context is unavailable, never inferred from arbitrary run input.
 Denied/foreign records return 404; absent authority returns 403. Evidence and
 child reads use the same root authorization. Shared-instance access does not
@@ -73,7 +77,7 @@ It proves configured/passed fields, not all internal reads.
 `RunSummary`: `{id, serviceId, definitionId, definitionVersion, definitionHash,
 name, status, startedAt, completedAt, parentRunId, parentStepId}`.
 
-`StepSummary`: `{id, logicalKey, parentStepId, attempt, status, title,
+`StepSummary`: `{id, logicalKey, parentStepId, itemKey, attempt, status, title,
 description, kind, startedAt, completedAt, error, skipReason, continuationReason,
 exitReason, childRunId, inputs, outputs, evidence}`. Stable logical keys name
 definition nodes; execution IDs identify actual attempts. `attempt` is the
@@ -83,7 +87,7 @@ definition nodes. Do not invent UI groups. Native statuses remain documented
 rather than silently coerced.
 
 `EvidenceReference`: `{id, runId, stepId, attempt, kind, scope, contentType,
-bytes, availability, redacted, capturedAt, expiresAt}`. Kinds distinguish
+bytes, availability, redacted, capturedAt, expiresAt, preview}`. Kinds distinguish
 `resolved_input`, `executor_request`, `returned_output`, `state_write`,
 `side_effect_confirmation`. Availability distinguishes `complete`, `redacted`,
 `preview_only`, `not_captured`, `expired`, `oversized`, and `unavailable`.
@@ -156,9 +160,12 @@ Ports in both modes contain labels, paths and formats, not inline private
 values. Resolve values through each step's evidence references. Object evidence
 returns the exact full redacted object (including every nested record); top-level
 array evidence supports offset pages. Uncaptured references have `capturedAt: null` and use
-`not-captured:<step-id>:<kind>` IDs and have no value endpoint. Existing inline
-legacy values archived at compaction are `preview_only`, because completeness
-at their original executor boundary cannot be asserted. Missing trusted identity
+`not-captured:<step-id>:<kind>` IDs and have no value endpoint. Full retained
+legacy inline input/output/state is lazily archived as `complete` or `redacted`
+with `retained_legacy_inline` scope (or `legacy_inline_archive` during compaction).
+This asserts completeness of the retained inline value, never reconstruction of
+an executor request. Existing compacted display previews remain `preview_only`
+with `legacy_compacted_display_preview` scope. Missing trusted identity
 or historical snapshot is never reconstructed from run input/latest definitions.
 Native statuses: queued, running, ok, needs_input, error, skipped, cancelled.
 
@@ -196,3 +203,45 @@ availability labels cannot bypass byte budgets. Successful executor returns and
 state writes carry the most recent actual executor request attempt; resolved
 input remains the original selection. Evidence order is durable insertion order,
 including multiple captures within the same millisecond.
+
+### Review correction: runtime structure and identity
+
+Block expansions (paths and recursively expanded steps) are captured immutably
+in the run snapshot context at creation and used by the runner and historical
+DTO. New snapshot hashes cover the raw spec and expanded structure. Existing
+snapshots keep their hashes; historical blocks lacking expansion are marked
+unavailable and cannot be resumed by re-expanding current code. Catalogue reads
+may expand current definitions; historical reads never do.
+
+Parallel child executions share their definition logicalKey; itemKey and actual
+execution id distinguish items. Explicit agent IDs and all nested parents use
+the same key rules as definition nodes. Evidence attempt is the executor request
+ordinal within that execution id; it is independent of the StepSummary logical
+execution ordinal. Agent relaunch after an orphaned session appends retry identity
+past retained requests. All requests survive, and successful output/state belongs
+to the winning request. Frontend validators must match runId and stepId, without
+requiring the two different ordinals to be equal.
+
+Runtime-derived regression fixtures are under `docs/fixtures/pipeline-viewer/runtime`.
+See their README for regeneration and optional validation through Flight Deck's
+actual parser. The original Bird display fixtures remain synthetic illustrations.
+
+Evidence previews are optional `{value, truncated, count, counts}` summaries,
+captured after redaction and bounded to 2 KiB of UTF-8 JSON. Text excerpts are
+at most 256 characters, array samples at most two records; `counts` maps nested
+JSON paths to actual collection counts. Nullable `preview_json` is added to the
+evidence table without backfilling older rows. Lists read this small column,
+never full `value_json`. A preview cannot assert full evidence availability.
+Full private evidence remains session-only in the browser; frontend consumers
+must apply the same privacy policy to content previews.
+
+Before activation, run the read-only inventory:
+`bun scripts/pipeline-block-resume-audit.ts <pipeline-database>`.
+Pending legacy runs without snapshots cannot replay current definitions. They
+surface `historical_resume_blocked` and native error when resume is attempted;
+records and prior evidence remain retained. In a pinned legacy run a completed
+block may reuse its retained recorded state, but an incomplete block without a
+captured expansion fails explicitly. An operator must review prior side effects
+and decide new runs or recovery using provable historical structure; do not
+silently backfill expansions from current code. Rollback retains the nullable
+column and newly captured snapshots/evidence.

@@ -1,3 +1,4 @@
+import { archiveRetainedInlineEvidence } from "./pipeline-inline-evidence";
 import { pipelineControlFlow } from "./pipeline-control-flow";
 import { PipelineEvidenceStore } from "./pipeline-evidence-store";
 import { PipelineCompositionStore } from "./pipeline-composition-store";
@@ -206,7 +207,7 @@ export class PipelineStore {
   completeRun(id: string, status: PipelineStatus, result: JsonObject | null, error?: string | null): PipelineRunRecord {
     this.db.run(
       `UPDATE pipeline_runs SET status = ?, result_json = ?, error = ?, active_step_id = NULL, completed_at = ? WHERE id = ? AND status = 'running'`,
-      [status, result ? encodeJson(result) : null, error ?? null, now(), id],
+      [status, result ? encodeJson(result) : null, this.evidence.sanitize(error ?? null).value as string | null, now(), id],
     );
     return this.getRun(id)!;
   }
@@ -320,6 +321,7 @@ export class PipelineStore {
         metadata: input.metadata ?? null,
       }),
     });
+    if (input.callbackToken) this.evidence.registerSecret(input.callbackToken);
     if (status !== "skipped") this.evidence.capture({ runId: input.runId, stepId: id,
       kind: "resolved_input", scope: "selected_step_input", value: input.input, secrets: [input.callbackToken ?? ""] });
     return this.getStep(id)!;
@@ -361,7 +363,7 @@ export class PipelineStore {
           input.status,
           input.result ? encodeJson(input.result) : null,
           input.output ? encodeJson(input.output) : null,
-          input.error ?? null,
+          this.evidence.sanitize(input.error ?? null, [this.getStep(input.id)?.callbackToken ?? ""]).value as string | null,
           input.wingmanSessionId ?? null,
           now(),
           input.id,
@@ -493,6 +495,10 @@ export class PipelineStore {
     return rows.map(mapRun);
   }
 
+  archiveRetainedInlineEvidence(step: PipelineStepSummary): void {
+    archiveRetainedInlineEvidence(this.db, this.evidence, step);
+  }
+
   listStepSummaries(runId: string): PipelineStepSummary[] {
     const rows = this.db
       .query(`
@@ -595,7 +601,7 @@ export class PipelineStore {
           if (row[column] !== null) {
             const ref = this.evidence.ensureArchived({
               runId: String(row.run_id), stepId: String(row.id), kind, scope: "legacy_inline_archive",
-              value: JSON.parse(String(row[column])), secrets: [String(row.callback_token ?? "")], availability: "preview_only" });
+              value: JSON.parse(String(row[column])), secrets: [String(row.callback_token ?? "")] });
             if (!["complete", "redacted", "preview_only"].includes(ref.availability)) archived = false;
           }
         }

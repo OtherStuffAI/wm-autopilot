@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "serviceId": "autopilot_runtime_fixture",
+  "run": {
+    "id": "11949d60-eac7-4902-9f29-8c3293e23e71",
+    "serviceId": "autopilot_runtime_fixture",
+    "definitionId": "runtime",
+    "definitionVersion": null,
+    "definitionHash": "cd52f010272ec0449d816ce546ab9695726c424734186a02643a919c5aa81699",
+    "name": "runtime",
+    "status": "ok",
+    "startedAt": "2026-10-02T05:07:31.245Z",
+    "completedAt": "2026-10-02T05:07:31.246Z",
+    "parentRunId": null,
+    "parentStepId": null
+  },
+  "definition": {
+    "id": "runtime",
+    "name": "runtime",
+    "title": "runtime",
+    "description": "",
+    "version": null,
+    "hash": "cd52f010272ec0449d816ce546ab9695726c424734186a02643a919c5aa81699",
+    "availability": "complete",
+    "steps": [
+      {
+        "logicalKey": "classifier-id",
+        "name": "classifier-name",
+        "title": "classifier-name",
+        "description": "",
+        "type": "classifier",
+        "inputs": [],
+        "outputs": [],
+        "children": []
+      }
+    ],
+    "wiring": []
+  },
+  "steps": [
+    {
+      "itemKey": null,
+      "id": "a820a567-1a89-4342-bae6-cfdcb7659363",
+      "logicalKey": "classifier-id",
+      "parentStepId": null,
+      "attempt": 1,
+      "status": "ok",
+      "title": "classifier-name",
+      "description": "",
+      "kind": "classifier",
+      "startedAt": "2026-10-02T05:07:31.245Z",
+      "completedAt": "2026-10-02T05:07:31.245Z",
+      "error": null,
+      "skipReason": null,
+      "continuationReason": null,
+      "exitReason": null,
+      "childRunId": null,
+      "inputs": [],
+      "outputs": [],
+      "evidence": [
+        {
+          "id": "010d86d4-2220-46ef-ba97-72958bc622b5",
+          "runId": "11949d60-eac7-4902-9f29-8c3293e23e71",
+          "stepId": "a820a567-1a89-4342-bae6-cfdcb7659363",
+          "attempt": 1,
+          "kind": "resolved_input",
+          "scope": "selected_step_input",
+          "contentType": "application/json",
+          "bytes": 2,
+          "availability": "complete",
+          "preview": {
+            "value": {},
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.245Z",
+          "expiresAt": null
+        },
+        {
+          "id": "91cbec64-290e-4ad6-b514-cc0e6d5cf750",
+          "runId": "11949d60-eac7-4902-9f29-8c3293e23e71",
+          "stepId": "a820a567-1a89-4342-bae6-cfdcb7659363",
+          "attempt": 1,
+          "kind": "executor_request",
+          "scope": "assembled_model_request",
+          "contentType": "application/json",
+          "bytes": 66,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Previously sent request"
+                }
+              ]
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {
+              "$.messages": 1
+            }
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.245Z",
+          "expiresAt": null
+        },
+        {
+          "id": "8aa36167-f91c-4165-9036-b30dee78f18f",
+          "runId": "11949d60-eac7-4902-9f29-8c3293e23e71",
+          "stepId": "a820a567-1a89-4342-bae6-cfdcb7659363",
+          "attempt": 2,
+          "kind": "executor_request",
+          "scope": "assembled_model_request",
+          "contentType": "application/json",
+          "bytes": 429,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "model": "openai/gpt-oss-120b:nitro",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a JSON-only classifier inside a Wingman pipeline. Return exactly one valid JSON object and no prose, no markdown, no code fence. The object must satisfy the step instruction."
+                },
+                {
+                  "role": "user",
+                  "content": "Step instruction:\nResume\n\nSelected input:\n{}\n\nAttempt: 1"
+                }
+              ],
+              "temperature": 0,
+              "max_tokens": 1200,
+              "response_format": {
+                "type": "json_object"
+              }
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {
+              "$.messages": 2
+            }
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.245Z",
+          "expiresAt": null
+        },
+        {
+          "id": "70995494-12b2-446f-9413-fdfdde0213ea",
+          "runId": "11949d60-eac7-4902-9f29-8c3293e23e71",
+          "stepId": "a820a567-1a89-4342-bae6-cfdcb7659363",
+          "attempt": 2,
+          "kind": "returned_output",
+          "scope": "executor_return",
+          "contentType": "application/json",
+          "bytes": 20,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "answer": "resumed"
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.245Z",
+          "expiresAt": null
+        },
+        {
+          "id": "813c6202-fbc3-4698-b433-0deeedd828b3",
+          "runId": "11949d60-eac7-4902-9f29-8c3293e23e71",
+          "stepId": "a820a567-1a89-4342-bae6-cfdcb7659363",
+          "attempt": 2,
+          "kind": "state_write",
+          "scope": "state_after_assignment",
+          "contentType": "application/json",
+          "bytes": 31,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "answer": {
+                "answer": "resumed"
+              }
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:31.245Z",
+          "expiresAt": null
+        },
+        {
+          "id": "not-captured:a820a567-1a89-4342-bae6-cfdcb7659363:side_effect_confirmation",
+          "runId": "11949d60-eac7-4902-9f29-8c3293e23e71",
+          "stepId": "a820a567-1a89-4342-bae6-cfdcb7659363",
+          "attempt": 1,
+          "kind": "side_effect_confirmation",
+          "scope": "legacy_not_captured",
+          "contentType": "application/json",
+          "bytes": 0,
+          "availability": "not_captured",
+          "redacted": false,
+          "capturedAt": null,
+          "expiresAt": null
+        }
+      ]
+    }
+  ],
+  "children": [],
+  "revision": "d255b8e7597636387632ebd06286294abf0a71d45204b9f8cbfa60bcc2ed4920"
+}

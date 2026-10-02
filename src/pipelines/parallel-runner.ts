@@ -142,7 +142,7 @@ function countPendingAgentLaunches(
 }
 
 function ensureParallelChildren(input: ParallelStepRunnerInput, items: unknown[], itemKeys: string[]): void {
-  const existingKeys = new Set(input.store.listChildSteps(input.parentStepId).map((step) => step.logicalKey ?? String(step.stepIndex)));
+  const existingKeys = new Set(input.store.listChildSteps(input.parentStepId).map((step) => parallelItemKey(step)));
   items.forEach((item, index) => {
     const key = itemKeys[index] ?? String(index);
     if (existingKeys.has(key)) return;
@@ -157,7 +157,7 @@ function ensureParallelChildren(input: ParallelStepRunnerInput, items: unknown[]
       input: selected,
       status: "queued",
       parentStepId: input.parentStepId,
-      logicalKey: key,
+      logicalKey: `${input.store.getStep(input.parentStepId)?.logicalKey ?? input.parentStep.id ?? input.parentStep.name}/${child.id ?? child.name}`,
       callbackToken: child.type === "agent" ? crypto.randomUUID() : null,
       metadata: buildPipelineStepMetadata(child, {
         inputSelector: input.parentStep.itemInput ?? child.input,
@@ -189,7 +189,7 @@ async function runParallelChild(
   itemKeys: string[],
 ): Promise<void> {
   const child = input.parentStep.step;
-  const key = childRecord.logicalKey ?? "";
+  const key = parallelItemKey(childRecord);
   const index = itemKeys.indexOf(key);
   const item = items[index] ?? null;
   const selected = selectParallelChildInput(input.current, item, index, key, input.parentStep.itemInput ?? child.input);
@@ -224,7 +224,7 @@ async function runParallelChild(
 
 function buildParallelAggregate(children: PipelineStepRecord[]): JsonObject {
   const items = children.map((child, index) => ({
-    key: child.logicalKey ?? String(index),
+    key: parallelItemKey(child),
     index,
     status: child.status,
     result: child.output ?? child.result ?? {},
@@ -356,4 +356,9 @@ function objectOrWrappedParallel(value: unknown): JsonObject {
 
 function isTerminalStatus(status: PipelineStatus): boolean {
   return status === "ok" || status === "needs_input" || status === "error" || status === "skipped" || status === "cancelled";
+}
+
+function parallelItemKey(step: PipelineStepRecord): string {
+  const parent = step.metadata?.parent as Record<string, unknown> | undefined;
+  return typeof parent?.logicalKey === "string" ? parent.logicalKey : step.logicalKey ?? String(step.stepIndex);
 }

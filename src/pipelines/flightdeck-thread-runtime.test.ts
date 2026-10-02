@@ -23,7 +23,7 @@ function fixture(options: { workspaceId?: string; hasThread?: boolean } = {}) {
     } as never] },
     withAgentIdentity: async (_agent, operation) => await operation({ botNpub: "npub1managed" } as never),
     fetchScopes: async () => ({ scopes: [{ id: "scope-1" }], next_cursor: null }),
-    fetchChannels: async () => ({ channels: [{ id: "channel-1" }], next_cursor: null }),
+    fetchChannels: async () => ({ channels: [{ scope_id: "scope-1", id: "channel-1" }], next_cursor: null }),
     fetchMessages: async () => ({
       messages: options.hasThread === false ? [] : [{ id: invocation.threadId, channel_id: "channel-1" }],
       next_cursor: null,
@@ -46,6 +46,7 @@ describe("Flight Deck thread runtime", () => {
       workspaceId: invocation.workspaceId,
       threadId: invocation.threadId,
       channelId: "channel-1",
+      scopeId: "scope-1",
       senderNpub: "npub1managed",
       towerServiceNpub: null, appNpub: "npub1app", agentProfileId: "managed",
     });
@@ -217,7 +218,7 @@ function fixtureWithChannels(fetchMessages: NonNullable<Parameters<typeof create
     withAgentIdentity: async (_agent, operation) => await operation({ botNpub: "npub1managed" } as never),
     fetchScopes: async () => ({ scopes: [{ id: "scope-1" }], next_cursor: null }),
     fetchChannels: async () => ({
-      channels: [{ id: "channel-1" }, { id: "channel-2" }],
+      channels: [{ scope_id: "scope-1", id: "channel-1" }, { id: "channel-2" }],
       next_cursor: null,
     }),
     fetchMessages,

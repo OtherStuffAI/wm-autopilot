@@ -1,3 +1,4 @@
+import { MISSING_PIPELINE_HISTORY_REASON } from "./pipeline-history-resume";
 import { cancelPipelineTree } from "./child-pipeline";
 import { rootPipelineRunId, assertPipelineAncestorsRunning } from "./pipeline-run-authority";
 import { join } from "node:path";
@@ -276,6 +277,7 @@ export async function handlePipelineApi(
     if (run.status !== "error") {
       return Response.json({ error: "Only errored pipeline runs can be resumed from failure", run }, { status: 409 });
     }
+    if (!ctx.store.composition.snapshot(id)) return Response.json({ error: MISSING_PIPELINE_HISTORY_REASON }, { status: 409 });
     try { assertPipelineAncestorsRunning(ctx.store, id); }
     catch (error) { return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 409 }); }
     const reopened = ctx.store.reopenErroredRun(id);

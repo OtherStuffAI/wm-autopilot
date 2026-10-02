@@ -25,3 +25,9 @@ SQLite allocation are machine-specific, not a production performance claim.
 Regression suites cover clarification, empty/partial results, tool failure,
 retries, cancellation, missing historical evidence, authorization denial,
 redaction, oversized values and archive fault injection.
+
+The `runtime/` folder contains snapshots exported by actual isolated runner tests,
+including retries, repetition, resume, parallel items, nested agents and native
+blocks. See [runtime/README.md](runtime/README.md) for generation and validation
+through Flight Deck's actual parser; these establish execution semantics beyond
+this display fixture generator's manually created records.

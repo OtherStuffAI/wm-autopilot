@@ -4,7 +4,7 @@ import type { WingmanInstanceIdentity } from "../identity/wingman-instance-ident
 import { installationIdForIdentity } from "../control-plane/connect-package";
 import type { ControlPlaneRoutesContext } from "../server/control-plane-routes";
 import type { PipelineStore } from "./pipeline-store";
-import { viewerCanReadRun, type ViewerContext } from "./pipeline-viewer-access";
+import { viewerCanReadRun, viewerGrantMatches, type ViewerContext } from "./pipeline-viewer-access";
 import { viewerDefinition, viewerRunSummary, viewerSnapshot } from "./pipeline-viewer-dto";
 
 export interface PipelineViewerRoutesContext {
@@ -21,7 +21,7 @@ export async function handlePipelineViewerApi(request: Request, url: URL, auth: 
   const match = url.pathname.match(/^\/api\/owners\/([^/]+)\/control-plane\/v1\/pipeline-viewer(?:\/(.*))?$/);
   if (!match) return null;
   const serviceId = ctx.identity ? installationIdForIdentity(ctx.identity) : null;
-  const reply = (body: Record<string, unknown>, status = 200) => Response.json({ version: 1, serviceId, ...body },
+  const reply = (body: Record<string, unknown>, status = 200) => Response.json(ctx.store.evidence.sanitize({ version: 1, serviceId, ...body }).value,
     { status, headers: { "Cache-Control": "no-store" } });
   if (request.method !== "GET") return reply({ error: "method-not-allowed" }, 405);
   if (auth.authMethod !== "nip98") return reply({ error: "control-plane-read-authority-required" }, 403);
@@ -43,6 +43,10 @@ export async function handlePipelineViewerApi(request: Request, url: URL, auth: 
       },
     });
     if (resource[0] === "definitions") {
+      const filters = access.delegation?.resourceFilters;
+      // Scope is resolved from durable Tower invocation context, never a caller scope query.
+      const scopeAllowed = !filters?.scopeIds?.length || hasAuthorizedScopeRun(ctx.store, access.ownerNpub, canRead);
+      const contextAllowed = viewerGrantMatches({ workspaceIds: filters?.workspaceIds }, { workspaceId: context.workspaceId }) && scopeAllowed;
       const allowedAgentIds = access.delegation?.resourceFilters?.agentIds;
       const boundIds = allowedAgentIds?.length ? new Set(allowedAgentIds.flatMap(id => {
         const agent = ctx.agentStore.getByAgentId(id);
@@ -50,10 +54,10 @@ export async function handlePipelineViewerApi(request: Request, url: URL, auth: 
         return ctx.pipelineBindingStore.listAvailableIds(id);
       })) : null;
       const definitions = (await ctx.listPipelineDefinitions(access.ownerNpub))
-        .filter(definition => !boundIds || boundIds.has(definition.id)).sort((a, b) => a.id.localeCompare(b.id));
+        .filter(definition => contextAllowed && (!boundIds || boundIds.has(definition.id))).sort((a, b) => a.id.localeCompare(b.id));
       if (resource.length === 2) {
         const definition = definitions.find(item => item.id === resource[1]);
-        return definition ? reply({ definition: viewerDefinition(definition) }) : reply({ error: "not-found" }, 404);
+        return definition ? reply({ definition: viewerDefinition(definition, undefined, undefined, ctx.store.evidence.sanitize.bind(ctx.store.evidence)) }) : reply({ error: "not-found" }, 404);
       }
       if (resource.length !== 1) return reply({ error: "not-found" }, 404);
       const limit = integer(url, "limit", 50, 1, 100);
@@ -61,7 +65,7 @@ export async function handlePipelineViewerApi(request: Request, url: URL, auth: 
       const start = cursor ? definitions.findIndex(item => item.id === cursor.id) + 1 : 0;
       if (cursor && start === 0) throw new Error("invalid-cursor");
       const page = definitions.slice(start, start + limit);
-      return reply({ definitions: page.map(item => viewerDefinition(item)), nextCursor: start + limit < definitions.length
+      return reply({ definitions: page.map(item => viewerDefinition(item, undefined, undefined, ctx.store.evidence.sanitize.bind(ctx.store.evidence))), nextCursor: start + limit < definitions.length
         ? encodeCursor({ collection: "definitions", id: page.at(-1)!.id }) : null });
     }
     if (resource[0] !== "runs") return reply({ error: "not-found" }, 404);
@@ -139,4 +143,15 @@ function cursorValue(url: URL, collection: string): { id: string; startedAt?: st
     if (value.collection !== collection || typeof value.id !== "string" || !value.id || value.startedAt !== undefined && !Number.isFinite(Date.parse(value.startedAt))) throw new Error();
     return value;
   } catch { throw new Error("invalid-cursor"); }
+}
+
+function hasAuthorizedScopeRun(store: PipelineStore, owner: string, canRead: (id: string) => boolean): boolean {
+  let before: { id: string; startedAt: string } | null = null;
+  while (true) {
+    const runs = store.pageOwnerRuns(owner, before, 100);
+    if (runs.some(run => canRead(run.id))) return true;
+    if (runs.length < 100) return false;
+    const last = runs.at(-1)!;
+    before = { id: last.id, startedAt: last.startedAt };
+  }
 }

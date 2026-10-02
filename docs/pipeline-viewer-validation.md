@@ -15,7 +15,7 @@ that an already-running Autopilot process serves new routes.
 | Child and loop | Actual hierarchy, executed attempts and exit reason | Child opens with parent context; unused iterations subordinate |
 | Long prompt | Exact redacted invocation content retained through compaction | Full readable/copyable content; preview explicitly labelled |
 | Large collection | More than 20 records retained; every page accessible | Every record reachable without a first-N ceiling |
-| Legacy run | Missing snapshot/payload labelled unavailable or preview-only | No current-definition reconstruction or invented full values |
+| Legacy run | Full retained inline lazily complete/redacted; missing request not_captured; missing expansion unavailable; old previews preview_only | No current-definition reconstruction or invented full values |
 | Authorization | Owner/delegate positive; foreign owner/workspace/Tower/app/agent negative | No previous-context values after switching or denial |
 | Redaction/limits | Credentials removed; redactions/oversized/expiry explicit | Availability and scope shown; no false complete claim |
 | Recovery | Stable authoritative revision and snapshot | Reconnect/out-of-order response cannot duplicate or replace newer attempts |
@@ -55,3 +55,27 @@ For each handoff record exact commits, test counts/results, build identity,
 served versus source state, independent-review findings, migrations, rollback
 limits and remaining live checks. Keep delivery and package tasks aligned with
 that evidence; a working mock or successful build alone is not live acceptance.
+
+## Runtime contract regression checks
+
+Use real runner fixtures for agent/classifier retries, loop repetition, resume,
+parallel items and native block descendants. Set `PIPELINE_VIEWER_PARSER` to a
+Flight Deck checkout's `src/pipeline-viewer-contract.js` while running
+`pipeline-runner.test.ts`, `pipeline-viewer-runtime.test.ts` and
+`bird-chat.test.ts`; this validates snapshots through the actual frontend parser.
+Use `PIPELINE_VIEWER_FIXTURE_DIR=docs/fixtures/pipeline-viewer/runtime` to export
+reusable synthetic snapshots. The normal backend suite needs no sibling checkout.
+
+Exercise workspaceIds, scopeIds and agentIds independently and jointly across
+root, child, evidence, update, list and catalogue reads. Scope restrictions deny
+missing trusted Tower channel scope. Test credential echoes in successful input,
+request, context/output, state and every outward string, including skip reasons;
+ordinary prose must remain exact. Historical expansion changes must leave the
+old hash, structure and executed functions stable. Full legacy inline content
+must remain lazily readable before and after compaction; previews never become
+complete executor requests.
+
+Run repository validation as configured. If discovery includes nested ignored
+checkouts, preserve them and distinguish their results from current-source
+checks. Record compiler, lint, dependency-audit and runtime test failures
+separately; do not claim full validation passed merely because focused tests did.

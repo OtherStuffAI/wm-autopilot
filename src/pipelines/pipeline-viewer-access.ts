@@ -20,7 +20,14 @@ export function viewerCanReadRun(store: PipelineStore, runId: string, access: Ow
   const agentId = trusted.initiatingAgentProfileId ?? snapshot?.context.initiatingAgentProfileId ?? trusted.resolvedAgentProfileId;
   const agentNpub = trusted.initiatingAgentNpub ?? snapshot?.context.initiatingAgentNpub;
   if (typeof agentId !== "string" || !agentId || typeof agentNpub !== "string" || !agentNpub) return false;
-  const filters = access.delegation?.resourceFilters?.agentIds;
-  if (filters?.length && !filters.includes(agentId)) return false;
+  const filters = access.delegation?.resourceFilters;
+  if (filters?.agentIds?.length && !filters.agentIds.includes(agentId)) return false;
+  if (!viewerGrantMatches(filters, trusted)) return false;
   return agents.canReadAgent(agentId, agentNpub);
+}
+
+export function viewerGrantMatches(filters: { workspaceIds?: string[]; scopeIds?: string[] } | null | undefined,
+  trusted: Record<string, unknown>): boolean {
+  return (!filters?.workspaceIds?.length || typeof trusted.workspaceId === "string" && filters.workspaceIds.includes(trusted.workspaceId))
+    && (!filters?.scopeIds?.length || typeof trusted.scopeId === "string" && filters.scopeIds.includes(trusted.scopeId));
 }

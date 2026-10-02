@@ -1,0 +1,244 @@
+{
+  "version": 1,
+  "serviceId": "autopilot_runtime_fixture",
+  "run": {
+    "id": "6072c089-6d3b-4822-8e18-812a8b3a4150",
+    "serviceId": "autopilot_runtime_fixture",
+    "definitionId": "agent-timeout-retry",
+    "definitionVersion": null,
+    "definitionHash": "d5328163615c6440735515e235717f47cd5157265c652488dbbd59a87554d415",
+    "name": "agent-timeout-retry",
+    "status": "ok",
+    "startedAt": "2026-10-02T05:07:32.550Z",
+    "completedAt": "2026-10-02T05:07:34.818Z",
+    "parentRunId": null,
+    "parentStepId": null
+  },
+  "definition": {
+    "id": "agent-timeout-retry",
+    "name": "agent-timeout-retry",
+    "title": "agent-timeout-retry",
+    "description": "",
+    "version": null,
+    "hash": "d5328163615c6440735515e235717f47cd5157265c652488dbbd59a87554d415",
+    "availability": "complete",
+    "steps": [
+      {
+        "logicalKey": "agent",
+        "name": "agent",
+        "title": "agent",
+        "description": "",
+        "type": "agent",
+        "inputs": [],
+        "outputs": [],
+        "children": []
+      }
+    ],
+    "wiring": []
+  },
+  "steps": [
+    {
+      "itemKey": null,
+      "id": "bd33b50d-b0f2-4c96-9e98-afcc2b2a9297",
+      "logicalKey": "agent",
+      "parentStepId": null,
+      "attempt": 1,
+      "status": "ok",
+      "title": "agent",
+      "description": "",
+      "kind": "agent",
+      "startedAt": "2026-10-02T05:07:32.551Z",
+      "completedAt": "2026-10-02T05:07:34.818Z",
+      "error": null,
+      "skipReason": null,
+      "continuationReason": null,
+      "exitReason": null,
+      "childRunId": null,
+      "inputs": [],
+      "outputs": [],
+      "evidence": [
+        {
+          "id": "9f62f865-0a9d-437d-9dc7-dcb2e95edae9",
+          "runId": "6072c089-6d3b-4822-8e18-812a8b3a4150",
+          "stepId": "bd33b50d-b0f2-4c96-9e98-afcc2b2a9297",
+          "attempt": 1,
+          "kind": "resolved_input",
+          "scope": "selected_step_input",
+          "contentType": "application/json",
+          "bytes": 19,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "topic": "timeout"
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:32.551Z",
+          "expiresAt": null
+        },
+        {
+          "id": "5f3a543b-0332-43ba-a6ea-c8e1a1ea43fe",
+          "runId": "6072c089-6d3b-4822-8e18-812a8b3a4150",
+          "stepId": "bd33b50d-b0f2-4c96-9e98-afcc2b2a9297",
+          "attempt": 1,
+          "kind": "executor_request",
+          "scope": "agent_invocation_prompt_persistent_session_not_full_conversation",
+          "contentType": "application/json",
+          "bytes": 1215,
+          "availability": "redacted",
+          "preview": {
+            "value": {
+              "prompt": "You are running one step in a Wingmen pipeline.\n\nStep instruction:\nReturn a timeout result.\n\nSelected input:\n{\n  \"topic\": \"timeout\"\n}\n\nCompletion contract:\n- You are not complete until the webhook returns HTTP 200.\n- POST exactly one JSON object to:\n  http",
+              "agent": "codex",
+              "model": null,
+              "sessionId": "retry-codex-session-1",
+              "type": "user"
+            },
+            "truncated": true,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": true,
+          "capturedAt": "2026-10-02T05:07:33.057Z",
+          "expiresAt": null
+        },
+        {
+          "id": "9593d2d1-f4bd-415b-8983-49566c34ebe9",
+          "runId": "6072c089-6d3b-4822-8e18-812a8b3a4150",
+          "stepId": "bd33b50d-b0f2-4c96-9e98-afcc2b2a9297",
+          "attempt": 2,
+          "kind": "executor_request",
+          "scope": "agent_invocation_prompt_persistent_session_not_full_conversation",
+          "contentType": "application/json",
+          "bytes": 1215,
+          "availability": "redacted",
+          "preview": {
+            "value": {
+              "prompt": "You are running one step in a Wingmen pipeline.\n\nStep instruction:\nReturn a timeout result.\n\nSelected input:\n{\n  \"topic\": \"timeout\"\n}\n\nCompletion contract:\n- You are not complete until the webhook returns HTTP 200.\n- POST exactly one JSON object to:\n  http",
+              "agent": "codex",
+              "model": null,
+              "sessionId": "retry-codex-session-2",
+              "type": "user"
+            },
+            "truncated": true,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": true,
+          "capturedAt": "2026-10-02T05:07:34.565Z",
+          "expiresAt": null
+        },
+        {
+          "id": "d5ebcffa-e873-4634-8041-124fddfb7231",
+          "runId": "6072c089-6d3b-4822-8e18-812a8b3a4150",
+          "stepId": "bd33b50d-b0f2-4c96-9e98-afcc2b2a9297",
+          "attempt": 2,
+          "kind": "returned_output",
+          "scope": "executor_return",
+          "contentType": "application/json",
+          "bytes": 28,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "answer": "retry delivered"
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:34.565Z",
+          "expiresAt": null
+        },
+        {
+          "id": "a5f3c5cd-ab02-42ee-be63-b734d52c2946",
+          "runId": "6072c089-6d3b-4822-8e18-812a8b3a4150",
+          "stepId": "bd33b50d-b0f2-4c96-9e98-afcc2b2a9297",
+          "attempt": 2,
+          "kind": "state_write",
+          "scope": "state_after_assignment",
+          "contentType": "application/json",
+          "bytes": 28,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "answer": "retry delivered"
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:34.565Z",
+          "expiresAt": null
+        },
+        {
+          "id": "2435459e-6720-4465-8457-22afb5391835",
+          "runId": "6072c089-6d3b-4822-8e18-812a8b3a4150",
+          "stepId": "bd33b50d-b0f2-4c96-9e98-afcc2b2a9297",
+          "attempt": 2,
+          "kind": "returned_output",
+          "scope": "executor_return",
+          "contentType": "application/json",
+          "bytes": 28,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "answer": "retry delivered"
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:34.818Z",
+          "expiresAt": null
+        },
+        {
+          "id": "26c1f91f-7d00-4ce0-afea-839588af2fd3",
+          "runId": "6072c089-6d3b-4822-8e18-812a8b3a4150",
+          "stepId": "bd33b50d-b0f2-4c96-9e98-afcc2b2a9297",
+          "attempt": 2,
+          "kind": "state_write",
+          "scope": "state_after_assignment",
+          "contentType": "application/json",
+          "bytes": 59,
+          "availability": "complete",
+          "preview": {
+            "value": {
+              "topic": "timeout",
+              "agentRaw": {
+                "answer": "retry delivered"
+              }
+            },
+            "truncated": false,
+            "count": null,
+            "counts": {}
+          },
+          "redacted": false,
+          "capturedAt": "2026-10-02T05:07:34.818Z",
+          "expiresAt": null
+        },
+        {
+          "id": "not-captured:bd33b50d-b0f2-4c96-9e98-afcc2b2a9297:side_effect_confirmation",
+          "runId": "6072c089-6d3b-4822-8e18-812a8b3a4150",
+          "stepId": "bd33b50d-b0f2-4c96-9e98-afcc2b2a9297",
+          "attempt": 1,
+          "kind": "side_effect_confirmation",
+          "scope": "legacy_not_captured",
+          "contentType": "application/json",
+          "bytes": 0,
+          "availability": "not_captured",
+          "redacted": false,
+          "capturedAt": null,
+          "expiresAt": null
+        }
+      ]
+    }
+  ],
+  "children": [],
+  "revision": "8b87ed8e9b1be6241ffbb4a0ac9427002a3e1930c5beea71f3f096ce3129a521"
+}

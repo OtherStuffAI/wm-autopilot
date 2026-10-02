@@ -94,7 +94,7 @@ test("historical definition remains pinned; legacy absence explicit and denied I
   store.addEvent({ runId: legacy.id, level: "info", type: "flightdeck_invocation_context", data: context });
   const step = store.createStep({ runId: legacy.id, stepIndex: 0, name: "historical", kind: "code", input: {} });
   const db = new (require("bun:sqlite").Database)(store.path); db.run("DROP TRIGGER pipeline_evidence_immutable_delete"); db.run("DELETE FROM pipeline_evidence WHERE step_id = ?", [step.id]); db.close();
-  const old = await (await request(`runs/${legacy.id}`)).json(); expect(old.definition.availability).toBe("unavailable"); expect(old.steps[0].evidence[0].availability).toBe("not_captured");
+  const old = await (await request(`runs/${legacy.id}`)).json(); expect(old.definition.availability).toBe("unavailable"); expect(old.steps[0].evidence.find((ref: { kind: string }) => ref.kind === "executor_request").availability).toBe("not_captured");
   definition.spec.version = 2;
 });
 
@@ -115,4 +115,52 @@ test("definition defaults paths and credential-bearing error text never enter vi
   const snapshot = await (await request(`runs/${runId}`)).json();
   expect(JSON.stringify(snapshot)).not.toContain("synthetic-key"); expect(JSON.stringify(snapshot)).not.toContain("nsec1private123");
   expect(JSON.stringify(snapshot)).not.toContain("synthetic-private-callback");
+});
+
+test("workspace and scope grants independently and jointly protect root child evidence lists and catalogue", async () => {
+  const trusted = { ...context, scopeId: "trusted-scope" };
+  const root = createRun(trusted); const child = createRun();
+  const parentStep = store.createStep({ runId: root, stepIndex: 0, name: "child", kind: "pipeline", input: { retained: true } });
+  store.composition.link({ parentRunId: root, parentStepId: parentStep.id, childRunId: child, deadline: Date.now() + 1000 });
+  const childStep = store.createStep({ runId: child, stepIndex: 0, name: "code", kind: "code", input: { value: 1 } });
+  const ref = store.evidence.list(child, childStep.id)[0]!;
+  const cases = [
+    { workspaceIds: [context.workspaceId] }, { scopeIds: [trusted.scopeId] },
+    { workspaceIds: [context.workspaceId], scopeIds: [trusted.scopeId], agentIds: [context.initiatingAgentProfileId] },
+    { workspaceIds: ["foreign"] }, { scopeIds: ["foreign"] },
+    { workspaceIds: [context.workspaceId], scopeIds: ["foreign"] },
+    { workspaceIds: ["foreign"], scopeIds: [trusted.scopeId] },
+    { workspaceIds: [context.workspaceId], scopeIds: [trusted.scopeId], agentIds: ["foreign"] },
+  ];
+  for (const filters of cases) {
+    ctx.workspaceDelegationStore = { findActiveDelegation: () => ({ resourceFilters: filters }) } as never;
+    const allowed = !Object.values(filters).flat().includes("foreign");
+    for (const path of [`runs/${root}`, `runs/${child}`, `runs/${child}/evidence/${ref.id}`, `runs/${root}/updates`]) {
+      expect((await request(path, delegate)).status).toBe(allowed ? 200 : 404);
+    }
+    const runs = await (await request("runs", delegate)).json();
+    expect(runs.runs.some((run: { id: string }) => run.id === root)).toBe(allowed);
+    expect(runs.runs.some((run: { id: string }) => run.id === child)).toBe(allowed);
+    expect((await request(`definitions/${definition.id}`, delegate)).status).toBe(allowed ? 200 : 404);
+    expect((await (await request("definitions", delegate)).json()).definitions.length > 0).toBe(allowed);
+  }
+  ctx.workspaceDelegationStore = { findActiveDelegation: () => ({ resourceFilters: { scopeIds: [trusted.scopeId] } }) } as never;
+  expect((await request(`runs/${runId}`, delegate)).status).toBe(404); // Missing trustworthy scope.
+  for (let index = 0; index < 110; index++) createRun();
+  expect((await request(`definitions/${definition.id}`, delegate)).status).toBe(200); // No first-100 witness ceiling.
+  const noScopeCtx = { ...ctx, store: new PipelineStore(join(dir, "no-context.sqlite")) };
+  const url = new URL(`https://synthetic.test/api/owners/${owner}/control-plane/v1/pipeline-viewer/definitions?workspace_id=${context.workspaceId}&tower_service_npub=${context.towerServiceNpub}&app_npub=${context.appNpub}`);
+  const denied = await handlePipelineViewerApi(new Request(url), url, { authMethod: "nip98", npub: delegate, subjectNpub: delegate, signerNpub: delegate } as RequestAuthContext, noScopeCtx);
+  expect((await denied!.json()).definitions).toEqual([]);
+});
+
+test("every outward string including skip reasons and definition ports uses credential context", async () => {
+  const secret = "synthetic-provider-secret";
+  store.evidence.registerSecret(secret);
+  const step = store.createStep({ runId, stepIndex: 0, name: `name ${secret}`, kind: "code", input: {}, callbackToken: "synthetic-callback",
+    metadata: { title: secret, description: secret, controlFlow: { continuationReason: secret, exitReason: secret }, display: { in: [{ label: secret, path: `$.${secret}` }] } } });
+  store.completeStep({ id: step.id, status: "skipped", result: null, error: `skip ${secret} synthetic-callback` });
+  const snapshot = await (await request(`runs/${runId}`)).json();
+  expect(JSON.stringify(snapshot)).not.toContain(secret); expect(JSON.stringify(snapshot)).not.toContain("synthetic-callback");
+  expect(snapshot.steps[0].skipReason).toBe("skip [REDACTED] [REDACTED]");
 });

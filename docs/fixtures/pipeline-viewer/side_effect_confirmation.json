@@ -2,17 +2,27 @@
   "version": 1,
   "serviceId": "autopilot_79bd7d7fd684b399857c582b1b7172dd",
   "evidence": {
-    "id": "8fd618c0-4f99-4b50-985c-cd43a88a02b6",
-    "runId": "82f90ae2-fc96-4534-aafa-20cb3f8ccfc8",
-    "stepId": "5e6f5a71-8a1c-456c-8914-f0480673f389",
+    "id": "79a73ba6-56bb-4fab-ae73-f64a46704107",
+    "runId": "8e942d44-4275-452c-bc1a-8c26aaf385b8",
+    "stepId": "fde62f28-d36d-487a-b4c5-b365d53cb7c6",
     "attempt": 1,
     "kind": "side_effect_confirmation",
     "scope": "delivery_adapter_confirmation",
     "contentType": "application/json",
     "bytes": 80,
     "availability": "complete",
+    "preview": {
+      "value": {
+        "delivered": true,
+        "messageId": "synthetic-message",
+        "threadId": "synthetic-thread"
+      },
+      "truncated": false,
+      "count": null,
+      "counts": {}
+    },
     "redacted": false,
-    "capturedAt": "2026-10-02T04:20:52.933Z",
+    "capturedAt": "2026-10-02T05:02:49.853Z",
     "expiresAt": null
   },
   "value": {

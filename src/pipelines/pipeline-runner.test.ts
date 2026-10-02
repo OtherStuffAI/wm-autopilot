@@ -15,6 +15,7 @@ import {
   runDeclarativePipeline,
 } from "./pipeline-runner";
 import { runParallelStep } from "./parallel-runner";
+import { assertRuntimeViewer } from "./pipeline-viewer-runtime-test-support";
 import { PipelineStore } from "./pipeline-store";
 
 let tempDir: string;
@@ -211,6 +212,7 @@ describe("runDeclarativePipeline", () => {
     expect(resumedRun?.result?.first).toEqual({ value: "done" });
     expect(resumedRun?.result?.flaky).toEqual({ value: "recovered" });
     expect(resumedRun?.result?.final).toEqual({ value: "complete" });
+    await assertRuntimeViewer("error-resume", store, failedRun.id);
     expect(store.listSteps(failedRun.id).map((step) => [step.name, step.status])).toEqual([
       ["first", "ok"],
       ["flaky", "error"],
@@ -423,6 +425,7 @@ describe("runDeclarativePipeline", () => {
 
     expect(run.status).toBe("ok");
     expect(calls).toBe(3);
+    await assertRuntimeViewer("classifier-retries", store, run.id);
     const refs = store.evidence.list(run.id);
     expect(refs.filter(ref => ref.kind === "executor_request").map(ref => ref.attempt)).toEqual([1, 2, 3]);
     expect(refs.filter(ref => ref.kind === "returned_output").at(-1)!.attempt).toBe(3);
@@ -636,6 +639,7 @@ describe("runDeclarativePipeline", () => {
       "loop",
     ]);
     expect(run.result?.reviewLoop).toMatchObject({ completed: 3, done: true });
+    await assertRuntimeViewer("loop-repetition", store, run.id);
   });
 
   test("fails clearly before launching an agent when selected input is too large", async () => {
@@ -1026,6 +1030,7 @@ describe("runDeclarativePipeline", () => {
     const [step] = store.listSteps(run.id);
     expect(step?.status).toBe("ok");
     expect(step?.wingmanSessionId).toBe("retry-codex-session-2");
+    await assertRuntimeViewer("agent-timeout-retries", store, run.id);
   });
 
   test("retries an agent step with a fresh session after transient delivery failures", async () => {
@@ -1159,6 +1164,7 @@ describe("runDeclarativePipeline", () => {
     expect(run.result?.agentRaw).toEqual({ answer: "delivery retry delivered" });
     expect(createCount).toBe(3);
     expect(adapterSendCount).toBe(3);
+    await assertRuntimeViewer("agent-delivery-retries", store, run.id);
     const refs = store.evidence.list(run.id);
     expect(refs.filter(ref => ref.kind === "executor_request").map(ref => ref.attempt)).toEqual([1, 2, 3]);
     expect(refs.filter(ref => ref.kind === "returned_output").at(-1)!.attempt).toBe(3);
@@ -1221,6 +1227,7 @@ describe("runDeclarativePipeline", () => {
       "GAMMA",
     ]);
     expect(store.listSteps(run.id).map((step) => step.kind)).toEqual(["parallel", "code", "code", "code"]);
+    await assertRuntimeViewer("parallel-items", store, run.id);
   });
 
   test("runs decisions classifiers in parallel and records individual failures", async () => {
@@ -1461,8 +1468,10 @@ describe("runDeclarativePipeline", () => {
         steps: [{ name: "agent", type: "agent", prompt: "Recover the work.", assign: "$.agentRaw" }] } };
     const run = store.createRun({ definitionId: definition.id, definitionPath: definition.path, name: definition.name,
       ownerNpub: "npub-test", ownerAlias: "alpha-beta-gamma", scope: "user", input: definition.spec.input! });
+    store.composition.pin(run.id, definition, {});
     const step = store.createStep({ runId: run.id, stepIndex: 0, name: "agent", kind: "agent", input: run.input ?? {},
       callbackToken: "orphan-token" });
+    store.evidence.capture({ runId: run.id, stepId: step.id, kind: "executor_request", scope: "agent_invocation_prompt_persistent_session_not_full_conversation", value: { prompt: "Previously delivered invocation" }, attempt: 1 });
     store.setStepSession(step.id, "archived-session");
     store.setRunActiveStep(run.id, step.id);
     const replacement = { id: "replacement-session", agent: "codex", port: 49999, name: "replacement", status: "running",
@@ -1500,6 +1509,9 @@ describe("runDeclarativePipeline", () => {
     expect(resumed?.status).toBe("ok");
     expect(resumed?.result?.agentRaw).toEqual({ recovered: true });
     expect(store.getStep(step.id)?.wingmanSessionId).toBe("replacement-session");
+    expect(store.evidence.list(run.id).filter(ref => ref.kind === "executor_request").map(ref => ref.attempt)).toEqual([1, 2]);
+    expect(store.evidence.list(run.id).findLast(ref => ref.kind === "returned_output")!.attempt).toBe(2);
+    await assertRuntimeViewer("orphan-agent-resume", store, run.id);
   });
 
   test("resumes a run after an agent callback completed during downtime", async () => {
@@ -1544,6 +1556,7 @@ describe("runDeclarativePipeline", () => {
       scope: "user",
       input: definition.spec.input!,
     });
+    store.composition.pin(run.id, definition, {});
     const prepared = { seed: true, prepared: { ok: true } };
     store.updateRunProgress(run.id, prepared, 1);
     const agentStep = store.createStep({

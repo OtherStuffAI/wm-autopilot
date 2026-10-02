@@ -28,6 +28,7 @@ export async function startFlightDeckPipelineRun(input: {
           initiatingAgentNpub: input.initiatingAgentNpub ?? null,
           towerServiceNpub: resolved.resolution.towerServiceNpub ?? null, appNpub: resolved.resolution.appNpub ?? null,
           resolvedAgentProfileId: resolved.resolution.agentProfileId ?? null,
+          scopeId: resolved.resolution.scopeId ?? null, channelId: resolved.resolution.channelId,
           sourceMessageId: input.sourceMessageId ?? null, workspaceId: resolved.input.workspaceId, threadId: resolved.input.threadId } });
       input.onRunCreated?.(created);
     },

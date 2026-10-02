@@ -7,6 +7,7 @@ import type { RequestAuthContext } from "../auth/request-context";
 import type { SessionApiContext } from "../server/session-api-routes";
 import { handlePipelineApi, type PipelineApiContext } from "./pipeline-api-routes";
 import { PipelineStore } from "./pipeline-store";
+import { getPipelineDefinition } from "./pipeline-loader";
 import { configureFlightDeckPipelineInvocation } from "./flightdeck-invocation";
 
 let tempDir: string;
@@ -396,6 +397,7 @@ describe("pipeline run API visibility", () => {
       scope: "shared",
       input: { value: 1 },
     });
+    store.composition.pin(run.id, (await getPipelineDefinition("recoverable", "viewer-alias"))!, {});
     store.completeRun(run.id, "error", run.current, "temporary failure");
     const ctx = {
       ...makeContext(store, true),
@@ -524,4 +526,14 @@ test("child API redacts inherited public callback credentials and rejects reviva
   store.completeRun(c.id, "error", {}, "failed"); store.completeRun(p.id, "ok", {});
   expect((await handlePost(`/api/pipelines/runs/${c.id}/resume-from-failure`, ctx)).status).toBe(409);
   expect(store.getRun(c.id)!.status).toBe("error");
+});
+
+
+test("manual resume rejects missing historical snapshot without reopening or loading current code", async () => {
+  const store = makeStore(); const run = store.createRun({ name: "legacy", definitionId: "legacy", scope: "shared", ownerNpub: "npub1viewer", input: {} });
+  store.completeRun(run.id, "error", {}, "old failure"); let loads = 0;
+  const ctx = { ...makeContext(store, true), loadRegistryForRun: async () => { loads++; return {}; } };
+  const response = await handlePost(`/api/pipelines/runs/${run.id}/resume-from-failure`, ctx);
+  expect(response.status).toBe(409); expect((await response.json()).error).toContain("Historical pipeline definition snapshot was not captured");
+  expect(loads).toBe(0); expect(store.getRun(run.id)!.status).toBe("error"); expect(store.listSteps(run.id)).toEqual([]);
 });

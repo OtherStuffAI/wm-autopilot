@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "serviceId": "autopilot_runtime_fixture",
+  "run": {
+    "id": "35eaf596-b701-45f3-8dfd-d6c3078888f9",
+    "serviceId": "autopilot_runtime_fixture",
+    "definitionId": "runtime",
+    "definitionVersion": null,
+    "definitionHash": "036f4fb99ec41dd82ea0fa22f08b73e957ca0f647dcf50c9b58b9712fad90034",
+    "name": "runtime",
+    "status": "running",
+    "startedAt": "2026-10-02T05:07:31.249Z",
+    "completedAt": null,
+    "parentRunId": null,
+    "parentStepId": null
+  },
+  "definition": {
+    "id": "runtime",
+    "name": "runtime",
+    "title": "runtime",
+    "description": "",
+    "version": null,
+    "hash": "036f4fb99ec41dd82ea0fa22f08b73e957ca0f647dcf50c9b58b9712fad90034",
+    "availability": "unavailable",
+    "steps": [
+      {
+        "logicalKey": "legacy-block",
+        "name": "legacy-block",
+        "title": "legacy-block",
+        "description": "",
+        "type": "block",
+        "inputs": [],
+        "outputs": [],
+        "children": []
+      }
+    ],
+    "wiring": []
+  },
+  "steps": [],
+  "children": [],
+  "revision": "b1d4149c2ed68c9ba3a9e803182a735f4a562f85332c0a143f9758b06c204ae9"
+}
