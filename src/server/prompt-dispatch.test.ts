@@ -9,6 +9,9 @@ import type { SessionSnapshot } from "../agents/process-manager";
 import { createPromptDispatchEngine } from "./prompt-dispatch";
 import { SessionDispatchInboxCoordinator } from "../session-dispatch/session-dispatch-inbox";
 import { SessionDispatchStore } from "../session-dispatch/session-dispatch-store";
+import { handleQueueRoutes } from "./session-queue-routes";
+import type { SessionApiContext } from "./session-api-routes";
+import type { RequestAuthContext } from "../auth/request-context";
 
 const roots: string[] = [];
 
@@ -540,4 +543,41 @@ test("post-acceptance synchronization failure never suggests replaying the accep
     await expect(f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner")).rejects.toMatchObject({ payload: { deliveryAccepted: true } });
     expect(queue.getQueueCount("session-1")).toBe(0);
   } finally { globalThis.fetch = original; rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("direct delegated delivery registers its active attempt before allowing reconciliation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "queue-direct-active-"));
+  let release!: () => void;
+  let sending: Promise<unknown> | undefined;
+  try {
+    const queue = new PromptQueueStore(join(root, "queue.db"));
+    queue.addPrompt("session-1", { content: "Delegated immediate delivery" });
+    const f = buildEngine({ promptQueueStore: queue });
+    Object.assign(f.adapter, { deliversPromptsDirectly: () => true });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    f.adapter.sendMessage.mockImplementation(async () => { entered(); await held; });
+    sending = f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner");
+    await started;
+    const read = queue.getSessionQueue("session-1")[0]!;
+    const ctx = { promptQueueStore: queue, queueDispatchInFlight: f.engine.queueDispatchInFlight } as unknown as SessionApiContext;
+    const parts = ["", "api", "sessions", "session-1", "queue", read.id, "reconcile"];
+    const response = await handleQueueRoutes(new Request(`http://localhost${parts.join("/")}`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revision: read.revision, claimToken: read.claimToken, resolution: "retry", reason: "Attempt to replay active work" }),
+    }), "POST", parts, "session-1", f.session, { capabilitySessionId: "session-1" } as RequestAuthContext, ctx);
+    expect(response.status).toBe(409);
+    expect(queue.getSessionQueue("session-1")[0]?.state).toBe("claimed");
+    release();
+    await sending;
+    expect(f.adapter.sendMessage).toHaveBeenCalledTimes(1);
+    expect(queue.getQueueCount("session-1")).toBe(0);
+    expect(f.engine.queueDispatchInFlight.has("session-1")).toBeFalse();
+  } finally {
+    release?.();
+    await sending?.catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
 });

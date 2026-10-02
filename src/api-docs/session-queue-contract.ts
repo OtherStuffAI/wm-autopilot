@@ -9,6 +9,7 @@ export function addSessionQueueContract(paths: Record<string, Record<string, unk
     deliveryState: { type: "string", nullable: true, enum: ["unsent", "uncertain", "accepted", "rejected"] },
     deliveryId: { type: "string", nullable: true }, claimToken: { type: "string", nullable: true },
     deliveryUpdatedAt: { type: "string", nullable: true },
+    deliveryActive: { type: "boolean", description: "Whether this claimed delivery is currently executing. Reconciliation is refused while true." },
     handledReason: { type: "string", nullable: true },
   } };
   const queue = { type: "object", required: ["prompts", "handled", "maxSize"], properties: {

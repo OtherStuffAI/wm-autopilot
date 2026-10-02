@@ -255,6 +255,16 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
   }
 
   async function dispatchNextQueuedPromptForSession(session: SessionSnapshot, userNpub: string | null) {
+    const ownsLock = !queueDispatchInFlight.has(session.id);
+    if (ownsLock) queueDispatchInFlight.add(session.id);
+    try {
+      return await dispatchQueuedPromptWithClaim(session, userNpub);
+    } finally {
+      if (ownsLock) queueDispatchInFlight.delete(session.id);
+    }
+  }
+
+  async function dispatchQueuedPromptWithClaim(session: SessionSnapshot, userNpub: string | null) {
     const dispatchStartedAt = Date.now();
     let readinessMs = 0;
     let deliveryMs = 0;

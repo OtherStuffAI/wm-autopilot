@@ -14,11 +14,13 @@ browserTest("busy queue acknowledgement updates Dexie, pending count and histori
   queue.addPrompt("fixture", { content: "Later request remains pending" });
   const assets = createProjectStaticAssetService(resolve(import.meta.dir, ".."));
   const session = { id: "fixture", npub: "fixture-owner", metadata: {}, status: "running", agentRuntimeStatus: "running" };
+  const active = new Set<string>();
   const ctx = {
     adminNpub: null, AccessActions: { SessionsRead: "sessions:read", SessionsManage: "sessions:manage" },
     getViewerNormalizedNpub: () => "fixture-owner", sessionBelongsToViewer: (npub: string) => npub === "fixture-owner",
     manager: { listSessions: () => [session], getSession: () => session }, ensureApiAccess: async () => null,
     promptQueueStore: queue,
+    queueDispatchInFlight: active,
   } as unknown as SessionApiContext;
   const auth = { npub: "fixture-owner", authMethod: "session", session: { id: "viewer" } } as unknown as RequestAuthContext;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -76,6 +78,13 @@ browserTest("busy queue acknowledgement updates Dexie, pending count and histori
     // A durable unresolved claim remains visible after Dexie refresh and reload.
     const unresolved = queue.claimNextPrompt("fixture")!;
     queue.markClaimSending("fixture", unresolved.id, unresolved.claimToken!);
+    active.add("fixture");
+    await page.evaluate(() => (window as any).fixture.refresh());
+    await page.waitForFunction(() => document.querySelector('[data-testid="queued-prompt-state"]')?.textContent === 'Dispatching');
+    expect(await page.getByTestId("queued-prompt-state").textContent()).toBe("Dispatching");
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('[data-testid="queued-prompt-state"]')?.textContent === 'Dispatching');
+    active.clear();
     await page.evaluate(() => (window as any).fixture.refresh());
     await page.waitForFunction(() => document.querySelector('[data-testid="queued-prompt-state"]')?.textContent?.includes('Delivery unresolved'));
     expect(await page.getByTestId("queued-prompt-state").textContent()).toContain("reconcile explicitly");

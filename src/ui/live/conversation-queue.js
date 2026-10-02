@@ -37,6 +37,7 @@ export function mergeConversationWithQueuedPrompts(messages, prompts) {
       queued: prompt.state !== "handled",
       handled: prompt.state === "handled",
       deliveryState: prompt.deliveryState,
+      deliveryActive: prompt.deliveryActive === true,
       deliveryId: prompt.deliveryId,
       claimToken: prompt.claimToken,
       revision: prompt.revision,

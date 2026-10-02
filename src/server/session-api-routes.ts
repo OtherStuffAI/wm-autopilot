@@ -114,7 +114,7 @@ export interface SessionApiContext {
     getByNormalized: (normalizedNpub: string) => { ports?: number[] } | null;
   };
   promptQueueStore: {
-    getSessionQueue: (id: string) => unknown[];
+    getSessionQueue: (id: string) => import("../storage/prompt-queue-store").QueuedPrompt[];
     getHandledPrompts: (id: string) => unknown[];
     reconcileClaim: (sessionId: string, id: string, revision: string, token: string, resolution: string, actor: string, reason: string) => unknown;
     acknowledgePrompt: (sessionId: string, id: string, revision: string, actor: string, reason: string) => unknown;

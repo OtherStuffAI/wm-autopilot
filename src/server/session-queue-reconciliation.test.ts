@@ -40,6 +40,40 @@ test("reconciliation cannot invalidate a delivery that is still in flight", asyn
   }
 });
 
+test("retention uses the latest dispatch after retry and accepts legacy timestamp formatting", () => {
+  const root = mkdtempSync(join(tmpdir(), "queue-retry-retention-"));
+  let inspect: Database | undefined;
+  try {
+    const path = join(root, "queue.db");
+    const store = new PromptQueueStore(path);
+    const item = store.addPrompt("session", { content: "Retried delivery" })!;
+    const first = store.claimNextPrompt("session")!;
+    store.reconcileClaim("session", item.id, first.revision, first.claimToken!, "retry", "actor", "Receiver confirmed rejection");
+    inspect = new Database(path);
+    inspect.query("UPDATE prompt_queue SET handled_at = ? WHERE id = ?")
+      .run(new Date(Date.now() - 3 * 86400000).toISOString(), item.id);
+    const second = store.claimNextPrompt("session")!;
+    store.completeClaim("session", item.id, second.claimToken!);
+    const older = new Date(Date.now() - 86400000).toISOString();
+    const insert = inspect.query(`INSERT INTO prompt_queue
+      (id, session_id, content, timestamp, queue_order, state, handled_at)
+      VALUES (?, 'session', 'Earlier work', ?, 1, 'handled', ?)`);
+    inspect.transaction(() => {
+      for (let index = 0; index < 1000; index++) insert.run(`older-${index}`, older, older);
+    })();
+    store.getHandledPrompts("session");
+    expect(inspect.query("SELECT state FROM prompt_queue WHERE id = ?").get(item.id)).toEqual({ state: "dispatched" });
+    inspect.query("DELETE FROM prompt_queue WHERE id != ?").run(item.id);
+    const legacy = new Date(Date.now() - 7 * 86400000 + 60000).toISOString().replace("T", " ").slice(0, 19);
+    inspect.query("UPDATE prompt_queue SET delivery_updated_at = ? WHERE id = ?").run(legacy, item.id);
+    store.getHandledPrompts("session");
+    expect(inspect.query("SELECT state FROM prompt_queue WHERE id = ?").get(item.id)).toEqual({ state: "dispatched" });
+  } finally {
+    inspect?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("retention keeps a newer dispatched receipt ahead of older handled records", () => {
   const root = mkdtempSync(join(tmpdir(), "queue-receipt-retention-"));
   const path = join(root, "queue.db");

@@ -15,9 +15,13 @@ export async function handleQueueRoutes(
   ctx: SessionApiContext,
 ): Promise<Response> {
   if (!ownedSession) return Response.json({ error: "Session not found" }, { status: 404 });
+  const readQueue = () => ({
+    prompts: ctx.promptQueueStore.getSessionQueue(id).map((prompt) => ({ ...prompt,
+      deliveryActive: prompt.state === "claimed" && ctx.queueDispatchInFlight.has(id) })),
+    handled: ctx.promptQueueStore.getHandledPrompts(id), maxSize: 21,
+  });
   if (method === "GET" && parts.length === 5) {
-    const prompts = ctx.promptQueueStore.getSessionQueue(id);
-    return Response.json({ id, queue: { prompts, handled: ctx.promptQueueStore.getHandledPrompts(id), maxSize: 21 } });
+    return Response.json({ id, queue: readQueue() });
   }
 
   if (method === "POST" && parts.length === 7 && ["acknowledge", "reconcile"].includes(parts[6]!)) {
@@ -43,10 +47,7 @@ export async function handleQueueRoutes(
       const prompt = parts[6] === "reconcile"
         ? ctx.promptQueueStore.reconcileClaim(id, parts[5]!, payload.revision, payload.claimToken as string, payload.resolution as string, actor, payload.reason)
         : ctx.promptQueueStore.acknowledgePrompt(id, parts[5]!, payload.revision, actor, payload.reason);
-      return Response.json({ id, prompt, queue: {
-        prompts: ctx.promptQueueStore.getSessionQueue(id),
-        handled: ctx.promptQueueStore.getHandledPrompts(id), maxSize: 21,
-      } });
+      return Response.json({ id, prompt, queue: readQueue() });
     } catch (error) {
       if (error instanceof PromptQueueConflict) return Response.json({ error: error.message }, { status: error.status });
       throw error;
