@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
 
 import { snapshotPipelineBlocks, type PipelineBlockSnapshots } from "./pipeline-block-snapshot";
+import { captureViewerPin } from "./pipeline-viewer-capture-redaction";
 
 export interface PipelineRunContext {
   blockExpansions?: PipelineBlockSnapshots;
@@ -45,10 +46,9 @@ export class PipelineCompositionStore {
     const json = JSON.stringify(definition);
     const blockExpansions = context.blockExpansions ?? snapshotPipelineBlocks(definition.spec.steps);
     const hash = createHash("sha256").update(JSON.stringify({ spec: definition.spec, blockExpansions })).digest("hex");
-    const viewerDefinition = this.sanitize(definition);
-    const viewerBlockExpansions = this.sanitize(blockExpansions);
+    const viewer = captureViewerPin(this.db, runId, definition, blockExpansions, this.sanitize);
     this.db.query(`INSERT OR IGNORE INTO pipeline_run_snapshots VALUES (?, ?, ?, ?)`)
-      .run(runId, json, hash, JSON.stringify({ ...context, blockExpansions, viewerDefinition: viewerDefinition.value, viewerBlockExpansions: viewerBlockExpansions.value, viewerRedacted: Boolean(viewerDefinition.redacted || viewerBlockExpansions.redacted) }));
+      .run(runId, json, hash, JSON.stringify({ ...context, blockExpansions, ...viewer }));
   }
 
   snapshot(runId: string): { definition: PipelineDefinitionRecord; hash: string; context: PipelineRunContext } | null {

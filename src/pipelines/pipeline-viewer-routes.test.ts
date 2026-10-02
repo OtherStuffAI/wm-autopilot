@@ -37,6 +37,42 @@ async function request(path: string, signer = owner, query = "", method = "GET")
   return (await handlePipelineViewerApi(new Request(url, { method }), url,
     { authMethod: "nip98", npub: signer, subjectNpub: signer, signerNpub: signer } as RequestAuthContext, ctx))!;
 }
+test("late callback selectors are redacted in snapshot/list/lazy routes after reopen", async () => {
+  const secret = "synthetic-route-selector-credential";
+  const step = store.createStep({ runId, stepIndex: 0, name: "safe", kind: "code", input: { [secret]: "safe" }, callbackToken: secret,
+    metadata: { display: { in: [{ label: "Value", path: `$.${secret}` }], out: [{ label: "Value", path: `$.${secret}` }] } } });
+  store.completeStep({ id: step.id, status: "ok", output: { [secret]: "safe" }, result: {} }); store.completeRun(runId, "ok", {});
+  const refs = store.evidence.list(runId);
+  store = new PipelineStore(store.path); ctx.store = store; store.compactCompletedRunPayloads({});
+  for (const route of [`runs/${runId}`, "runs", `runs/${runId}/updates`, ...refs.map(ref => `runs/${runId}/evidence/${ref.id}`)]) {
+    const response = await request(route); expect(response.status).toBe(200); expect(await response.text()).not.toContain(secret);
+  }
+  const snapshot = await (await request(`runs/${runId}`)).json();
+  const captured = snapshot.steps.find((row: { id: string }) => row.id === step.id);
+  expect(captured.inputs[0].path).toBe("$.[REDACTED]");
+  expect(captured.evidence.find((ref: { kind: string }) => ref.kind === "resolved_input").preview.fields["$.[REDACTED]"]).toMatchObject({ present: true, value: "safe", truncated: false });
+});
+for (const origin of ["input", "callback", "output"]) test(`pinned ${origin} credential selectors stay safe across all authorized viewer routes after retirement`, async () => {
+  const secret = `synthetic-pinned-${origin}-selector`;
+  const display = { ...(origin === "output" ? {} : { in: [{ label: "Value", path: `$.${secret}` }] }), out: [{ label: "Value", path: `$.${secret}` }] };
+  const pinnedDefinition = { ...definition, id: `pinned-${origin}`, spec: { ...definition.spec,
+    steps: [{ id: "safe", name: "safe", type: "code", function: "safe", display }] } } as PipelineDefinitionRecord;
+  const value = { [secret]: "safe", ...(origin === "input" || origin === "output" ? { apiKey: secret } : {}) };
+  const run = store.createRun({ name: "synthetic", definitionId: pinnedDefinition.id, ownerNpub: owner, scope: "shared", input: origin === "input" ? value : {} });
+  runId = run.id; ctx.listPipelineDefinitions = async () => [pinnedDefinition];
+  store.composition.pin(runId, pinnedDefinition, { initiatingAgentProfileId: "synthetic-agent", initiatingAgentNpub: "synthetic-bot" });
+  store.addEvent({ runId, type: "flightdeck_invocation_context", level: "info", data: context });
+  const pinned = store.composition.snapshot(runId)!;
+  const step = store.createStep({ runId, stepIndex: 0, name: "safe", kind: "code", input: origin === "output" ? {} : value,
+    callbackToken: origin === "callback" ? secret : null, metadata: { display } });
+  store.completeStep({ id: step.id, status: "ok", output: value, result: {} }); store.completeRun(runId, "ok", {});
+  const refs = store.evidence.list(runId); store = new PipelineStore(store.path); ctx.store = store; store.compactCompletedRunPayloads({});
+  for (const route of [`runs/${runId}`, "runs", `runs/${runId}/updates`, "definitions", `definitions/${pinnedDefinition.id}`, ...refs.map(ref => `runs/${runId}/evidence/${ref.id}`)]) {
+    const response = await request(route); expect(response.status).toBe(200); expect(await response.text()).not.toContain(secret);
+  }
+  expect(store.composition.snapshot(runId)!.definition).toEqual(pinned.definition);
+  expect(store.composition.snapshot(runId)!.hash).toBe(pinned.hash);
+});
 test("owner and read delegate get sanitized pinned snapshot and polling recovery", async () => {
   for (const signer of [owner, delegate]) {
     runId = createRun();

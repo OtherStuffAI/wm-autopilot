@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { capturedDisplayPaths, declaredEvidencePreview, selectEvidenceField } from "./pipeline-declared-previews";
+import { declaredEvidencePreview, selectEvidenceField } from "./pipeline-declared-previews";
+import { sanitizePreviewCapture } from "./pipeline-preview-metadata";
+import { redactPipelineValue } from "./pipeline-evidence-redaction";
 import { pipelineEvidencePreview } from "./pipeline-evidence-preview";
 
 test("declared paths preserve late nested samples, exact null/missing and field-local truncation", () => {
@@ -36,8 +38,8 @@ test("capture metadata selects declared side only, never state assignment or exe
   const db = new Database(":memory:");
   db.run("CREATE TABLE pipeline_steps (id TEXT, metadata_json TEXT)");
   db.query("INSERT INTO pipeline_steps VALUES (?, ?)").run("step", JSON.stringify({ display: { in: [{ path: "$.state.tweets" }], out: [{ path: "$.message" }] }, assign: "$.response" }));
-  expect(capturedDisplayPaths(db, "step", "resolved_input")).toEqual(["$.state.tweets"]);
-  expect(capturedDisplayPaths(db, "step", "returned_output")).toEqual(["$.message"]);
-  for (const kind of ["state_write", "executor_request", "side_effect_confirmation"]) expect(capturedDisplayPaths(db, "step", kind)).toEqual([]);
+  expect(sanitizePreviewCapture(db, "step", "resolved_input", {}, null, redactPipelineValue).paths).toEqual(["$.state.tweets"]);
+  expect(sanitizePreviewCapture(db, "step", "returned_output", {}, null, redactPipelineValue).paths).toEqual(["$.message"]);
+  for (const kind of ["state_write", "executor_request", "side_effect_confirmation"]) expect(sanitizePreviewCapture(db, "step", kind, {}, null, redactPipelineValue).paths).toEqual([]);
   db.close();
 });

@@ -1,6 +1,7 @@
 import { archiveRetainedInlineEvidence } from "./pipeline-inline-evidence";
 import { pipelineControlFlow } from "./pipeline-control-flow";
 import { PipelineEvidenceStore } from "./pipeline-evidence-store";
+import { preparePreviewMetadata } from "./pipeline-preview-metadata";
 import { PipelineCompositionStore } from "./pipeline-composition-store";
 import { PublicCallStore } from "./public-call-store";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
@@ -286,45 +287,49 @@ export class PipelineStore {
     callbackToken?: string | null;
     metadata?: JsonObject | null;
   }): PipelineStepRecord {
-    const id = crypto.randomUUID();
-    const status = input.status ?? "running";
-    this.db.run(
-      `INSERT INTO pipeline_steps (
-        id, run_id, step_index, name, kind, status, input_json, result_json, error,
-        wingman_session_id, parent_step_id, logical_key, callback_token, output_json, metadata_json, started_at, completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, NULL, ?, ?, NULL)`,
-      [
-        id,
-        input.runId,
-        input.stepIndex,
-        input.name,
-        input.kind,
-        status,
-        encodeJson(input.input),
-        input.parentStepId ?? null,
-        input.logicalKey ?? null,
-        input.callbackToken ?? null,
-        input.metadata ? encodeJson(this.evidence.sanitize(input.metadata).value) : null,
-        now(),
-      ],
-    );
-    this.addEvent({
-      runId: input.runId,
-      stepId: id,
-      level: "info",
-      type: status === "queued" ? "step_queued" : "step_started",
-      message: input.name,
-      data: compactStepEventData({
-        storage: "compact",
-        phase: "started",
-        inputBytes: jsonByteLength(input.input),
-        metadata: input.metadata ?? null,
-      }),
-    });
-    if (input.callbackToken) this.evidence.registerSecret(input.callbackToken);
-    if (status !== "skipped") this.evidence.capture({ runId: input.runId, stepId: id,
-      kind: "resolved_input", scope: "selected_step_input", value: input.input, secrets: [input.callbackToken ?? ""] });
-    return this.getStep(id)!;
+    return this.db.transaction(() => {
+      const id = crypto.randomUUID();
+      const status = input.status ?? "running";
+      const captureMetadata = input.metadata ? preparePreviewMetadata(input.metadata, input.input,
+        value => this.evidence.sanitize(value, [input.callbackToken ?? ""])).metadata : null;
+      this.db.run(
+        `INSERT INTO pipeline_steps (
+          id, run_id, step_index, name, kind, status, input_json, result_json, error,
+          wingman_session_id, parent_step_id, logical_key, callback_token, output_json, metadata_json, started_at, completed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, NULL, ?, ?, NULL)`,
+        [
+          id,
+          input.runId,
+          input.stepIndex,
+          input.name,
+          input.kind,
+          status,
+          encodeJson(input.input),
+          input.parentStepId ?? null,
+          input.logicalKey ?? null,
+          input.callbackToken ?? null,
+          captureMetadata ? encodeJson(captureMetadata) : null,
+          now(),
+        ],
+      );
+      this.addEvent({
+        runId: input.runId,
+        stepId: id,
+        level: "info",
+        type: status === "queued" ? "step_queued" : "step_started",
+        message: input.name,
+        data: compactStepEventData({
+          storage: "compact",
+          phase: "started",
+          inputBytes: jsonByteLength(input.input),
+          metadata: captureMetadata,
+        }),
+      });
+      if (input.callbackToken) this.evidence.registerSecret(input.callbackToken);
+      if (status !== "skipped") this.evidence.capture({ runId: input.runId, stepId: id,
+        kind: "resolved_input", scope: "selected_step_input", value: input.input, secrets: [input.callbackToken ?? ""] });
+      return this.getStep(id)!;
+    })();
   }
 
   startStep(id: string): PipelineStepRecord {
@@ -380,6 +385,7 @@ export class PipelineStore {
         if (input.result !== null) this.evidence.capture({ runId: step.runId, stepId: step.id,
           kind: "state_write", scope: "state_after_assignment", value: input.result, secrets });
       }
+      const completedStep = this.getStep(input.id)!;
       this.addEvent({
         runId: step.runId,
         stepId: input.id,
@@ -393,10 +399,10 @@ export class PipelineStore {
           resultBytes: input.result ? jsonByteLength(input.result) : 0,
           outputBytes: input.output ? jsonByteLength(input.output) : 0,
           status: input.status,
-          metadata: step.metadata,
+          metadata: completedStep.metadata,
         }),
       });
-      return this.getStep(input.id)!;
+      return completedStep;
     })();
   }
 

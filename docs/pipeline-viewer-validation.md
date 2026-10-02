@@ -99,6 +99,17 @@ capture redaction, retired credential reopen/compaction, immutable per-boundary
 maps and shared bodies. No new schema column, backfill, deletion or expiry is
 required for the additive field map inside existing `preview_json`.
 
+`pipeline-preview-metadata.test.ts` and actual authorized route regressions
+cover selector/object-key credentials learned from callbacks, inputs, providers,
+credential-shaped strings and real runner output. Check full snapshot/catalogue,
+run list/update, lazy reads, compaction/reopen and key retirement; the entire
+outward payload must be safe, not just its preview. Pinning before step creation
+and child-discovered credentials must preserve execution spec/hash/expansions
+while refining durable viewer copies. Retired new aliases and modified/unproven
+display provenance refuse capture atomically, rather than retaining raw selectors
+or creating a successful empty fallback. Existing immutable references are not
+backfilled or rewritten. No live DB validation or private key material is needed.
+
 Exercise workspaceIds, scopeIds and agentIds independently and jointly across
 root, child, evidence, update, list and catalogue reads. Scope restrictions deny
 missing trusted Tower channel scope. Test credential echoes in successful input,

@@ -261,6 +261,30 @@ including field maps, are private browser session-only values, stripped before
 Dexie persistence. Full bodies remain lazy and exact; availability, evidence
 identity, retry ordinals, redaction, retention and payload sharing are unchanged.
 
+Selectors and structural metadata share the same capture redaction context as
+values, including callback tokens and credentials discovered in input/output
+objects. Step creation stores safe metadata before events, and insertion,
+events and input capture are atomic. Later output capture refreshes only safe
+metadata; complete events use that refreshed copy. An internal display digest
+and exact source digest attest a verified sanitized display (not a secret list).
+For a retained redacted source after retirement, new previews require that exact
+verified source/display or a current redaction that reproduces the retained
+safe body. Unproven/changed selectors and new aliases that cannot prove this
+context fail explicitly and roll back; existing references stay immutable and
+readable. Metadata without declared ports retains its prior shape.
+
+Pinning also sanitizes viewer copies jointly with trusted stored invocation
+input. Newly discovered boundary credentials monotonically refine existing
+viewer definition/expansion copies on the run and verified durable ancestors,
+inside the capture transaction. Only viewer copies/verdict change: execution
+definition JSON, spec/hash, raw block expansions and function pins remain exact.
+No current definition is substituted, no new table or plaintext secret list is
+stored, and prior redactions are never restored. Reference lists still load no
+full bodies; redacted captures inspect only pinned context and update it only
+when the safe projection changes. Standalone catalogue definitions can use
+configured credentials and retained matching sanitized pins; unrecognized
+future credentials are not guessed from arbitrary prose.
+
 New Bird v2 root reply metadata selects `$.delivery.delivered`, because native
 block `returned_output` is the full state containing the assigned delivery.
 The child code's separate port selects `$.delivered`. Classifier resolved input

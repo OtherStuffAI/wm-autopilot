@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite";
 import { EVIDENCE_PREVIEW_BYTES, pipelineEvidencePreview, type EvidenceFieldPreview, type EvidencePreview } from "./pipeline-evidence-preview";
 
 /** Same dot-path/object semantics as display selection; missing is distinct from JSON null. */
@@ -15,17 +14,7 @@ export function selectEvidenceField(value: unknown, path: string): { present: bo
   return { present: true, value: current };
 }
 
-/** Only captured display metadata declares ports; never infer aliases from data or current definitions. */
-export function capturedDisplayPaths(db: Database, stepId: string, kind: string): string[] {
-  const side = kind === "resolved_input" ? "in" : kind === "returned_output" ? "out" : null;
-  if (!side) return [];
-  const row = db.query("SELECT metadata_json FROM pipeline_steps WHERE id = ?").get(stepId) as { metadata_json: string | null };
-  const display = row.metadata_json ? JSON.parse(row.metadata_json).display : null;
-  if (!Array.isArray(display?.[side])) return [];
-  return display[side].map((field: { path?: unknown }) => field?.path).filter((path: unknown): path is string => typeof path === "string");
-}
-
-/** Fields take budget priority over the compatibility preview. Full archive bodies are untouched. */
+/** Values and declared paths must already share boundary redaction; fields take preview budget priority. */
 export function declaredEvidencePreview(value: unknown, paths: string[]): EvidencePreview {
   const generic = pipelineEvidencePreview(value);
   if (!paths.length) return generic;
