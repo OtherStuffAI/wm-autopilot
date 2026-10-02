@@ -20,7 +20,7 @@ that an already-running Autopilot process serves new routes.
 | Redaction/limits | Credentials removed; redactions/oversized/expiry explicit | Availability and scope shown; no false complete claim |
 | Recovery | Stable authoritative revision and snapshot | Reconnect/out-of-order response cannot duplicate or replace newer attempts |
 | Selected FIPS | Verified peer handle, exact NIP-98 URL, no public fallback | Connection failure visible without transport substitution |
-| Selected HTTPS | Explicit supported HTTPS connection, exact signed URL | Same contract and no redirects or implicit FIPS fallback |
+| Autopilot HTTPS API | Signed API/package paths and authorization where supported | Flight Deck currently selects pinned FIPS; HTTPS package metadata does not provide a viewer transport or fallback |
 
 ## Review procedure
 
