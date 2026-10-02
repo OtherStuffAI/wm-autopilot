@@ -23,6 +23,11 @@ export async function assertRuntimeViewer(name: string, store: PipelineStore, ru
     for (const step of snapshot.steps) for (const ref of step.evidence) if (ref.preview) {
       const accepted = parsed.steps.find((row: { id: string }) => row.id === step.id).evidence.find((row: { id: string }) => row.id === ref.id);
       expect(accepted.preview.value).toEqual(ref.preview.value);
+      if (ref.preview.fields) for (const [path, field] of Object.entries(ref.preview.fields)) {
+        const parsedField = accepted.preview.fields?.[path];
+        expect(parsedField).toMatchObject({ present: field.present, truncated: field.truncated, count: field.count });
+        if (field.present) expect(parsedField.value).toEqual(field.value);
+      }
     }
     const { pipelineNodes, flattenPipelineNodes } = await import(join(dirname(process.env.PIPELINE_VIEWER_PARSER), "pipeline-viewer-projection.js"));
     const visible = flattenPipelineNodes(pipelineNodes(parsed.definition, parsed)).flatMap((node: { attempts: Array<{ id: string }> }) => node.attempts.map(attempt => attempt.id));

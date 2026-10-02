@@ -1,10 +1,11 @@
-export interface EvidencePreview { value: unknown; truncated: boolean; count: number | null; counts?: Record<string, number> }
+export interface EvidenceFieldPreview { present: boolean; value: unknown; truncated: boolean; count: number | null }
+export interface EvidencePreview { value: unknown; truncated: boolean; count: number | null; counts?: Record<string, number>; fields?: Record<string, EvidenceFieldPreview> }
 export const EVIDENCE_PREVIEW_BYTES = 2048;
 
 /** Build only from already-redacted capture values; never fetch full values for a summary. */
-export function pipelineEvidencePreview(value: unknown): EvidencePreview {
+export function pipelineEvidencePreview(value: unknown, options: { characters?: number } = {}): EvidencePreview {
   const count = Array.isArray(value) ? value.length : null;
-  for (const characters of [256, 64, 16]) {
+  for (const characters of options.characters === undefined ? [256, 64, 16] : [options.characters]) {
     let truncated = false;
     let remaining = 600;
     const counts: Record<string, number> = {};

@@ -139,6 +139,34 @@ test("captured summary previews are bounded redacted and preserve full lazy evid
   store = new PipelineStore(store.path); expect(store.evidence.list(run.id).find(row => row.id === ref.id)!.preview).toEqual(ref.preview);
 });
 
+test("declared previews redact before selection and retain immutable per-boundary maps across reopen", () => {
+  const { run } = fixture();
+  const secret = "synthetic-declared-retired-credential"; store.evidence.registerSecret(secret);
+  const value = { a: 1, b: 2, c: 3, d: 4, e: 5, nested: { records: Array.from({ length: 37 }, (_, index) => ({ text: `record ${index} ${secret}` })) }, nil: null };
+  const first = store.createStep({ runId: run.id, stepIndex: 1, name: "first", kind: "code", input: value,
+    metadata: { display: { in: [{ path: "$.nested.records" }, { path: "$.nil" }, { path: "$.missing" }], out: [{ path: "$.nested.records" }] } } });
+  const second = store.createStep({ runId: run.id, stepIndex: 2, name: "second", kind: "block", input: value,
+    metadata: { display: { in: [{ path: "$.nil" }], out: [{ path: "$.nil" }] } } });
+  for (const step of [first, second]) store.completeStep({ id: step.id, status: "ok", output: value, result: value });
+  store.completeRun(run.id, "ok", value);
+  const before = store.evidence.list(run.id);
+  const firstRef = before.find(ref => ref.stepId === first.id && ref.kind === "returned_output")!;
+  const secondRef = before.find(ref => ref.stepId === second.id && ref.kind === "returned_output")!;
+  expect(firstRef.preview!.fields!["$.nested.records"]!.count).toBe(37);
+  expect(secondRef.preview!.fields).toEqual({ "$.nil": { present: true, value: null, truncated: false, count: null } });
+  expect(JSON.stringify(before)).not.toContain(secret);
+  expect(JSON.stringify(store.evidence.get(run.id, firstRef.id))).not.toContain(secret);
+  store = new PipelineStore(store.path); store.compactCompletedRunPayloads({});
+  expect(store.evidence.list(run.id)).toEqual(before);
+  const db = new Database(store.path);
+  const rows = db.query("SELECT payload_id FROM pipeline_evidence WHERE id IN (?, ?)").all(firstRef.id, secondRef.id) as Array<{ payload_id: string }>;
+  expect(rows[0]!.payload_id).toBe(rows[1]!.payload_id);
+  // New display metadata never changes historical preview rows or re-captures stored full values.
+  db.query("UPDATE pipeline_steps SET metadata_json = ? WHERE id = ?").run(JSON.stringify({ display: { out: [{ path: "$.a" }] } }), first.id);
+  expect(store.evidence.list(run.id)).toEqual(before);
+  db.close();
+});
+
 test("preview count and UTF-8 budget hold for deeply nested collections and hostile keys", () => {
   const { run, step } = fixture();
   const values = [ { retrieval: { tweets: Array.from({ length: 35 }, () => ({ text: "sample", author: { name: "Example" } })) } },

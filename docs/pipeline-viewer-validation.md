@@ -83,6 +83,22 @@ Flight Deck checkout's `src/pipeline-viewer-contract.js` while running
 Use `PIPELINE_VIEWER_FIXTURE_DIR=docs/fixtures/pipeline-viewer/runtime` to export
 reusable synthetic snapshots. The normal backend suite needs no sibling checkout.
 
+Bird runner checks trace every declared port on non-skipped root/child
+executions against the exact archive and its field preview. Complete retrieval
+uses 35 actual fixture tweets (two preview samples, count 35); partial,
+clarification, blocked and no-results exercise one/zero records with native
+verdicts. No-results is `partial` with zero tweets, not a new runtime status.
+Root and child delivery paths are checked independently, as are selected
+classifier inputs versus prepared executor requests. Skipped steps remain
+control-flow explanation, not asserted successful input/output operations.
+Companion synthetic full values under `runtime/evidence/` let browser tests
+fulfil lazy reads with the actual captured shapes instead of manually creating
+step records. Run `pipeline-declared-previews.test.ts` and the evidence/store
+tests for bounded hostile path/text overhead, null/missing/prototype semantics,
+capture redaction, retired credential reopen/compaction, immutable per-boundary
+maps and shared bodies. No new schema column, backfill, deletion or expiry is
+required for the additive field map inside existing `preview_json`.
+
 Exercise workspaceIds, scopeIds and agentIds independently and jointly across
 root, child, evidence, update, list and catalogue reads. Scope restrictions deny
 missing trusted Tower channel scope. Test credential echoes in successful input,

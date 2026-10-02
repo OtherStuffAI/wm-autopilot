@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertRuntimeViewer } from "./pipeline-viewer-runtime-test-support";
+import { assertActualRuntimePorts } from "./pipeline-actual-port-test-support";
 import { PipelineStore } from "./pipeline-store";
 import { getPipelineDefinition, listLatestPipelineDefinitions } from "./pipeline-loader";
 import { loadPipelineFunctionRegistry } from "./function-loader";
@@ -41,20 +42,39 @@ function configureDelivery() {
   return posts;
 }
 
-for (const version of [1, 2]) for (const verdict of ["complete", "partial", "clarification", "blocked"]) test(`v${version} real wrapper composition returns ${verdict} to the exact thread as Piper`, async () => {
+for (const version of [1, 2]) for (const verdict of ["complete", "partial", "clarification", "blocked", "noresults"]) test(`v${version} real wrapper composition returns ${verdict} to the exact thread as Piper`, async () => {
   const definition = (await getPipelineDefinition(`bird.timeline.chat.v${version}`, "owner"))!;
   const loaded = await loadPipelineFunctionRegistry("owner", builtinPipelineFunctions);
   expect(loaded.records.filter(record => record.name.startsWith("bird.")).every(record => record.status === "ok")).toBe(true);
   let models = 0; let cli = 0;
   globalThis.fetch = (async () => { models++; return Response.json({ answers: answers(), model: "fixture-jev", usage: { input_tokens: 5, output_tokens: 3 } }); }) as typeof fetch;
   const posts = configureDelivery();
-  const run = await runDeclarativePipeline({ store, definition, registry: { ...loaded.registry, ...birdRetrievalFunctions(async () => { cli++; if (verdict === "blocked") throw new Error("cli_authentication"); return { tweets: verdict === "complete" ? [malicious, { ...malicious, id: "124", text: "exact second tweet" }] : [malicious], cursor: null }; }) },
-    input: { ...invocation, prompt: verdict === "clarification" ? "Use bird to get the latest 20 tweets on my timeline" : invocation.prompt },
+  const tweets = verdict === "complete" ? [malicious, { ...malicious, id: "124", text: "exact second tweet" }, ...Array.from({ length: 33 }, (_, index) => ({ ...malicious, id: String(125 + index), text: `exact tweet ${index + 3}` }))] : verdict === "noresults" ? [] : [malicious];
+  const run = await runDeclarativePipeline({ store, definition, registry: { ...loaded.registry, ...birdRetrievalFunctions(async () => { cli++; if (verdict === "blocked") throw new Error("cli_authentication"); return { tweets, cursor: null }; }) },
+    input: { ...invocation, prompt: verdict === "clarification" ? "Use bird to get the latest 20 tweets on my timeline" : verdict === "complete" ? "Get 35 following tweets" : invocation.prompt },
     ownerNpub: "npub1owner", ownerAlias: "owner", sessionApiContext: {} as never, callbackOrigin: "http://localhost", initiatingAgentProfileId: "piper", initiatingAgentNpub: "npub1piper",
     onRunCreated: created => store.addEvent({ runId: created.id, level: "info", type: "flightdeck_invocation_context", data: { ...invocation, initiatingAgentNpub: "npub1piper" } }) });
   expect(run.status).toBe("ok"); expect(posts).toHaveLength(1);
-  if (version === 2) { await assertRuntimeViewer(`bird-wrapper-${verdict}`, store, run.id);
-    for (const child of store.composition.children(run.id)) await assertRuntimeViewer(`bird-child-${verdict}`, store, child.childRunId); }
+  if (version === 2) {
+    const snapshot = assertActualRuntimePorts(`bird-wrapper-${verdict}`, store, run.id);
+    const retrieve = snapshot.steps.find(step => step.logicalKey === "retrieve")!;
+    const format = snapshot.steps.find(step => step.logicalKey === "format")!;
+    const reply = snapshot.steps.find(step => step.logicalKey === "reply")!;
+    const expected = verdict === "complete" ? 35 : verdict === "partial" ? 1 : 0;
+    for (const [step, kind, path] of [[retrieve, "returned_output", "$.retrieval.tweets"], [format, "resolved_input", "$.state.tweets"]] as const) {
+      const field = step.evidence.findLast(ref => ref.kind === kind)!.preview!.fields![path]!;
+      expect(field.present).toBe(true); expect(field.count).toBe(expected);
+      expect(field.value).toEqual(tweets.slice(0, Math.min(expected, 2)));
+      expect(field.truncated).toBe(expected > 2);
+    }
+    expect(reply.outputs[0]!.path).toBe("$.delivery.delivered");
+    expect(reply.evidence.findLast(ref => ref.kind === "returned_output")!.preview!.fields!["$.delivery.delivered"]).toEqual({ present: true, value: true, truncated: false, count: null });
+    await assertRuntimeViewer(`bird-wrapper-${verdict}`, store, run.id);
+    for (const child of store.composition.children(run.id)) {
+      assertActualRuntimePorts(`bird-child-${verdict}`, store, child.childRunId);
+      await assertRuntimeViewer(`bird-child-${verdict}`, store, child.childRunId);
+    }
+  }
   expect(posts[0]!.clientRequestId).toBe(`pipeline:${run.id}:thread-reply:reply / return-to-thread`);
   const confirmations = store.evidence.list(run.id).filter(ref => ref.kind === "side_effect_confirmation");
   expect(confirmations).toHaveLength(1);
@@ -64,6 +84,7 @@ for (const version of [1, 2]) for (const verdict of ["complete", "partial", "cla
   if (verdict === "clarification") { expect(posts[0]!.body).toBe("Would you like your Following feed or your For You feed?"); expect(models).toBe(0); expect(cli).toBe(0); }
   else { expect(models).toBe(1); expect(cli).toBe(1); }
   if (verdict === "partial") expect(String(posts[0]!.body)).toContain("Retrieved 1 of 2");
+  if (verdict === "noresults") expect(String(posts[0]!.body)).toContain("Retrieved 0 of 2");
   if (verdict === "complete") { expect(String(posts[0]!.body)).toContain("https://x.com/alice/status/123"); expect(String(posts[0]!.body)).toContain("exact second tweet"); }
   const link = store.composition.children(run.id)[0]!;
   expect(store.composition.snapshot(link.childRunId)!.context.initiatingAgentNpub).toBe("npub1piper");

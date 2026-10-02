@@ -129,7 +129,7 @@
         "out": [
           {
             "label": "Delivered",
-            "path": "$.delivered"
+            "path": "$.delivery.delivered"
           }
         ]
       },

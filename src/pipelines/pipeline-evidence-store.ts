@@ -2,7 +2,8 @@ import type { Database } from "bun:sqlite";
 import { redactPipelineValue } from "./pipeline-evidence-redaction";
 import { evidenceDigest, PipelineEvidencePayloads } from "./pipeline-evidence-payloads";
 
-import { pipelineEvidencePreview, type EvidencePreview } from "./pipeline-evidence-preview";
+import type { EvidencePreview } from "./pipeline-evidence-preview";
+import { capturedDisplayPaths, declaredEvidencePreview } from "./pipeline-declared-previews";
 
 export type EvidenceKind = "resolved_input" | "executor_request" | "returned_output" | "state_write" | "side_effect_confirmation";
 export type EvidenceAvailability = "complete" | "redacted" | "preview_only" | "not_captured" | "expired" | "oversized" | "unavailable";
@@ -77,7 +78,7 @@ export class PipelineEvidenceStore {
     const ref: EvidenceReference = {
       id: crypto.randomUUID(), runId: input.runId, stepId: input.stepId, attempt: input.attempt ?? this.currentAttempt(input.stepId),
       kind: input.kind, scope: input.scope, contentType: typeof sanitized.value === "string" ? "text/plain" : "application/json",
-      bytes, availability, preview: pipelineEvidencePreview(sanitized.value), redacted: sanitized.redacted, capturedAt: new Date().toISOString(), expiresAt: null,
+      bytes, availability, preview: declaredEvidencePreview(sanitized.value, capturedDisplayPaths(this.db, input.stepId, input.kind)), redacted: sanitized.redacted, capturedAt: new Date().toISOString(), expiresAt: null,
     };
     const payloadId = retain ? this.payloads.intern(root, json, hash, bytes) : null;
     this.db.query(`INSERT INTO pipeline_evidence (id, run_id, step_id, attempt, kind, scope, content_type, bytes, availability, redacted, captured_at, content_hash, value_json, preview_json, source_hash, payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)

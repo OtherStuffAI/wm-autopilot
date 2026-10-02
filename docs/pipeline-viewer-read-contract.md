@@ -235,6 +235,39 @@ never full `value_json`. A preview cannot assert full evidence availability.
 Full private evidence remains session-only in the browser; frontend consumers
 must apply the same privacy policy to content previews.
 
+New captures add optional `preview.fields`, keyed by each exact declared display
+path. Each entry is `{present, value, truncated, count}`: `present: false` means
+the path is absent in this captured value; `present: true, value: null` is exact
+JSON null when `truncated: false`. A missing map entry means outside the bounded
+preview, never an absent full field. `count` is the actual selected array length
+(including zero), otherwise null. `truncated` is local to this selected field;
+it does not inherit unrelated generic preview truncation. Samples use at most
+two records and text at most 256 characters, reduced when the shared budget
+requires it. Truncated null is a budget placeholder, not an exact full null.
+
+Capture reads only the step's already persisted display metadata: `display.in`
+for `resolved_input`, `display.out` for `returned_output`. It does not guess Bird
+aliases, reuse assignment paths for state writes, or reconstruct historical
+ports from current definitions. Selection uses exact dot paths on JSON objects,
+with `$` selecting the whole value; arrays are sampled after selection. Fields
+take priority over generic content within the same 2048-byte UTF-8 JSON limit,
+including paths, flags, counts and the compatibility preview. At most 16 unique
+paths of at most 256 characters are admitted; omitted entries remain explicitly
+outside the preview. Generic `value/count/counts` stay available when budget
+permits and remain unchanged for captures without declared ports. Older rows
+are not backfilled or rewritten. Consumers prefer explicit field entries and
+may fall back to generic path selection for legacy previews. All excerpts,
+including field maps, are private browser session-only values, stripped before
+Dexie persistence. Full bodies remain lazy and exact; availability, evidence
+identity, retry ordinals, redaction, retention and payload sharing are unchanged.
+
+New Bird v2 root reply metadata selects `$.delivery.delivered`, because native
+block `returned_output` is the full state containing the assigned delivery.
+The child code's separate port selects `$.delivered`. Classifier resolved input
+is the pre-inputFunction `{state: ...}` object, so v2 Request/Attempt input ports
+select `$.state.request` / `$.state.attempt`; executor requests still contain the
+actual prepared model input. V1 and historical captured snapshots remain intact.
+
 Before activation, run the read-only inventory:
 `bun scripts/pipeline-block-resume-audit.ts <pipeline-database>`.
 Pending legacy runs without snapshots cannot replay current definitions. They

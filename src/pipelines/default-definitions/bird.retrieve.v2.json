@@ -132,12 +132,12 @@
             "in": [
               {
                 "label": "Request",
-                "path": "$.request",
+                "path": "$.state.request",
                 "format": "text"
               },
               {
                 "label": "Attempt",
-                "path": "$.attempt",
+                "path": "$.state.attempt",
                 "format": "count"
               }
             ],
@@ -253,12 +253,12 @@
             "in": [
               {
                 "label": "Request",
-                "path": "$.request",
+                "path": "$.state.request",
                 "format": "text"
               },
               {
                 "label": "Attempt",
-                "path": "$.attempt",
+                "path": "$.state.attempt",
                 "format": "count"
               }
             ],
