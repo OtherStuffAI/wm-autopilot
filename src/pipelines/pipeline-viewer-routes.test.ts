@@ -8,6 +8,7 @@ import { handlePipelineViewerApi, type PipelineViewerRoutesContext } from "./pip
 import type { RequestAuthContext } from "../auth/request-context";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
 import { runDeclarativePipeline } from "./pipeline-runner";
+import { Database } from "bun:sqlite";
 
 const owner = nip19.npubEncode("11".repeat(32)); const delegate = nip19.npubEncode("22".repeat(32));
 const context = { workspaceId: "synthetic-workspace", towerServiceNpub: "synthetic-tower", appNpub: "synthetic-app",
@@ -38,6 +39,30 @@ async function request(path: string, signer = owner, query = "", method = "GET")
   return (await handlePipelineViewerApi(new Request(url, { method }), url,
     { authMethod: "nip98", npub: signer, subjectNpub: signer, signerNpub: signer } as RequestAuthContext, ctx))!;
 }
+test("legacy archival discovered during snapshot commits its durable refusal before returning 409", async () => {
+  const secret = "synthetic-legacy-late-hidden-credential";
+  const def = { ...definition, spec: { name: "synthetic", steps: [{ id: "emit", name: "emit", type: "code", function: "emit" }] } } as PipelineDefinitionRecord;
+  const run = await runDeclarativePipeline({ store, definition: def, registry: { emit: () => ({ apiKey: secret }) },
+    input: { message: "x".repeat(1000) + secret }, ownerNpub: owner, ownerAlias: null,
+    callbackOrigin: "http://localhost", sessionApiContext: {} as never });
+  store.addEvent({ runId: run.id, type: "flightdeck_invocation_context", level: "info", data: context });
+  // Convert actual runner truth to pre-archive history, retaining the actual first
+  // input body. No fabricated API response or reconstructed execution value.
+  const db = new Database(store.path);
+  db.run("DROP TRIGGER pipeline_evidence_immutable_delete");
+  db.query("DELETE FROM pipeline_evidence WHERE run_id = ? AND kind != 'resolved_input'").run(run.id);
+  const row = db.query("SELECT context_json FROM pipeline_run_snapshots WHERE run_id = ?").get(run.id) as { context_json: string };
+  const legacy = JSON.parse(row.context_json);
+  delete legacy.viewerEvidenceUnsafe; delete legacy.viewerEvidenceSanitation;
+  db.query("UPDATE pipeline_run_snapshots SET context_json = ? WHERE run_id = ?").run(JSON.stringify(legacy), run.id);
+  db.close();
+  store = new PipelineStore(store.path); ctx.store = store;
+  expect((await request(`runs/${run.id}`)).status).toBe(409);
+  store = new PipelineStore(store.path); ctx.store = store;
+  expect(store.composition.snapshot(run.id)!.context.viewerEvidenceUnsafe).toBe(true);
+  const input = store.evidence.list(run.id).find(ref => ref.kind === "resolved_input")!;
+  expect((await request(`runs/${run.id}/evidence/${input.id}`)).status).toBe(409);
+});
 for (const earlier of ["missing", "present", "long-declared", "long-generic", "later-record", "omitted-field", "escaped-text"]) test(`actual runner late discovery refuses ${earlier} earlier full values across authorized reads`, async () => {
   const secret = earlier === "escaped-text" ? "synthetic-\"credential\\with\nnewline" : "synthetic-late-boundary-credential";
   const port = { label: "Value", path: `$.${secret}` };

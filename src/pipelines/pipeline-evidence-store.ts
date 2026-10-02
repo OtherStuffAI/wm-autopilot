@@ -88,7 +88,7 @@ export class PipelineEvidenceStore {
     sanitized.redacted ||= boundary.redacted;
     sanitized.redacted ||= retained?.redacted ?? false;
     const unsafeBody = context.uncertain || retainedCredentialExposure(this.db, root, context.scan, this.runLimit);
-    if (sanitized.redacted || unsafeBody) refineCapturedViewerPins(this.db, input.runId, root, input.value, sanitize, unsafeBody);
+    if (sanitized.redacted || unsafeBody || context.scan.length) refineCapturedViewerPins(this.db, input.runId, root, input.value, sanitize, unsafeBody);
     const json = JSON.stringify(sanitized.value ?? null);
     const bytes = Buffer.byteLength(json);
     const hash = evidenceDigest(json);
