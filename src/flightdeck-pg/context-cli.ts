@@ -11,7 +11,7 @@ export const contextCliHelp = `Context Tree (explicit --workspace and --scope re
   context-tree unlink <component-id> --reference <reference-id> --expected-row-version <n>
   context-tree delete-preview <component-id>
   context-tree confirmed-delete <component-id> --confirmation-token <preview-token> --confirm
-Use --json for identity/capabilities/errors and counts. Edits require scope.manage.
+Use --json for identity/capabilities/errors and counts. Edits require context.edit or scope.manage.
 Create JSON: {"title":"API","parent_id":null}
 Update JSON: {"expected_row_version":1,"title":"Transport"}
 Link JSON: {"target_type":"doc","target":{"record_id":"<document-id>"}}

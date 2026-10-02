@@ -44,7 +44,7 @@ export type ContextReference = ContextLink & {
   row_version: number; created_at: string; updated_at: string; deleted_at: string | null;
   resolution: { status: "available"; record_id: string; title: string } | { status: "unavailable" | "external" };
 };
-export interface ContextEnvelope { identity: Record<string, unknown>; capabilities: { read: boolean; manage: boolean }; }
+export interface ContextEnvelope { identity: Record<string, unknown>; capabilities: { read: boolean; manage: boolean; edit?: boolean; scope_manage?: boolean }; }
 export interface ContextPreview {
   component_id: string; component_count: number; descendant_count: number; reference_count: number; confirmation_token: string;
 }

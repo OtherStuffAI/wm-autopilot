@@ -11,11 +11,11 @@ export const contextOperations = {
   path: { schema: z.object(component).strict(), description: "Read ancestors, useful siblings and direct children without loading source documents." },
   references: { schema: z.object({ ...component, limit: contextPageSizeSchema.optional() }).strict(), description: "List every page of direct references with ACL-checked resolution." },
   reference: { schema: z.object(reference).strict(), description: "Read a selected authoritative doc/file/task through its normal ACL route; artifact returns a follow-latest navigation descriptor without fetching private catalogs. Unavailable targets are neutral." },
-  create: { schema: z.object({ ...route, input: contextCreateSchema }).strict(), description: "Create a root or child. Requires scope.manage and visibility; being an agent grants no authority." },
-  update: { schema: z.object({ ...component, input: contextUpdateSchema }).strict(), description: "Rename, reorder or reparent with expected row version. scope.manage required; conflicts must be surfaced." },
-  link: { schema: z.object({ ...component, input: contextLinkSchema }).strict(), description: "Attach a typed reference under scope.manage and target ACLs. A link never grants target access." },
-  unlink: { schema: z.object({ ...reference, expected_row_version: contextVersionSchema }).strict(), description: "Remove only this reference link with expected row version and scope.manage. Target content remains." },
-  delete_preview: { schema: z.object(component).strict(), description: "Preview exact subtree and reference counts/token under scope.manage. Preview is not deletion authorization." },
+  create: { schema: z.object({ ...route, input: contextCreateSchema }).strict(), description: "Create a root or child. Requires context.edit or scope.manage and visibility; being an agent grants no authority." },
+  update: { schema: z.object({ ...component, input: contextUpdateSchema }).strict(), description: "Rename, reorder or reparent with expected row version. context.edit or scope.manage required; conflicts must be surfaced." },
+  link: { schema: z.object({ ...component, input: contextLinkSchema }).strict(), description: "Attach a typed reference under context.edit or scope.manage and target ACLs. A link never grants target access." },
+  unlink: { schema: z.object({ ...reference, expected_row_version: contextVersionSchema }).strict(), description: "Remove only this reference link with expected row version and context.edit or scope.manage. Target content remains." },
+  delete_preview: { schema: z.object(component).strict(), description: "Preview exact subtree and reference counts/token under context.edit or scope.manage. Preview is not deletion authorization." },
   confirmed_delete: { schema: z.object({ ...component, input: contextDeleteSchema }).strict(), description: "Delete the previewed subtree only after actual user authorization and explicit confirmation/token. Linked content survives. Changed preview conflicts require new preview and confirmation; no offline queue." },
 } as const;
 export type ContextOperation = keyof typeof contextOperations;

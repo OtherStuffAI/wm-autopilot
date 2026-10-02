@@ -58,7 +58,7 @@ All require UUID `workspace_id` and `scope_id`. Input objects are strict. Mutati
 retain the canonical `component|reference|deleted`, `identity`, `capabilities`,
 `audit`, `outbox`, and `mutation_id` envelope. Reference `scope_id` is server-owned.
 Reads use scope visibility (`scope.read` or existing active scope-channel read);
-every edit and delete preview uses visibility plus `scope.manage` on Tower.
+every edit and delete preview uses visibility plus `context.edit or scope.manage` on Tower.
 Inherited session routing and bot identity are not grants.
 
 The stdio process may receive a public `WINGMAN_URL`. The standard MCP injector
