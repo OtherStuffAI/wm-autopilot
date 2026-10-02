@@ -58,3 +58,16 @@ still use their supported user configuration mechanisms; those legacy paths
 are not project-root files, preserve unrelated user entries, and remove the
 Autopilot entry on session cleanup. Moving them to an exclusive session-config
 flag requires confirmed upstream CLI contracts.
+
+## Browser feed discovery
+
+`GET /api/wapps` remains authenticated and subject to the existing AppsManage
+policy and installation visibility filter. Set `WINGMAN_WAPP_CORS_ORIGINS` to a
+comma-separated list of exact Flight Deck HTTP(S) origins to enable browser
+registry reads. Wildcards and opaque origins are unsupported. The root registry
+route accepts unsigned GET/Authorization OPTIONS preflight before authentication;
+this reveals no installations. Signed GET and authorization/error responses carry
+the exact allowed origin, Vary: Origin and private, no-store. Browser cookie
+sessions cannot replace explicit NIP-98. Management routes do not gain CORS access.
+Changing server code or process environment requires operator activation outside
+managed agent sessions; do not restart Autopilot from a worker.

@@ -35,6 +35,7 @@ import {
 import { handleDelegationApi, type DelegationRoutesContext } from "./delegation-routes";
 import { handleOwnerSpaceApi } from "./owner-space-routes";
 import { handleWappsApi, type WappsApiContext } from "./wapps-api-routes";
+import { handleWappRegistryHttp } from "./wapp-registry-http";
 import { handlePipelineHttp } from "./pipeline-http";
 import { type PipelineApiContext } from "../pipelines/pipeline-api-routes";
 import type { WorkspaceDelegationStore } from "../storage/workspace-delegation-store";
@@ -550,6 +551,14 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
       return Response.json({ error: "Not found" }, { status: 404 });
     }
     if (pathname.startsWith("/api/wapps")) {
+      if (pathname === "/api/wapps" && (method === "GET" || method === "OPTIONS")) {
+        return handleWappRegistryHttp(request, url, authContext, ctx.resolveNip98AuthContext, async effective => {
+          if (!ctx.buildWappsContext) return Response.json({ error: "wapps-unavailable" }, { status: 503 });
+          return await runWithRequestContext(effective, async () =>
+            await handleWappsApi(request, url, method, effective, ctx.buildWappsContext!(effective))
+            ?? Response.json({ error: "Not found" }, { status: 404 }));
+        });
+      }
       const wappsAuthContext = await ctx.resolveNip98AuthContext(request, url, authContext);
       if (!ctx.buildWappsContext) {
         return Response.json({ error: "wapps-unavailable" }, { status: 503 });
