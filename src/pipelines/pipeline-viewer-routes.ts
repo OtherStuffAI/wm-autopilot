@@ -58,6 +58,7 @@ export async function handlePipelineViewerApi(request: Request, url: URL, auth: 
         return ctx.pipelineBindingStore.listAvailableIds(id);
       })) : null;
       const definitions = (await ctx.listPipelineDefinitions(access.ownerNpub))
+        .map(definition => retainedSanitizedDefinition(ctx.store, access.ownerNpub, definition))
         .filter(definition => contextAllowed && (!boundIds || boundIds.has(definition.id))).sort((a, b) => a.id.localeCompare(b.id));
       if (resource.length === 2) {
         const definition = definitions.find(item => item.id === resource[1]);
@@ -157,5 +158,20 @@ function hasAuthorizedScopeRun(store: PipelineStore, owner: string, canRead: (id
     if (runs.length < 100) return false;
     const last = runs.at(-1)!;
     before = { id: last.id, startedAt: last.startedAt };
+  }
+}
+
+
+function retainedSanitizedDefinition(store: PipelineStore, owner: string, definition: import("./pipeline-loader").PipelineDefinitionRecord) {
+  let before: { id: string; startedAt: string } | null = null;
+  while (true) {
+    const runs = store.pageOwnerRuns(owner, before, 100);
+    for (const run of runs) {
+      if (run.definitionId !== definition.id) continue;
+      const pinned = store.composition.snapshot(run.id);
+      if (pinned?.context.viewerDefinition && JSON.stringify(pinned.definition.spec) === JSON.stringify(definition.spec)) return pinned.context.viewerDefinition;
+    }
+    if (runs.length < 100) return definition;
+    const last = runs.at(-1)!; before = { id: last.id, startedAt: last.startedAt };
   }
 }

@@ -2,20 +2,20 @@
   "version": 1,
   "serviceId": "autopilot_runtime_fixture",
   "run": {
-    "id": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
+    "id": "b6430662-ccaf-4083-8ec7-46c08995f867",
     "serviceId": "autopilot_runtime_fixture",
-    "definitionId": "shared:342ee8e695e3",
+    "definitionId": "shared:7e4033844064",
     "definitionVersion": 2,
     "definitionHash": "db1dce2d4bd5abc5b31d774fa9ef2fc74dcae64dc7f2017bb04c573bda33d8c4",
     "name": "bird.retrieve.v2",
     "status": "ok",
-    "startedAt": "2026-10-02T05:07:41.603Z",
-    "completedAt": "2026-10-02T05:07:41.605Z",
-    "parentRunId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-    "parentStepId": "a4fd6e45-e514-4ed8-998a-c631eb4bd318"
+    "startedAt": "2026-10-02T05:19:24.387Z",
+    "completedAt": "2026-10-02T05:19:24.393Z",
+    "parentRunId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+    "parentStepId": "dfac7361-bdc3-4abc-92b8-de53a5b87cda"
   },
   "definition": {
-    "id": "shared:342ee8e695e3",
+    "id": "shared:7e4033844064",
     "name": "bird.retrieve.v2",
     "title": "bird.retrieve.v2",
     "description": "Bounded read-only Bird retrieval with advisory Jev choices and deterministic execution policy.",
@@ -297,7 +297,7 @@
   "steps": [
     {
       "itemKey": null,
-      "id": "79cc9441-420c-49db-bf4a-d7338ab04de3",
+      "id": "66b3931f-5a82-4770-b65f-49605cca6089",
       "logicalKey": "prepare",
       "parentStepId": null,
       "attempt": 1,
@@ -305,8 +305,8 @@
       "title": "Validate retrieval request",
       "description": "Extract exact candidates and validate bounded input.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:41.603Z",
-      "completedAt": "2026-10-02T05:07:41.603Z",
+      "startedAt": "2026-10-02T05:19:24.388Z",
+      "completedAt": "2026-10-02T05:19:24.389Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -343,9 +343,9 @@
       ],
       "evidence": [
         {
-          "id": "c7533e01-f0ce-4bbd-8f93-7b03fd25cec9",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "79cc9441-420c-49db-bf4a-d7338ab04de3",
+          "id": "9d3ed7ef-da6c-4b87-a3d4-4a6991ce1c0e",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "66b3931f-5a82-4770-b65f-49605cca6089",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -361,13 +361,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.603Z",
+          "capturedAt": "2026-10-02T05:19:24.389Z",
           "expiresAt": null
         },
         {
-          "id": "7689f0f6-b4d6-495d-8f79-5812ebdd8c5b",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "79cc9441-420c-49db-bf4a-d7338ab04de3",
+          "id": "42cc1522-2be2-4c1c-a3fa-460a6fa8bde6",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "66b3931f-5a82-4770-b65f-49605cca6089",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -386,13 +386,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.603Z",
+          "capturedAt": "2026-10-02T05:19:24.389Z",
           "expiresAt": null
         },
         {
-          "id": "ce6381fe-f630-4ed9-a79d-ff0fbf8ea23f",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "79cc9441-420c-49db-bf4a-d7338ab04de3",
+          "id": "750251fd-6c97-4e39-92e3-23fa80bf7c24",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "66b3931f-5a82-4770-b65f-49605cca6089",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -405,7 +405,7 @@
               "count": 20,
               "handles": [],
               "queries": [],
-              "startedAt": 1790917661603
+              "startedAt": 1790918364389
             },
             "truncated": true,
             "count": null,
@@ -415,13 +415,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.603Z",
+          "capturedAt": "2026-10-02T05:19:24.389Z",
           "expiresAt": null
         },
         {
-          "id": "397d240e-e509-4584-aa1c-0815d900d969",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "79cc9441-420c-49db-bf4a-d7338ab04de3",
+          "id": "d4433274-9e7e-40c8-8a2d-d653727bcbe3",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "66b3931f-5a82-4770-b65f-49605cca6089",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -436,7 +436,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               }
             },
             "truncated": true,
@@ -447,13 +447,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.603Z",
+          "capturedAt": "2026-10-02T05:19:24.389Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:79cc9441-420c-49db-bf4a-d7338ab04de3:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "79cc9441-420c-49db-bf4a-d7338ab04de3",
+          "id": "not-captured:66b3931f-5a82-4770-b65f-49605cca6089:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "66b3931f-5a82-4770-b65f-49605cca6089",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -468,7 +468,7 @@
     },
     {
       "itemKey": null,
-      "id": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "id": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "logicalKey": "bounded-retrieval",
       "parentStepId": null,
       "attempt": 1,
@@ -476,8 +476,8 @@
       "title": "Bounded retrieval attempts",
       "description": "At most three executions; terminal verdicts skip remaining actions.",
       "kind": "loop",
-      "startedAt": "2026-10-02T05:07:41.603Z",
-      "completedAt": "2026-10-02T05:07:41.605Z",
+      "startedAt": "2026-10-02T05:19:24.390Z",
+      "completedAt": "2026-10-02T05:19:24.392Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -504,9 +504,9 @@
       ],
       "evidence": [
         {
-          "id": "2818c965-0b92-4d52-aecb-434c06e06806",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+          "id": "8131610f-16ac-4748-a248-feee2d66b1e2",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -521,7 +521,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               }
             },
             "truncated": true,
@@ -532,13 +532,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.604Z",
+          "capturedAt": "2026-10-02T05:19:24.390Z",
           "expiresAt": null
         },
         {
-          "id": "c476ecee-fbf8-4317-ba57-c9da980b850e",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+          "id": "9d61d856-9462-40f9-a3d3-fc2541da5ea6",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -555,7 +555,7 @@
                   "count": 20,
                   "handles": [],
                   "queries": [],
-                  "startedAt": 1790917661603
+                  "startedAt": 1790918364389
                 },
                 "loop": {
                   "bounded_retrieval": {
@@ -574,13 +574,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.605Z",
+          "capturedAt": "2026-10-02T05:19:24.393Z",
           "expiresAt": null
         },
         {
-          "id": "86d55cc0-899f-4e99-b379-41b8516d018e",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+          "id": "fb0d8fa0-7de4-43b9-9a5b-d7127025a5b8",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -595,7 +595,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -613,13 +613,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.605Z",
+          "capturedAt": "2026-10-02T05:19:24.393Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:1b4ecd06-71eb-4e64-a1e4-d9eec86c030c:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+          "id": "not-captured:5b64f288-c33c-44a6-9f71-78b590e8770b:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -631,9 +631,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:1b4ecd06-71eb-4e64-a1e4-d9eec86c030c:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+          "id": "not-captured:5b64f288-c33c-44a6-9f71-78b590e8770b:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -648,16 +648,16 @@
     },
     {
       "itemKey": null,
-      "id": "a5b401cf-47ef-4267-b81e-d9567211c46e",
+      "id": "8194fe25-15f6-479e-b10f-82a6c66dc0c9",
       "logicalKey": "bounded-retrieval/choose",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 1,
       "status": "skipped",
       "title": "Choose read-only action",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:07:41.604Z",
-      "completedAt": "2026-10-02T05:07:41.604Z",
+      "startedAt": "2026-10-02T05:19:24.390Z",
+      "completedAt": "2026-10-02T05:19:24.390Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -694,9 +694,9 @@
       ],
       "evidence": [
         {
-          "id": "a5bc574e-ac9e-4ec1-9014-7adfa104fb33",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "a5b401cf-47ef-4267-b81e-d9567211c46e",
+          "id": "fa3b2084-dec8-44c0-ba19-d8f55fb45097",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "8194fe25-15f6-479e-b10f-82a6c66dc0c9",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -711,7 +711,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -729,13 +729,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.634Z",
+          "capturedAt": "2026-10-02T05:19:24.420Z",
           "expiresAt": null
         },
         {
-          "id": "3be9b8b9-f66b-47dc-b2a9-f8059e04c6e3",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "a5b401cf-47ef-4267-b81e-d9567211c46e",
+          "id": "8b5d0093-e587-498a-a0a2-9384fecfb60a",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "8194fe25-15f6-479e-b10f-82a6c66dc0c9",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -750,7 +750,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -768,13 +768,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.634Z",
+          "capturedAt": "2026-10-02T05:19:24.420Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:a5b401cf-47ef-4267-b81e-d9567211c46e:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "a5b401cf-47ef-4267-b81e-d9567211c46e",
+          "id": "not-captured:8194fe25-15f6-479e-b10f-82a6c66dc0c9:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "8194fe25-15f6-479e-b10f-82a6c66dc0c9",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -786,9 +786,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:a5b401cf-47ef-4267-b81e-d9567211c46e:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "a5b401cf-47ef-4267-b81e-d9567211c46e",
+          "id": "not-captured:8194fe25-15f6-479e-b10f-82a6c66dc0c9:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "8194fe25-15f6-479e-b10f-82a6c66dc0c9",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -800,9 +800,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:a5b401cf-47ef-4267-b81e-d9567211c46e:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "a5b401cf-47ef-4267-b81e-d9567211c46e",
+          "id": "not-captured:8194fe25-15f6-479e-b10f-82a6c66dc0c9:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "8194fe25-15f6-479e-b10f-82a6c66dc0c9",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -817,16 +817,16 @@
     },
     {
       "itemKey": null,
-      "id": "3548c5e0-5d7f-4622-b854-d12354a94338",
+      "id": "b595635b-23b0-405a-bdb5-5128e091c36e",
       "logicalKey": "bounded-retrieval/execute",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 1,
       "status": "skipped",
       "title": "Retrieve selected source",
       "description": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:41.604Z",
-      "completedAt": "2026-10-02T05:07:41.604Z",
+      "startedAt": "2026-10-02T05:19:24.390Z",
+      "completedAt": "2026-10-02T05:19:24.391Z",
       "error": null,
       "skipReason": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "continuationReason": null,
@@ -868,9 +868,9 @@
       ],
       "evidence": [
         {
-          "id": "b5e5551d-eb44-4a2b-8765-354ff32eae61",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "3548c5e0-5d7f-4622-b854-d12354a94338",
+          "id": "20dd0898-7b63-44ab-ab1d-f0b1094f4551",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "b595635b-23b0-405a-bdb5-5128e091c36e",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -885,7 +885,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -903,13 +903,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.634Z",
+          "capturedAt": "2026-10-02T05:19:24.420Z",
           "expiresAt": null
         },
         {
-          "id": "67444789-74fa-4359-9ca0-2ba94a20e8a8",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "3548c5e0-5d7f-4622-b854-d12354a94338",
+          "id": "5f83e727-202d-4da0-a3db-676d221f202f",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "b595635b-23b0-405a-bdb5-5128e091c36e",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -924,7 +924,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -942,13 +942,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.634Z",
+          "capturedAt": "2026-10-02T05:19:24.420Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:3548c5e0-5d7f-4622-b854-d12354a94338:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "3548c5e0-5d7f-4622-b854-d12354a94338",
+          "id": "not-captured:b595635b-23b0-405a-bdb5-5128e091c36e:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "b595635b-23b0-405a-bdb5-5128e091c36e",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -960,9 +960,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:3548c5e0-5d7f-4622-b854-d12354a94338:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "3548c5e0-5d7f-4622-b854-d12354a94338",
+          "id": "not-captured:b595635b-23b0-405a-bdb5-5128e091c36e:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "b595635b-23b0-405a-bdb5-5128e091c36e",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -974,9 +974,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:3548c5e0-5d7f-4622-b854-d12354a94338:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "3548c5e0-5d7f-4622-b854-d12354a94338",
+          "id": "not-captured:b595635b-23b0-405a-bdb5-5128e091c36e:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "b595635b-23b0-405a-bdb5-5128e091c36e",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -991,16 +991,16 @@
     },
     {
       "itemKey": null,
-      "id": "b27ddc72-8a2a-4100-a249-e1762caedd96",
+      "id": "f5463cbb-763a-4e25-8fd5-b8ddfa07b539",
       "logicalKey": "bounded-retrieval/judge-evidence",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 1,
       "status": "skipped",
       "title": "Judge safe continuation",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:07:41.604Z",
-      "completedAt": "2026-10-02T05:07:41.604Z",
+      "startedAt": "2026-10-02T05:19:24.391Z",
+      "completedAt": "2026-10-02T05:19:24.391Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -1037,9 +1037,9 @@
       ],
       "evidence": [
         {
-          "id": "edab8560-8236-4ea5-81f3-10d6391db348",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "b27ddc72-8a2a-4100-a249-e1762caedd96",
+          "id": "645a6de1-15e0-4497-bc20-ed24ceb91501",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "f5463cbb-763a-4e25-8fd5-b8ddfa07b539",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1054,7 +1054,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1072,13 +1072,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.634Z",
+          "capturedAt": "2026-10-02T05:19:24.421Z",
           "expiresAt": null
         },
         {
-          "id": "f3fc3533-ca44-4a1d-8c8c-1e6bec3bf53e",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "b27ddc72-8a2a-4100-a249-e1762caedd96",
+          "id": "64f37eac-b531-48ea-be19-3301865f5994",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "f5463cbb-763a-4e25-8fd5-b8ddfa07b539",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1093,7 +1093,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1111,13 +1111,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.634Z",
+          "capturedAt": "2026-10-02T05:19:24.421Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:b27ddc72-8a2a-4100-a249-e1762caedd96:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "b27ddc72-8a2a-4100-a249-e1762caedd96",
+          "id": "not-captured:f5463cbb-763a-4e25-8fd5-b8ddfa07b539:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "f5463cbb-763a-4e25-8fd5-b8ddfa07b539",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1129,9 +1129,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:b27ddc72-8a2a-4100-a249-e1762caedd96:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "b27ddc72-8a2a-4100-a249-e1762caedd96",
+          "id": "not-captured:f5463cbb-763a-4e25-8fd5-b8ddfa07b539:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "f5463cbb-763a-4e25-8fd5-b8ddfa07b539",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -1143,9 +1143,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:b27ddc72-8a2a-4100-a249-e1762caedd96:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "b27ddc72-8a2a-4100-a249-e1762caedd96",
+          "id": "not-captured:f5463cbb-763a-4e25-8fd5-b8ddfa07b539:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "f5463cbb-763a-4e25-8fd5-b8ddfa07b539",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1160,16 +1160,16 @@
     },
     {
       "itemKey": null,
-      "id": "71be1e65-bd1a-4702-afe9-289177b18287",
+      "id": "33731af4-85f1-441d-934f-f31e6e579bc1",
       "logicalKey": "bounded-retrieval/check",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 1,
       "status": "skipped",
       "title": "Validate continuation",
       "description": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:41.604Z",
-      "completedAt": "2026-10-02T05:07:41.604Z",
+      "startedAt": "2026-10-02T05:19:24.391Z",
+      "completedAt": "2026-10-02T05:19:24.391Z",
       "error": null,
       "skipReason": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "continuationReason": null,
@@ -1206,9 +1206,9 @@
       ],
       "evidence": [
         {
-          "id": "4b9c2691-dcf7-4cab-9748-d575e6f0da4d",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "71be1e65-bd1a-4702-afe9-289177b18287",
+          "id": "59fab3cd-ace8-4383-a229-37bb35f22219",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "33731af4-85f1-441d-934f-f31e6e579bc1",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1223,7 +1223,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1241,13 +1241,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.635Z",
+          "capturedAt": "2026-10-02T05:19:24.421Z",
           "expiresAt": null
         },
         {
-          "id": "8173151a-71cf-43f1-8656-02b74502c87f",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "71be1e65-bd1a-4702-afe9-289177b18287",
+          "id": "abbf9037-03e8-47f3-9be5-cc92fe6bfce3",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "33731af4-85f1-441d-934f-f31e6e579bc1",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1262,7 +1262,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1280,13 +1280,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.635Z",
+          "capturedAt": "2026-10-02T05:19:24.421Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:71be1e65-bd1a-4702-afe9-289177b18287:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "71be1e65-bd1a-4702-afe9-289177b18287",
+          "id": "not-captured:33731af4-85f1-441d-934f-f31e6e579bc1:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "33731af4-85f1-441d-934f-f31e6e579bc1",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1298,9 +1298,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:71be1e65-bd1a-4702-afe9-289177b18287:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "71be1e65-bd1a-4702-afe9-289177b18287",
+          "id": "not-captured:33731af4-85f1-441d-934f-f31e6e579bc1:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "33731af4-85f1-441d-934f-f31e6e579bc1",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -1312,9 +1312,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:71be1e65-bd1a-4702-afe9-289177b18287:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "71be1e65-bd1a-4702-afe9-289177b18287",
+          "id": "not-captured:33731af4-85f1-441d-934f-f31e6e579bc1:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "33731af4-85f1-441d-934f-f31e6e579bc1",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1329,16 +1329,16 @@
     },
     {
       "itemKey": null,
-      "id": "9a6a363d-fb8e-4953-a8de-502d32c93575",
+      "id": "a9787381-014d-44c4-82f6-532c143cbedb",
       "logicalKey": "bounded-retrieval/choose",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 2,
       "status": "skipped",
       "title": "Choose read-only action",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:07:41.604Z",
-      "completedAt": "2026-10-02T05:07:41.604Z",
+      "startedAt": "2026-10-02T05:19:24.391Z",
+      "completedAt": "2026-10-02T05:19:24.391Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -1375,9 +1375,9 @@
       ],
       "evidence": [
         {
-          "id": "55efa54c-8627-41a1-adba-e87be44868e0",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "9a6a363d-fb8e-4953-a8de-502d32c93575",
+          "id": "60e45465-30a4-4998-bd7b-18de98e38502",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "a9787381-014d-44c4-82f6-532c143cbedb",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1392,7 +1392,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1410,13 +1410,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.635Z",
+          "capturedAt": "2026-10-02T05:19:24.421Z",
           "expiresAt": null
         },
         {
-          "id": "2bd20d45-e332-4659-b5a5-138102fb075d",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "9a6a363d-fb8e-4953-a8de-502d32c93575",
+          "id": "40155410-0a17-415e-8483-72f3395e58c2",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "a9787381-014d-44c4-82f6-532c143cbedb",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1431,7 +1431,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1449,13 +1449,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.635Z",
+          "capturedAt": "2026-10-02T05:19:24.421Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:9a6a363d-fb8e-4953-a8de-502d32c93575:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "9a6a363d-fb8e-4953-a8de-502d32c93575",
+          "id": "not-captured:a9787381-014d-44c4-82f6-532c143cbedb:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "a9787381-014d-44c4-82f6-532c143cbedb",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1467,9 +1467,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:9a6a363d-fb8e-4953-a8de-502d32c93575:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "9a6a363d-fb8e-4953-a8de-502d32c93575",
+          "id": "not-captured:a9787381-014d-44c4-82f6-532c143cbedb:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "a9787381-014d-44c4-82f6-532c143cbedb",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -1481,9 +1481,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:9a6a363d-fb8e-4953-a8de-502d32c93575:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "9a6a363d-fb8e-4953-a8de-502d32c93575",
+          "id": "not-captured:a9787381-014d-44c4-82f6-532c143cbedb:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "a9787381-014d-44c4-82f6-532c143cbedb",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1498,16 +1498,16 @@
     },
     {
       "itemKey": null,
-      "id": "e42a60f1-4fae-4872-a3fa-03cb1342cb15",
+      "id": "2a0b8c63-70c2-4724-8f7e-517d7d39fdb9",
       "logicalKey": "bounded-retrieval/execute",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 2,
       "status": "skipped",
       "title": "Retrieve selected source",
       "description": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:41.604Z",
-      "completedAt": "2026-10-02T05:07:41.604Z",
+      "startedAt": "2026-10-02T05:19:24.391Z",
+      "completedAt": "2026-10-02T05:19:24.391Z",
       "error": null,
       "skipReason": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "continuationReason": null,
@@ -1549,9 +1549,9 @@
       ],
       "evidence": [
         {
-          "id": "d6888add-4ee2-4af0-92f7-df6493011583",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "e42a60f1-4fae-4872-a3fa-03cb1342cb15",
+          "id": "70ef9029-8b2c-49f9-b2a3-08eee6594ac6",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "2a0b8c63-70c2-4724-8f7e-517d7d39fdb9",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1566,7 +1566,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1584,13 +1584,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.635Z",
+          "capturedAt": "2026-10-02T05:19:24.421Z",
           "expiresAt": null
         },
         {
-          "id": "e5ccb5a9-f9fc-4ae6-8bb5-a2ef341b0137",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "e42a60f1-4fae-4872-a3fa-03cb1342cb15",
+          "id": "5f51ddcf-4fc4-40dc-b9c6-6b9fd0b72bdf",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "2a0b8c63-70c2-4724-8f7e-517d7d39fdb9",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1605,7 +1605,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1623,13 +1623,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.635Z",
+          "capturedAt": "2026-10-02T05:19:24.421Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:e42a60f1-4fae-4872-a3fa-03cb1342cb15:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "e42a60f1-4fae-4872-a3fa-03cb1342cb15",
+          "id": "not-captured:2a0b8c63-70c2-4724-8f7e-517d7d39fdb9:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "2a0b8c63-70c2-4724-8f7e-517d7d39fdb9",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1641,9 +1641,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:e42a60f1-4fae-4872-a3fa-03cb1342cb15:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "e42a60f1-4fae-4872-a3fa-03cb1342cb15",
+          "id": "not-captured:2a0b8c63-70c2-4724-8f7e-517d7d39fdb9:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "2a0b8c63-70c2-4724-8f7e-517d7d39fdb9",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -1655,9 +1655,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:e42a60f1-4fae-4872-a3fa-03cb1342cb15:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "e42a60f1-4fae-4872-a3fa-03cb1342cb15",
+          "id": "not-captured:2a0b8c63-70c2-4724-8f7e-517d7d39fdb9:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "2a0b8c63-70c2-4724-8f7e-517d7d39fdb9",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1672,16 +1672,16 @@
     },
     {
       "itemKey": null,
-      "id": "4683f00c-02f2-4ad6-bcb4-da488a1a19a0",
+      "id": "57e0917a-23bd-46e0-ad68-caa1cd8a4f55",
       "logicalKey": "bounded-retrieval/judge-evidence",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 2,
       "status": "skipped",
       "title": "Judge safe continuation",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:07:41.604Z",
-      "completedAt": "2026-10-02T05:07:41.605Z",
+      "startedAt": "2026-10-02T05:19:24.391Z",
+      "completedAt": "2026-10-02T05:19:24.392Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -1718,9 +1718,9 @@
       ],
       "evidence": [
         {
-          "id": "205a9d82-3ff9-4137-a5d2-8045d24f631f",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "4683f00c-02f2-4ad6-bcb4-da488a1a19a0",
+          "id": "7fa8c054-73fe-4534-93e2-7ef49050e9e7",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "57e0917a-23bd-46e0-ad68-caa1cd8a4f55",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1735,7 +1735,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1753,13 +1753,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.635Z",
+          "capturedAt": "2026-10-02T05:19:24.421Z",
           "expiresAt": null
         },
         {
-          "id": "42657532-3d2a-499a-a43a-ac58b584e739",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "4683f00c-02f2-4ad6-bcb4-da488a1a19a0",
+          "id": "1604bb07-8fc1-4f54-8472-437da862add0",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "57e0917a-23bd-46e0-ad68-caa1cd8a4f55",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1774,7 +1774,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1792,13 +1792,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.635Z",
+          "capturedAt": "2026-10-02T05:19:24.422Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:4683f00c-02f2-4ad6-bcb4-da488a1a19a0:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "4683f00c-02f2-4ad6-bcb4-da488a1a19a0",
+          "id": "not-captured:57e0917a-23bd-46e0-ad68-caa1cd8a4f55:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "57e0917a-23bd-46e0-ad68-caa1cd8a4f55",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1810,9 +1810,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:4683f00c-02f2-4ad6-bcb4-da488a1a19a0:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "4683f00c-02f2-4ad6-bcb4-da488a1a19a0",
+          "id": "not-captured:57e0917a-23bd-46e0-ad68-caa1cd8a4f55:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "57e0917a-23bd-46e0-ad68-caa1cd8a4f55",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -1824,9 +1824,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:4683f00c-02f2-4ad6-bcb4-da488a1a19a0:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "4683f00c-02f2-4ad6-bcb4-da488a1a19a0",
+          "id": "not-captured:57e0917a-23bd-46e0-ad68-caa1cd8a4f55:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "57e0917a-23bd-46e0-ad68-caa1cd8a4f55",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1841,16 +1841,16 @@
     },
     {
       "itemKey": null,
-      "id": "ef4f3650-b86c-4675-a471-c3f54b6acda3",
+      "id": "50ee7839-6d00-4cbf-80ea-ad09b10d2306",
       "logicalKey": "bounded-retrieval/check",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 2,
       "status": "skipped",
       "title": "Validate continuation",
       "description": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:41.605Z",
-      "completedAt": "2026-10-02T05:07:41.605Z",
+      "startedAt": "2026-10-02T05:19:24.392Z",
+      "completedAt": "2026-10-02T05:19:24.392Z",
       "error": null,
       "skipReason": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "continuationReason": null,
@@ -1887,9 +1887,9 @@
       ],
       "evidence": [
         {
-          "id": "e0f8b5ca-b449-40f0-868d-4e514af3e9c1",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "ef4f3650-b86c-4675-a471-c3f54b6acda3",
+          "id": "1fcaecfb-ffea-4c30-b97f-6691e5e717be",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "50ee7839-6d00-4cbf-80ea-ad09b10d2306",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1904,7 +1904,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1922,13 +1922,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.635Z",
+          "capturedAt": "2026-10-02T05:19:24.422Z",
           "expiresAt": null
         },
         {
-          "id": "109a18ef-c5e9-4c01-82ed-fe5d447bc7bb",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "ef4f3650-b86c-4675-a471-c3f54b6acda3",
+          "id": "c79b8cc3-6e25-4866-ac65-00eb4e4e9435",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "50ee7839-6d00-4cbf-80ea-ad09b10d2306",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1943,7 +1943,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1961,13 +1961,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.635Z",
+          "capturedAt": "2026-10-02T05:19:24.422Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:ef4f3650-b86c-4675-a471-c3f54b6acda3:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "ef4f3650-b86c-4675-a471-c3f54b6acda3",
+          "id": "not-captured:50ee7839-6d00-4cbf-80ea-ad09b10d2306:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "50ee7839-6d00-4cbf-80ea-ad09b10d2306",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1979,9 +1979,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:ef4f3650-b86c-4675-a471-c3f54b6acda3:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "ef4f3650-b86c-4675-a471-c3f54b6acda3",
+          "id": "not-captured:50ee7839-6d00-4cbf-80ea-ad09b10d2306:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "50ee7839-6d00-4cbf-80ea-ad09b10d2306",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -1993,9 +1993,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:ef4f3650-b86c-4675-a471-c3f54b6acda3:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "ef4f3650-b86c-4675-a471-c3f54b6acda3",
+          "id": "not-captured:50ee7839-6d00-4cbf-80ea-ad09b10d2306:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "50ee7839-6d00-4cbf-80ea-ad09b10d2306",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2010,16 +2010,16 @@
     },
     {
       "itemKey": null,
-      "id": "bf536b99-cf13-4ea9-b96a-c64c9d2662b8",
+      "id": "64d6974f-6cfa-49bc-aaff-d9fecf0cdd88",
       "logicalKey": "bounded-retrieval/choose",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 3,
       "status": "skipped",
       "title": "Choose read-only action",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:07:41.605Z",
-      "completedAt": "2026-10-02T05:07:41.605Z",
+      "startedAt": "2026-10-02T05:19:24.392Z",
+      "completedAt": "2026-10-02T05:19:24.392Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -2056,9 +2056,9 @@
       ],
       "evidence": [
         {
-          "id": "a06ff10e-5554-46a0-9bfb-bdbcda55caba",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "bf536b99-cf13-4ea9-b96a-c64c9d2662b8",
+          "id": "dafd3c48-6005-4250-8db9-7798509b5083",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "64d6974f-6cfa-49bc-aaff-d9fecf0cdd88",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -2073,7 +2073,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2091,13 +2091,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.636Z",
+          "capturedAt": "2026-10-02T05:19:24.422Z",
           "expiresAt": null
         },
         {
-          "id": "79acd111-8764-440e-a8fc-2ab93b288c27",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "bf536b99-cf13-4ea9-b96a-c64c9d2662b8",
+          "id": "d05bf350-dc2e-4f02-9668-9d82a8e484b0",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "64d6974f-6cfa-49bc-aaff-d9fecf0cdd88",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -2112,7 +2112,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2130,13 +2130,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.636Z",
+          "capturedAt": "2026-10-02T05:19:24.422Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:bf536b99-cf13-4ea9-b96a-c64c9d2662b8:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "bf536b99-cf13-4ea9-b96a-c64c9d2662b8",
+          "id": "not-captured:64d6974f-6cfa-49bc-aaff-d9fecf0cdd88:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "64d6974f-6cfa-49bc-aaff-d9fecf0cdd88",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -2148,9 +2148,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:bf536b99-cf13-4ea9-b96a-c64c9d2662b8:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "bf536b99-cf13-4ea9-b96a-c64c9d2662b8",
+          "id": "not-captured:64d6974f-6cfa-49bc-aaff-d9fecf0cdd88:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "64d6974f-6cfa-49bc-aaff-d9fecf0cdd88",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -2162,9 +2162,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:bf536b99-cf13-4ea9-b96a-c64c9d2662b8:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "bf536b99-cf13-4ea9-b96a-c64c9d2662b8",
+          "id": "not-captured:64d6974f-6cfa-49bc-aaff-d9fecf0cdd88:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "64d6974f-6cfa-49bc-aaff-d9fecf0cdd88",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2179,16 +2179,16 @@
     },
     {
       "itemKey": null,
-      "id": "da5216cb-7152-47d9-ba05-87cdad03cb2c",
+      "id": "05261636-1d39-4412-99a4-a051f7b6f462",
       "logicalKey": "bounded-retrieval/execute",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 3,
       "status": "skipped",
       "title": "Retrieve selected source",
       "description": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:41.605Z",
-      "completedAt": "2026-10-02T05:07:41.605Z",
+      "startedAt": "2026-10-02T05:19:24.392Z",
+      "completedAt": "2026-10-02T05:19:24.392Z",
       "error": null,
       "skipReason": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "continuationReason": null,
@@ -2230,9 +2230,9 @@
       ],
       "evidence": [
         {
-          "id": "2cacfab3-d990-4e3a-80bb-34727af8fe0f",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "da5216cb-7152-47d9-ba05-87cdad03cb2c",
+          "id": "26ce715f-dc3f-4f49-ab00-1e485191e886",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "05261636-1d39-4412-99a4-a051f7b6f462",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -2247,7 +2247,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2265,13 +2265,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.636Z",
+          "capturedAt": "2026-10-02T05:19:24.422Z",
           "expiresAt": null
         },
         {
-          "id": "6be66ae6-0bb8-4cfc-bbbc-a1d7abb212a2",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "da5216cb-7152-47d9-ba05-87cdad03cb2c",
+          "id": "fad3f3a3-4633-4bd8-97ea-a5e978c35a84",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "05261636-1d39-4412-99a4-a051f7b6f462",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -2286,7 +2286,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2304,13 +2304,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.636Z",
+          "capturedAt": "2026-10-02T05:19:24.422Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:da5216cb-7152-47d9-ba05-87cdad03cb2c:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "da5216cb-7152-47d9-ba05-87cdad03cb2c",
+          "id": "not-captured:05261636-1d39-4412-99a4-a051f7b6f462:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "05261636-1d39-4412-99a4-a051f7b6f462",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -2322,9 +2322,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:da5216cb-7152-47d9-ba05-87cdad03cb2c:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "da5216cb-7152-47d9-ba05-87cdad03cb2c",
+          "id": "not-captured:05261636-1d39-4412-99a4-a051f7b6f462:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "05261636-1d39-4412-99a4-a051f7b6f462",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -2336,9 +2336,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:da5216cb-7152-47d9-ba05-87cdad03cb2c:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "da5216cb-7152-47d9-ba05-87cdad03cb2c",
+          "id": "not-captured:05261636-1d39-4412-99a4-a051f7b6f462:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "05261636-1d39-4412-99a4-a051f7b6f462",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2353,16 +2353,16 @@
     },
     {
       "itemKey": null,
-      "id": "8660ff00-8c34-4a40-8821-6a2d142be07b",
+      "id": "8a16aed7-b9bf-49c2-beed-174e7de9a715",
       "logicalKey": "bounded-retrieval/judge-evidence",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 3,
       "status": "skipped",
       "title": "Judge safe continuation",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:07:41.605Z",
-      "completedAt": "2026-10-02T05:07:41.605Z",
+      "startedAt": "2026-10-02T05:19:24.392Z",
+      "completedAt": "2026-10-02T05:19:24.392Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -2399,9 +2399,9 @@
       ],
       "evidence": [
         {
-          "id": "d81b3952-1c27-4ef0-8fd4-b8b0b14dcea2",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "8660ff00-8c34-4a40-8821-6a2d142be07b",
+          "id": "9f47cede-c5d7-423f-9be4-dc49ef21acf7",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "8a16aed7-b9bf-49c2-beed-174e7de9a715",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -2416,7 +2416,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2434,13 +2434,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.636Z",
+          "capturedAt": "2026-10-02T05:19:24.422Z",
           "expiresAt": null
         },
         {
-          "id": "dfa98e86-963a-4fc3-bcb5-f629aa169ab1",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "8660ff00-8c34-4a40-8821-6a2d142be07b",
+          "id": "0c3adbf1-12b8-4dd9-b60f-a807972ff4a5",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "8a16aed7-b9bf-49c2-beed-174e7de9a715",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -2455,7 +2455,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2473,13 +2473,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.636Z",
+          "capturedAt": "2026-10-02T05:19:24.422Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:8660ff00-8c34-4a40-8821-6a2d142be07b:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "8660ff00-8c34-4a40-8821-6a2d142be07b",
+          "id": "not-captured:8a16aed7-b9bf-49c2-beed-174e7de9a715:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "8a16aed7-b9bf-49c2-beed-174e7de9a715",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -2491,9 +2491,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:8660ff00-8c34-4a40-8821-6a2d142be07b:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "8660ff00-8c34-4a40-8821-6a2d142be07b",
+          "id": "not-captured:8a16aed7-b9bf-49c2-beed-174e7de9a715:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "8a16aed7-b9bf-49c2-beed-174e7de9a715",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -2505,9 +2505,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:8660ff00-8c34-4a40-8821-6a2d142be07b:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "8660ff00-8c34-4a40-8821-6a2d142be07b",
+          "id": "not-captured:8a16aed7-b9bf-49c2-beed-174e7de9a715:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "8a16aed7-b9bf-49c2-beed-174e7de9a715",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2522,16 +2522,16 @@
     },
     {
       "itemKey": null,
-      "id": "f2df9b33-b648-4ffd-8c50-0b485f8155c0",
+      "id": "6c486797-a7b8-45d9-ad52-479a1da7f934",
       "logicalKey": "bounded-retrieval/check",
-      "parentStepId": "1b4ecd06-71eb-4e64-a1e4-d9eec86c030c",
+      "parentStepId": "5b64f288-c33c-44a6-9f71-78b590e8770b",
       "attempt": 3,
       "status": "skipped",
       "title": "Validate continuation",
       "description": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:41.605Z",
-      "completedAt": "2026-10-02T05:07:41.605Z",
+      "startedAt": "2026-10-02T05:19:24.392Z",
+      "completedAt": "2026-10-02T05:19:24.392Z",
       "error": null,
       "skipReason": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "continuationReason": null,
@@ -2568,9 +2568,9 @@
       ],
       "evidence": [
         {
-          "id": "8ab5455f-97c4-4e72-a066-eb83888b7f3d",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "f2df9b33-b648-4ffd-8c50-0b485f8155c0",
+          "id": "3611270e-65b9-4b80-a2a9-ce9c89cc53be",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "6c486797-a7b8-45d9-ad52-479a1da7f934",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -2585,7 +2585,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2603,13 +2603,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.636Z",
+          "capturedAt": "2026-10-02T05:19:24.422Z",
           "expiresAt": null
         },
         {
-          "id": "0141e11e-f332-4053-b2a3-ea2d7ee20c62",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "f2df9b33-b648-4ffd-8c50-0b485f8155c0",
+          "id": "212b4c80-05c3-45ff-b1a1-a2fb306c5bae",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "6c486797-a7b8-45d9-ad52-479a1da7f934",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -2624,7 +2624,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2642,13 +2642,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.636Z",
+          "capturedAt": "2026-10-02T05:19:24.423Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:f2df9b33-b648-4ffd-8c50-0b485f8155c0:executor_request",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "f2df9b33-b648-4ffd-8c50-0b485f8155c0",
+          "id": "not-captured:6c486797-a7b8-45d9-ad52-479a1da7f934:executor_request",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "6c486797-a7b8-45d9-ad52-479a1da7f934",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -2660,9 +2660,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:f2df9b33-b648-4ffd-8c50-0b485f8155c0:returned_output",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "f2df9b33-b648-4ffd-8c50-0b485f8155c0",
+          "id": "not-captured:6c486797-a7b8-45d9-ad52-479a1da7f934:returned_output",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "6c486797-a7b8-45d9-ad52-479a1da7f934",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -2674,9 +2674,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:f2df9b33-b648-4ffd-8c50-0b485f8155c0:side_effect_confirmation",
-          "runId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
-          "stepId": "f2df9b33-b648-4ffd-8c50-0b485f8155c0",
+          "id": "not-captured:6c486797-a7b8-45d9-ad52-479a1da7f934:side_effect_confirmation",
+          "runId": "b6430662-ccaf-4083-8ec7-46c08995f867",
+          "stepId": "6c486797-a7b8-45d9-ad52-479a1da7f934",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2691,5 +2691,5 @@
     }
   ],
   "children": [],
-  "revision": "d7e679ba19c27fdfd4dbc7513ec22e9a26e081c68fa5359b57d3c9391164e947"
+  "revision": "af41076054fb93a8200decf4ea7fde45781709f0da86b46eab4014b3a319e1b9"
 }

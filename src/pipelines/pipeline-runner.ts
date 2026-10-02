@@ -107,6 +107,7 @@ export async function resumeErroredDeclarativePipeline(input: PipelineRunnerInpu
 
 function createPipelineRun(input: PipelineRunnerInput) {
   const { store, definition } = input;
+  for (const secret of classifierOpenRouterSecrets(input)) store.evidence.registerSecret(secret);
   validateChildPipelineSteps(definition.spec);
   return store.composition.transaction(() => {
     const run = store.createRun({

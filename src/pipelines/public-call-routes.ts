@@ -1,3 +1,4 @@
+import { classifierOpenRouterSecrets } from "./classifier-openrouter-credentials";
 import { pipelineFunctionHashes } from "./pipeline-function-pins";
 import { PublicCallReplay } from "./public-call-store";
 import { createHash } from "node:crypto";
@@ -91,6 +92,7 @@ export async function handlePublicPipelineCall(request: Request, url: URL, authC
   }
   let run;
   try {
+    for (const secret of classifierOpenRouterSecrets({ ownerNpub, sessionApiContext: ctx.sessionApiContext })) ctx.store.evidence.registerSecret(secret);
     run = ctx.store.publicCalls.create({ owner: ownerNpub, definitionId: definition.id, key: key as string | null, fingerprint, webhookUrl }, () => {
       const created = ctx.store.createRun({ definitionId: definition.id, definitionPath: definition.path,
         name: definition.spec.name, ownerNpub, ownerAlias, scope: definition.scope, input });

@@ -201,9 +201,12 @@ test("reopened viewer routes resolve configured provider secrets for all outward
   store.addEvent({ runId: run.id, type: "flightdeck_invocation_context", level: "info", data: trusted });
   const refs = store.evidence.list(run.id);
   store = new PipelineStore(store.path);
+  // Retired credentials must stay redacted without any current read-time resolver.
+  expect(JSON.stringify(viewerSnapshot(run.id, store, "service"))).not.toContain(secret);
   const ctx = { store, identity: { pubkeyHex: "33".repeat(32) }, providerCredentialContext: settings,
     workspaceDelegationStore: { findActiveDelegation: () => null }, agentStore: { getByAgentId: () => ({ managedByNpub: owner, botNpub: "bot", enabled: true }), canInstruct: () => true },
     pipelineBindingStore: { listAvailableIds: () => [def.id] }, listPipelineDefinitions: async () => [def] };
+  ctx.providerCredentialContext = {} as SessionApiContext;
   for (const path of [`runs/${run.id}`, `runs/${run.id}/updates`, "runs", "definitions", `definitions/${def.id}`, ...refs.map(ref => `runs/${run.id}/evidence/${ref.id}`)]) {
     const url = new URL(`https://synthetic.test/api/owners/${owner}/control-plane/v1/pipeline-viewer/${path}?workspace_id=workspace&tower_service_npub=tower&app_npub=app`);
     const response = await handlePipelineViewerApi(new Request(url), url, { authMethod: "nip98", npub: owner, subjectNpub: owner, signerNpub: owner } as never, ctx as never);

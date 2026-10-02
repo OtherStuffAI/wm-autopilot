@@ -150,8 +150,8 @@ export class PipelineStore {
     this.db.run("PRAGMA foreign_keys = ON");
     this.migrate();
     this.publicCalls = new PublicCallStore(this.db);
-    this.composition = new PipelineCompositionStore(this.db);
     this.evidence = new PipelineEvidenceStore(this.db);
+    this.composition = new PipelineCompositionStore(this.db, this.evidence.sanitize.bind(this.evidence));
   }
 
   reserveLearningRun(ownerNpub: string, definitionId: string, key: string, inputHash: string): { state: 'new' | 'pending' | 'existing' | 'conflict'; runId?: string } {
@@ -304,7 +304,7 @@ export class PipelineStore {
         input.parentStepId ?? null,
         input.logicalKey ?? null,
         input.callbackToken ?? null,
-        input.metadata ? encodeJson(input.metadata) : null,
+        input.metadata ? encodeJson(this.evidence.sanitize(input.metadata).value) : null,
         now(),
       ],
     );
@@ -372,7 +372,7 @@ export class PipelineStore {
       const step = this.getStep(input.id)!;
       const controlFlow = pipelineControlFlow(input.output);
       if (controlFlow) this.db.run(`UPDATE pipeline_steps SET metadata_json = ? WHERE id = ?`,
-        [encodeJson({ ...step.metadata, controlFlow }), step.id]);
+        [encodeJson(this.evidence.sanitize({ ...step.metadata, controlFlow }).value), step.id]);
       if (step.status !== "cancelled" && step.status !== "skipped") {
         const secrets = [step.callbackToken ?? ""];
         if (input.output !== undefined && input.output !== null) this.evidence.capture({ runId: step.runId, stepId: step.id,

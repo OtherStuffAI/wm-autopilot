@@ -2,20 +2,20 @@
   "version": 1,
   "serviceId": "autopilot_runtime_fixture",
   "run": {
-    "id": "07e38d88-b2de-4d82-bbc4-49b02629372c",
+    "id": "8eb2e123-9863-4398-8ce8-13db8274c27e",
     "serviceId": "autopilot_runtime_fixture",
-    "definitionId": "shared:2ba18b21eaa9",
+    "definitionId": "shared:fd7dd4c30e0f",
     "definitionVersion": 2,
     "definitionHash": "6cbcff5301a8a15ce7938a09a87dcb5f14f03406000ad7eba7c777589af3e31d",
     "name": "bird.timeline.chat.v2",
     "status": "ok",
-    "startedAt": "2026-10-02T05:07:41.599Z",
-    "completedAt": "2026-10-02T05:07:41.632Z",
+    "startedAt": "2026-10-02T05:19:24.379Z",
+    "completedAt": "2026-10-02T05:19:24.418Z",
     "parentRunId": null,
     "parentStepId": null
   },
   "definition": {
-    "id": "shared:2ba18b21eaa9",
+    "id": "shared:fd7dd4c30e0f",
     "name": "bird.timeline.chat.v2",
     "title": "bird.timeline.chat.v2",
     "description": "Use Bird to return latest tweets from your Following or For You timeline, mentions, user tweets or quoted search. Bare latest/timeline requests ask Following versus For You. Read-only, deterministic exact records and links returned to this chat.",
@@ -306,7 +306,7 @@
   "steps": [
     {
       "itemKey": null,
-      "id": "02b772d2-c456-4fd7-aeb6-5fe1264a8735",
+      "id": "4b564a56-fe33-402a-928f-3a7c8317297c",
       "logicalKey": "thread",
       "parentStepId": null,
       "attempt": 1,
@@ -314,8 +314,8 @@
       "title": "Validate chat request",
       "description": "Validate the source chat invocation.",
       "kind": "block",
-      "startedAt": "2026-10-02T05:07:41.600Z",
-      "completedAt": "2026-10-02T05:07:41.600Z",
+      "startedAt": "2026-10-02T05:19:24.379Z",
+      "completedAt": "2026-10-02T05:19:24.380Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -337,9 +337,9 @@
       ],
       "evidence": [
         {
-          "id": "23ac326d-f292-49e9-bc39-b1afc0704ef5",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "02b772d2-c456-4fd7-aeb6-5fe1264a8735",
+          "id": "63c8ff34-b6de-4865-8fa0-10ac9d8f2d09",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "4b564a56-fe33-402a-928f-3a7c8317297c",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -358,13 +358,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.600Z",
+          "capturedAt": "2026-10-02T05:19:24.380Z",
           "expiresAt": null
         },
         {
-          "id": "45eed593-0475-4c8e-a5a7-9e65eb051e3b",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "02b772d2-c456-4fd7-aeb6-5fe1264a8735",
+          "id": "bbd9cd8e-7d4b-4c0a-ae7f-b6a30db9f6e9",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "4b564a56-fe33-402a-928f-3a7c8317297c",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -393,13 +393,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.600Z",
+          "capturedAt": "2026-10-02T05:19:24.380Z",
           "expiresAt": null
         },
         {
-          "id": "3a14b3f1-7a59-4b36-b7ea-1c80d45339cc",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "02b772d2-c456-4fd7-aeb6-5fe1264a8735",
+          "id": "2779ceaf-dfa7-4225-bda3-480663535743",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "4b564a56-fe33-402a-928f-3a7c8317297c",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -428,13 +428,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.600Z",
+          "capturedAt": "2026-10-02T05:19:24.380Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:02b772d2-c456-4fd7-aeb6-5fe1264a8735:executor_request",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "02b772d2-c456-4fd7-aeb6-5fe1264a8735",
+          "id": "not-captured:4b564a56-fe33-402a-928f-3a7c8317297c:executor_request",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "4b564a56-fe33-402a-928f-3a7c8317297c",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -446,9 +446,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:02b772d2-c456-4fd7-aeb6-5fe1264a8735:side_effect_confirmation",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "02b772d2-c456-4fd7-aeb6-5fe1264a8735",
+          "id": "not-captured:4b564a56-fe33-402a-928f-3a7c8317297c:side_effect_confirmation",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "4b564a56-fe33-402a-928f-3a7c8317297c",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -463,16 +463,16 @@
     },
     {
       "itemKey": null,
-      "id": "297a8184-0ac5-4318-85ba-0a9e2bc9b8e1",
+      "id": "d2a2582f-0af9-4d70-b674-34f2d6961020",
       "logicalKey": "thread/thread / normalise-thread-invocation",
-      "parentStepId": "02b772d2-c456-4fd7-aeb6-5fe1264a8735",
+      "parentStepId": "4b564a56-fe33-402a-928f-3a7c8317297c",
       "attempt": 1,
       "status": "ok",
       "title": "thread / normalise-thread-invocation",
       "description": "Validate and normalise the reusable four-field Flight Deck thread invocation contract.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:41.600Z",
-      "completedAt": "2026-10-02T05:07:41.600Z",
+      "startedAt": "2026-10-02T05:19:24.380Z",
+      "completedAt": "2026-10-02T05:19:24.380Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -504,9 +504,9 @@
       ],
       "evidence": [
         {
-          "id": "36fd1c5e-9246-4898-ac9c-8fd27c5afd00",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "297a8184-0ac5-4318-85ba-0a9e2bc9b8e1",
+          "id": "7d0fd629-ec28-4351-8540-1c9236497fb0",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "d2a2582f-0af9-4d70-b674-34f2d6961020",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -525,13 +525,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.600Z",
+          "capturedAt": "2026-10-02T05:19:24.380Z",
           "expiresAt": null
         },
         {
-          "id": "6f13faf5-a97c-4f0a-b114-3f260f440d51",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "297a8184-0ac5-4318-85ba-0a9e2bc9b8e1",
+          "id": "63e22329-e894-40b1-87f5-64fa73103fe4",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "d2a2582f-0af9-4d70-b674-34f2d6961020",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -553,13 +553,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.600Z",
+          "capturedAt": "2026-10-02T05:19:24.380Z",
           "expiresAt": null
         },
         {
-          "id": "62de036f-a706-4b07-8b3b-238d276bf1e4",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "297a8184-0ac5-4318-85ba-0a9e2bc9b8e1",
+          "id": "5e1af3c6-ca6e-4497-a65b-39bd91a26164",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "d2a2582f-0af9-4d70-b674-34f2d6961020",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -578,13 +578,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.600Z",
+          "capturedAt": "2026-10-02T05:19:24.380Z",
           "expiresAt": null
         },
         {
-          "id": "d8858716-ea8a-43a5-bf86-00d7d22572c9",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "297a8184-0ac5-4318-85ba-0a9e2bc9b8e1",
+          "id": "46b8e03f-b650-4203-ac47-24e0e28a76ae",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "d2a2582f-0af9-4d70-b674-34f2d6961020",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -613,13 +613,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.600Z",
+          "capturedAt": "2026-10-02T05:19:24.380Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:297a8184-0ac5-4318-85ba-0a9e2bc9b8e1:side_effect_confirmation",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "297a8184-0ac5-4318-85ba-0a9e2bc9b8e1",
+          "id": "not-captured:d2a2582f-0af9-4d70-b674-34f2d6961020:side_effect_confirmation",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "d2a2582f-0af9-4d70-b674-34f2d6961020",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -634,7 +634,7 @@
     },
     {
       "itemKey": null,
-      "id": "a4fd6e45-e514-4ed8-998a-c631eb4bd318",
+      "id": "dfac7361-bdc3-4abc-92b8-de53a5b87cda",
       "logicalKey": "retrieve",
       "parentStepId": null,
       "attempt": 1,
@@ -642,13 +642,13 @@
       "title": "Retrieve tweets",
       "description": "Run reusable bounded Bird retrieval; ambiguous timelines clarify Following versus For You.",
       "kind": "pipeline",
-      "startedAt": "2026-10-02T05:07:41.600Z",
-      "completedAt": "2026-10-02T05:07:41.630Z",
+      "startedAt": "2026-10-02T05:19:24.380Z",
+      "completedAt": "2026-10-02T05:19:24.416Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
       "exitReason": "Would you like your Following feed or your For You feed?",
-      "childRunId": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
+      "childRunId": "b6430662-ccaf-4083-8ec7-46c08995f867",
       "inputs": [
         {
           "label": "Request",
@@ -670,9 +670,9 @@
       ],
       "evidence": [
         {
-          "id": "12716215-7020-4fbd-ae78-e1e4b7093b11",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "a4fd6e45-e514-4ed8-998a-c631eb4bd318",
+          "id": "8861f693-ef2d-49bc-9571-4834d4006cae",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "dfac7361-bdc3-4abc-92b8-de53a5b87cda",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -688,13 +688,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.600Z",
+          "capturedAt": "2026-10-02T05:19:24.380Z",
           "expiresAt": null
         },
         {
-          "id": "90f1aaec-8a07-43ee-ae97-fe7408a1f09f",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "a4fd6e45-e514-4ed8-998a-c631eb4bd318",
+          "id": "d5bf1715-4d28-49bf-81f2-2236cb8a6eea",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "dfac7361-bdc3-4abc-92b8-de53a5b87cda",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -709,7 +709,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -727,13 +727,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.631Z",
+          "capturedAt": "2026-10-02T05:19:24.416Z",
           "expiresAt": null
         },
         {
-          "id": "5760fd0d-a471-41e3-8f04-ef5b2618534e",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "a4fd6e45-e514-4ed8-998a-c631eb4bd318",
+          "id": "03996d27-e4b9-492c-9b65-2637478436df",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "dfac7361-bdc3-4abc-92b8-de53a5b87cda",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -762,13 +762,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.631Z",
+          "capturedAt": "2026-10-02T05:19:24.416Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:a4fd6e45-e514-4ed8-998a-c631eb4bd318:executor_request",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "a4fd6e45-e514-4ed8-998a-c631eb4bd318",
+          "id": "not-captured:dfac7361-bdc3-4abc-92b8-de53a5b87cda:executor_request",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "dfac7361-bdc3-4abc-92b8-de53a5b87cda",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -780,9 +780,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:a4fd6e45-e514-4ed8-998a-c631eb4bd318:side_effect_confirmation",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "a4fd6e45-e514-4ed8-998a-c631eb4bd318",
+          "id": "not-captured:dfac7361-bdc3-4abc-92b8-de53a5b87cda:side_effect_confirmation",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "dfac7361-bdc3-4abc-92b8-de53a5b87cda",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -797,7 +797,7 @@
     },
     {
       "itemKey": null,
-      "id": "97996567-8aa5-46dd-a6af-3f2a2a846331",
+      "id": "8b2442d3-8b46-45f6-b8d2-eabdb5508213",
       "logicalKey": "format",
       "parentStepId": null,
       "attempt": 1,
@@ -805,8 +805,8 @@
       "title": "Format exact tweets",
       "description": "Format exact tweet records and safe links without model prose.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:41.631Z",
-      "completedAt": "2026-10-02T05:07:41.631Z",
+      "startedAt": "2026-10-02T05:19:24.417Z",
+      "completedAt": "2026-10-02T05:19:24.417Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -828,9 +828,9 @@
       ],
       "evidence": [
         {
-          "id": "0e99ae52-0823-44d2-943c-280c4a260c1e",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "97996567-8aa5-46dd-a6af-3f2a2a846331",
+          "id": "29711994-55d2-4bd8-8c1a-58d01581fd96",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "8b2442d3-8b46-45f6-b8d2-eabdb5508213",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -844,7 +844,7 @@
                 "count": 20,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790917661603
+                "startedAt": 1790918364389
               }
             },
             "truncated": true,
@@ -855,13 +855,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.631Z",
+          "capturedAt": "2026-10-02T05:19:24.417Z",
           "expiresAt": null
         },
         {
-          "id": "e0eab433-5663-4764-81a8-5d1564f9dc0b",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "97996567-8aa5-46dd-a6af-3f2a2a846331",
+          "id": "153309dc-781e-4bca-b98b-7b5bef67ad7f",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "8b2442d3-8b46-45f6-b8d2-eabdb5508213",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -877,7 +877,7 @@
                   "count": 20,
                   "handles": [],
                   "queries": [],
-                  "startedAt": 1790917661603
+                  "startedAt": 1790918364389
                 }
               }
             },
@@ -889,13 +889,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.631Z",
+          "capturedAt": "2026-10-02T05:19:24.417Z",
           "expiresAt": null
         },
         {
-          "id": "8478357b-7a89-47e5-93f2-10fc23b9adce",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "97996567-8aa5-46dd-a6af-3f2a2a846331",
+          "id": "f962905e-a654-45ee-8b01-c18f693bd5d6",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "8b2442d3-8b46-45f6-b8d2-eabdb5508213",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -913,13 +913,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.631Z",
+          "capturedAt": "2026-10-02T05:19:24.417Z",
           "expiresAt": null
         },
         {
-          "id": "9434a591-2a6b-4806-99dd-04522ad7fe5e",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "97996567-8aa5-46dd-a6af-3f2a2a846331",
+          "id": "5d9b0610-55cd-433e-b154-07de575af515",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "8b2442d3-8b46-45f6-b8d2-eabdb5508213",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -948,13 +948,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.631Z",
+          "capturedAt": "2026-10-02T05:19:24.417Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:97996567-8aa5-46dd-a6af-3f2a2a846331:side_effect_confirmation",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "97996567-8aa5-46dd-a6af-3f2a2a846331",
+          "id": "not-captured:8b2442d3-8b46-45f6-b8d2-eabdb5508213:side_effect_confirmation",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "8b2442d3-8b46-45f6-b8d2-eabdb5508213",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -969,7 +969,7 @@
     },
     {
       "itemKey": null,
-      "id": "5deae8e4-55b1-4e2c-be83-e469923d1251",
+      "id": "694dff54-42d6-45cd-a1de-79f11ded9d40",
       "logicalKey": "reply",
       "parentStepId": null,
       "attempt": 1,
@@ -977,8 +977,8 @@
       "title": "Deliver to chat",
       "description": "Return to the validated source thread as the addressed managed agent.",
       "kind": "block",
-      "startedAt": "2026-10-02T05:07:41.631Z",
-      "completedAt": "2026-10-02T05:07:41.632Z",
+      "startedAt": "2026-10-02T05:19:24.417Z",
+      "completedAt": "2026-10-02T05:19:24.418Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -1000,9 +1000,9 @@
       ],
       "evidence": [
         {
-          "id": "2eb444fe-baa3-47b5-8f3f-08d5a8911dff",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "5deae8e4-55b1-4e2c-be83-e469923d1251",
+          "id": "c4dc8f9f-4d90-4e8d-b01d-aec15f574337",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "694dff54-42d6-45cd-a1de-79f11ded9d40",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -1022,13 +1022,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.631Z",
+          "capturedAt": "2026-10-02T05:19:24.417Z",
           "expiresAt": null
         },
         {
-          "id": "fbb68816-070a-4c8a-89a8-e6a52d0bd37a",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "5deae8e4-55b1-4e2c-be83-e469923d1251",
+          "id": "07dc9d54-355d-47c7-8e18-6a04bc971744",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "694dff54-42d6-45cd-a1de-79f11ded9d40",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -1066,13 +1066,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.632Z",
+          "capturedAt": "2026-10-02T05:19:24.418Z",
           "expiresAt": null
         },
         {
-          "id": "7707726c-0440-4b85-96ca-c0b1a980b2ee",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "5deae8e4-55b1-4e2c-be83-e469923d1251",
+          "id": "d8a9058e-5bb8-4f53-a8bd-54fa65d6944d",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "694dff54-42d6-45cd-a1de-79f11ded9d40",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -1110,13 +1110,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.632Z",
+          "capturedAt": "2026-10-02T05:19:24.418Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:5deae8e4-55b1-4e2c-be83-e469923d1251:executor_request",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "5deae8e4-55b1-4e2c-be83-e469923d1251",
+          "id": "not-captured:694dff54-42d6-45cd-a1de-79f11ded9d40:executor_request",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "694dff54-42d6-45cd-a1de-79f11ded9d40",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1128,9 +1128,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:5deae8e4-55b1-4e2c-be83-e469923d1251:side_effect_confirmation",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "5deae8e4-55b1-4e2c-be83-e469923d1251",
+          "id": "not-captured:694dff54-42d6-45cd-a1de-79f11ded9d40:side_effect_confirmation",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "694dff54-42d6-45cd-a1de-79f11ded9d40",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1145,16 +1145,16 @@
     },
     {
       "itemKey": null,
-      "id": "b23de7ff-dad5-43a2-9130-d10747443aca",
+      "id": "4fe660bf-8126-4c7b-9cd0-ce2c3285dde3",
       "logicalKey": "reply/reply / return-to-thread",
-      "parentStepId": "5deae8e4-55b1-4e2c-be83-e469923d1251",
+      "parentStepId": "694dff54-42d6-45cd-a1de-79f11ded9d40",
       "attempt": 1,
       "status": "ok",
       "title": "reply / return-to-thread",
       "description": "Resolve the source Flight Deck thread and post the final Markdown as the configured managed agent.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:41.631Z",
-      "completedAt": "2026-10-02T05:07:41.632Z",
+      "startedAt": "2026-10-02T05:19:24.417Z",
+      "completedAt": "2026-10-02T05:19:24.418Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -1191,9 +1191,9 @@
       ],
       "evidence": [
         {
-          "id": "b30530d8-0025-44e4-9f8d-00a3e613ef26",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "b23de7ff-dad5-43a2-9130-d10747443aca",
+          "id": "7d06ac44-28b0-420c-a317-8354b1f81e2c",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "4fe660bf-8126-4c7b-9cd0-ce2c3285dde3",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -1213,13 +1213,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.631Z",
+          "capturedAt": "2026-10-02T05:19:24.417Z",
           "expiresAt": null
         },
         {
-          "id": "329431e9-1a9a-4baf-8c7c-cfe7c582ba22",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "b23de7ff-dad5-43a2-9130-d10747443aca",
+          "id": "7efb3242-df8a-47c2-a149-50c85aae6be6",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "4fe660bf-8126-4c7b-9cd0-ce2c3285dde3",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -1242,13 +1242,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.631Z",
+          "capturedAt": "2026-10-02T05:19:24.418Z",
           "expiresAt": null
         },
         {
-          "id": "6493d038-6335-401f-acd5-3ab5ba06cb7b",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "b23de7ff-dad5-43a2-9130-d10747443aca",
+          "id": "213ae643-d31e-40fe-a6f0-c5baec27fff3",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "4fe660bf-8126-4c7b-9cd0-ce2c3285dde3",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "delivery_adapter_confirmation",
@@ -1268,13 +1268,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.632Z",
+          "capturedAt": "2026-10-02T05:19:24.418Z",
           "expiresAt": null
         },
         {
-          "id": "9ba74ead-e77f-420c-9fb2-f78f9cf2dff5",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "b23de7ff-dad5-43a2-9130-d10747443aca",
+          "id": "54e73f94-5bd8-44a7-b76d-f780f0c7c37f",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "4fe660bf-8126-4c7b-9cd0-ce2c3285dde3",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -1294,13 +1294,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.632Z",
+          "capturedAt": "2026-10-02T05:19:24.418Z",
           "expiresAt": null
         },
         {
-          "id": "ee1be0c5-80e1-4e32-8e2f-1d2a6d4bfab6",
-          "runId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-          "stepId": "b23de7ff-dad5-43a2-9130-d10747443aca",
+          "id": "f5b725a0-e3bf-4519-b46d-de9618e41141",
+          "runId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+          "stepId": "4fe660bf-8126-4c7b-9cd0-ce2c3285dde3",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -1338,7 +1338,7 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:41.632Z",
+          "capturedAt": "2026-10-02T05:19:24.418Z",
           "expiresAt": null
         }
       ]
@@ -1346,18 +1346,18 @@
   ],
   "children": [
     {
-      "id": "5bcf29d7-dd57-4706-bd7d-b7a80973ba59",
+      "id": "b6430662-ccaf-4083-8ec7-46c08995f867",
       "serviceId": "autopilot_runtime_fixture",
-      "definitionId": "shared:342ee8e695e3",
+      "definitionId": "shared:7e4033844064",
       "definitionVersion": 2,
       "definitionHash": "db1dce2d4bd5abc5b31d774fa9ef2fc74dcae64dc7f2017bb04c573bda33d8c4",
       "name": "bird.retrieve.v2",
       "status": "ok",
-      "startedAt": "2026-10-02T05:07:41.603Z",
-      "completedAt": "2026-10-02T05:07:41.605Z",
-      "parentRunId": "07e38d88-b2de-4d82-bbc4-49b02629372c",
-      "parentStepId": "a4fd6e45-e514-4ed8-998a-c631eb4bd318"
+      "startedAt": "2026-10-02T05:19:24.387Z",
+      "completedAt": "2026-10-02T05:19:24.393Z",
+      "parentRunId": "8eb2e123-9863-4398-8ce8-13db8274c27e",
+      "parentStepId": "dfac7361-bdc3-4abc-92b8-de53a5b87cda"
     }
   ],
-  "revision": "1e0e15a7543d586ac06f1680d1a5ebda359b0dc598047f1fa02e181fc21585c4"
+  "revision": "0bd8f5ce889c234e6314f9e69c51e434d0b5892674348c71da2bb4c68d65e4ab"
 }

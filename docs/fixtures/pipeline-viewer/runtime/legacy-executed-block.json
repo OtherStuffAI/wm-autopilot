@@ -2,15 +2,15 @@
   "version": 1,
   "serviceId": "autopilot_runtime_fixture",
   "run": {
-    "id": "f285d961-f15a-41be-a380-4c009758d6c1",
+    "id": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
     "serviceId": "autopilot_runtime_fixture",
     "definitionId": "runtime",
     "definitionVersion": null,
     "definitionHash": "c4d59ec0ff887fd787d63ddcf6e993b414790ab6ebab785cc4f944d90309351f",
     "name": "runtime",
     "status": "ok",
-    "startedAt": "2026-10-02T05:07:31.258Z",
-    "completedAt": "2026-10-02T05:07:31.259Z",
+    "startedAt": "2026-10-02T05:19:13.982Z",
+    "completedAt": "2026-10-02T05:19:13.983Z",
     "parentRunId": null,
     "parentStepId": null
   },
@@ -39,7 +39,7 @@
   "steps": [
     {
       "itemKey": null,
-      "id": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+      "id": "c4a9c86b-eb03-4efa-a933-ea50e8d64ddd",
       "logicalKey": "accept-id",
       "parentStepId": null,
       "attempt": 1,
@@ -47,8 +47,8 @@
       "title": "accept-name",
       "description": "",
       "kind": "block",
-      "startedAt": "2026-10-02T05:07:31.258Z",
-      "completedAt": "2026-10-02T05:07:31.259Z",
+      "startedAt": "2026-10-02T05:19:13.982Z",
+      "completedAt": "2026-10-02T05:19:13.983Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -58,9 +58,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "7c2fba35-1753-4f15-abf7-4fe156d7cefc",
-          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
-          "stepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+          "id": "03ede4a1-8372-4144-ab22-5fb0fb96e8f9",
+          "runId": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
+          "stepId": "c4a9c86b-eb03-4efa-a933-ea50e8d64ddd",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -74,13 +74,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.258Z",
+          "capturedAt": "2026-10-02T05:19:13.983Z",
           "expiresAt": null
         },
         {
-          "id": "8b717fa2-8dc8-4e28-8bce-fa4b3181f0f9",
-          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
-          "stepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+          "id": "dcfa1fee-4159-4949-82d4-8b7cf1e5d675",
+          "runId": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
+          "stepId": "c4a9c86b-eb03-4efa-a933-ea50e8d64ddd",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -103,13 +103,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.259Z",
+          "capturedAt": "2026-10-02T05:19:13.983Z",
           "expiresAt": null
         },
         {
-          "id": "48820f32-0e2e-49b4-974c-fafe7e3f360d",
-          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
-          "stepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+          "id": "ae54ee8b-4b63-445c-9bab-aa01bb85e1bb",
+          "runId": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
+          "stepId": "c4a9c86b-eb03-4efa-a933-ea50e8d64ddd",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -132,13 +132,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.259Z",
+          "capturedAt": "2026-10-02T05:19:13.983Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:2f5724c4-1bf1-43f3-ac86-af360834f859:executor_request",
-          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
-          "stepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+          "id": "not-captured:c4a9c86b-eb03-4efa-a933-ea50e8d64ddd:executor_request",
+          "runId": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
+          "stepId": "c4a9c86b-eb03-4efa-a933-ea50e8d64ddd",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -150,9 +150,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:2f5724c4-1bf1-43f3-ac86-af360834f859:side_effect_confirmation",
-          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
-          "stepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+          "id": "not-captured:c4a9c86b-eb03-4efa-a933-ea50e8d64ddd:side_effect_confirmation",
+          "runId": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
+          "stepId": "c4a9c86b-eb03-4efa-a933-ea50e8d64ddd",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -167,16 +167,16 @@
     },
     {
       "itemKey": null,
-      "id": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+      "id": "442d0a42-2548-4f58-97d2-c38c04850a66",
       "logicalKey": "accept-id/accept-name / normalise-thread-invocation",
-      "parentStepId": "2f5724c4-1bf1-43f3-ac86-af360834f859",
+      "parentStepId": "c4a9c86b-eb03-4efa-a933-ea50e8d64ddd",
       "attempt": 1,
       "status": "ok",
       "title": "accept-name / normalise-thread-invocation",
       "description": "Validate and normalise the reusable four-field Flight Deck thread invocation contract.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:31.258Z",
-      "completedAt": "2026-10-02T05:07:31.259Z",
+      "startedAt": "2026-10-02T05:19:13.983Z",
+      "completedAt": "2026-10-02T05:19:13.983Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -208,9 +208,9 @@
       ],
       "evidence": [
         {
-          "id": "4fed6ebd-b258-4280-a14b-ff0d8ea1525c",
-          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
-          "stepId": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+          "id": "80d46d4d-1f65-45e8-afa5-c14d332eb161",
+          "runId": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
+          "stepId": "442d0a42-2548-4f58-97d2-c38c04850a66",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -229,13 +229,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.258Z",
+          "capturedAt": "2026-10-02T05:19:13.983Z",
           "expiresAt": null
         },
         {
-          "id": "e8b88b3a-3e24-4c70-b116-a42802b4b0c9",
-          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
-          "stepId": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+          "id": "5287a179-967c-402b-98e1-3016be5513a4",
+          "runId": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
+          "stepId": "442d0a42-2548-4f58-97d2-c38c04850a66",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -257,13 +257,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.259Z",
+          "capturedAt": "2026-10-02T05:19:13.983Z",
           "expiresAt": null
         },
         {
-          "id": "56215955-1c21-4e25-8179-d6e1816ef12f",
-          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
-          "stepId": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+          "id": "4a26cf37-0785-48a1-b974-1dec43bf7861",
+          "runId": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
+          "stepId": "442d0a42-2548-4f58-97d2-c38c04850a66",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -279,13 +279,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.259Z",
+          "capturedAt": "2026-10-02T05:19:13.983Z",
           "expiresAt": null
         },
         {
-          "id": "eecc191e-551f-4877-a2b6-e8908a137941",
-          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
-          "stepId": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+          "id": "22808a34-c649-40eb-9c05-6e1d0e8ba9b2",
+          "runId": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
+          "stepId": "442d0a42-2548-4f58-97d2-c38c04850a66",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -308,13 +308,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.259Z",
+          "capturedAt": "2026-10-02T05:19:13.983Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:c124c752-f50e-4e59-8e0f-2a25aa5d3fca:side_effect_confirmation",
-          "runId": "f285d961-f15a-41be-a380-4c009758d6c1",
-          "stepId": "c124c752-f50e-4e59-8e0f-2a25aa5d3fca",
+          "id": "not-captured:442d0a42-2548-4f58-97d2-c38c04850a66:side_effect_confirmation",
+          "runId": "9f0ba780-1512-48cf-8be6-c2ef4c7eee99",
+          "stepId": "442d0a42-2548-4f58-97d2-c38c04850a66",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -329,5 +329,5 @@
     }
   ],
   "children": [],
-  "revision": "c8b01b5ba8a56ab916460a756918e53a8140a6f401b5e81dc55043cd9a05660c"
+  "revision": "b6de2719a1d72af9f2a05e6f555499b6904a59e1c8fc2c816b16d3b5be76730e"
 }

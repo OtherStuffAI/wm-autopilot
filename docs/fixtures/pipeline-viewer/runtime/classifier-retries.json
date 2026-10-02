@@ -2,15 +2,15 @@
   "version": 1,
   "serviceId": "autopilot_runtime_fixture",
   "run": {
-    "id": "bb4a2d4f-4a4c-4726-bca9-421b8837c2fc",
+    "id": "e5064f4b-3802-46ee-877f-d9d194da84e4",
     "serviceId": "autopilot_runtime_fixture",
     "definitionId": "classifier-retry-test",
     "definitionVersion": null,
     "definitionHash": "515eee4d48830656e4a610a74d1292261d1486aee08df7600789bdb4bf940b54",
     "name": "classifier-retry-test",
     "status": "ok",
-    "startedAt": "2026-10-02T05:07:31.733Z",
-    "completedAt": "2026-10-02T05:07:31.734Z",
+    "startedAt": "2026-10-02T05:19:14.455Z",
+    "completedAt": "2026-10-02T05:19:14.456Z",
     "parentRunId": null,
     "parentStepId": null
   },
@@ -47,7 +47,7 @@
   "steps": [
     {
       "itemKey": null,
-      "id": "a7bbb5d5-48ad-4568-ad1c-be2a54cf13ca",
+      "id": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
       "logicalKey": "classify",
       "parentStepId": null,
       "attempt": 1,
@@ -55,8 +55,8 @@
       "title": "classify",
       "description": "",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:07:31.734Z",
-      "completedAt": "2026-10-02T05:07:31.734Z",
+      "startedAt": "2026-10-02T05:19:14.455Z",
+      "completedAt": "2026-10-02T05:19:14.456Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -66,9 +66,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "116dd13e-dde4-4172-a51d-d40ba6d8ec09",
-          "runId": "bb4a2d4f-4a4c-4726-bca9-421b8837c2fc",
-          "stepId": "a7bbb5d5-48ad-4568-ad1c-be2a54cf13ca",
+          "id": "a3a3d5ea-6cbe-46ab-8e5b-f4856ffd982f",
+          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
+          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -84,13 +84,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.734Z",
+          "capturedAt": "2026-10-02T05:19:14.455Z",
           "expiresAt": null
         },
         {
-          "id": "33e2c6a8-7d86-4142-b0b8-c04908f44b60",
-          "runId": "bb4a2d4f-4a4c-4726-bca9-421b8837c2fc",
-          "stepId": "a7bbb5d5-48ad-4568-ad1c-be2a54cf13ca",
+          "id": "4d3adff3-5c11-4610-b868-428e0953a755",
+          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
+          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "assembled_model_request",
@@ -123,13 +123,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.734Z",
+          "capturedAt": "2026-10-02T05:19:14.455Z",
           "expiresAt": null
         },
         {
-          "id": "92e06e60-c33c-4da4-a558-5e08320b54c4",
-          "runId": "bb4a2d4f-4a4c-4726-bca9-421b8837c2fc",
-          "stepId": "a7bbb5d5-48ad-4568-ad1c-be2a54cf13ca",
+          "id": "f441e4f0-e38b-43f6-9d3a-259b1eca9a58",
+          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
+          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
           "attempt": 2,
           "kind": "executor_request",
           "scope": "assembled_model_request",
@@ -162,13 +162,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.734Z",
+          "capturedAt": "2026-10-02T05:19:14.455Z",
           "expiresAt": null
         },
         {
-          "id": "ca79ea7a-e14b-405f-8b81-666d2e70e124",
-          "runId": "bb4a2d4f-4a4c-4726-bca9-421b8837c2fc",
-          "stepId": "a7bbb5d5-48ad-4568-ad1c-be2a54cf13ca",
+          "id": "65510ce4-ca0a-4b83-ac98-ab6d77a8dddd",
+          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
+          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
           "attempt": 3,
           "kind": "executor_request",
           "scope": "assembled_model_request",
@@ -201,13 +201,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.734Z",
+          "capturedAt": "2026-10-02T05:19:14.455Z",
           "expiresAt": null
         },
         {
-          "id": "1098b34a-6f60-4ece-9128-7c3f0b9aedab",
-          "runId": "bb4a2d4f-4a4c-4726-bca9-421b8837c2fc",
-          "stepId": "a7bbb5d5-48ad-4568-ad1c-be2a54cf13ca",
+          "id": "606e846d-c4d1-4352-8c8e-dbb36a94ea44",
+          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
+          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
           "attempt": 3,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -224,13 +224,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.734Z",
+          "capturedAt": "2026-10-02T05:19:14.456Z",
           "expiresAt": null
         },
         {
-          "id": "ea8b5cca-bd93-4ce7-a095-6f57495de405",
-          "runId": "bb4a2d4f-4a4c-4726-bca9-421b8837c2fc",
-          "stepId": "a7bbb5d5-48ad-4568-ad1c-be2a54cf13ca",
+          "id": "1f22aba1-1be9-45b7-ac70-c6a93a72d496",
+          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
+          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
           "attempt": 3,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -250,13 +250,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.734Z",
+          "capturedAt": "2026-10-02T05:19:14.456Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:a7bbb5d5-48ad-4568-ad1c-be2a54cf13ca:side_effect_confirmation",
-          "runId": "bb4a2d4f-4a4c-4726-bca9-421b8837c2fc",
-          "stepId": "a7bbb5d5-48ad-4568-ad1c-be2a54cf13ca",
+          "id": "not-captured:2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78:side_effect_confirmation",
+          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
+          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -271,5 +271,5 @@
     }
   ],
   "children": [],
-  "revision": "335dd6ea58114ff54217a0189cc473e251dca7a100303014e35fd0b2e3d4b1af"
+  "revision": "8f4308a9087f608740b6e5a2ca059a16f003f341a6a60cb938cb2b50ea8e2c06"
 }

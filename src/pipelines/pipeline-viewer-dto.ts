@@ -69,7 +69,7 @@ export function viewerRunSummary(run: PipelineRunRecord | PipelineRunSummary, st
 export function viewerSnapshot(runId: string, store: PipelineStore, serviceId: string) {
   const run = store.getRunSummary(runId)!;
   const pinned = store.composition.snapshot(runId);
-  const definition: ViewerDefinition = pinned ? viewerDefinition(pinned.definition, pinned.hash, pinned.context.blockExpansions ?? {}, store.evidence.sanitize.bind(store.evidence)) : {
+  const definition: ViewerDefinition = pinned ? viewerDefinition(pinned.context.viewerDefinition ?? pinned.definition, pinned.hash, pinned.context.viewerBlockExpansions ?? pinned.context.blockExpansions ?? {}, store.evidence.sanitize.bind(store.evidence)) : {
     id: run.definitionId, name: run.name, title: run.name, description: "Historical definition snapshot was not captured",
     version: null, hash: null, availability: "unavailable", steps: [], wiring: [],
   };

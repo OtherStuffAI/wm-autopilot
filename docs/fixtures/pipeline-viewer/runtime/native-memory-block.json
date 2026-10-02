@@ -2,15 +2,15 @@
   "version": 1,
   "serviceId": "autopilot_runtime_fixture",
   "run": {
-    "id": "57c8f302-487b-43ad-b268-20abc77629b6",
+    "id": "25af7596-19cf-4cb6-81d5-8fe288079729",
     "serviceId": "autopilot_runtime_fixture",
     "definitionId": "runtime",
     "definitionVersion": null,
     "definitionHash": "0782e4801f3c5d1a88800474f9deb15c97b1c4b58591fb496beb14be9ab99186",
     "name": "runtime",
     "status": "ok",
-    "startedAt": "2026-10-02T05:07:30.474Z",
-    "completedAt": "2026-10-02T05:07:31.234Z",
+    "startedAt": "2026-10-02T05:19:13.189Z",
+    "completedAt": "2026-10-02T05:19:13.950Z",
     "parentRunId": null,
     "parentStepId": null
   },
@@ -169,7 +169,7 @@
   "steps": [
     {
       "itemKey": null,
-      "id": "9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1",
+      "id": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
       "logicalKey": "memory-id",
       "parentStepId": null,
       "attempt": 1,
@@ -177,8 +177,8 @@
       "title": "memory-name",
       "description": "",
       "kind": "block",
-      "startedAt": "2026-10-02T05:07:30.474Z",
-      "completedAt": "2026-10-02T05:07:31.234Z",
+      "startedAt": "2026-10-02T05:19:13.190Z",
+      "completedAt": "2026-10-02T05:19:13.950Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -188,9 +188,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "8ee1ff27-4854-4264-a354-22b77e6275a8",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1",
+          "id": "aa1dc265-3457-4b9d-a7b7-4b222fcf8fcf",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -206,13 +206,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:30.475Z",
+          "capturedAt": "2026-10-02T05:19:13.190Z",
           "expiresAt": null
         },
         {
-          "id": "bae025f4-bbe4-47fe-918f-e6ee17594544",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1",
+          "id": "80835c01-2050-4f0d-88b7-dcf98e515217",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -252,13 +252,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.234Z",
+          "capturedAt": "2026-10-02T05:19:13.950Z",
           "expiresAt": null
         },
         {
-          "id": "a7fb11b9-9489-4676-b004-503900ea7486",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1",
+          "id": "5047a97f-bcda-4679-a220-d4c6d79c3c0e",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -298,13 +298,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.234Z",
+          "capturedAt": "2026-10-02T05:19:13.950Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1:executor_request",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1",
+          "id": "not-captured:52e0f7d4-6212-4a3c-8899-39f703ade11e:executor_request",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -316,9 +316,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1:side_effect_confirmation",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1",
+          "id": "not-captured:52e0f7d4-6212-4a3c-8899-39f703ade11e:side_effect_confirmation",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -333,16 +333,16 @@
     },
     {
       "itemKey": null,
-      "id": "990c3dac-1454-45ef-a5ba-911a61ef70d4",
+      "id": "8afde48e-ce67-4f13-97b0-2a671abcd809",
       "logicalKey": "memory-id/memory-name / extract-memory-entities",
-      "parentStepId": "9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1",
+      "parentStepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
       "attempt": 1,
       "status": "ok",
       "title": "memory-name / extract-memory-entities",
       "description": "Extract searchable long-term-memory entities from the current prompt.",
       "kind": "agent",
-      "startedAt": "2026-10-02T05:07:30.475Z",
-      "completedAt": "2026-10-02T05:07:31.233Z",
+      "startedAt": "2026-10-02T05:19:13.190Z",
+      "completedAt": "2026-10-02T05:19:13.949Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -352,9 +352,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "c57566c4-bf0e-401b-a84b-9731e8f53baa",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "990c3dac-1454-45ef-a5ba-911a61ef70d4",
+          "id": "d23b7e8f-ba49-4907-875f-413756a39b6f",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -371,13 +371,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:30.475Z",
+          "capturedAt": "2026-10-02T05:19:13.190Z",
           "expiresAt": null
         },
         {
-          "id": "1ddc9059-b1cc-4244-80be-e4db22ff1ea3",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "990c3dac-1454-45ef-a5ba-911a61ef70d4",
+          "id": "341cac06-2ffd-46d6-858d-14151f4ad6b7",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "agent_invocation_prompt_persistent_session_not_full_conversation",
@@ -397,13 +397,13 @@
             "counts": {}
           },
           "redacted": true,
-          "capturedAt": "2026-10-02T05:07:30.980Z",
+          "capturedAt": "2026-10-02T05:19:13.695Z",
           "expiresAt": null
         },
         {
-          "id": "44543000-6fa3-429f-b5fa-a296ef990ec9",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "990c3dac-1454-45ef-a5ba-911a61ef70d4",
+          "id": "ca4d7bb7-c39b-4dfb-90bb-ddc09f26869c",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -419,13 +419,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:30.980Z",
+          "capturedAt": "2026-10-02T05:19:13.695Z",
           "expiresAt": null
         },
         {
-          "id": "93f5b714-03dd-4b3f-8193-efc516c7c650",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "990c3dac-1454-45ef-a5ba-911a61ef70d4",
+          "id": "c7949117-f56f-4ca1-af5f-1ba871032e3c",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -441,13 +441,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:30.980Z",
+          "capturedAt": "2026-10-02T05:19:13.695Z",
           "expiresAt": null
         },
         {
-          "id": "3715d1b9-dfbd-4f5e-bac6-aa61f364e265",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "990c3dac-1454-45ef-a5ba-911a61ef70d4",
+          "id": "ec4d0b74-4c6f-4dd8-952e-68e3ed2fcc31",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -463,13 +463,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.233Z",
+          "capturedAt": "2026-10-02T05:19:13.949Z",
           "expiresAt": null
         },
         {
-          "id": "ef9d288c-2fdc-4b15-8e5a-63c3354934c0",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "990c3dac-1454-45ef-a5ba-911a61ef70d4",
+          "id": "30986dd2-ab53-4470-a6a6-339cdcfacfd3",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -495,13 +495,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.233Z",
+          "capturedAt": "2026-10-02T05:19:13.949Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:990c3dac-1454-45ef-a5ba-911a61ef70d4:side_effect_confirmation",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "990c3dac-1454-45ef-a5ba-911a61ef70d4",
+          "id": "not-captured:8afde48e-ce67-4f13-97b0-2a671abcd809:side_effect_confirmation",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -516,16 +516,16 @@
     },
     {
       "itemKey": null,
-      "id": "0d26ec2e-462a-4caf-b0ec-682262058bf2",
+      "id": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
       "logicalKey": "memory-id/memory-name / search-graph-memory",
-      "parentStepId": "9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1",
+      "parentStepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
       "attempt": 1,
       "status": "ok",
       "title": "memory-name / search-graph-memory",
       "description": "Run parallel vector searches for the extracted entities.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:31.233Z",
-      "completedAt": "2026-10-02T05:07:31.233Z",
+      "startedAt": "2026-10-02T05:19:13.949Z",
+      "completedAt": "2026-10-02T05:19:13.949Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -535,9 +535,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "a28a9f6e-8e1a-45a9-a57f-5fa2977071f1",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "0d26ec2e-462a-4caf-b0ec-682262058bf2",
+          "id": "a5cdf646-66e9-4be5-b565-bed3a028706d",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -557,13 +557,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.233Z",
+          "capturedAt": "2026-10-02T05:19:13.949Z",
           "expiresAt": null
         },
         {
-          "id": "657645de-26e2-4b86-a41b-6b685a5b1aa3",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "0d26ec2e-462a-4caf-b0ec-682262058bf2",
+          "id": "9562cdb2-ee1f-45f1-9979-0c5b551726d5",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -586,13 +586,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.233Z",
+          "capturedAt": "2026-10-02T05:19:13.949Z",
           "expiresAt": null
         },
         {
-          "id": "98d2c9ce-932c-4383-9fec-6b905bab4ee5",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "0d26ec2e-462a-4caf-b0ec-682262058bf2",
+          "id": "9ec6c6ef-b39a-4193-b882-62eced2949f9",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -612,13 +612,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.234Z",
+          "capturedAt": "2026-10-02T05:19:13.949Z",
           "expiresAt": null
         },
         {
-          "id": "7314e207-0da1-4547-9435-0c9c75a252d7",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "0d26ec2e-462a-4caf-b0ec-682262058bf2",
+          "id": "3bb480b3-597c-41b1-9227-cb077e758daa",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -655,13 +655,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.234Z",
+          "capturedAt": "2026-10-02T05:19:13.949Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:0d26ec2e-462a-4caf-b0ec-682262058bf2:side_effect_confirmation",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "0d26ec2e-462a-4caf-b0ec-682262058bf2",
+          "id": "not-captured:9790f788-5c4d-4ff8-b1b3-e8df823803f9:side_effect_confirmation",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -676,16 +676,16 @@
     },
     {
       "itemKey": null,
-      "id": "ee8ebfb6-bef8-40ff-b70a-5304d0e023a3",
+      "id": "78924d8b-2f53-40d0-9642-8a420286e030",
       "logicalKey": "memory-id/memory-name / consolidate-graph-context",
-      "parentStepId": "9edcfbeb-5c9a-42bf-8dc3-f90402f66ab1",
+      "parentStepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
       "attempt": 1,
       "status": "ok",
       "title": "memory-name / consolidate-graph-context",
       "description": "Consolidate graph memory matches into agent-consumable graphContext.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:07:31.234Z",
-      "completedAt": "2026-10-02T05:07:31.234Z",
+      "startedAt": "2026-10-02T05:19:13.949Z",
+      "completedAt": "2026-10-02T05:19:13.950Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -695,9 +695,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "05edcdc7-9f02-408b-a8f3-a9298f1115f6",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "ee8ebfb6-bef8-40ff-b70a-5304d0e023a3",
+          "id": "03af2b1f-c3f0-4d8f-830d-cb97d98f1492",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "78924d8b-2f53-40d0-9642-8a420286e030",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -720,13 +720,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.234Z",
+          "capturedAt": "2026-10-02T05:19:13.949Z",
           "expiresAt": null
         },
         {
-          "id": "dc20d7ce-1e58-45f5-a30a-e3652d36b255",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "ee8ebfb6-bef8-40ff-b70a-5304d0e023a3",
+          "id": "0246e50e-764b-4e7c-923d-5a369aa904ed",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "78924d8b-2f53-40d0-9642-8a420286e030",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -752,13 +752,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.234Z",
+          "capturedAt": "2026-10-02T05:19:13.950Z",
           "expiresAt": null
         },
         {
-          "id": "25cc6b22-8cdf-4cf6-9f0f-537064a506f0",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "ee8ebfb6-bef8-40ff-b70a-5304d0e023a3",
+          "id": "03522cf7-f4c6-4ab6-bb9c-6419ca55698a",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "78924d8b-2f53-40d0-9642-8a420286e030",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -774,13 +774,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.234Z",
+          "capturedAt": "2026-10-02T05:19:13.950Z",
           "expiresAt": null
         },
         {
-          "id": "e77ef23e-4f2c-445e-89a5-4246d44c838a",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "ee8ebfb6-bef8-40ff-b70a-5304d0e023a3",
+          "id": "e9451a9b-1a05-484f-9503-085f2b62a60f",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "78924d8b-2f53-40d0-9642-8a420286e030",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -820,13 +820,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:07:31.234Z",
+          "capturedAt": "2026-10-02T05:19:13.950Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:ee8ebfb6-bef8-40ff-b70a-5304d0e023a3:side_effect_confirmation",
-          "runId": "57c8f302-487b-43ad-b268-20abc77629b6",
-          "stepId": "ee8ebfb6-bef8-40ff-b70a-5304d0e023a3",
+          "id": "not-captured:78924d8b-2f53-40d0-9642-8a420286e030:side_effect_confirmation",
+          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
+          "stepId": "78924d8b-2f53-40d0-9642-8a420286e030",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -841,5 +841,5 @@
     }
   ],
   "children": [],
-  "revision": "cfb6084b1e6c7f6b20f1ba718726ee89fb7528ace57e84eb73008e4f9a4a6bd8"
+  "revision": "459c42a757ac9d14d463ae111f48c96734949441c3dfd4aa1921248d5c5e1076"
 }
