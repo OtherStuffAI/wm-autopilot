@@ -1,11 +1,35 @@
 {
   "fixture": "synthetic 35 tweets and long request",
-  "captureMs": 12.7,
-  "readAndWriteFixtureMs": 2.62,
+  "captureMs": 14.77,
+  "readAndWriteFixtureMs": 2.95,
   "evidenceRecords": 28,
   "redactedJsonBytes": 322601,
   "previewJsonBytes": 7792,
-  "lazyValueReadMs": 0.63,
-  "sqliteBytes": 1114112,
-  "walBytes": 0
+  "archiveMode": "root-scoped-shared",
+  "archiveBodies": 11,
+  "archivePayloadBytes": 119588,
+  "inlineArchivePayloadBytes": 0,
+  "lazyValueReadMs": 1.43,
+  "sqliteBytes": 933888,
+  "walBytes": 0,
+  "comparison": {
+    "baselineCommit": "a5297d3",
+    "samplesPerMode": 5,
+    "timingStatistic": "median",
+    "before": {
+      "fixture": "synthetic 35 tweets and long request",
+      "captureMs": 11.5,
+      "readAndWriteFixtureMs": 2.73,
+      "evidenceRecords": 28,
+      "redactedJsonBytes": 322601,
+      "previewJsonBytes": 7792,
+      "archiveMode": "inline-reference",
+      "archiveBodies": 28,
+      "archivePayloadBytes": 322601,
+      "inlineArchivePayloadBytes": 322601,
+      "lazyValueReadMs": 0.62,
+      "sqliteBytes": 1126400,
+      "walBytes": 0
+    }
+  }
 }

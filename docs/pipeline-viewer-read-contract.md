@@ -250,4 +250,34 @@ New pins retain a sanitized viewer definition and block expansion alongside the 
 
 Evidence also stores an internal, non-exposed source-value SHA-256 digest beside the sanitized content hash. Compaction recognizes the exact captured raw version after credentials are retired without persisting a secret list or creating an unredacted duplicate. The nullable additive source_hash column preserves existing evidence immutability; no backfill changes evidence rows.
 
+Full sanitized archive bodies now live in immutable `pipeline_evidence_payloads`.
+Each boundary still has its own immutable evidence reference, kind, scope,
+attempt, source/content digests, availability and bounded preview. A nullable
+internal `payload_id` links new retained references to one exact UTF-8 JSON body
+per durable composition root and content digest. Old inline `value_json` rows
+remain readable; no rows are rewritten or backfilled. Root scope follows actual
+`pipeline_child_runs` links, verifies matching owner/alias and parent step/run,
+and rejects missing authority or cycles. Run input/workspace labels never choose
+storage scope. Unrelated roots, including the same owner's other runs, have
+separate bodies and source-provenance decisions. No payload ID/hash/path endpoint
+or DTO field is added; evidence reads still require an authorized run + reference.
+
+The 16 MiB value and 128 MiB run defaults remain. Run budget counts each distinct
+retained content once within that run, including legacy inline bodies. A child
+or sibling's first reference charges its own budget even when the body already
+exists in the root archive. Oversized references have no stored body and retain
+inline execution values through compaction. Payload/reference insertion uses a
+single transaction, nesting inside existing completion/compaction transactions.
+Reads and compaction verify body bytes/digests and scope; missing/corrupt bodies
+raise explicit errors instead of returning a successful null value. Payload
+update/delete triggers enforce immutability; there is no expiry/deletion job.
+
+An exact retained source digest can reuse prior sanitized evidence across native,
+wrapper and child aliases after credentials retire. No secret list is persisted.
+Conflicting retained source/content records refuse capture. A root containing
+old redacted evidence without exact source provenance refuses new capture rather
+than guessing whether a new alias contains a retired credential; matched existing
+archives remain readable. The existing compaction refusal for an unmatched
+redacted step/kind remains explicit.
+
 Wiring retains configured `sourcePath` and exposes additive `sourceValuePath`, relative to the known writer's assigned captured output. `sourcePortPaths` and `targetPortPaths` list declared ports related to the selector by exact or ancestor/descendant paths; they do not invent fields or structural nodes. For `$.bird.retrieval` written under `$.bird`, the captured value path is `$.retrieval`, related to output `$.retrieval.tweets`; target selector `$.state` relates to declared input `$.state.tweets`.

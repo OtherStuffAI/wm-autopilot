@@ -80,10 +80,18 @@ const evidenceReadStart = performance.now();
 for (const ref of refs) store.evidence.get(ref.runId, ref.id);
 const lazyValueReadMs = performance.now() - evidenceReadStart;
 const checkpoint = new Database(store.path);
-checkpoint.run("PRAGMA wal_checkpoint(TRUNCATE)"); checkpoint.close();
+checkpoint.run("PRAGMA wal_checkpoint(TRUNCATE)");
+const inlinePayloadBytes = (checkpoint.query("SELECT coalesce(sum(length(CAST(value_json AS BLOB))), 0) AS bytes FROM pipeline_evidence").get() as { bytes: number }).bytes;
+const sharedArchive = Boolean(checkpoint.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pipeline_evidence_payloads'").get());
+const payloads = sharedArchive
+  ? checkpoint.query("SELECT count(*) AS count, coalesce(sum(length(CAST(value_json AS BLOB))), 0) AS bytes FROM pipeline_evidence_payloads").get() as { count: number; bytes: number }
+  : { count: refs.length, bytes: 0 };
+checkpoint.close();
 const metrics = { fixture: "synthetic 35 tweets and long request", captureMs: Math.round(captureMs * 100) / 100,
   readAndWriteFixtureMs: Math.round(readMs * 100) / 100, evidenceRecords: refs.length, redactedJsonBytes: refs.reduce((sum, ref) => sum + ref.bytes, 0),
   previewJsonBytes: refs.reduce((sum, ref) => sum + Buffer.byteLength(JSON.stringify(ref.preview ?? null)), 0),
+  archiveMode: sharedArchive ? "root-scoped-shared" : "inline-reference", archiveBodies: payloads.count,
+  archivePayloadBytes: inlinePayloadBytes + payloads.bytes, inlineArchivePayloadBytes: inlinePayloadBytes,
   lazyValueReadMs: Math.round(lazyValueReadMs * 100) / 100, sqliteBytes: statSync(store.path).size, walBytes: statSync(`${store.path}-wal`).size };
 save("measurements.json", metrics);
 rmSync(directory, { recursive: true, force: true });

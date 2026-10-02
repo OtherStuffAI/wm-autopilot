@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { redactPipelineValue } from "./pipeline-evidence-redaction";
+import { evidenceDigest, PipelineEvidencePayloads } from "./pipeline-evidence-payloads";
 
 import { pipelineEvidencePreview, type EvidencePreview } from "./pipeline-evidence-preview";
 
@@ -33,6 +33,7 @@ export class PipelineEvidenceStore {
 
   readonly valueLimit: number;
   readonly runLimit: number;
+  private readonly payloads: PipelineEvidencePayloads;
   constructor(private readonly db: Database, limits: { valueBytes?: number; runBytes?: number } = {}) {
     this.valueLimit = limits.valueBytes ?? positiveLimit(process.env.WINGMEN_PIPELINE_EVIDENCE_VALUE_BYTES, 16 * 1024 * 1024);
     this.runLimit = limits.runBytes ?? positiveLimit(process.env.WINGMEN_PIPELINE_EVIDENCE_RUN_BYTES, 128 * 1024 * 1024);
@@ -46,17 +47,31 @@ export class PipelineEvidenceStore {
     if (!columns.some(column => column.name === "content_hash")) db.run("ALTER TABLE pipeline_evidence ADD COLUMN content_hash TEXT");
     if (!columns.some(column => column.name === "preview_json")) db.run("ALTER TABLE pipeline_evidence ADD COLUMN preview_json TEXT");
     if (!columns.some(column => column.name === "source_hash")) db.run("ALTER TABLE pipeline_evidence ADD COLUMN source_hash TEXT");
+    this.payloads = new PipelineEvidencePayloads(db);
+    if (!columns.some(column => column.name === "payload_id")) db.run("ALTER TABLE pipeline_evidence ADD COLUMN payload_id TEXT REFERENCES pipeline_evidence_payloads(id)");
     db.run(`CREATE INDEX IF NOT EXISTS idx_pipeline_evidence_run ON pipeline_evidence(run_id, step_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_pipeline_evidence_source ON pipeline_evidence(source_hash)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_pipeline_evidence_content ON pipeline_evidence(content_hash)`);
     db.run(`CREATE TRIGGER IF NOT EXISTS pipeline_evidence_immutable_update BEFORE UPDATE ON pipeline_evidence BEGIN SELECT RAISE(ABORT, 'Pipeline evidence is immutable'); END`);
     db.run(`CREATE TRIGGER IF NOT EXISTS pipeline_evidence_immutable_delete BEFORE DELETE ON pipeline_evidence BEGIN SELECT RAISE(ABORT, 'Pipeline evidence retention forbids deletion'); END`);
   }
 
   capture(input: EvidenceCapture): EvidenceReference {
-    const sanitized = this.sanitize(input.value, input.secrets);
+    return this.db.transaction(() => this.captureValue(input))();
+  }
+
+  private captureValue(input: EvidenceCapture): EvidenceReference {
+    const root = this.payloads.root(input.runId, input.stepId);
+    this.payloads.refuseMissingProvenance(input.runId, input.stepId, input.kind);
+    const sourceHash = evidenceDigest(JSON.stringify(input.value ?? null));
+    const retained = this.payloads.retainedSource(root, sourceHash);
+    const sanitized = this.sanitize(retained ? retained.value : input.value, input.secrets);
+    sanitized.redacted ||= retained?.redacted ?? false;
     const json = JSON.stringify(sanitized.value ?? null);
     const bytes = Buffer.byteLength(json);
-    const used = (this.db.query(`SELECT coalesce(sum(length(CAST(value_json AS BLOB))),0) AS bytes FROM pipeline_evidence WHERE run_id = ?`).get(input.runId) as { bytes: number }).bytes;
-    const oversized = bytes > this.valueLimit || used + bytes > this.runLimit;
+    const hash = evidenceDigest(json);
+    const { used, repeated } = this.payloads.usedBytes(input.runId, hash);
+    const oversized = bytes > this.valueLimit || used + (repeated ? 0 : bytes) > this.runLimit;
     const availability = oversized ? "oversized" : input.availability ?? (sanitized.redacted ? "redacted" : "complete");
     const retain = availability === "complete" || availability === "redacted" || availability === "preview_only";
     const ref: EvidenceReference = {
@@ -64,20 +79,23 @@ export class PipelineEvidenceStore {
       kind: input.kind, scope: input.scope, contentType: typeof sanitized.value === "string" ? "text/plain" : "application/json",
       bytes, availability, preview: pipelineEvidencePreview(sanitized.value), redacted: sanitized.redacted, capturedAt: new Date().toISOString(), expiresAt: null,
     };
-    this.db.query(`INSERT INTO pipeline_evidence (id, run_id, step_id, attempt, kind, scope, content_type, bytes, availability, redacted, captured_at, content_hash, value_json, preview_json, source_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    const payloadId = retain ? this.payloads.intern(root, json, hash, bytes) : null;
+    this.db.query(`INSERT INTO pipeline_evidence (id, run_id, step_id, attempt, kind, scope, content_type, bytes, availability, redacted, captured_at, content_hash, value_json, preview_json, source_hash, payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(ref.id, ref.runId, ref.stepId, ref.attempt, ref.kind, ref.scope, ref.contentType, ref.bytes,
-        ref.availability, Number(ref.redacted), ref.capturedAt, createHash("sha256").update(json).digest("hex"), retain ? json : null, JSON.stringify(ref.preview), createHash("sha256").update(JSON.stringify(input.value ?? null)).digest("hex"));
+        ref.availability, Number(ref.redacted), ref.capturedAt, hash, null, JSON.stringify(ref.preview), sourceHash, payloadId);
     return ref;
   }
 
   ensureArchived(input: EvidenceCapture): EvidenceReference {
     const json = JSON.stringify(this.sanitize(input.value, input.secrets).value ?? null);
-    const hash = createHash("sha256").update(json).digest("hex");
+    const hash = evidenceDigest(json);
     const row = this.db.query(`SELECT ${referenceColumns} FROM pipeline_evidence WHERE run_id = ? AND step_id = ? AND kind = ? AND (content_hash = ? OR source_hash = ?) AND (availability IN ('complete', 'redacted', 'oversized', 'unavailable') OR (? = 'preview_only' AND availability = 'preview_only')) ORDER BY rowid DESC LIMIT 1`)
-      .get(input.runId, input.stepId, input.kind, hash, createHash("sha256").update(JSON.stringify(input.value ?? null)).digest("hex"), input.availability ?? "complete") as Record<string, unknown> | null;
-    if (row) return reference(row);
-    const missingProvenance = this.db.query("SELECT 1 FROM pipeline_evidence WHERE run_id = ? AND step_id = ? AND kind = ? AND redacted = 1 AND source_hash IS NULL LIMIT 1").get(input.runId, input.stepId, input.kind);
-    if (missingProvenance) throw new Error("Redacted historical evidence lacks exact source provenance; retain inline values for operator review");
+      .get(input.runId, input.stepId, input.kind, hash, evidenceDigest(JSON.stringify(input.value ?? null)), input.availability ?? "complete") as Record<string, unknown> | null;
+    if (row) {
+      this.get(input.runId, String(row.id));
+      return reference(row);
+    }
+    this.payloads.refuseMissingProvenance(input.runId, input.stepId, input.kind);
     return this.capture(input);
   }
 
@@ -103,7 +121,7 @@ export class PipelineEvidenceStore {
 
   get(runId: string, id: string): { evidence: EvidenceReference; value: unknown } | null {
     const row = this.db.query(`SELECT * FROM pipeline_evidence WHERE run_id = ? AND id = ?`).get(runId, id) as Record<string, unknown> | null;
-    return row ? { evidence: reference(row), value: row.value_json === null ? null : JSON.parse(String(row.value_json)) } : null;
+    return row ? { evidence: reference(row), value: this.payloads.read(row) } : null;
   }
 }
 

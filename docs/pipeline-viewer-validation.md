@@ -45,6 +45,23 @@ previous binary must not delete newly retained evidence. Preserve the database
 before operator activation and document any migration prerequisites from the
 actual implementation.
 
+Evidence payload sharing adds `pipeline_evidence_payloads` (root/content unique
+key, immutable update/delete triggers), nullable `pipeline_evidence.payload_id`,
+and source/content lookup indexes. Initialization leaves old inline rows intact;
+no destructive backfill or live DB migration is part of source validation.
+Preserve the table and nullable links on rollback. A pre-sharing binary cannot
+resolve new shared-body references; retain a compatible evidence reader and do
+not treat an old binary returning null as successful evidence recovery.
+
+Run `pipeline-evidence-sharing.test.ts` with the existing evidence/store and
+runner/API/Bird/public-call tests. It checks native/block/parent-child aliases,
+long prompts and 37 records, exact reopen/compaction, old inline schemas, nested
+rollback, per-run unique budgets, unrelated-root/owner isolation, retired source
+provenance, body corruption, immutable triggers and winning executor attempts.
+See [synthetic measurements](fixtures/pipeline-viewer/README.md) for physical
+archive payload bytes and capture/read overhead. The public evidence contract,
+paging and DTO shapes remain unchanged; full-inline engine state is retained.
+
 Activate compatible backend first, verify capability/routes/auth/health, then
 activate the dependent Flight Deck build. An Autopilot process restart requires
 explicit operator approval in the same conversation and must be performed from
