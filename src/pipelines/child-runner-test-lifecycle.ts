@@ -1,6 +1,21 @@
 import { spyOn } from "bun:test";
 import * as runner from "./pipeline-runner";
 
+/** Restore fixture globals even on a real execution failure; keep its database. */
+export async function cleanupChildRunnerFixture(
+  lifecycle: ReturnType<typeof observeChildRunnerLifecycle>,
+  restoreEnvironment: () => void,
+  removeFixture: () => void,
+): Promise<void> {
+  try {
+    await lifecycle.drain();
+  } finally {
+    lifecycle.restore();
+    restoreEnvironment();
+  }
+  removeFixture();
+}
+
 /** Observe detached children without changing their start, timeout or cancellation. */
 export function observeChildRunnerLifecycle() {
   const completions: Promise<unknown>[] = [];

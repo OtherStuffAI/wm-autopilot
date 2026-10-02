@@ -11,7 +11,7 @@ import { cancelPipelineTree, resolveChildDefinition, validateChildPipelineSteps,
 import { canAccessPipelineRun } from "./pipeline-route-helpers";
 import { responseSteps } from "./public-call-contract";
 import { runtimeFunctionHash } from "./pipeline-function-pins";
-import { observeChildRunnerLifecycle } from "./child-runner-test-lifecycle";
+import { cleanupChildRunnerFixture, observeChildRunnerLifecycle } from "./child-runner-test-lifecycle";
 
 let dir: string;
 let store: PipelineStore;
@@ -19,11 +19,10 @@ let priorRoot: string | undefined;
 let childLifecycle: ReturnType<typeof observeChildRunnerLifecycle>;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "child-pipeline-")); store = new PipelineStore(join(dir, "runs.sqlite")); priorRoot = process.env.WINGMEN_PIPELINES_ROOT; process.env.WINGMEN_PIPELINES_ROOT = join(dir, "definitions"); childLifecycle = observeChildRunnerLifecycle(); });
 afterEach(async () => {
-  await childLifecycle.drain();
-  childLifecycle.restore();
-  if (priorRoot === undefined) delete process.env.WINGMEN_PIPELINES_ROOT;
-  else process.env.WINGMEN_PIPELINES_ROOT = priorRoot;
-  rmSync(dir, { recursive: true, force: true });
+  await cleanupChildRunnerFixture(childLifecycle, () => {
+    if (priorRoot === undefined) delete process.env.WINGMEN_PIPELINES_ROOT;
+    else process.env.WINGMEN_PIPELINES_ROOT = priorRoot;
+  }, () => rmSync(dir, { recursive: true, force: true }));
 });
 
 function definition(name: string, steps: DeclarativeStep[], version = 1): PipelineDefinitionRecord {
