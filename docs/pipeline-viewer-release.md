@@ -35,6 +35,12 @@ credential. This refinement must preserve raw pins and roll back with a failed
 capture; it does not reconstruct a historical definition from current files.
 Selectors, previews and full values use the same available credential context.
 
+A credential discovered later can invalidate an earlier immutable value. The
+viewer then refuses the composition with HTTP 409 and
+`pipeline-viewer-evidence-redaction-review-required`; raw archives and pins remain
+retained. Treat this as unavailable pending review, not a transient connection
+failure. Do not clear durable refusal flags or rewrite archives during activation.
+
 ## Backend acceptance after activation
 
 Verify that the signed Connect package advertises
@@ -48,6 +54,10 @@ Summaries, child runs and lazy evidence must enforce the same durable root
 authority. Verify that retained values survive compaction/reopen, redactions
 remain effective after credential retirement and unavailable legacy evidence
 has an explicit state.
+
+Verify late-discovery refusal with a credential beyond a preview's text or record
+limit. Also verify that harmless evidence captured with an already-known
+credential context remains readable within the configured storage limits.
 
 Use an authorized isolated destination for Bird v2. Verify the definition binding
 on the assigned agent as well as definition availability. Cover complete,
@@ -76,6 +86,10 @@ After publication, verify the actual served build in a browser. Check service/ru
 deep links, child/parent navigation, named connections, full-value copy and every
 retained collection page. Recover from interrupted and out-of-order updates;
 service/workspace/run changes and access loss must clear prior private values.
+The exact redaction-review refusal must clear persisted summaries, private values
+and pending reads. Release an earlier delayed success after refusal and verify
+that it cannot restore values or selection. A healthy connection or remount must
+preserve the reason; recovery requires a fresh authorized authoritative snapshot.
 Previews and complete evidence remain session-only, while summary projections
 use Dexie. Check keyboard, touch, inspector focus/Escape and bounded rendering
 with thousands of records. Already-open pages may retain an earlier asset set
