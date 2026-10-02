@@ -39,6 +39,7 @@ interface AgentStore {
 export interface ControlPlaneRoutesContext {
   identity: WingmanInstanceIdentity | null;
   pipelineStore?: PipelineStore;
+  providerCredentialContext?: import("../pipelines/classifier-openrouter-credentials").ClassifierOpenRouterCredentialContext["sessionApiContext"];
   baseUrl: string;
   baseUrlConfigured: boolean;
   getFipsEndpoint: () => FipsAppEndpoint;

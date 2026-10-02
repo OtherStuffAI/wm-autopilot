@@ -156,6 +156,11 @@ test("completed legacy block uses recorded state without re-expansion; pending i
   const db = new Database(store.path); db.run("UPDATE pipeline_run_snapshots SET context_json = '{}' WHERE run_id = ?", [run.id]); db.close();
   const readonly = new Database(store.path, { readonly: true });
   expect(auditLegacyBlockResumes(readonly)).toEqual([{ runId: run.id, status: "running", cursorIndex: 0, missingSnapshot: false, missingBlockKeys: ["legacy-id"], completedBlockKeys: ["legacy-id"] }]); readonly.close();
+  store.completeRun(run.id, "error", null, "synthetic failure");
+  const errorAudit = new Database(store.path, { readonly: true });
+  expect(auditLegacyBlockResumes(errorAudit)[0]?.status).toBe("error"); errorAudit.close();
+  store.reopenErroredRun(run.id);
+  store.setRunActiveStep(run.id, block.id);
   const resumed = await resumeDeclarativePipeline({ ...runner(def), registry: { finish: async input => ({ used: input.recorded }) } }, run.id);
   expect(resumed?.status).toBe("ok"); expect(resumed?.result).toEqual({ used: "old" });
   const snapshot = await assertRuntimeViewer("legacy-completed-block", store, run.id); expect(snapshot.definition.availability).toBe("unavailable");
@@ -178,4 +183,30 @@ test("pending legacy run without a definition snapshot blocks instead of replayi
   const resumed = await resumeDeclarativePipeline({ ...runner(def), registry: { effect: async () => { calls++; return {}; } } }, run.id);
   expect(resumed?.status).toBe("error"); expect(resumed?.error).toContain("Historical pipeline definition snapshot was not captured");
   expect(calls).toBe(0); expect(store.getRun(run.id)!.input).toEqual({ retained: "old" }); expect(store.listSteps(run.id)).toEqual([]);
+});
+
+
+test("reopened viewer routes resolve configured provider secrets for all outward boundaries", async () => {
+  const { handlePipelineViewerApi } = await import("./pipeline-viewer-routes");
+  const { nip19 } = await import("nostr-tools");
+  const owner = nip19.npubEncode("11".repeat(32));
+  const secret = "synthetic-reopened-instance-provider";
+  const settings = { getStoredInstanceSetting: (key: string) => key === "pipelines.classifier_openrouter_api_key" ? secret : null } as unknown as SessionApiContext;
+  globalThis.fetch = (async () => Response.json({ choices: [{ message: { content: JSON.stringify({ context: secret }) } }] })) as typeof fetch;
+  const def = definition([{ id: "judge", name: "judge", type: "classifier", prompt: secret, description: secret }]);
+  def.spec.description = secret;
+  const run = await runDeclarativePipeline({ ...runner(def, settings), ownerNpub: owner });
+  expect(run.status).toBe("ok");
+  const trusted = { workspaceId: "workspace", towerServiceNpub: "tower", appNpub: "app", initiatingAgentProfileId: "agent", initiatingAgentNpub: "bot" };
+  store.addEvent({ runId: run.id, type: "flightdeck_invocation_context", level: "info", data: trusted });
+  const refs = store.evidence.list(run.id);
+  store = new PipelineStore(store.path);
+  const ctx = { store, identity: { pubkeyHex: "33".repeat(32) }, providerCredentialContext: settings,
+    workspaceDelegationStore: { findActiveDelegation: () => null }, agentStore: { getByAgentId: () => ({ managedByNpub: owner, botNpub: "bot", enabled: true }), canInstruct: () => true },
+    pipelineBindingStore: { listAvailableIds: () => [def.id] }, listPipelineDefinitions: async () => [def] };
+  for (const path of [`runs/${run.id}`, `runs/${run.id}/updates`, "runs", "definitions", `definitions/${def.id}`, ...refs.map(ref => `runs/${run.id}/evidence/${ref.id}`)]) {
+    const url = new URL(`https://synthetic.test/api/owners/${owner}/control-plane/v1/pipeline-viewer/${path}?workspace_id=workspace&tower_service_npub=tower&app_npub=app`);
+    const response = await handlePipelineViewerApi(new Request(url), url, { authMethod: "nip98", npub: owner, subjectNpub: owner, signerNpub: owner } as never, ctx as never);
+    expect(response?.status).toBe(200); expect(await response!.text()).not.toContain(secret);
+  }
 });

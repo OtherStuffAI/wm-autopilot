@@ -2766,6 +2766,7 @@ const remoteInstructRoutesContext: RemoteInstructRoutesContext = {
 const handleApi = createApiRouteHandler({
   skillApiContext: { manager: skillManager, resolveWorkspace },
   controlPlaneRoutesContext: {
+    providerCredentialContext: sessionApiContext,
     pipelineStore,
     identity: wingmanInstanceIdentity,
     baseUrl: config.baseUrl,

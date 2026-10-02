@@ -1,3 +1,4 @@
+import { classifierOpenRouterSecrets } from "./classifier-openrouter-credentials";
 import { DelegationScopes, resolveOwnerAccess } from "../auth/delegation-access";
 import type { RequestAuthContext } from "../auth/request-context";
 import type { WingmanInstanceIdentity } from "../identity/wingman-instance-identity";
@@ -9,6 +10,7 @@ import { viewerDefinition, viewerRunSummary, viewerSnapshot } from "./pipeline-v
 
 export interface PipelineViewerRoutesContext {
   identity: WingmanInstanceIdentity | null;
+  providerCredentialContext?: ControlPlaneRoutesContext["providerCredentialContext"];
   store: PipelineStore;
   workspaceDelegationStore: ControlPlaneRoutesContext["workspaceDelegationStore"];
   agentStore: ControlPlaneRoutesContext["agentStore"];
@@ -30,6 +32,8 @@ export async function handlePipelineViewerApi(request: Request, url: URL, auth: 
   try { owner = decodeURIComponent(match[1]!); } catch { return reply({ error: "invalid-owner" }, 400); }
   const access = resolveOwnerAccess(auth, owner, ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore), DelegationScopes.ControlPlaneRead);
   if (!access) return reply({ error: "control-plane-read-authority-required" }, 403);
+  // Resolve only provider settings for the authorized owner; never identity material.
+  for (const secret of classifierOpenRouterSecrets({ ownerNpub: access.ownerNpub, sessionApiContext: ctx.providerCredentialContext ?? {} })) ctx.store.evidence.registerSecret(secret);
   try {
     const context: ViewerContext = {
       workspaceId: required(url, "workspace_id"), towerServiceNpub: required(url, "tower_service_npub"), appNpub: required(url, "app_npub"),

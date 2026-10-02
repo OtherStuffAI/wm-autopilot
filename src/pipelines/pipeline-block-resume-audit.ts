@@ -7,7 +7,7 @@ import type { PipelineBlockSnapshots } from "./pipeline-block-snapshot";
 export function auditLegacyBlockResumes(db: Database) {
   const hasSnapshots = Boolean(db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pipeline_run_snapshots'").get());
   const rows = db.query(hasSnapshots ? `SELECT r.id, r.status, r.cursor_index, s.definition_json, s.context_json FROM pipeline_runs r
-    LEFT JOIN pipeline_run_snapshots s ON s.run_id = r.id WHERE r.status IN ('queued', 'running', 'needs_input')` : `SELECT id, status, cursor_index FROM pipeline_runs WHERE status IN ('queued', 'running', 'needs_input')`).all() as Array<Record<string, unknown>>;
+    LEFT JOIN pipeline_run_snapshots s ON s.run_id = r.id WHERE r.status IN ('queued', 'running', 'needs_input', 'error')` : `SELECT id, status, cursor_index FROM pipeline_runs WHERE status IN ('queued', 'running', 'needs_input', 'error')`).all() as Array<Record<string, unknown>>;
   return rows.flatMap(row => {
     if (!row.definition_json) return [{ runId: String(row.id), status: String(row.status), cursorIndex: Number(row.cursor_index),
       missingSnapshot: true, missingBlockKeys: [] as string[], completedBlockKeys: [] as string[] }];
