@@ -21,16 +21,23 @@ match that context, root owner, and delegated agent filters. Missing trusted
 workspace context is unavailable, never inferred from arbitrary run input.
 Denied/foreign records return 404; absent authority returns 403. Evidence and
 child reads use the same root authorization. Shared-instance access does not
-grant viewer access. Definition reads are owner-visible definitions; they do
-not grant access to associated runs.
+grant viewer access. Catalogue definition reads are shared/owner-visible
+definitions; restricted delegates additionally require an allowed agent binding.
+They do not grant access to associated runs. Historical snapshots are returned
+only through an authorized run read, never through a catalogue ID lookup.
+Subscription resolution must require an exact requested-owner match; a missing
+subscription cannot fall back to another owner's active subscription.
 
 Flight Deck's Autopilot connection client owns signed requests. A dedicated
 pipeline service owns cancellation, refresh/recovery, and Dexie transactions;
 Alpine consumes liveQuery projections. TowerSyncService stays unchanged.
 Service identity is the verified installation ID and signer, never its URL.
 Selected FIPS uses the existing immutable peer-pinned handle, with no public
-fallback. An explicitly selected HTTPS connection may use signed HTTPS with
-redirect rejection; it must not be a recovery path for FIPS failure.
+fallback. The current Connect client implements FIPS only. HTTPS in package
+metadata is not an implemented viewer transport; no parallel HTTPS client is
+required for this milestone. If a supported explicit HTTPS connection is added
+later, it must sign the exact URL and reject redirects, and must not be a
+recovery path for FIPS failure.
 
 ## Additive version 1 endpoints
 
@@ -69,8 +76,11 @@ name, status, startedAt, completedAt, parentRunId, parentStepId}`.
 `StepSummary`: `{id, logicalKey, parentStepId, attempt, status, title,
 description, kind, startedAt, completedAt, error, skipReason, continuationReason,
 exitReason, childRunId, inputs, outputs, evidence}`. Stable logical keys name
-definition nodes; execution IDs identify actual attempts. Do not invent UI
-groups. Native statuses remain documented rather than silently coerced.
+definition nodes; execution IDs identify actual attempts. `attempt` is the
+execution ordinal for that logical node, not an assumed loop iteration. Internal
+executor retries carry their own evidence attempt/scope and are not extra
+definition nodes. Do not invent UI groups. Native statuses remain documented
+rather than silently coerced.
 
 `EvidenceReference`: `{id, runId, stepId, attempt, kind, scope, contentType,
 bytes, availability, redacted, capturedAt, expiresAt}`. Kinds distinguish
@@ -100,7 +110,9 @@ or credentials. Record redaction scope; sanitize errors and definition views.
 
 Persist summaries/selection/loading status in Dexie with keys including backend,
 workspace, actor, service, run and attempt. Full private evidence uses an
-explicit session-only cache: do not persist it by default. On service/run/
+explicit session-only cache: do not persist it by default. This is a deliberate
+privacy exception for lazy inspection values; persisted UI state remains Dexie
+owned. On service/run/
 workspace/actor changes abort requests and clear private values before render.
 Show loading, empty, denied, disconnected, stale and availability independently.
 
