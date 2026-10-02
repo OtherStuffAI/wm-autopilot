@@ -2,20 +2,20 @@
   "version": 1,
   "serviceId": "autopilot_runtime_fixture",
   "run": {
-    "id": "85ed0f5f-985d-424c-939c-4c464443a51d",
+    "id": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
     "serviceId": "autopilot_runtime_fixture",
-    "definitionId": "shared:7c4f552a3da8",
+    "definitionId": "shared:daf8d0cda8a0",
     "definitionVersion": 2,
     "definitionHash": "db1dce2d4bd5abc5b31d774fa9ef2fc74dcae64dc7f2017bb04c573bda33d8c4",
     "name": "bird.retrieve.v2",
     "status": "ok",
-    "startedAt": "2026-10-02T05:19:24.198Z",
-    "completedAt": "2026-10-02T05:19:24.203Z",
-    "parentRunId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-    "parentStepId": "b06df1f7-3dd3-4285-bf44-54aae60bc93c"
+    "startedAt": "2026-10-02T05:27:44.388Z",
+    "completedAt": "2026-10-02T05:27:44.393Z",
+    "parentRunId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+    "parentStepId": "385f9186-c3d2-4112-8e13-9acb3f643c83"
   },
   "definition": {
-    "id": "shared:7c4f552a3da8",
+    "id": "shared:daf8d0cda8a0",
     "name": "bird.retrieve.v2",
     "title": "bird.retrieve.v2",
     "description": "Bounded read-only Bird retrieval with advisory Jev choices and deterministic execution policy.",
@@ -244,6 +244,11 @@
     ],
     "wiring": [
       {
+        "sourceValuePath": "$.request",
+        "sourcePortPaths": [],
+        "targetPortPaths": [
+          "$.request"
+        ],
         "sourceStepKey": null,
         "sourcePath": "$.request",
         "targetStepKey": "prepare",
@@ -251,6 +256,14 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$",
+        "sourcePortPaths": [
+          "$.verdict",
+          "$.resultCount",
+          "$.attempt",
+          "$.latencyMs"
+        ],
+        "targetPortPaths": [],
         "sourceStepKey": "prepare",
         "sourcePath": "$.retrieval",
         "targetStepKey": "bounded-retrieval/choose",
@@ -258,6 +271,16 @@
         "carriedForward": false
       },
       {
+        "sourceValuePath": "$",
+        "sourcePortPaths": [
+          "$.verdict",
+          "$.resultCount",
+          "$.attempt",
+          "$.latencyMs"
+        ],
+        "targetPortPaths": [
+          "$.state.request"
+        ],
         "sourceStepKey": "prepare",
         "sourcePath": "$.retrieval",
         "targetStepKey": "bounded-retrieval/execute",
@@ -265,6 +288,13 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$",
+        "sourcePortPaths": [
+          "$.answers.action.choice",
+          "$.usage",
+          "$.latencyMs"
+        ],
+        "targetPortPaths": [],
         "sourceStepKey": "bounded-retrieval/choose",
         "sourcePath": "$.actionDecision",
         "targetStepKey": "bounded-retrieval/execute",
@@ -272,6 +302,15 @@
         "carriedForward": false
       },
       {
+        "sourceValuePath": "$",
+        "sourcePortPaths": [
+          "$.source",
+          "$.verdict",
+          "$.resultCount",
+          "$.attempt",
+          "$.latencyMs"
+        ],
+        "targetPortPaths": [],
         "sourceStepKey": "bounded-retrieval/execute",
         "sourcePath": "$.retrieval",
         "targetStepKey": "bounded-retrieval/judge-evidence",
@@ -279,6 +318,17 @@
         "carriedForward": false
       },
       {
+        "sourceValuePath": "$",
+        "sourcePortPaths": [
+          "$.source",
+          "$.verdict",
+          "$.resultCount",
+          "$.attempt",
+          "$.latencyMs"
+        ],
+        "targetPortPaths": [
+          "$.state.request"
+        ],
         "sourceStepKey": "bounded-retrieval/execute",
         "sourcePath": "$.retrieval",
         "targetStepKey": "bounded-retrieval/check",
@@ -286,6 +336,13 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$",
+        "sourcePortPaths": [
+          "$.answers.continueSafe.noul",
+          "$.usage",
+          "$.latencyMs"
+        ],
+        "targetPortPaths": [],
         "sourceStepKey": "bounded-retrieval/judge-evidence",
         "sourcePath": "$.evidenceDecision",
         "targetStepKey": "bounded-retrieval/check",
@@ -297,7 +354,7 @@
   "steps": [
     {
       "itemKey": null,
-      "id": "eec1fa5e-a08b-4e16-a5b4-01faaa25c184",
+      "id": "f041b1d7-f112-4173-bcfc-68064cbbf312",
       "logicalKey": "prepare",
       "parentStepId": null,
       "attempt": 1,
@@ -305,8 +362,8 @@
       "title": "Validate retrieval request",
       "description": "Extract exact candidates and validate bounded input.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:24.199Z",
-      "completedAt": "2026-10-02T05:19:24.199Z",
+      "startedAt": "2026-10-02T05:27:44.388Z",
+      "completedAt": "2026-10-02T05:27:44.389Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -343,9 +400,9 @@
       ],
       "evidence": [
         {
-          "id": "584fa408-fa3a-4d88-bf27-a21fa14f371e",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "eec1fa5e-a08b-4e16-a5b4-01faaa25c184",
+          "id": "42da8848-da02-459f-95b8-46bae95675c4",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f041b1d7-f112-4173-bcfc-68064cbbf312",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -361,13 +418,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.199Z",
+          "capturedAt": "2026-10-02T05:27:44.388Z",
           "expiresAt": null
         },
         {
-          "id": "935c3042-e9c6-4ec2-9a0b-739828638e0a",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "eec1fa5e-a08b-4e16-a5b4-01faaa25c184",
+          "id": "8d117053-3a7d-4c0c-a774-9cd3ee83633c",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f041b1d7-f112-4173-bcfc-68064cbbf312",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -386,13 +443,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.199Z",
+          "capturedAt": "2026-10-02T05:27:44.388Z",
           "expiresAt": null
         },
         {
-          "id": "a2b8b3a2-5d26-4064-855a-1ab975498435",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "eec1fa5e-a08b-4e16-a5b4-01faaa25c184",
+          "id": "17992417-e331-4c4a-a645-7629ccd92520",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f041b1d7-f112-4173-bcfc-68064cbbf312",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -405,7 +462,7 @@
               "count": 2,
               "handles": [],
               "queries": [],
-              "startedAt": 1790918364199
+              "startedAt": 1790918864389
             },
             "truncated": true,
             "count": null,
@@ -415,13 +472,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.199Z",
+          "capturedAt": "2026-10-02T05:27:44.389Z",
           "expiresAt": null
         },
         {
-          "id": "91fb557f-356f-467d-bfba-57a6ea41661b",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "eec1fa5e-a08b-4e16-a5b4-01faaa25c184",
+          "id": "c943d9b8-6dc7-4947-8987-439675354ff5",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f041b1d7-f112-4173-bcfc-68064cbbf312",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -436,7 +493,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               }
             },
             "truncated": true,
@@ -447,13 +504,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.199Z",
+          "capturedAt": "2026-10-02T05:27:44.389Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:eec1fa5e-a08b-4e16-a5b4-01faaa25c184:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "eec1fa5e-a08b-4e16-a5b4-01faaa25c184",
+          "id": "not-captured:f041b1d7-f112-4173-bcfc-68064cbbf312:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f041b1d7-f112-4173-bcfc-68064cbbf312",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -468,7 +525,7 @@
     },
     {
       "itemKey": null,
-      "id": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "id": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "logicalKey": "bounded-retrieval",
       "parentStepId": null,
       "attempt": 1,
@@ -476,8 +533,8 @@
       "title": "Bounded retrieval attempts",
       "description": "At most three executions; terminal verdicts skip remaining actions.",
       "kind": "loop",
-      "startedAt": "2026-10-02T05:19:24.199Z",
-      "completedAt": "2026-10-02T05:19:24.203Z",
+      "startedAt": "2026-10-02T05:27:44.389Z",
+      "completedAt": "2026-10-02T05:27:44.392Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -504,9 +561,9 @@
       ],
       "evidence": [
         {
-          "id": "9203b9bf-c765-4d41-9d1f-524cd27b11a8",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+          "id": "c8f75980-8124-489b-b09b-a26713ae3464",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -521,7 +578,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               }
             },
             "truncated": true,
@@ -532,13 +589,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.199Z",
+          "capturedAt": "2026-10-02T05:27:44.389Z",
           "expiresAt": null
         },
         {
-          "id": "4b8d97ad-2a61-48a4-87c7-996536e8cbc9",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+          "id": "70f41c89-28a4-4060-8c44-a54d4ad1ba2e",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -555,7 +612,7 @@
                   "count": 2,
                   "handles": [],
                   "queries": [],
-                  "startedAt": 1790918364199
+                  "startedAt": 1790918864389
                 },
                 "loop": {
                   "bounded_retrieval": {
@@ -581,13 +638,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.203Z",
+          "capturedAt": "2026-10-02T05:27:44.393Z",
           "expiresAt": null
         },
         {
-          "id": "81e93895-9679-4532-8e7b-121e7dd370fb",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+          "id": "86efdb15-9e87-4fe6-a5e0-12950897b4eb",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -602,7 +659,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -627,13 +684,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.203Z",
+          "capturedAt": "2026-10-02T05:27:44.393Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:f09cf3f2-40ee-4675-8bb0-cd3745350b64:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+          "id": "not-captured:600309cb-8689-40ba-98b8-75d0a42278fe:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -645,9 +702,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:f09cf3f2-40ee-4675-8bb0-cd3745350b64:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+          "id": "not-captured:600309cb-8689-40ba-98b8-75d0a42278fe:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -662,16 +719,16 @@
     },
     {
       "itemKey": null,
-      "id": "c97ed9df-81ee-4d1d-b8ef-9bcbdc0dc43f",
+      "id": "bb0ab536-f933-4134-9002-03a489dd28cb",
       "logicalKey": "bounded-retrieval/choose",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 1,
       "status": "ok",
       "title": "Choose read-only action",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:19:24.200Z",
-      "completedAt": "2026-10-02T05:19:24.200Z",
+      "startedAt": "2026-10-02T05:27:44.389Z",
+      "completedAt": "2026-10-02T05:27:44.389Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -708,9 +765,9 @@
       ],
       "evidence": [
         {
-          "id": "05836967-951b-4bb2-9af4-7ce0f39a389f",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "c97ed9df-81ee-4d1d-b8ef-9bcbdc0dc43f",
+          "id": "dab5857c-58a4-47a0-926f-39f405f3d325",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "bb0ab536-f933-4134-9002-03a489dd28cb",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -724,7 +781,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               }
             },
             "truncated": true,
@@ -735,13 +792,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.200Z",
+          "capturedAt": "2026-10-02T05:27:44.389Z",
           "expiresAt": null
         },
         {
-          "id": "9ee3fed2-6a00-40de-805b-8eaec1abc61f",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "c97ed9df-81ee-4d1d-b8ef-9bcbdc0dc43f",
+          "id": "1d3670e7-67d5-41c0-b11b-1f93c2fa10d0",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "bb0ab536-f933-4134-9002-03a489dd28cb",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "assembled_model_request",
@@ -788,13 +845,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.200Z",
+          "capturedAt": "2026-10-02T05:27:44.389Z",
           "expiresAt": null
         },
         {
-          "id": "e26932a8-3e46-4e85-add8-cb0407d120bc",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "c97ed9df-81ee-4d1d-b8ef-9bcbdc0dc43f",
+          "id": "f4c7b212-82d6-45f9-a51d-68c0bbf69925",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "bb0ab536-f933-4134-9002-03a489dd28cb",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -814,13 +871,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.200Z",
+          "capturedAt": "2026-10-02T05:27:44.389Z",
           "expiresAt": null
         },
         {
-          "id": "25b4e45d-7777-431d-9aad-709a1355213e",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "c97ed9df-81ee-4d1d-b8ef-9bcbdc0dc43f",
+          "id": "1a54d25f-fc83-4509-ac02-1a9a943ad298",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "bb0ab536-f933-4134-9002-03a489dd28cb",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -835,7 +892,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -860,13 +917,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.200Z",
+          "capturedAt": "2026-10-02T05:27:44.389Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:c97ed9df-81ee-4d1d-b8ef-9bcbdc0dc43f:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "c97ed9df-81ee-4d1d-b8ef-9bcbdc0dc43f",
+          "id": "not-captured:bb0ab536-f933-4134-9002-03a489dd28cb:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "bb0ab536-f933-4134-9002-03a489dd28cb",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -881,16 +938,16 @@
     },
     {
       "itemKey": null,
-      "id": "e235f5e2-bbbb-40f0-99e5-1fde71edf880",
+      "id": "f156ce12-83b0-43d8-a7ac-4f3147d980d8",
       "logicalKey": "bounded-retrieval/execute",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 1,
       "status": "ok",
       "title": "Retrieve selected source",
       "description": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:24.200Z",
-      "completedAt": "2026-10-02T05:19:24.201Z",
+      "startedAt": "2026-10-02T05:27:44.390Z",
+      "completedAt": "2026-10-02T05:27:44.390Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -932,9 +989,9 @@
       ],
       "evidence": [
         {
-          "id": "4c770a73-56db-42d1-8611-d9aaaf405a2e",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "e235f5e2-bbbb-40f0-99e5-1fde71edf880",
+          "id": "55d8dc1e-5c86-4d80-a2cf-7b19a8d8c2b5",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f156ce12-83b0-43d8-a7ac-4f3147d980d8",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -948,7 +1005,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "decision": {
                 "shadowStatus": "ok",
@@ -966,13 +1023,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.200Z",
+          "capturedAt": "2026-10-02T05:27:44.390Z",
           "expiresAt": null
         },
         {
-          "id": "ff89149e-2386-4098-8207-5d8986d3ddc4",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "e235f5e2-bbbb-40f0-99e5-1fde71edf880",
+          "id": "799d3836-1e59-457c-956e-3e56651a8351",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f156ce12-83b0-43d8-a7ac-4f3147d980d8",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -988,7 +1045,7 @@
                   "count": 2,
                   "handles": [],
                   "queries": [],
-                  "startedAt": 1790918364199
+                  "startedAt": 1790918864389
                 },
                 "decision": {
                   "shadowStatus": "ok",
@@ -1007,13 +1064,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.200Z",
+          "capturedAt": "2026-10-02T05:27:44.390Z",
           "expiresAt": null
         },
         {
-          "id": "05db9569-7d23-4c2e-bdbc-55d197a903cc",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "e235f5e2-bbbb-40f0-99e5-1fde71edf880",
+          "id": "96f330bf-4255-4fd8-bafc-89639665f842",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f156ce12-83b0-43d8-a7ac-4f3147d980d8",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -1026,7 +1083,7 @@
               "count": 2,
               "handles": [],
               "queries": [],
-              "startedAt": 1790918364199
+              "startedAt": 1790918864389
             },
             "truncated": true,
             "count": null,
@@ -1036,13 +1093,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.201Z",
+          "capturedAt": "2026-10-02T05:27:44.390Z",
           "expiresAt": null
         },
         {
-          "id": "f9a766f1-7fbd-4162-9597-ec9f398df94c",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "e235f5e2-bbbb-40f0-99e5-1fde71edf880",
+          "id": "d98aa519-8507-4a34-b33c-899485ce54e1",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f156ce12-83b0-43d8-a7ac-4f3147d980d8",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -1057,7 +1114,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1082,13 +1139,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.201Z",
+          "capturedAt": "2026-10-02T05:27:44.390Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:e235f5e2-bbbb-40f0-99e5-1fde71edf880:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "e235f5e2-bbbb-40f0-99e5-1fde71edf880",
+          "id": "not-captured:f156ce12-83b0-43d8-a7ac-4f3147d980d8:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f156ce12-83b0-43d8-a7ac-4f3147d980d8",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1103,16 +1160,16 @@
     },
     {
       "itemKey": null,
-      "id": "d302002f-51ea-4b6b-bf8a-9c8ec7399c47",
+      "id": "d29f56f9-0617-4919-b72e-ce24095f247a",
       "logicalKey": "bounded-retrieval/judge-evidence",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 1,
       "status": "skipped",
       "title": "Judge safe continuation",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:19:24.201Z",
-      "completedAt": "2026-10-02T05:19:24.201Z",
+      "startedAt": "2026-10-02T05:27:44.390Z",
+      "completedAt": "2026-10-02T05:27:44.390Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -1149,9 +1206,9 @@
       ],
       "evidence": [
         {
-          "id": "e385622e-e43b-4838-9048-dbda9d2310e4",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "d302002f-51ea-4b6b-bf8a-9c8ec7399c47",
+          "id": "09da580d-994f-43fa-b40c-c336a1ca083e",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "d29f56f9-0617-4919-b72e-ce24095f247a",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1166,7 +1223,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1191,13 +1248,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.232Z",
+          "capturedAt": "2026-10-02T05:27:44.421Z",
           "expiresAt": null
         },
         {
-          "id": "0caebdaa-b4e1-4816-b768-ae87efc10b1d",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "d302002f-51ea-4b6b-bf8a-9c8ec7399c47",
+          "id": "a772977a-355f-4e4b-ad7b-149af4e580c3",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "d29f56f9-0617-4919-b72e-ce24095f247a",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1212,7 +1269,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1237,13 +1294,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.232Z",
+          "capturedAt": "2026-10-02T05:27:44.422Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:d302002f-51ea-4b6b-bf8a-9c8ec7399c47:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "d302002f-51ea-4b6b-bf8a-9c8ec7399c47",
+          "id": "not-captured:d29f56f9-0617-4919-b72e-ce24095f247a:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "d29f56f9-0617-4919-b72e-ce24095f247a",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1255,9 +1312,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:d302002f-51ea-4b6b-bf8a-9c8ec7399c47:returned_output",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "d302002f-51ea-4b6b-bf8a-9c8ec7399c47",
+          "id": "not-captured:d29f56f9-0617-4919-b72e-ce24095f247a:returned_output",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "d29f56f9-0617-4919-b72e-ce24095f247a",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -1269,9 +1326,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:d302002f-51ea-4b6b-bf8a-9c8ec7399c47:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "d302002f-51ea-4b6b-bf8a-9c8ec7399c47",
+          "id": "not-captured:d29f56f9-0617-4919-b72e-ce24095f247a:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "d29f56f9-0617-4919-b72e-ce24095f247a",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1286,16 +1343,16 @@
     },
     {
       "itemKey": null,
-      "id": "4a130d1c-b80d-449b-877f-8c272a185684",
+      "id": "d87528c3-57de-4c06-abf7-47c55ea49438",
       "logicalKey": "bounded-retrieval/check",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 1,
       "status": "skipped",
       "title": "Validate continuation",
       "description": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:24.201Z",
-      "completedAt": "2026-10-02T05:19:24.201Z",
+      "startedAt": "2026-10-02T05:27:44.391Z",
+      "completedAt": "2026-10-02T05:27:44.391Z",
       "error": null,
       "skipReason": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "continuationReason": null,
@@ -1332,9 +1389,9 @@
       ],
       "evidence": [
         {
-          "id": "49a9ab9d-f2a1-4330-956c-09ac0b4ca781",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "4a130d1c-b80d-449b-877f-8c272a185684",
+          "id": "b05bd7ca-9448-4f6f-8e21-5ce2df148ae3",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "d87528c3-57de-4c06-abf7-47c55ea49438",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1349,7 +1406,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1374,13 +1431,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.232Z",
+          "capturedAt": "2026-10-02T05:27:44.422Z",
           "expiresAt": null
         },
         {
-          "id": "2dd80a8c-00d9-4e98-afe0-9bb79c82eac9",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "4a130d1c-b80d-449b-877f-8c272a185684",
+          "id": "c963f235-d91f-4f20-8768-2b13c4d0714c",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "d87528c3-57de-4c06-abf7-47c55ea49438",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1395,7 +1452,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1420,13 +1477,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.232Z",
+          "capturedAt": "2026-10-02T05:27:44.422Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:4a130d1c-b80d-449b-877f-8c272a185684:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "4a130d1c-b80d-449b-877f-8c272a185684",
+          "id": "not-captured:d87528c3-57de-4c06-abf7-47c55ea49438:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "d87528c3-57de-4c06-abf7-47c55ea49438",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1438,9 +1495,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:4a130d1c-b80d-449b-877f-8c272a185684:returned_output",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "4a130d1c-b80d-449b-877f-8c272a185684",
+          "id": "not-captured:d87528c3-57de-4c06-abf7-47c55ea49438:returned_output",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "d87528c3-57de-4c06-abf7-47c55ea49438",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -1452,9 +1509,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:4a130d1c-b80d-449b-877f-8c272a185684:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "4a130d1c-b80d-449b-877f-8c272a185684",
+          "id": "not-captured:d87528c3-57de-4c06-abf7-47c55ea49438:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "d87528c3-57de-4c06-abf7-47c55ea49438",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1469,16 +1526,16 @@
     },
     {
       "itemKey": null,
-      "id": "f8389cdf-d3c7-47e1-9fa6-d2fb974d170f",
+      "id": "db1cfe1b-8ce7-43f5-82b1-73f93138d213",
       "logicalKey": "bounded-retrieval/choose",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 2,
       "status": "skipped",
       "title": "Choose read-only action",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:19:24.201Z",
-      "completedAt": "2026-10-02T05:19:24.201Z",
+      "startedAt": "2026-10-02T05:27:44.391Z",
+      "completedAt": "2026-10-02T05:27:44.391Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -1515,9 +1572,9 @@
       ],
       "evidence": [
         {
-          "id": "e04db118-d956-4a37-a02c-a215f8fe317a",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "f8389cdf-d3c7-47e1-9fa6-d2fb974d170f",
+          "id": "7f0afc45-d720-4469-ad7e-8b7d4c163f63",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "db1cfe1b-8ce7-43f5-82b1-73f93138d213",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1532,7 +1589,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1557,13 +1614,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.233Z",
+          "capturedAt": "2026-10-02T05:27:44.422Z",
           "expiresAt": null
         },
         {
-          "id": "5a9ca1c6-4a74-4d0f-b7b8-2bd2376fe064",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "f8389cdf-d3c7-47e1-9fa6-d2fb974d170f",
+          "id": "fb70d65e-6d95-490f-a749-59961a92b565",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "db1cfe1b-8ce7-43f5-82b1-73f93138d213",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1578,7 +1635,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1603,13 +1660,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.233Z",
+          "capturedAt": "2026-10-02T05:27:44.423Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:f8389cdf-d3c7-47e1-9fa6-d2fb974d170f:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "f8389cdf-d3c7-47e1-9fa6-d2fb974d170f",
+          "id": "not-captured:db1cfe1b-8ce7-43f5-82b1-73f93138d213:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "db1cfe1b-8ce7-43f5-82b1-73f93138d213",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1621,9 +1678,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:f8389cdf-d3c7-47e1-9fa6-d2fb974d170f:returned_output",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "f8389cdf-d3c7-47e1-9fa6-d2fb974d170f",
+          "id": "not-captured:db1cfe1b-8ce7-43f5-82b1-73f93138d213:returned_output",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "db1cfe1b-8ce7-43f5-82b1-73f93138d213",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -1635,9 +1692,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:f8389cdf-d3c7-47e1-9fa6-d2fb974d170f:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "f8389cdf-d3c7-47e1-9fa6-d2fb974d170f",
+          "id": "not-captured:db1cfe1b-8ce7-43f5-82b1-73f93138d213:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "db1cfe1b-8ce7-43f5-82b1-73f93138d213",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1652,16 +1709,16 @@
     },
     {
       "itemKey": null,
-      "id": "3dd53676-2ecb-49eb-8cbf-0d783cb677da",
+      "id": "45ab7013-ee21-4b5a-9e97-62486fcdee91",
       "logicalKey": "bounded-retrieval/execute",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 2,
       "status": "skipped",
       "title": "Retrieve selected source",
       "description": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:24.202Z",
-      "completedAt": "2026-10-02T05:19:24.202Z",
+      "startedAt": "2026-10-02T05:27:44.391Z",
+      "completedAt": "2026-10-02T05:27:44.391Z",
       "error": null,
       "skipReason": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "continuationReason": null,
@@ -1703,9 +1760,9 @@
       ],
       "evidence": [
         {
-          "id": "c358536e-6479-4aa2-87ec-7d95177753cb",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "3dd53676-2ecb-49eb-8cbf-0d783cb677da",
+          "id": "bade8908-fc58-4269-8215-950416581bf1",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "45ab7013-ee21-4b5a-9e97-62486fcdee91",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1720,7 +1777,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1745,13 +1802,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.233Z",
+          "capturedAt": "2026-10-02T05:27:44.423Z",
           "expiresAt": null
         },
         {
-          "id": "29623558-9a77-4bbc-aa9c-18c2895c4c0b",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "3dd53676-2ecb-49eb-8cbf-0d783cb677da",
+          "id": "294c539f-43a4-4409-bfd3-b980d6578aac",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "45ab7013-ee21-4b5a-9e97-62486fcdee91",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1766,7 +1823,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1791,13 +1848,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.233Z",
+          "capturedAt": "2026-10-02T05:27:44.423Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:3dd53676-2ecb-49eb-8cbf-0d783cb677da:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "3dd53676-2ecb-49eb-8cbf-0d783cb677da",
+          "id": "not-captured:45ab7013-ee21-4b5a-9e97-62486fcdee91:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "45ab7013-ee21-4b5a-9e97-62486fcdee91",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1809,9 +1866,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:3dd53676-2ecb-49eb-8cbf-0d783cb677da:returned_output",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "3dd53676-2ecb-49eb-8cbf-0d783cb677da",
+          "id": "not-captured:45ab7013-ee21-4b5a-9e97-62486fcdee91:returned_output",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "45ab7013-ee21-4b5a-9e97-62486fcdee91",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -1823,9 +1880,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:3dd53676-2ecb-49eb-8cbf-0d783cb677da:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "3dd53676-2ecb-49eb-8cbf-0d783cb677da",
+          "id": "not-captured:45ab7013-ee21-4b5a-9e97-62486fcdee91:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "45ab7013-ee21-4b5a-9e97-62486fcdee91",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1840,16 +1897,16 @@
     },
     {
       "itemKey": null,
-      "id": "a5ca3bbb-b03a-43c7-858e-eb8cb14677ae",
+      "id": "f2b04914-0ede-4b3d-b29d-a09177bdee47",
       "logicalKey": "bounded-retrieval/judge-evidence",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 2,
       "status": "skipped",
       "title": "Judge safe continuation",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:19:24.202Z",
-      "completedAt": "2026-10-02T05:19:24.202Z",
+      "startedAt": "2026-10-02T05:27:44.391Z",
+      "completedAt": "2026-10-02T05:27:44.391Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -1886,9 +1943,9 @@
       ],
       "evidence": [
         {
-          "id": "f1fb7991-817b-430a-ab6c-e0e0d6631d76",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "a5ca3bbb-b03a-43c7-858e-eb8cb14677ae",
+          "id": "9a4f666a-f418-4609-bef5-a615b96df802",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f2b04914-0ede-4b3d-b29d-a09177bdee47",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -1903,7 +1960,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1928,13 +1985,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.233Z",
+          "capturedAt": "2026-10-02T05:27:44.423Z",
           "expiresAt": null
         },
         {
-          "id": "dbce4c42-405d-4cb0-b10f-c8e6163142d7",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "a5ca3bbb-b03a-43c7-858e-eb8cb14677ae",
+          "id": "83b2ec26-2d73-4ef2-b4f1-0d323452e5f8",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f2b04914-0ede-4b3d-b29d-a09177bdee47",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -1949,7 +2006,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -1974,13 +2031,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.234Z",
+          "capturedAt": "2026-10-02T05:27:44.424Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:a5ca3bbb-b03a-43c7-858e-eb8cb14677ae:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "a5ca3bbb-b03a-43c7-858e-eb8cb14677ae",
+          "id": "not-captured:f2b04914-0ede-4b3d-b29d-a09177bdee47:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f2b04914-0ede-4b3d-b29d-a09177bdee47",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1992,9 +2049,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:a5ca3bbb-b03a-43c7-858e-eb8cb14677ae:returned_output",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "a5ca3bbb-b03a-43c7-858e-eb8cb14677ae",
+          "id": "not-captured:f2b04914-0ede-4b3d-b29d-a09177bdee47:returned_output",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f2b04914-0ede-4b3d-b29d-a09177bdee47",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -2006,9 +2063,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:a5ca3bbb-b03a-43c7-858e-eb8cb14677ae:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "a5ca3bbb-b03a-43c7-858e-eb8cb14677ae",
+          "id": "not-captured:f2b04914-0ede-4b3d-b29d-a09177bdee47:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "f2b04914-0ede-4b3d-b29d-a09177bdee47",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2023,16 +2080,16 @@
     },
     {
       "itemKey": null,
-      "id": "dcffbb05-e8fc-4f8e-b2fc-f591dfe0b18e",
+      "id": "306025e3-430a-4d1d-bc9f-adbc91e330f1",
       "logicalKey": "bounded-retrieval/check",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 2,
       "status": "skipped",
       "title": "Validate continuation",
       "description": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:24.202Z",
-      "completedAt": "2026-10-02T05:19:24.202Z",
+      "startedAt": "2026-10-02T05:27:44.391Z",
+      "completedAt": "2026-10-02T05:27:44.391Z",
       "error": null,
       "skipReason": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "continuationReason": null,
@@ -2069,9 +2126,9 @@
       ],
       "evidence": [
         {
-          "id": "ec67b04c-0046-4368-97b1-4127779a1c1f",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "dcffbb05-e8fc-4f8e-b2fc-f591dfe0b18e",
+          "id": "9e22d410-9aec-420e-9b7a-e441ff978292",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "306025e3-430a-4d1d-bc9f-adbc91e330f1",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -2086,7 +2143,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2111,13 +2168,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.234Z",
+          "capturedAt": "2026-10-02T05:27:44.424Z",
           "expiresAt": null
         },
         {
-          "id": "cdd8f9f7-9e28-48f9-a2a5-a929f3a1419b",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "dcffbb05-e8fc-4f8e-b2fc-f591dfe0b18e",
+          "id": "381bc31c-a407-4700-9939-f0afc9fe67bb",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "306025e3-430a-4d1d-bc9f-adbc91e330f1",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -2132,7 +2189,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2157,13 +2214,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.234Z",
+          "capturedAt": "2026-10-02T05:27:44.424Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:dcffbb05-e8fc-4f8e-b2fc-f591dfe0b18e:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "dcffbb05-e8fc-4f8e-b2fc-f591dfe0b18e",
+          "id": "not-captured:306025e3-430a-4d1d-bc9f-adbc91e330f1:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "306025e3-430a-4d1d-bc9f-adbc91e330f1",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -2175,9 +2232,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:dcffbb05-e8fc-4f8e-b2fc-f591dfe0b18e:returned_output",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "dcffbb05-e8fc-4f8e-b2fc-f591dfe0b18e",
+          "id": "not-captured:306025e3-430a-4d1d-bc9f-adbc91e330f1:returned_output",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "306025e3-430a-4d1d-bc9f-adbc91e330f1",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -2189,9 +2246,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:dcffbb05-e8fc-4f8e-b2fc-f591dfe0b18e:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "dcffbb05-e8fc-4f8e-b2fc-f591dfe0b18e",
+          "id": "not-captured:306025e3-430a-4d1d-bc9f-adbc91e330f1:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "306025e3-430a-4d1d-bc9f-adbc91e330f1",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2206,16 +2263,16 @@
     },
     {
       "itemKey": null,
-      "id": "292b25bb-481f-4aea-a362-a4b7532e32ce",
+      "id": "25ab50cb-7007-47c3-94f8-8380585ebc45",
       "logicalKey": "bounded-retrieval/choose",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 3,
       "status": "skipped",
       "title": "Choose read-only action",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:19:24.202Z",
-      "completedAt": "2026-10-02T05:19:24.202Z",
+      "startedAt": "2026-10-02T05:27:44.392Z",
+      "completedAt": "2026-10-02T05:27:44.392Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -2252,9 +2309,9 @@
       ],
       "evidence": [
         {
-          "id": "57aed822-88ae-4a21-b22c-7b8f117cae81",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "292b25bb-481f-4aea-a362-a4b7532e32ce",
+          "id": "5f00ec07-10a7-40f8-9c0e-20a0e572cb89",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "25ab50cb-7007-47c3-94f8-8380585ebc45",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -2269,7 +2326,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2294,13 +2351,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.235Z",
+          "capturedAt": "2026-10-02T05:27:44.424Z",
           "expiresAt": null
         },
         {
-          "id": "555a5bab-b813-4536-9b88-3988dc193427",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "292b25bb-481f-4aea-a362-a4b7532e32ce",
+          "id": "c7cf0b65-bebd-4378-bdff-1f5e494e14ff",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "25ab50cb-7007-47c3-94f8-8380585ebc45",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -2315,7 +2372,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2340,13 +2397,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.235Z",
+          "capturedAt": "2026-10-02T05:27:44.425Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:292b25bb-481f-4aea-a362-a4b7532e32ce:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "292b25bb-481f-4aea-a362-a4b7532e32ce",
+          "id": "not-captured:25ab50cb-7007-47c3-94f8-8380585ebc45:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "25ab50cb-7007-47c3-94f8-8380585ebc45",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -2358,9 +2415,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:292b25bb-481f-4aea-a362-a4b7532e32ce:returned_output",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "292b25bb-481f-4aea-a362-a4b7532e32ce",
+          "id": "not-captured:25ab50cb-7007-47c3-94f8-8380585ebc45:returned_output",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "25ab50cb-7007-47c3-94f8-8380585ebc45",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -2372,9 +2429,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:292b25bb-481f-4aea-a362-a4b7532e32ce:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "292b25bb-481f-4aea-a362-a4b7532e32ce",
+          "id": "not-captured:25ab50cb-7007-47c3-94f8-8380585ebc45:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "25ab50cb-7007-47c3-94f8-8380585ebc45",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2389,16 +2446,16 @@
     },
     {
       "itemKey": null,
-      "id": "4e5e17b3-1685-4130-8c45-ddf8bdb8a817",
+      "id": "21ba28e9-363d-4e5b-8de7-1a0f5d684375",
       "logicalKey": "bounded-retrieval/execute",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 3,
       "status": "skipped",
       "title": "Retrieve selected source",
       "description": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:24.202Z",
-      "completedAt": "2026-10-02T05:19:24.203Z",
+      "startedAt": "2026-10-02T05:27:44.392Z",
+      "completedAt": "2026-10-02T05:27:44.392Z",
       "error": null,
       "skipReason": "Validate advisory answers, preserve requested source, execute one read-only action, deduplicate exact records.",
       "continuationReason": null,
@@ -2440,9 +2497,9 @@
       ],
       "evidence": [
         {
-          "id": "599026ea-6a1b-4112-b6d1-5a8f018769d7",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "4e5e17b3-1685-4130-8c45-ddf8bdb8a817",
+          "id": "406f662f-56ed-4448-8e96-0dc22c63c795",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "21ba28e9-363d-4e5b-8de7-1a0f5d684375",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -2457,7 +2514,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2482,13 +2539,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.235Z",
+          "capturedAt": "2026-10-02T05:27:44.425Z",
           "expiresAt": null
         },
         {
-          "id": "ead7ea49-ba88-4cec-b167-d60c6490ea17",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "4e5e17b3-1685-4130-8c45-ddf8bdb8a817",
+          "id": "da24da84-423a-4d57-ba52-2c30d2672384",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "21ba28e9-363d-4e5b-8de7-1a0f5d684375",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -2503,7 +2560,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2528,13 +2585,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.236Z",
+          "capturedAt": "2026-10-02T05:27:44.425Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:4e5e17b3-1685-4130-8c45-ddf8bdb8a817:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "4e5e17b3-1685-4130-8c45-ddf8bdb8a817",
+          "id": "not-captured:21ba28e9-363d-4e5b-8de7-1a0f5d684375:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "21ba28e9-363d-4e5b-8de7-1a0f5d684375",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -2546,9 +2603,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:4e5e17b3-1685-4130-8c45-ddf8bdb8a817:returned_output",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "4e5e17b3-1685-4130-8c45-ddf8bdb8a817",
+          "id": "not-captured:21ba28e9-363d-4e5b-8de7-1a0f5d684375:returned_output",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "21ba28e9-363d-4e5b-8de7-1a0f5d684375",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -2560,9 +2617,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:4e5e17b3-1685-4130-8c45-ddf8bdb8a817:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "4e5e17b3-1685-4130-8c45-ddf8bdb8a817",
+          "id": "not-captured:21ba28e9-363d-4e5b-8de7-1a0f5d684375:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "21ba28e9-363d-4e5b-8de7-1a0f5d684375",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2577,16 +2634,16 @@
     },
     {
       "itemKey": null,
-      "id": "882413cf-9b8c-4e3f-b1f2-47928fab3ea8",
+      "id": "07c48222-2c27-4ef9-942f-9800656d6586",
       "logicalKey": "bounded-retrieval/judge-evidence",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 3,
       "status": "skipped",
       "title": "Judge safe continuation",
       "description": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:19:24.203Z",
-      "completedAt": "2026-10-02T05:19:24.203Z",
+      "startedAt": "2026-10-02T05:27:44.392Z",
+      "completedAt": "2026-10-02T05:27:44.392Z",
       "error": null,
       "skipReason": "Advisory typed judgments; deterministic policy owns execution. Skipped after a terminal verdict.",
       "continuationReason": null,
@@ -2623,9 +2680,9 @@
       ],
       "evidence": [
         {
-          "id": "a1efa05f-39d6-4db4-930f-2a832de01be8",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "882413cf-9b8c-4e3f-b1f2-47928fab3ea8",
+          "id": "48d80bbb-5dff-440c-b23c-651dea5405ae",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "07c48222-2c27-4ef9-942f-9800656d6586",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -2640,7 +2697,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2665,13 +2722,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.236Z",
+          "capturedAt": "2026-10-02T05:27:44.425Z",
           "expiresAt": null
         },
         {
-          "id": "cb6001cf-4371-4108-882b-54220badf4c2",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "882413cf-9b8c-4e3f-b1f2-47928fab3ea8",
+          "id": "a575983b-3b57-4744-bf90-87db132cff33",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "07c48222-2c27-4ef9-942f-9800656d6586",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -2686,7 +2743,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2711,13 +2768,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.236Z",
+          "capturedAt": "2026-10-02T05:27:44.426Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:882413cf-9b8c-4e3f-b1f2-47928fab3ea8:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "882413cf-9b8c-4e3f-b1f2-47928fab3ea8",
+          "id": "not-captured:07c48222-2c27-4ef9-942f-9800656d6586:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "07c48222-2c27-4ef9-942f-9800656d6586",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -2729,9 +2786,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:882413cf-9b8c-4e3f-b1f2-47928fab3ea8:returned_output",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "882413cf-9b8c-4e3f-b1f2-47928fab3ea8",
+          "id": "not-captured:07c48222-2c27-4ef9-942f-9800656d6586:returned_output",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "07c48222-2c27-4ef9-942f-9800656d6586",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -2743,9 +2800,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:882413cf-9b8c-4e3f-b1f2-47928fab3ea8:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "882413cf-9b8c-4e3f-b1f2-47928fab3ea8",
+          "id": "not-captured:07c48222-2c27-4ef9-942f-9800656d6586:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "07c48222-2c27-4ef9-942f-9800656d6586",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2760,16 +2817,16 @@
     },
     {
       "itemKey": null,
-      "id": "5bb55bbb-73b0-4825-ad24-2eed2664d18a",
+      "id": "9dc96c39-8e47-447e-bf10-3e0674e90947",
       "logicalKey": "bounded-retrieval/check",
-      "parentStepId": "f09cf3f2-40ee-4675-8bb0-cd3745350b64",
+      "parentStepId": "600309cb-8689-40ba-98b8-75d0a42278fe",
       "attempt": 3,
       "status": "skipped",
       "title": "Validate continuation",
       "description": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:24.203Z",
-      "completedAt": "2026-10-02T05:19:24.203Z",
+      "startedAt": "2026-10-02T05:27:44.392Z",
+      "completedAt": "2026-10-02T05:27:44.392Z",
       "error": null,
       "skipReason": "Validate semantic Noul only when deterministic evidence supports continuation.",
       "continuationReason": null,
@@ -2806,9 +2863,9 @@
       ],
       "evidence": [
         {
-          "id": "b65b2a53-848c-4e33-806a-3c62b07b30e2",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "5bb55bbb-73b0-4825-ad24-2eed2664d18a",
+          "id": "5e763751-17eb-4118-b1bd-c678b906e8e8",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "9dc96c39-8e47-447e-bf10-3e0674e90947",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "retained_legacy_inline",
@@ -2823,7 +2880,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2848,13 +2905,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.236Z",
+          "capturedAt": "2026-10-02T05:27:44.426Z",
           "expiresAt": null
         },
         {
-          "id": "4ffb3ffb-afc4-4664-8b04-bae5ee85a090",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "5bb55bbb-73b0-4825-ad24-2eed2664d18a",
+          "id": "f87a13d1-e5c9-4587-84a6-288ecbe61c17",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "9dc96c39-8e47-447e-bf10-3e0674e90947",
           "attempt": 1,
           "kind": "state_write",
           "scope": "retained_legacy_inline",
@@ -2869,7 +2926,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -2894,13 +2951,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.236Z",
+          "capturedAt": "2026-10-02T05:27:44.426Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:5bb55bbb-73b0-4825-ad24-2eed2664d18a:executor_request",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "5bb55bbb-73b0-4825-ad24-2eed2664d18a",
+          "id": "not-captured:9dc96c39-8e47-447e-bf10-3e0674e90947:executor_request",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "9dc96c39-8e47-447e-bf10-3e0674e90947",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -2912,9 +2969,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:5bb55bbb-73b0-4825-ad24-2eed2664d18a:returned_output",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "5bb55bbb-73b0-4825-ad24-2eed2664d18a",
+          "id": "not-captured:9dc96c39-8e47-447e-bf10-3e0674e90947:returned_output",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "9dc96c39-8e47-447e-bf10-3e0674e90947",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "legacy_not_captured",
@@ -2926,9 +2983,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:5bb55bbb-73b0-4825-ad24-2eed2664d18a:side_effect_confirmation",
-          "runId": "85ed0f5f-985d-424c-939c-4c464443a51d",
-          "stepId": "5bb55bbb-73b0-4825-ad24-2eed2664d18a",
+          "id": "not-captured:9dc96c39-8e47-447e-bf10-3e0674e90947:side_effect_confirmation",
+          "runId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
+          "stepId": "9dc96c39-8e47-447e-bf10-3e0674e90947",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -2943,5 +3000,5 @@
     }
   ],
   "children": [],
-  "revision": "9b60303cbba6e45924c15b9b07b9fc6b74082a45e2025bfc04b8cddd3b0f1e3b"
+  "revision": "7d25b3ca1f6c5640e7cc39cc8517b8c3255cc15be438da639a7ccf7e7147ce8f"
 }

@@ -2,15 +2,15 @@
   "version": 1,
   "serviceId": "autopilot_runtime_fixture",
   "run": {
-    "id": "25af7596-19cf-4cb6-81d5-8fe288079729",
+    "id": "6cf0af80-58bb-4956-be68-977b01de4a35",
     "serviceId": "autopilot_runtime_fixture",
     "definitionId": "runtime",
     "definitionVersion": null,
     "definitionHash": "0782e4801f3c5d1a88800474f9deb15c97b1c4b58591fb496beb14be9ab99186",
     "name": "runtime",
     "status": "ok",
-    "startedAt": "2026-10-02T05:19:13.189Z",
-    "completedAt": "2026-10-02T05:19:13.950Z",
+    "startedAt": "2026-10-02T05:27:33.452Z",
+    "completedAt": "2026-10-02T05:27:34.209Z",
     "parentRunId": null,
     "parentStepId": null
   },
@@ -67,6 +67,9 @@
     ],
     "wiring": [
       {
+        "sourceValuePath": "$.blocks.memory_name.input.prompt",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.memory_name.input.prompt",
         "targetStepKey": "memory-id/memory-name / extract-memory-entities",
@@ -74,6 +77,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.memory_name.input.entityLimit",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.memory_name.input.entityLimit",
         "targetStepKey": "memory-id/memory-name / extract-memory-entities",
@@ -81,6 +87,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.memory_name.input.prompt",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.memory_name.input.prompt",
         "targetStepKey": "memory-id/memory-name / search-graph-memory",
@@ -88,6 +97,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.entities",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": "memory-id/memory-name / extract-memory-entities",
         "sourcePath": "$.blocks.memory_name.entityExtraction.entities",
         "targetStepKey": "memory-id/memory-name / search-graph-memory",
@@ -95,6 +107,9 @@
         "carriedForward": false
       },
       {
+        "sourceValuePath": "$.blocks.memory_name.input.topKPerEntity",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.memory_name.input.topKPerEntity",
         "targetStepKey": "memory-id/memory-name / search-graph-memory",
@@ -102,6 +117,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.memory_name.input.maxEntities",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.memory_name.input.maxEntities",
         "targetStepKey": "memory-id/memory-name / search-graph-memory",
@@ -109,6 +127,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.memory_name.input.maxMatches",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.memory_name.input.maxMatches",
         "targetStepKey": "memory-id/memory-name / search-graph-memory",
@@ -116,6 +137,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.memory_name.input.index",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.memory_name.input.index",
         "targetStepKey": "memory-id/memory-name / search-graph-memory",
@@ -123,6 +147,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.memory_name.input.ownerNpub",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.memory_name.input.ownerNpub",
         "targetStepKey": "memory-id/memory-name / search-graph-memory",
@@ -130,6 +157,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.memory_name.input.prompt",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.memory_name.input.prompt",
         "targetStepKey": "memory-id/memory-name / consolidate-graph-context",
@@ -137,6 +167,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.entities",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": "memory-id/memory-name / extract-memory-entities",
         "sourcePath": "$.blocks.memory_name.entityExtraction.entities",
         "targetStepKey": "memory-id/memory-name / consolidate-graph-context",
@@ -144,6 +177,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.matches",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": "memory-id/memory-name / search-graph-memory",
         "sourcePath": "$.blocks.memory_name.rawMatches.matches",
         "targetStepKey": "memory-id/memory-name / consolidate-graph-context",
@@ -151,6 +187,9 @@
         "carriedForward": false
       },
       {
+        "sourceValuePath": "$.warnings",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": "memory-id/memory-name / search-graph-memory",
         "sourcePath": "$.blocks.memory_name.rawMatches.warnings",
         "targetStepKey": "memory-id/memory-name / consolidate-graph-context",
@@ -158,6 +197,9 @@
         "carriedForward": false
       },
       {
+        "sourceValuePath": "$.blocks.memory_name.input.maxChars",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.memory_name.input.maxChars",
         "targetStepKey": "memory-id/memory-name / consolidate-graph-context",
@@ -169,7 +211,7 @@
   "steps": [
     {
       "itemKey": null,
-      "id": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
+      "id": "31030633-75c6-457e-965f-1292d69ac21f",
       "logicalKey": "memory-id",
       "parentStepId": null,
       "attempt": 1,
@@ -177,8 +219,8 @@
       "title": "memory-name",
       "description": "",
       "kind": "block",
-      "startedAt": "2026-10-02T05:19:13.190Z",
-      "completedAt": "2026-10-02T05:19:13.950Z",
+      "startedAt": "2026-10-02T05:27:33.452Z",
+      "completedAt": "2026-10-02T05:27:34.209Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -188,9 +230,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "aa1dc265-3457-4b9d-a7b7-4b222fcf8fcf",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
+          "id": "4c1e5284-3220-4726-9a86-cf4d2682326a",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "31030633-75c6-457e-965f-1292d69ac21f",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -206,13 +248,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.190Z",
+          "capturedAt": "2026-10-02T05:27:33.452Z",
           "expiresAt": null
         },
         {
-          "id": "80835c01-2050-4f0d-88b7-dcf98e515217",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
+          "id": "18ec73b4-8d84-43ca-b007-b8830f9b2462",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "31030633-75c6-457e-965f-1292d69ac21f",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -252,13 +294,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.950Z",
+          "capturedAt": "2026-10-02T05:27:34.209Z",
           "expiresAt": null
         },
         {
-          "id": "5047a97f-bcda-4679-a220-d4c6d79c3c0e",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
+          "id": "fec8ccbc-7adf-4285-87e7-b2ef2ff1ceff",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "31030633-75c6-457e-965f-1292d69ac21f",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -298,13 +340,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.950Z",
+          "capturedAt": "2026-10-02T05:27:34.209Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:52e0f7d4-6212-4a3c-8899-39f703ade11e:executor_request",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
+          "id": "not-captured:31030633-75c6-457e-965f-1292d69ac21f:executor_request",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "31030633-75c6-457e-965f-1292d69ac21f",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -316,9 +358,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:52e0f7d4-6212-4a3c-8899-39f703ade11e:side_effect_confirmation",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
+          "id": "not-captured:31030633-75c6-457e-965f-1292d69ac21f:side_effect_confirmation",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "31030633-75c6-457e-965f-1292d69ac21f",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -333,16 +375,16 @@
     },
     {
       "itemKey": null,
-      "id": "8afde48e-ce67-4f13-97b0-2a671abcd809",
+      "id": "1c3b9b88-4744-4e1a-b115-65ebc670f980",
       "logicalKey": "memory-id/memory-name / extract-memory-entities",
-      "parentStepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
+      "parentStepId": "31030633-75c6-457e-965f-1292d69ac21f",
       "attempt": 1,
       "status": "ok",
       "title": "memory-name / extract-memory-entities",
       "description": "Extract searchable long-term-memory entities from the current prompt.",
       "kind": "agent",
-      "startedAt": "2026-10-02T05:19:13.190Z",
-      "completedAt": "2026-10-02T05:19:13.949Z",
+      "startedAt": "2026-10-02T05:27:33.453Z",
+      "completedAt": "2026-10-02T05:27:34.207Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -352,9 +394,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "d23b7e8f-ba49-4907-875f-413756a39b6f",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
+          "id": "8feaff2c-88b8-443a-bb01-521c34287044",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "1c3b9b88-4744-4e1a-b115-65ebc670f980",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -371,13 +413,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.190Z",
+          "capturedAt": "2026-10-02T05:27:33.453Z",
           "expiresAt": null
         },
         {
-          "id": "341cac06-2ffd-46d6-858d-14151f4ad6b7",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
+          "id": "612458d8-affd-443f-8619-5a3035da262c",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "1c3b9b88-4744-4e1a-b115-65ebc670f980",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "agent_invocation_prompt_persistent_session_not_full_conversation",
@@ -397,13 +439,13 @@
             "counts": {}
           },
           "redacted": true,
-          "capturedAt": "2026-10-02T05:19:13.695Z",
+          "capturedAt": "2026-10-02T05:27:33.955Z",
           "expiresAt": null
         },
         {
-          "id": "ca4d7bb7-c39b-4dfb-90bb-ddc09f26869c",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
+          "id": "6f6ec54f-b899-4d7d-9363-1e2f1b9698f6",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "1c3b9b88-4744-4e1a-b115-65ebc670f980",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -419,13 +461,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.695Z",
+          "capturedAt": "2026-10-02T05:27:33.955Z",
           "expiresAt": null
         },
         {
-          "id": "c7949117-f56f-4ca1-af5f-1ba871032e3c",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
+          "id": "c40082b7-b8a4-4e72-a56d-992b8a3eaa74",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "1c3b9b88-4744-4e1a-b115-65ebc670f980",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -441,13 +483,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.695Z",
+          "capturedAt": "2026-10-02T05:27:33.955Z",
           "expiresAt": null
         },
         {
-          "id": "ec4d0b74-4c6f-4dd8-952e-68e3ed2fcc31",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
+          "id": "ce3d88d7-1c22-4a5d-83bb-0564815e2c92",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "1c3b9b88-4744-4e1a-b115-65ebc670f980",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -463,13 +505,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.949Z",
+          "capturedAt": "2026-10-02T05:27:34.207Z",
           "expiresAt": null
         },
         {
-          "id": "30986dd2-ab53-4470-a6a6-339cdcfacfd3",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
+          "id": "8d56ec18-c251-4a48-9c31-469b4a43515c",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "1c3b9b88-4744-4e1a-b115-65ebc670f980",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -495,13 +537,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.949Z",
+          "capturedAt": "2026-10-02T05:27:34.207Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:8afde48e-ce67-4f13-97b0-2a671abcd809:side_effect_confirmation",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "8afde48e-ce67-4f13-97b0-2a671abcd809",
+          "id": "not-captured:1c3b9b88-4744-4e1a-b115-65ebc670f980:side_effect_confirmation",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "1c3b9b88-4744-4e1a-b115-65ebc670f980",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -516,16 +558,16 @@
     },
     {
       "itemKey": null,
-      "id": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
+      "id": "e74c1188-e6ba-4656-9e9d-d473bf8d4a35",
       "logicalKey": "memory-id/memory-name / search-graph-memory",
-      "parentStepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
+      "parentStepId": "31030633-75c6-457e-965f-1292d69ac21f",
       "attempt": 1,
       "status": "ok",
       "title": "memory-name / search-graph-memory",
       "description": "Run parallel vector searches for the extracted entities.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:13.949Z",
-      "completedAt": "2026-10-02T05:19:13.949Z",
+      "startedAt": "2026-10-02T05:27:34.208Z",
+      "completedAt": "2026-10-02T05:27:34.208Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -535,9 +577,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "a5cdf646-66e9-4be5-b565-bed3a028706d",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
+          "id": "6fe09bdc-4808-46df-b5c1-5289458e05dd",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "e74c1188-e6ba-4656-9e9d-d473bf8d4a35",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -557,13 +599,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.949Z",
+          "capturedAt": "2026-10-02T05:27:34.208Z",
           "expiresAt": null
         },
         {
-          "id": "9562cdb2-ee1f-45f1-9979-0c5b551726d5",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
+          "id": "ba800341-1504-400b-aa25-de5f12df928a",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "e74c1188-e6ba-4656-9e9d-d473bf8d4a35",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -586,13 +628,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.949Z",
+          "capturedAt": "2026-10-02T05:27:34.208Z",
           "expiresAt": null
         },
         {
-          "id": "9ec6c6ef-b39a-4193-b882-62eced2949f9",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
+          "id": "b841f09f-8002-4f8a-a9b2-b3eb3e9d852d",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "e74c1188-e6ba-4656-9e9d-d473bf8d4a35",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -612,13 +654,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.949Z",
+          "capturedAt": "2026-10-02T05:27:34.208Z",
           "expiresAt": null
         },
         {
-          "id": "3bb480b3-597c-41b1-9227-cb077e758daa",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
+          "id": "685cec5c-d3ce-4c6e-a375-14e671ebb106",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "e74c1188-e6ba-4656-9e9d-d473bf8d4a35",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -655,13 +697,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.949Z",
+          "capturedAt": "2026-10-02T05:27:34.208Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:9790f788-5c4d-4ff8-b1b3-e8df823803f9:side_effect_confirmation",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "9790f788-5c4d-4ff8-b1b3-e8df823803f9",
+          "id": "not-captured:e74c1188-e6ba-4656-9e9d-d473bf8d4a35:side_effect_confirmation",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "e74c1188-e6ba-4656-9e9d-d473bf8d4a35",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -676,16 +718,16 @@
     },
     {
       "itemKey": null,
-      "id": "78924d8b-2f53-40d0-9642-8a420286e030",
+      "id": "9bd1f88c-bb2f-43d5-983c-e5aa6ab595f0",
       "logicalKey": "memory-id/memory-name / consolidate-graph-context",
-      "parentStepId": "52e0f7d4-6212-4a3c-8899-39f703ade11e",
+      "parentStepId": "31030633-75c6-457e-965f-1292d69ac21f",
       "attempt": 1,
       "status": "ok",
       "title": "memory-name / consolidate-graph-context",
       "description": "Consolidate graph memory matches into agent-consumable graphContext.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:13.949Z",
-      "completedAt": "2026-10-02T05:19:13.950Z",
+      "startedAt": "2026-10-02T05:27:34.208Z",
+      "completedAt": "2026-10-02T05:27:34.209Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -695,9 +737,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "03af2b1f-c3f0-4d8f-830d-cb97d98f1492",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "78924d8b-2f53-40d0-9642-8a420286e030",
+          "id": "b49a3f00-d5be-46a7-a668-9119c3af0a7e",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "9bd1f88c-bb2f-43d5-983c-e5aa6ab595f0",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -720,13 +762,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.949Z",
+          "capturedAt": "2026-10-02T05:27:34.209Z",
           "expiresAt": null
         },
         {
-          "id": "0246e50e-764b-4e7c-923d-5a369aa904ed",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "78924d8b-2f53-40d0-9642-8a420286e030",
+          "id": "954c19bd-2068-436e-b0d6-9f730466b23f",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "9bd1f88c-bb2f-43d5-983c-e5aa6ab595f0",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -752,13 +794,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.950Z",
+          "capturedAt": "2026-10-02T05:27:34.209Z",
           "expiresAt": null
         },
         {
-          "id": "03522cf7-f4c6-4ab6-bb9c-6419ca55698a",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "78924d8b-2f53-40d0-9642-8a420286e030",
+          "id": "ab58e336-dde7-49da-a1a9-20b3db6154bd",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "9bd1f88c-bb2f-43d5-983c-e5aa6ab595f0",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -774,13 +816,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.950Z",
+          "capturedAt": "2026-10-02T05:27:34.209Z",
           "expiresAt": null
         },
         {
-          "id": "e9451a9b-1a05-484f-9503-085f2b62a60f",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "78924d8b-2f53-40d0-9642-8a420286e030",
+          "id": "a7739299-a904-4dcc-b1e7-809077eb58ea",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "9bd1f88c-bb2f-43d5-983c-e5aa6ab595f0",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -820,13 +862,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:13.950Z",
+          "capturedAt": "2026-10-02T05:27:34.209Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:78924d8b-2f53-40d0-9642-8a420286e030:side_effect_confirmation",
-          "runId": "25af7596-19cf-4cb6-81d5-8fe288079729",
-          "stepId": "78924d8b-2f53-40d0-9642-8a420286e030",
+          "id": "not-captured:9bd1f88c-bb2f-43d5-983c-e5aa6ab595f0:side_effect_confirmation",
+          "runId": "6cf0af80-58bb-4956-be68-977b01de4a35",
+          "stepId": "9bd1f88c-bb2f-43d5-983c-e5aa6ab595f0",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -841,5 +883,5 @@
     }
   ],
   "children": [],
-  "revision": "459c42a757ac9d14d463ae111f48c96734949441c3dfd4aa1921248d5c5e1076"
+  "revision": "f0fecd00610780a190015dd81cfb6e76cc911191ced1cbcaa9f5d612125b7cf5"
 }

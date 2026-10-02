@@ -2,15 +2,15 @@
   "version": 1,
   "serviceId": "autopilot_runtime_fixture",
   "run": {
-    "id": "e5064f4b-3802-46ee-877f-d9d194da84e4",
+    "id": "976fc0bd-7063-41dd-9a04-6eb2377c718b",
     "serviceId": "autopilot_runtime_fixture",
     "definitionId": "classifier-retry-test",
     "definitionVersion": null,
     "definitionHash": "515eee4d48830656e4a610a74d1292261d1486aee08df7600789bdb4bf940b54",
     "name": "classifier-retry-test",
     "status": "ok",
-    "startedAt": "2026-10-02T05:19:14.455Z",
-    "completedAt": "2026-10-02T05:19:14.456Z",
+    "startedAt": "2026-10-02T05:27:34.714Z",
+    "completedAt": "2026-10-02T05:27:34.715Z",
     "parentRunId": null,
     "parentStepId": null
   },
@@ -36,6 +36,9 @@
     ],
     "wiring": [
       {
+        "sourceValuePath": "$.text",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.text",
         "targetStepKey": "classify",
@@ -47,7 +50,7 @@
   "steps": [
     {
       "itemKey": null,
-      "id": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
+      "id": "e287cfcc-465d-4199-b7ff-e0ed725981ed",
       "logicalKey": "classify",
       "parentStepId": null,
       "attempt": 1,
@@ -55,8 +58,8 @@
       "title": "classify",
       "description": "",
       "kind": "classifier",
-      "startedAt": "2026-10-02T05:19:14.455Z",
-      "completedAt": "2026-10-02T05:19:14.456Z",
+      "startedAt": "2026-10-02T05:27:34.715Z",
+      "completedAt": "2026-10-02T05:27:34.715Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -66,9 +69,9 @@
       "outputs": [],
       "evidence": [
         {
-          "id": "a3a3d5ea-6cbe-46ab-8e5b-f4856ffd982f",
-          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
-          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
+          "id": "cdebd464-2599-4912-b759-1168db8ad6a0",
+          "runId": "976fc0bd-7063-41dd-9a04-6eb2377c718b",
+          "stepId": "e287cfcc-465d-4199-b7ff-e0ed725981ed",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -84,13 +87,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:14.455Z",
+          "capturedAt": "2026-10-02T05:27:34.715Z",
           "expiresAt": null
         },
         {
-          "id": "4d3adff3-5c11-4610-b868-428e0953a755",
-          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
-          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
+          "id": "9d4509f1-ef7e-4700-9162-3e9011e76353",
+          "runId": "976fc0bd-7063-41dd-9a04-6eb2377c718b",
+          "stepId": "e287cfcc-465d-4199-b7ff-e0ed725981ed",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "assembled_model_request",
@@ -123,13 +126,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:14.455Z",
+          "capturedAt": "2026-10-02T05:27:34.715Z",
           "expiresAt": null
         },
         {
-          "id": "f441e4f0-e38b-43f6-9d3a-259b1eca9a58",
-          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
-          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
+          "id": "536676fc-ea6b-41d8-b4c1-904e772fac12",
+          "runId": "976fc0bd-7063-41dd-9a04-6eb2377c718b",
+          "stepId": "e287cfcc-465d-4199-b7ff-e0ed725981ed",
           "attempt": 2,
           "kind": "executor_request",
           "scope": "assembled_model_request",
@@ -162,13 +165,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:14.455Z",
+          "capturedAt": "2026-10-02T05:27:34.715Z",
           "expiresAt": null
         },
         {
-          "id": "65510ce4-ca0a-4b83-ac98-ab6d77a8dddd",
-          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
-          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
+          "id": "4f4e0552-13d5-43b0-900c-3cb46215ae9f",
+          "runId": "976fc0bd-7063-41dd-9a04-6eb2377c718b",
+          "stepId": "e287cfcc-465d-4199-b7ff-e0ed725981ed",
           "attempt": 3,
           "kind": "executor_request",
           "scope": "assembled_model_request",
@@ -201,13 +204,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:14.455Z",
+          "capturedAt": "2026-10-02T05:27:34.715Z",
           "expiresAt": null
         },
         {
-          "id": "606e846d-c4d1-4352-8c8e-dbb36a94ea44",
-          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
-          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
+          "id": "19dd7b68-4b6a-4ead-9586-a3f909449898",
+          "runId": "976fc0bd-7063-41dd-9a04-6eb2377c718b",
+          "stepId": "e287cfcc-465d-4199-b7ff-e0ed725981ed",
           "attempt": 3,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -224,13 +227,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:14.456Z",
+          "capturedAt": "2026-10-02T05:27:34.715Z",
           "expiresAt": null
         },
         {
-          "id": "1f22aba1-1be9-45b7-ac70-c6a93a72d496",
-          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
-          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
+          "id": "5ae014ad-eb7c-49f8-b91d-fb0ca1f9a004",
+          "runId": "976fc0bd-7063-41dd-9a04-6eb2377c718b",
+          "stepId": "e287cfcc-465d-4199-b7ff-e0ed725981ed",
           "attempt": 3,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -250,13 +253,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:14.456Z",
+          "capturedAt": "2026-10-02T05:27:34.715Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78:side_effect_confirmation",
-          "runId": "e5064f4b-3802-46ee-877f-d9d194da84e4",
-          "stepId": "2b41a47a-6a4f-4d7d-a6b7-47d9953d5c78",
+          "id": "not-captured:e287cfcc-465d-4199-b7ff-e0ed725981ed:side_effect_confirmation",
+          "runId": "976fc0bd-7063-41dd-9a04-6eb2377c718b",
+          "stepId": "e287cfcc-465d-4199-b7ff-e0ed725981ed",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -271,5 +274,5 @@
     }
   ],
   "children": [],
-  "revision": "8f4308a9087f608740b6e5a2ca059a16f003f341a6a60cb938cb2b50ea8e2c06"
+  "revision": "f062e317f98c2f6895c707b285bf3bb8ceabb0b7a0d8005fd39c3209d0f0201c"
 }

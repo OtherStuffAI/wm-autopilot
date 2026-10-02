@@ -12,7 +12,7 @@ export interface ViewerDefinitionStep {
   logicalKey: string; name: string; title: string; description: string; type: string;
   inputs: ViewerPort[]; outputs: ViewerPort[]; children: ViewerDefinitionStep[];
 }
-export interface ViewerWiring { sourceStepKey: string | null; sourcePath: string; targetStepKey: string; targetPath: string; carriedForward: boolean }
+export interface ViewerWiring { sourceStepKey: string | null; sourcePath: string; targetStepKey: string; targetPath: string; carriedForward: boolean; sourceValuePath: string; sourcePortPaths: string[]; targetPortPaths: string[] }
 export interface ViewerDefinition {
   id: string; name: string; title: string; description: string; version: string | number | null;
   hash: string | null; availability: "complete" | "redacted" | "unavailable"; steps: ViewerDefinitionStep[]; wiring: ViewerWiring[];
@@ -28,26 +28,29 @@ export interface ViewerStepSummary {
   itemKey: string | null; inputs: ViewerPort[]; outputs: ViewerPort[]; evidence: EvidenceReference[];
 }
 
-export function viewerDefinition(definition: PipelineDefinitionRecord, pinnedHash?: string, blockExpansions?: PipelineBlockSnapshots, sanitize = redactPipelineValue): ViewerDefinition {
+export function viewerDefinition(definition: PipelineDefinitionRecord & { viewerRedacted?: boolean }, pinnedHash?: string, blockExpansions?: PipelineBlockSnapshots, sanitize = redactPipelineValue): ViewerDefinition {
   const sanitized = sanitize({ spec: definition.spec, blockExpansions });
   const structural = sanitized.value as { spec: PipelineDefinitionRecord["spec"]; blockExpansions?: PipelineBlockSnapshots };
   const spec = structural.spec;
   blockExpansions = structural.blockExpansions;
   const wiring: ViewerWiring[] = [];
   let missingExpansion = false;
-  function visit(steps: DeclarativeStep[], prefix = "", inheritedWriters: Array<{ path: string; key: string }> = []): ViewerDefinitionStep[] {
+  function visit(steps: DeclarativeStep[], prefix = "", inheritedWriters: Array<{ path: string; key: string; ports: DisplayFieldSpec[] }> = []): ViewerDefinitionStep[] {
     const writers = [...inheritedWriters];
     return steps.map(step => {
       const logicalKey = `${prefix}${step.id ?? step.name}`;
       const paths: Array<[string, string]> = typeof step.input === "string" ? [["$", step.input]] : Object.entries(step.input?.pick ?? {});
       for (const [target, sourcePath] of paths) {
         const writer = [...writers].reverse().find(item => sourcePath === item.path || sourcePath.startsWith(`${item.path}.`));
-        wiring.push({ sourceStepKey: writer?.key ?? null, sourcePath, targetStepKey: logicalKey,
-          targetPath: target === "$" ? "$" : `$.${target}`, carriedForward: !writer || writer.key !== writers.at(-1)?.key });
+        const sourceValuePath = writer ? `$${sourcePath.slice(writer.path.length)}` : sourcePath;
+        const targetPath = target === "$" ? "$" : `$.${target}`;
+        const relatedPorts = (rows: DisplayFieldSpec[], path: string) => rows.map(row => row.path).filter(port => port === path || port.startsWith(`${path}.`) || path.startsWith(`${port}.`));
+        wiring.push({ sourceValuePath, sourcePortPaths: relatedPorts(writer?.ports ?? [], sourceValuePath), targetPortPaths: relatedPorts(step.display?.in ?? [], targetPath), sourceStepKey: writer?.key ?? null, sourcePath, targetStepKey: logicalKey,
+          targetPath, carriedForward: !writer || writer.key !== writers.at(-1)?.key });
       }
       if (step.type === "block" && blockExpansions && !blockExpansions[logicalKey]) missingExpansion = true;
       const children = step.type === "block" ? (blockExpansions ? blockExpansions[logicalKey]?.steps ?? [] : expandPipelineBlock(step).steps) : step.type === "loop" ? step.steps ?? [] : step.type === "parallel" ? [step.step] : [];
-      if (step.assign) writers.push({ path: step.assign, key: logicalKey });
+      if (step.assign) writers.push({ path: step.assign, key: logicalKey, ports: step.display?.out ?? [] });
       return { logicalKey, name: step.name, title: step.title ?? step.name, description: step.description ?? "", type: step.type,
         inputs: ports(step.display?.in), outputs: ports(step.display?.out), children: visit(children, `${logicalKey}/`, writers) };
     });
@@ -55,7 +58,7 @@ export function viewerDefinition(definition: PipelineDefinitionRecord, pinnedHas
   const steps = visit(spec.steps);
   return { id: definition.id, name: definition.name, title: definition.name, description: spec.description ?? "",
     version: spec.version ?? null, hash: pinnedHash ?? createHash("sha256").update(JSON.stringify(definition.spec)).digest("hex"),
-    availability: missingExpansion ? "unavailable" : sanitized.redacted ? "redacted" : "complete", steps, wiring };
+    availability: missingExpansion ? "unavailable" : (sanitized.redacted || definition.viewerRedacted) ? "redacted" : "complete", steps, wiring };
 }
 
 export function viewerRunSummary(run: PipelineRunRecord | PipelineRunSummary, store: PipelineStore, serviceId: string): ViewerRunSummary {

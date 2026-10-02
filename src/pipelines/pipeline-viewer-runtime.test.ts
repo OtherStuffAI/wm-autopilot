@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PipelineStore } from "./pipeline-store";
 import { runDeclarativePipeline, resumeDeclarativePipeline, acceptAgentCallback } from "./pipeline-runner";
 import { snapshotPipelineBlocks } from "./pipeline-block-snapshot";
-import { viewerSnapshot } from "./pipeline-viewer-dto";
+import { viewerSnapshot, viewerDefinition } from "./pipeline-viewer-dto";
 import { assertRuntimeViewer } from "./pipeline-viewer-runtime-test-support";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
 import type { DeclarativeStep } from "./declarative";
@@ -210,6 +210,16 @@ test("reopened viewer routes resolve configured provider secrets for all outward
   for (const path of [`runs/${run.id}`, `runs/${run.id}/updates`, "runs", "definitions", `definitions/${def.id}`, ...refs.map(ref => `runs/${run.id}/evidence/${ref.id}`)]) {
     const url = new URL(`https://synthetic.test/api/owners/${owner}/control-plane/v1/pipeline-viewer/${path}?workspace_id=workspace&tower_service_npub=tower&app_npub=app`);
     const response = await handlePipelineViewerApi(new Request(url), url, { authMethod: "nip98", npub: owner, subjectNpub: owner, signerNpub: owner } as never, ctx as never);
-    expect(response?.status).toBe(200); expect(await response!.text()).not.toContain(secret);
+    expect(response?.status).toBe(200); const body = await response!.json(); expect(JSON.stringify(body)).not.toContain(secret);
+    if (path === "definitions") expect(body.definitions[0].availability).toBe("redacted");
+    if (path === `definitions/${def.id}`) expect(body.definition.availability).toBe("redacted");
   }
+});
+
+
+test("assigned-state wiring names captured source value and declared endpoint ports", () => {
+
+  const def = definition([{ id: "source", name: "source", type: "code", function: "source", assign: "$.bird", display: { out: [{ label: "Tweets", path: "$.retrieval.tweets" }] } },
+    { id: "target", name: "target", type: "code", function: "target", input: { pick: { state: "$.bird.retrieval" } }, display: { in: [{ label: "Tweets", path: "$.state.tweets" }] } }]);
+  expect(viewerDefinition(def).wiring[0]).toMatchObject({ sourceStepKey: "source", sourcePath: "$.bird.retrieval", sourceValuePath: "$.retrieval", sourcePortPaths: ["$.retrieval.tweets"], targetPath: "$.state", targetPortPaths: ["$.state.tweets"] });
 });

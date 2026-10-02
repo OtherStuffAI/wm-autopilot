@@ -169,7 +169,7 @@ function retainedSanitizedDefinition(store: PipelineStore, owner: string, defini
     for (const run of runs) {
       if (run.definitionId !== definition.id) continue;
       const pinned = store.composition.snapshot(run.id);
-      if (pinned?.context.viewerDefinition && JSON.stringify(pinned.definition.spec) === JSON.stringify(definition.spec)) return pinned.context.viewerDefinition;
+      if (pinned?.context.viewerDefinition && JSON.stringify(pinned.definition.spec) === JSON.stringify(definition.spec)) return { ...pinned.context.viewerDefinition, viewerRedacted: pinned.context.viewerRedacted };
     }
     if (runs.length < 100) return definition;
     const last = runs.at(-1)!; before = { id: last.id, startedAt: last.startedAt };

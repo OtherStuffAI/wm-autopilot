@@ -2,20 +2,20 @@
   "version": 1,
   "serviceId": "autopilot_runtime_fixture",
   "run": {
-    "id": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
+    "id": "ca03f234-2723-4e8d-9b67-ee8607760b19",
     "serviceId": "autopilot_runtime_fixture",
-    "definitionId": "shared:f41507f8edcc",
+    "definitionId": "shared:2cbfb823c462",
     "definitionVersion": 2,
     "definitionHash": "6cbcff5301a8a15ce7938a09a87dcb5f14f03406000ad7eba7c777589af3e31d",
     "name": "bird.timeline.chat.v2",
     "status": "ok",
-    "startedAt": "2026-10-02T05:19:24.194Z",
-    "completedAt": "2026-10-02T05:19:24.229Z",
+    "startedAt": "2026-10-02T05:27:44.384Z",
+    "completedAt": "2026-10-02T05:27:44.419Z",
     "parentRunId": null,
     "parentStepId": null
   },
   "definition": {
-    "id": "shared:f41507f8edcc",
+    "id": "shared:2cbfb823c462",
     "name": "bird.timeline.chat.v2",
     "title": "bird.timeline.chat.v2",
     "description": "Use Bird to return latest tweets from your Following or For You timeline, mentions, user tweets or quoted search. Bare latest/timeline requests ask Following versus For You. Read-only, deterministic exact records and links returned to this chat.",
@@ -190,6 +190,9 @@
     ],
     "wiring": [
       {
+        "sourceValuePath": "$.blocks.thread.input.workspaceId",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.thread.input.workspaceId",
         "targetStepKey": "thread/thread / normalise-thread-invocation",
@@ -197,6 +200,11 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.thread.input.threadId",
+        "sourcePortPaths": [],
+        "targetPortPaths": [
+          "$.threadId"
+        ],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.thread.input.threadId",
         "targetStepKey": "thread/thread / normalise-thread-invocation",
@@ -204,6 +212,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.thread.input.frmNpub",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.thread.input.frmNpub",
         "targetStepKey": "thread/thread / normalise-thread-invocation",
@@ -211,6 +222,11 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.thread.input.prompt",
+        "sourcePortPaths": [],
+        "targetPortPaths": [
+          "$.prompt"
+        ],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.thread.input.prompt",
         "targetStepKey": "thread/thread / normalise-thread-invocation",
@@ -218,6 +234,13 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.prompt",
+        "sourcePortPaths": [
+          "$.prompt"
+        ],
+        "targetPortPaths": [
+          "$.request"
+        ],
         "sourceStepKey": "thread",
         "sourcePath": "$.invocation.prompt",
         "targetStepKey": "retrieve",
@@ -225,6 +248,14 @@
         "carriedForward": false
       },
       {
+        "sourceValuePath": "$.retrieval",
+        "sourcePortPaths": [
+          "$.retrieval.verdict",
+          "$.retrieval.tweets"
+        ],
+        "targetPortPaths": [
+          "$.state.tweets"
+        ],
         "sourceStepKey": "retrieve",
         "sourcePath": "$.bird.retrieval",
         "targetStepKey": "format",
@@ -232,6 +263,9 @@
         "carriedForward": false
       },
       {
+        "sourceValuePath": "$.workspaceId",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": "thread",
         "sourcePath": "$.invocation.workspaceId",
         "targetStepKey": "reply",
@@ -239,6 +273,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.threadId",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": "thread",
         "sourcePath": "$.invocation.threadId",
         "targetStepKey": "reply",
@@ -246,6 +283,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.frmNpub",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": "thread",
         "sourcePath": "$.invocation.frmNpub",
         "targetStepKey": "reply",
@@ -253,6 +293,11 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.prompt",
+        "sourcePortPaths": [
+          "$.prompt"
+        ],
+        "targetPortPaths": [],
         "sourceStepKey": "thread",
         "sourcePath": "$.invocation.prompt",
         "targetStepKey": "reply",
@@ -260,6 +305,13 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.message",
+        "sourcePortPaths": [
+          "$.message"
+        ],
+        "targetPortPaths": [
+          "$.message"
+        ],
         "sourceStepKey": "format",
         "sourcePath": "$.response.message",
         "targetStepKey": "reply",
@@ -267,6 +319,9 @@
         "carriedForward": false
       },
       {
+        "sourceValuePath": "$.blocks.reply.input.workspaceId",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.reply.input.workspaceId",
         "targetStepKey": "reply/reply / return-to-thread",
@@ -274,6 +329,11 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.reply.input.threadId",
+        "sourcePortPaths": [],
+        "targetPortPaths": [
+          "$.threadId"
+        ],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.reply.input.threadId",
         "targetStepKey": "reply/reply / return-to-thread",
@@ -281,6 +341,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.reply.input.frmNpub",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.reply.input.frmNpub",
         "targetStepKey": "reply/reply / return-to-thread",
@@ -288,6 +351,9 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.reply.input.prompt",
+        "sourcePortPaths": [],
+        "targetPortPaths": [],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.reply.input.prompt",
         "targetStepKey": "reply/reply / return-to-thread",
@@ -295,6 +361,11 @@
         "carriedForward": true
       },
       {
+        "sourceValuePath": "$.blocks.reply.input.message",
+        "sourcePortPaths": [],
+        "targetPortPaths": [
+          "$.message"
+        ],
         "sourceStepKey": null,
         "sourcePath": "$.blocks.reply.input.message",
         "targetStepKey": "reply/reply / return-to-thread",
@@ -306,7 +377,7 @@
   "steps": [
     {
       "itemKey": null,
-      "id": "d90d0ce2-269c-4c27-b05c-dc3284413d92",
+      "id": "4dfc671f-80c3-4e05-80c8-d2e827fe4a1d",
       "logicalKey": "thread",
       "parentStepId": null,
       "attempt": 1,
@@ -314,8 +385,8 @@
       "title": "Validate chat request",
       "description": "Validate the source chat invocation.",
       "kind": "block",
-      "startedAt": "2026-10-02T05:19:24.195Z",
-      "completedAt": "2026-10-02T05:19:24.195Z",
+      "startedAt": "2026-10-02T05:27:44.385Z",
+      "completedAt": "2026-10-02T05:27:44.385Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -337,9 +408,9 @@
       ],
       "evidence": [
         {
-          "id": "d0d6d2bf-73d0-413c-8dea-5a03017748ba",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "d90d0ce2-269c-4c27-b05c-dc3284413d92",
+          "id": "4e3bda62-c730-44c1-8f6e-880fade31136",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "4dfc671f-80c3-4e05-80c8-d2e827fe4a1d",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -358,13 +429,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.195Z",
+          "capturedAt": "2026-10-02T05:27:44.385Z",
           "expiresAt": null
         },
         {
-          "id": "7120b395-864c-4c2a-9012-761b51896e29",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "d90d0ce2-269c-4c27-b05c-dc3284413d92",
+          "id": "acf6fe30-5cf1-405f-a1a6-824ece5652cd",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "4dfc671f-80c3-4e05-80c8-d2e827fe4a1d",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -393,13 +464,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.195Z",
+          "capturedAt": "2026-10-02T05:27:44.385Z",
           "expiresAt": null
         },
         {
-          "id": "e625d7b9-5eb2-41ab-aa02-735b838cc778",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "d90d0ce2-269c-4c27-b05c-dc3284413d92",
+          "id": "09760b2d-dd06-4409-b570-33b9e7e1e4d8",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "4dfc671f-80c3-4e05-80c8-d2e827fe4a1d",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -428,13 +499,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.195Z",
+          "capturedAt": "2026-10-02T05:27:44.385Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:d90d0ce2-269c-4c27-b05c-dc3284413d92:executor_request",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "d90d0ce2-269c-4c27-b05c-dc3284413d92",
+          "id": "not-captured:4dfc671f-80c3-4e05-80c8-d2e827fe4a1d:executor_request",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "4dfc671f-80c3-4e05-80c8-d2e827fe4a1d",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -446,9 +517,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:d90d0ce2-269c-4c27-b05c-dc3284413d92:side_effect_confirmation",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "d90d0ce2-269c-4c27-b05c-dc3284413d92",
+          "id": "not-captured:4dfc671f-80c3-4e05-80c8-d2e827fe4a1d:side_effect_confirmation",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "4dfc671f-80c3-4e05-80c8-d2e827fe4a1d",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -463,16 +534,16 @@
     },
     {
       "itemKey": null,
-      "id": "a7f0c6ea-5969-4919-83ad-17d48cc92dfe",
+      "id": "bc9c4234-cf1f-400d-8766-4d5ebb4d7749",
       "logicalKey": "thread/thread / normalise-thread-invocation",
-      "parentStepId": "d90d0ce2-269c-4c27-b05c-dc3284413d92",
+      "parentStepId": "4dfc671f-80c3-4e05-80c8-d2e827fe4a1d",
       "attempt": 1,
       "status": "ok",
       "title": "thread / normalise-thread-invocation",
       "description": "Validate and normalise the reusable four-field Flight Deck thread invocation contract.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:24.195Z",
-      "completedAt": "2026-10-02T05:19:24.195Z",
+      "startedAt": "2026-10-02T05:27:44.385Z",
+      "completedAt": "2026-10-02T05:27:44.385Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -504,9 +575,9 @@
       ],
       "evidence": [
         {
-          "id": "2a0120fb-3aba-4b91-a6d0-6947ef734a2a",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "a7f0c6ea-5969-4919-83ad-17d48cc92dfe",
+          "id": "74fe4f5b-d200-4938-b591-10d739c4de92",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "bc9c4234-cf1f-400d-8766-4d5ebb4d7749",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -525,13 +596,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.195Z",
+          "capturedAt": "2026-10-02T05:27:44.385Z",
           "expiresAt": null
         },
         {
-          "id": "6cf9e278-e4e7-4b5b-b552-095ca827190b",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "a7f0c6ea-5969-4919-83ad-17d48cc92dfe",
+          "id": "979770e1-03ac-4aac-8987-3f11a5fc2c14",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "bc9c4234-cf1f-400d-8766-4d5ebb4d7749",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -553,13 +624,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.195Z",
+          "capturedAt": "2026-10-02T05:27:44.385Z",
           "expiresAt": null
         },
         {
-          "id": "a314e714-eac0-4063-a1ac-48de362bddd9",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "a7f0c6ea-5969-4919-83ad-17d48cc92dfe",
+          "id": "91ad476b-b328-46f1-b23d-3ed88df3194e",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "bc9c4234-cf1f-400d-8766-4d5ebb4d7749",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -578,13 +649,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.195Z",
+          "capturedAt": "2026-10-02T05:27:44.385Z",
           "expiresAt": null
         },
         {
-          "id": "5a5d82a0-ede5-4746-a8f1-4e730f8e372b",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "a7f0c6ea-5969-4919-83ad-17d48cc92dfe",
+          "id": "95f57410-c42c-4357-8c59-c3557515c38f",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "bc9c4234-cf1f-400d-8766-4d5ebb4d7749",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -613,13 +684,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.195Z",
+          "capturedAt": "2026-10-02T05:27:44.385Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:a7f0c6ea-5969-4919-83ad-17d48cc92dfe:side_effect_confirmation",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "a7f0c6ea-5969-4919-83ad-17d48cc92dfe",
+          "id": "not-captured:bc9c4234-cf1f-400d-8766-4d5ebb4d7749:side_effect_confirmation",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "bc9c4234-cf1f-400d-8766-4d5ebb4d7749",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -634,7 +705,7 @@
     },
     {
       "itemKey": null,
-      "id": "b06df1f7-3dd3-4285-bf44-54aae60bc93c",
+      "id": "385f9186-c3d2-4112-8e13-9acb3f643c83",
       "logicalKey": "retrieve",
       "parentStepId": null,
       "attempt": 1,
@@ -642,13 +713,13 @@
       "title": "Retrieve tweets",
       "description": "Run reusable bounded Bird retrieval; ambiguous timelines clarify Following versus For You.",
       "kind": "pipeline",
-      "startedAt": "2026-10-02T05:19:24.196Z",
-      "completedAt": "2026-10-02T05:19:24.226Z",
+      "startedAt": "2026-10-02T05:27:44.385Z",
+      "completedAt": "2026-10-02T05:27:44.416Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
       "exitReason": "requested_count_retrieved",
-      "childRunId": "85ed0f5f-985d-424c-939c-4c464443a51d",
+      "childRunId": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
       "inputs": [
         {
           "label": "Request",
@@ -670,9 +741,9 @@
       ],
       "evidence": [
         {
-          "id": "05e46549-d408-44fa-b782-9562f622b18d",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "b06df1f7-3dd3-4285-bf44-54aae60bc93c",
+          "id": "b43a8b39-d429-4ec7-b41f-c8f0b1328211",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "385f9186-c3d2-4112-8e13-9acb3f643c83",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -688,13 +759,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.196Z",
+          "capturedAt": "2026-10-02T05:27:44.385Z",
           "expiresAt": null
         },
         {
-          "id": "0e254830-70d2-4e06-b921-2e2c373767cc",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "b06df1f7-3dd3-4285-bf44-54aae60bc93c",
+          "id": "70f6d1a5-8af7-4623-a993-d069d0d1f353",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "385f9186-c3d2-4112-8e13-9acb3f643c83",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -709,7 +780,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               },
               "loop": {
                 "bounded_retrieval": {
@@ -734,13 +805,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.226Z",
+          "capturedAt": "2026-10-02T05:27:44.416Z",
           "expiresAt": null
         },
         {
-          "id": "37949e87-037b-42b9-bb95-c29e2fc146e5",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "b06df1f7-3dd3-4285-bf44-54aae60bc93c",
+          "id": "ddc7defe-da9a-49f0-a3e9-7da09aff3fa9",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "385f9186-c3d2-4112-8e13-9acb3f643c83",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -769,13 +840,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.227Z",
+          "capturedAt": "2026-10-02T05:27:44.416Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:b06df1f7-3dd3-4285-bf44-54aae60bc93c:executor_request",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "b06df1f7-3dd3-4285-bf44-54aae60bc93c",
+          "id": "not-captured:385f9186-c3d2-4112-8e13-9acb3f643c83:executor_request",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "385f9186-c3d2-4112-8e13-9acb3f643c83",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -787,9 +858,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:b06df1f7-3dd3-4285-bf44-54aae60bc93c:side_effect_confirmation",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "b06df1f7-3dd3-4285-bf44-54aae60bc93c",
+          "id": "not-captured:385f9186-c3d2-4112-8e13-9acb3f643c83:side_effect_confirmation",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "385f9186-c3d2-4112-8e13-9acb3f643c83",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -804,7 +875,7 @@
     },
     {
       "itemKey": null,
-      "id": "f6114b99-75e8-4c5b-9c82-0e4e70e48856",
+      "id": "ace1ad5f-f8b2-4474-95d9-7ba289c97a5d",
       "logicalKey": "format",
       "parentStepId": null,
       "attempt": 1,
@@ -812,8 +883,8 @@
       "title": "Format exact tweets",
       "description": "Format exact tweet records and safe links without model prose.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:24.227Z",
-      "completedAt": "2026-10-02T05:19:24.227Z",
+      "startedAt": "2026-10-02T05:27:44.416Z",
+      "completedAt": "2026-10-02T05:27:44.417Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -835,9 +906,9 @@
       ],
       "evidence": [
         {
-          "id": "e6793ade-110d-4609-ae5c-aaf579d2a4ed",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "f6114b99-75e8-4c5b-9c82-0e4e70e48856",
+          "id": "fcc318dc-ef6d-46ab-8ee8-85af407d7f77",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "ace1ad5f-f8b2-4474-95d9-7ba289c97a5d",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -851,7 +922,7 @@
                 "count": 2,
                 "handles": [],
                 "queries": [],
-                "startedAt": 1790918364199
+                "startedAt": 1790918864389
               }
             },
             "truncated": true,
@@ -862,13 +933,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.227Z",
+          "capturedAt": "2026-10-02T05:27:44.416Z",
           "expiresAt": null
         },
         {
-          "id": "2665ac8c-f68b-44aa-8caf-19427c45d21f",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "f6114b99-75e8-4c5b-9c82-0e4e70e48856",
+          "id": "f21e3c26-df98-4dac-a834-3f89637645de",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "ace1ad5f-f8b2-4474-95d9-7ba289c97a5d",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -884,7 +955,7 @@
                   "count": 2,
                   "handles": [],
                   "queries": [],
-                  "startedAt": 1790918364199
+                  "startedAt": 1790918864389
                 }
               }
             },
@@ -896,13 +967,13 @@
             }
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.227Z",
+          "capturedAt": "2026-10-02T05:27:44.417Z",
           "expiresAt": null
         },
         {
-          "id": "facf579a-d323-44e7-a3b5-fd121b5f99f7",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "f6114b99-75e8-4c5b-9c82-0e4e70e48856",
+          "id": "448f49cd-72d3-4d7f-b10a-cb0d94a8f72c",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "ace1ad5f-f8b2-4474-95d9-7ba289c97a5d",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -920,13 +991,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.227Z",
+          "capturedAt": "2026-10-02T05:27:44.417Z",
           "expiresAt": null
         },
         {
-          "id": "a910c12e-1113-4e43-a067-e19dcbbdac21",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "f6114b99-75e8-4c5b-9c82-0e4e70e48856",
+          "id": "e2af607c-17ce-4f6b-abd3-836f4bd4d1fc",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "ace1ad5f-f8b2-4474-95d9-7ba289c97a5d",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -955,13 +1026,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.228Z",
+          "capturedAt": "2026-10-02T05:27:44.417Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:f6114b99-75e8-4c5b-9c82-0e4e70e48856:side_effect_confirmation",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "f6114b99-75e8-4c5b-9c82-0e4e70e48856",
+          "id": "not-captured:ace1ad5f-f8b2-4474-95d9-7ba289c97a5d:side_effect_confirmation",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "ace1ad5f-f8b2-4474-95d9-7ba289c97a5d",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -976,7 +1047,7 @@
     },
     {
       "itemKey": null,
-      "id": "73c1fa16-a407-48df-85a9-bf79a85ab4a1",
+      "id": "90986d46-208c-4425-a6b8-7c5a2e2c7e43",
       "logicalKey": "reply",
       "parentStepId": null,
       "attempt": 1,
@@ -984,8 +1055,8 @@
       "title": "Deliver to chat",
       "description": "Return to the validated source thread as the addressed managed agent.",
       "kind": "block",
-      "startedAt": "2026-10-02T05:19:24.228Z",
-      "completedAt": "2026-10-02T05:19:24.229Z",
+      "startedAt": "2026-10-02T05:27:44.417Z",
+      "completedAt": "2026-10-02T05:27:44.418Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -1007,9 +1078,9 @@
       ],
       "evidence": [
         {
-          "id": "f763b6d6-0641-4407-837d-623e1aa6469f",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "73c1fa16-a407-48df-85a9-bf79a85ab4a1",
+          "id": "f5d9ff7d-1d98-4e10-be7e-a190600b68b1",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "90986d46-208c-4425-a6b8-7c5a2e2c7e43",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -1029,13 +1100,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.228Z",
+          "capturedAt": "2026-10-02T05:27:44.417Z",
           "expiresAt": null
         },
         {
-          "id": "ba94015a-fecc-4d66-abc1-c677926fd77a",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "73c1fa16-a407-48df-85a9-bf79a85ab4a1",
+          "id": "e9d08752-0bd1-401b-b1a4-b400322f374d",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "90986d46-208c-4425-a6b8-7c5a2e2c7e43",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "wrapper_output_child_evidence_separate",
@@ -1073,13 +1144,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.229Z",
+          "capturedAt": "2026-10-02T05:27:44.418Z",
           "expiresAt": null
         },
         {
-          "id": "5872adee-3793-40c3-bd2f-74a57a76afe3",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "73c1fa16-a407-48df-85a9-bf79a85ab4a1",
+          "id": "ebc66f61-ea09-49e2-a4b6-84ecc5e5d125",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "90986d46-208c-4425-a6b8-7c5a2e2c7e43",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -1117,13 +1188,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.229Z",
+          "capturedAt": "2026-10-02T05:27:44.418Z",
           "expiresAt": null
         },
         {
-          "id": "not-captured:73c1fa16-a407-48df-85a9-bf79a85ab4a1:executor_request",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "73c1fa16-a407-48df-85a9-bf79a85ab4a1",
+          "id": "not-captured:90986d46-208c-4425-a6b8-7c5a2e2c7e43:executor_request",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "90986d46-208c-4425-a6b8-7c5a2e2c7e43",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "legacy_not_captured",
@@ -1135,9 +1206,9 @@
           "expiresAt": null
         },
         {
-          "id": "not-captured:73c1fa16-a407-48df-85a9-bf79a85ab4a1:side_effect_confirmation",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "73c1fa16-a407-48df-85a9-bf79a85ab4a1",
+          "id": "not-captured:90986d46-208c-4425-a6b8-7c5a2e2c7e43:side_effect_confirmation",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "90986d46-208c-4425-a6b8-7c5a2e2c7e43",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "legacy_not_captured",
@@ -1152,16 +1223,16 @@
     },
     {
       "itemKey": null,
-      "id": "245a9d2c-d796-4f4f-8303-aca5c633ba0c",
+      "id": "f8e068ed-6839-46e2-a0fe-7a813bbdef04",
       "logicalKey": "reply/reply / return-to-thread",
-      "parentStepId": "73c1fa16-a407-48df-85a9-bf79a85ab4a1",
+      "parentStepId": "90986d46-208c-4425-a6b8-7c5a2e2c7e43",
       "attempt": 1,
       "status": "ok",
       "title": "reply / return-to-thread",
       "description": "Resolve the source Flight Deck thread and post the final Markdown as the configured managed agent.",
       "kind": "code",
-      "startedAt": "2026-10-02T05:19:24.228Z",
-      "completedAt": "2026-10-02T05:19:24.228Z",
+      "startedAt": "2026-10-02T05:27:44.417Z",
+      "completedAt": "2026-10-02T05:27:44.418Z",
       "error": null,
       "skipReason": null,
       "continuationReason": null,
@@ -1198,9 +1269,9 @@
       ],
       "evidence": [
         {
-          "id": "c283d57c-0b01-43e4-ae19-bc799bae0ddb",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "245a9d2c-d796-4f4f-8303-aca5c633ba0c",
+          "id": "65539a8d-57e2-4451-9dd1-a6e33bb79dfc",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "f8e068ed-6839-46e2-a0fe-7a813bbdef04",
           "attempt": 1,
           "kind": "resolved_input",
           "scope": "selected_step_input",
@@ -1220,13 +1291,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.228Z",
+          "capturedAt": "2026-10-02T05:27:44.418Z",
           "expiresAt": null
         },
         {
-          "id": "4feb6e3e-f725-42b8-807f-4ec103279060",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "245a9d2c-d796-4f4f-8303-aca5c633ba0c",
+          "id": "32096ca0-33ea-42a3-9c71-cf2e4441d5b7",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "f8e068ed-6839-46e2-a0fe-7a813bbdef04",
           "attempt": 1,
           "kind": "executor_request",
           "scope": "code_function_arguments",
@@ -1249,13 +1320,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.228Z",
+          "capturedAt": "2026-10-02T05:27:44.418Z",
           "expiresAt": null
         },
         {
-          "id": "e7776097-5f38-4eca-bd66-a3addfad8f9c",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "245a9d2c-d796-4f4f-8303-aca5c633ba0c",
+          "id": "bfddfc03-c4f6-4935-8775-4a4273c67f58",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "f8e068ed-6839-46e2-a0fe-7a813bbdef04",
           "attempt": 1,
           "kind": "side_effect_confirmation",
           "scope": "delivery_adapter_confirmation",
@@ -1275,13 +1346,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.228Z",
+          "capturedAt": "2026-10-02T05:27:44.418Z",
           "expiresAt": null
         },
         {
-          "id": "1da6b904-f064-47a4-bd90-99f9614985eb",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "245a9d2c-d796-4f4f-8303-aca5c633ba0c",
+          "id": "db883655-554a-4a30-80a5-99c285cbfedc",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "f8e068ed-6839-46e2-a0fe-7a813bbdef04",
           "attempt": 1,
           "kind": "returned_output",
           "scope": "executor_return",
@@ -1301,13 +1372,13 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.229Z",
+          "capturedAt": "2026-10-02T05:27:44.418Z",
           "expiresAt": null
         },
         {
-          "id": "15af2f42-6388-414b-8bf3-304839ca15b0",
-          "runId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-          "stepId": "245a9d2c-d796-4f4f-8303-aca5c633ba0c",
+          "id": "8467e5d6-c5ae-4f91-959d-e8c16ca05d3e",
+          "runId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+          "stepId": "f8e068ed-6839-46e2-a0fe-7a813bbdef04",
           "attempt": 1,
           "kind": "state_write",
           "scope": "state_after_assignment",
@@ -1345,7 +1416,7 @@
             "counts": {}
           },
           "redacted": false,
-          "capturedAt": "2026-10-02T05:19:24.229Z",
+          "capturedAt": "2026-10-02T05:27:44.418Z",
           "expiresAt": null
         }
       ]
@@ -1353,18 +1424,18 @@
   ],
   "children": [
     {
-      "id": "85ed0f5f-985d-424c-939c-4c464443a51d",
+      "id": "51f081a5-2f45-4461-9bc2-7f4882c7e35c",
       "serviceId": "autopilot_runtime_fixture",
-      "definitionId": "shared:7c4f552a3da8",
+      "definitionId": "shared:daf8d0cda8a0",
       "definitionVersion": 2,
       "definitionHash": "db1dce2d4bd5abc5b31d774fa9ef2fc74dcae64dc7f2017bb04c573bda33d8c4",
       "name": "bird.retrieve.v2",
       "status": "ok",
-      "startedAt": "2026-10-02T05:19:24.198Z",
-      "completedAt": "2026-10-02T05:19:24.203Z",
-      "parentRunId": "2e6243a5-7b61-48d7-a3d4-7e7e712bfac9",
-      "parentStepId": "b06df1f7-3dd3-4285-bf44-54aae60bc93c"
+      "startedAt": "2026-10-02T05:27:44.388Z",
+      "completedAt": "2026-10-02T05:27:44.393Z",
+      "parentRunId": "ca03f234-2723-4e8d-9b67-ee8607760b19",
+      "parentStepId": "385f9186-c3d2-4112-8e13-9acb3f643c83"
     }
   ],
-  "revision": "eecbd1b9890aea0b386bb4bcc733c34ee663a1fb2d90bd5c175dabab0ebc89e1"
+  "revision": "ad348d030b8867ad81c12b5e943ffc5af3411727bbbf1d625a4e487941a473e1"
 }
