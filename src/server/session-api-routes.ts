@@ -2642,7 +2642,6 @@ async function handleQueueNext(
     return Response.json({ error: "Prompt dispatch already in progress" }, { status: 409 });
   }
 
-  ctx.queueDispatchInFlight.add(id);
   try {
     const result = await ctx.dispatchNextQueuedPromptForSession(
       ownedSession,
@@ -2656,8 +2655,6 @@ async function handleQueueNext(
     }
     console.error("[queue] failed to send queued prompt:", error);
     return Response.json({ error: "Failed to send queued prompt" }, { status: 500 });
-  } finally {
-    ctx.queueDispatchInFlight.delete(id);
   }
 }
 

@@ -255,12 +255,14 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
   }
 
   async function dispatchNextQueuedPromptForSession(session: SessionSnapshot, userNpub: string | null) {
-    const ownsLock = !queueDispatchInFlight.has(session.id);
-    if (ownsLock) queueDispatchInFlight.add(session.id);
+    if (queueDispatchInFlight.has(session.id)) {
+      throw new QueueDispatchError("A queued delivery is already in progress", 409);
+    }
+    queueDispatchInFlight.add(session.id);
     try {
       return await dispatchQueuedPromptWithClaim(session, userNpub);
     } finally {
-      if (ownsLock) queueDispatchInFlight.delete(session.id);
+      queueDispatchInFlight.delete(session.id);
     }
   }
 
@@ -441,7 +443,7 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
       }
 
       if (queuedPromptCount > 0) {
-        await dispatchNextQueuedPromptForSession(session, userNpub);
+        await dispatchQueuedPromptWithClaim(session, userNpub);
       } else {
         if (hasCallbacks && session.agentRuntimeStatus !== "stable") {
           ctx.dispatchInbox?.noteSessionBusy(session.id);

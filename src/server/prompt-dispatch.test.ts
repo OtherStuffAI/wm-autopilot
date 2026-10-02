@@ -581,3 +581,38 @@ test("direct delegated delivery registers its active attempt before allowing rec
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test("overlapping direct deliveries cannot clear another attempt's lock", async () => {
+  const root = mkdtempSync(join(tmpdir(), "queue-direct-overlap-"));
+  let release!: () => void;
+  let first: Promise<unknown> | undefined;
+  try {
+    const queue = new PromptQueueStore(join(root, "queue.db"));
+    queue.addPrompt("session-1", { content: "First delegated delivery" });
+    const later = queue.addPrompt("session-1", { content: "Later delegated delivery" })!;
+    const f = buildEngine({ promptQueueStore: queue });
+    Object.assign(f.adapter, { deliversPromptsDirectly: () => true });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    f.syncSessionMessages.mockImplementation(async () => { entered(); await held; return [{ role: "user", content: "First delegated delivery" }]; });
+    first = f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner");
+    await started;
+    await expect(f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner")).rejects.toMatchObject({ status: 409 });
+    expect(f.engine.queueDispatchInFlight.has("session-1")).toBeTrue();
+    expect(queue.getSessionQueue("session-1")[0]).toMatchObject({ id: later.id, state: "pending" });
+    expect(f.adapter.sendMessage).toHaveBeenCalledTimes(1);
+    release();
+    await first;
+    expect(f.engine.queueDispatchInFlight.has("session-1")).toBeFalse();
+    f.syncSessionMessages.mockResolvedValue([{ role: "user", content: "Later delegated delivery" }]);
+    await f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner");
+    expect(f.adapter.sendMessage).toHaveBeenCalledTimes(2);
+    expect(queue.getQueueCount("session-1")).toBe(0);
+  } finally {
+    release?.();
+    await first?.catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
