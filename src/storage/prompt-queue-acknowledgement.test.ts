@@ -90,3 +90,56 @@ describe("atomic prompt queue acknowledgement", () => {
     expect(new PromptQueueStore(path).getHandledPrompts("session")[0]?.id).toBe("legacy-id");
   });
 });
+
+test("crash before send and acceptance receipt before completion recover FIFO without replay", () => {
+  for (const accepted of [false, true]) {
+    const { store, path } = fixture();
+    const first = store.addPrompt("session", { content: "first" })!;
+    const second = store.addPrompt("session", { content: "second" })!;
+    const claim = store.claimNextPrompt("session")!;
+    if (accepted) {
+      store.markClaimSending("session", first.id, claim.claimToken!);
+      store.recordClaimAcceptance("session", first.id, claim.claimToken!);
+    }
+    const reopened = new PromptQueueStore(path);
+    const read = reopened.getSessionQueue("session")[0]!;
+    expect(read.deliveryState).toBe(accepted ? "accepted" : "unsent");
+    expect(read.deliveryId).toBe(claim.claimToken);
+    expect(() => reopened.reconcileClaim("session", first.id, "999", claim.claimToken!, "retry", "actor", "reviewed")).toThrow();
+    reopened.reconcileClaim("session", first.id, read.revision, claim.claimToken!, accepted ? "accepted" : "retry", "actor", "receiver inspected");
+    expect(() => reopened.reconcileClaim("session", first.id, read.revision, claim.claimToken!, "retry", "actor", "stale recovery")).toThrow();
+    if (!accepted) {
+      const retried = reopened.claimNextPrompt("session")!;
+      expect(retried.id).toBe(first.id);
+      expect(retried.claimToken).not.toBe(claim.claimToken);
+      reopened.completeClaim("session", first.id, retried.claimToken!);
+    }
+    expect(reopened.claimNextPrompt("session")?.id).toBe(second.id);
+    const audit = new Database(path).query("SELECT * FROM prompt_queue_recovery").all() as any[];
+    expect(audit[0]).toMatchObject({ actor: "actor", delivery_id: claim.claimToken, reason: "receiver inspected" });
+  }
+});
+
+test("thousands of terminal rows bound hydration and storage while retaining retry tombstones and unresolved claims", () => {
+  const { store, path } = fixture();
+  const unresolved = store.addPrompt("blocked", { content: "never prune" })!;
+  store.claimNextPrompt("blocked");
+  let recent!: ReturnType<PromptQueueStore["addPrompt"]>;
+  for (let i = 0; i < 2200; i++) {
+    recent = store.addPrompt("session", { content: `history ${i}` })!;
+    if (i % 2 === 0) {
+      const claim = store.claimNextPrompt("session")!;
+      store.completeClaim("session", recent.id, claim.claimToken!);
+    } else store.acknowledgePrompt("session", recent.id, recent.revision, "actor", "done");
+  }
+  expect(store.getHandledPrompts("session").length).toBeLessThanOrEqual(100);
+  const db = new Database(path);
+  expect((db.query("SELECT count(*) AS n FROM prompt_queue WHERE session_id = 'session'").get() as any).n).toBeLessThanOrEqual(1000);
+  expect(store.acknowledgePrompt("session", recent!.id, recent!.revision, "actor", "done").handledReason).toBe("done");
+  const tombstone = db.query("SELECT id, revision FROM prompt_queue WHERE content = '' AND state = 'handled' LIMIT 1").get() as any;
+  expect(store.acknowledgePrompt("session", tombstone.id, String(tombstone.revision), "actor", "done").content).toBe("");
+  db.query("UPDATE prompt_queue SET handled_at = '2000-01-01T00:00:00Z' WHERE id = ?").run(tombstone.id);
+  store.getHandledPrompts("session");
+  expect(() => store.acknowledgePrompt("session", tombstone.id, String(tombstone.revision), "actor", "done")).toThrow("not found");
+  expect(store.getSessionQueue("blocked")[0]?.id).toBe(unresolved.id);
+}, 30_000);

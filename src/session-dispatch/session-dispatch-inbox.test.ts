@@ -132,3 +132,28 @@ test("handled callback cancels a claimed wake and late arrivals remain unresolve
   f.inbox.markSubmitted(claim);
   expect(f.inbox.inspect("supervisor").wake?.state).toBe("claimed");
 });
+
+test("possibly accepted wake remains blocked across crash and lease expiry", () => {
+  const f = fixture();
+  f.addCallback();
+  const claim = f.inbox.claimForStableSession("supervisor")!;
+  f.inbox.markDeliveryUncertain(claim);
+  f.inbox.markSubmissionFailed(claim, "response lost after acceptance");
+  f.advance(86400000);
+  const reopened = new SessionDispatchInboxCoordinator(new SessionDispatchStore(f.path), f.policy);
+  expect(reopened.claimForStableSession("supervisor")).toBeNull();
+  expect(reopened.inspect("supervisor").wake).toMatchObject({ state: "blocked", attemptCount: 1 });
+});
+
+test("definite wake rejection releases its exact uncertain boundary for bounded safe retry", () => {
+  const f = fixture();
+  f.addCallback();
+  const claim = f.inbox.claimForStableSession("supervisor")!;
+  f.inbox.markDeliveryUncertain(claim);
+  f.inbox.releaseRejectedDelivery({ ...claim, attemptCount: 999 });
+  expect(f.inbox.inspect("supervisor").wake?.state).toBe("blocked");
+  f.inbox.releaseRejectedDelivery(claim);
+  f.inbox.markSubmissionFailed(claim, "explicit receiver rejection");
+  f.advance(2);
+  expect(f.inbox.claimForStableSession("supervisor")?.attemptCount).toBe(2);
+});

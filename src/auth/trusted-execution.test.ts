@@ -57,6 +57,7 @@ describe("trusted execution authorization", () => {
   test.each([
     ["PATCH", "/api/sessions/session-self/metadata", "metadata update"],
     ["POST", "/api/sessions/session-self/queue/item/acknowledge", "queue acknowledge"],
+    ["POST", "/api/sessions/session-self/queue/item/reconcile", "queue acknowledge"],
     ["DELETE", "/api/sessions/session-self", "stop"],
   ])("allows capability-bound own-session %s %s", async (method, pathname) => {
     const rule = createTrustedExecutionRule({ kind: "sessions", isAdminNpub: () => false });
@@ -85,6 +86,7 @@ describe("trusted execution authorization", () => {
   test.each([
     ["PATCH", "/api/sessions/session-other/metadata"],
     ["POST", "/api/sessions/session-other/queue/item/acknowledge"],
+    ["POST", "/api/sessions/session-other/queue/item/reconcile"],
     ["DELETE", "/api/sessions/session-other"],
   ])("denies capability-bound cross-session %s %s", async (method, pathname) => {
     const rule = createTrustedExecutionRule({ kind: "sessions", isAdminNpub: () => false });

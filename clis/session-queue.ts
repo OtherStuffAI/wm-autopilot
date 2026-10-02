@@ -13,7 +13,7 @@ export async function runSessionQueueCli(argv: string[], deps: SessionQueueCliDe
     const arg = argv[index]!;
     if (!arg.startsWith("--")) { positional.push(arg); continue; }
     if (arg === "--json" || arg === "--bot-crypto") continue;
-    if (!["--session", "--revision", "--reason", "--url"].includes(arg)) throw new Error(`Unknown queue option: ${arg}`);
+    if (!["--session", "--revision", "--reason", "--url", "--claim-token", "--resolution"].includes(arg)) throw new Error(`Unknown queue option: ${arg}`);
     const value = argv[++index];
     if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
     flags.set(arg, value);
@@ -28,13 +28,21 @@ export async function runSessionQueueCli(argv: string[], deps: SessionQueueCliDe
   let payload: unknown;
   if (action === "list" && positional.length === 1) {
     payload = await request(base, "GET", path);
-  } else if (action === "acknowledge" && positional.length === 2) {
+  } else if (["acknowledge", "reconcile"].includes(action!) && positional.length === 2) {
     const revision = flags.get("--revision");
     const reason = flags.get("--reason");
     if (!revision || !/^[1-9][0-9]*$/.test(revision) || !reason?.trim()) {
       throw new Error("acknowledge requires <item-id> --revision <read revision> --reason <text>");
     }
-    payload = await request(base, "POST", `${path}/${encodeURIComponent(positional[1]!)}/acknowledge`, { revision, reason });
+    const body: Record<string, string> = { revision, reason };
+    if (action === "reconcile") {
+      const token = flags.get("--claim-token");
+      const resolution = flags.get("--resolution");
+      if (!token || !["accepted", "retry"].includes(resolution ?? "")) throw new Error("reconcile requires --claim-token and --resolution accepted|retry; retry may duplicate accepted work");
+      body.claimToken = token;
+      body.resolution = resolution!;
+    }
+    payload = await request(base, "POST", `${path}/${encodeURIComponent(positional[1]!)}/${action}`, body);
   } else {
     throw new Error("Usage: wingman session queue list | acknowledge <item-id> --revision <revision> --reason <text> [--session <id>]");
   }

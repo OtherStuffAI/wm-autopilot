@@ -13,6 +13,7 @@ Usage:
   bun clis/wingman.ts forgejo issues <list|read|create|comment> [options]
   bun clis/wingman.ts dispatch [create|status|list|inbox|acknowledge|close|retry] [options]
   bun clis/wingman.ts session queue list [--session <id>]
+  bun clis/wingman.ts session queue reconcile <item-id> --revision <revision> --claim-token <token> --resolution accepted|retry --reason <text>
   bun clis/wingman.ts session queue acknowledge <item-id> --revision <revision> --reason <text>
 
 The retired board/sync command path has been removed from production CLI handling.

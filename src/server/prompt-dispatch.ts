@@ -33,8 +33,11 @@ export interface PromptDispatchContext {
   promptQueueStore: {
     getNextQueuedPrompt: (sessionId: string) => { id?: string; state?: string; content: string } | null;
     claimNextPrompt: (sessionId: string) => { id: string; content: string; timestamp?: string; claimToken: string | null } | null;
+    getSessionQueue: (sessionId: string) => import("../storage/prompt-queue-store").QueuedPrompt[];
+    markClaimSending: (sessionId: string, id: string, token: string) => void;
+    recordClaimAcceptance: (sessionId: string, id: string, token: string) => void;
     completeClaim: (sessionId: string, id: string, claimToken: string) => void;
-    releaseRejectedClaim: (sessionId: string, id: string, claimToken: string) => void;
+    releaseRejectedClaim: (sessionId: string, id: string, claimToken: string, certainty?: "unsent" | "rejected") => void;
     getQueueCount: (sessionId: string) => number;
   };
   buildAgentUrl: (host: string, port: number, path: string) => string | URL;
@@ -210,10 +213,12 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
     content: string;
     promptType: string;
     boundaryIdentity: string;
+    deliveryId?: string;
     acceptedAt?: string;
     onAccepted?: () => void;
-    onRejected?: () => void;
+    onRejected?: (certainty: "unsent" | "rejected") => void;
     beforeSend?: () => boolean;
+    onSending?: () => void;
   }): Promise<{ messages: unknown[]; deliveryMs: number; messageSyncMs: number; turnObserved: boolean }> {
     restartDrainGate.assertPromptExecutionAllowed();
     const initialCount = ctx.messageStore.listSessionMessages(input.session.id).length;
@@ -229,10 +234,12 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
       pm2Name: input.session.pm2Name,
       adapter: ctx.manager.getAdapter(input.session.id),
       beforeSend: input.beforeSend,
+      onSending: input.onSending,
+      deliveryId: input.deliveryId ?? input.boundaryIdentity,
     });
     const deliveryMs = elapsedSince(deliveryStartedAt);
     if (!result.ok) {
-      if (result.status === 409) input.onRejected?.();
+      if (result.certainty === "unsent" || result.certainty === "rejected") input.onRejected?.(result.certainty);
       throw new QueueDispatchError(result.message, result.status);
     }
 
@@ -282,13 +289,20 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
       throw new QueueDispatchError("No prompts in queue", 404);
     }
 
+    let acceptanceObserved = false;
     try {
       const delivered = await deliverAcceptedPrompt({ session, content: nextPrompt.content,
+        deliveryId: nextPrompt.claimToken!,
+        onSending: () => ctx.promptQueueStore.markClaimSending(session.id, nextPrompt.id, nextPrompt.claimToken!),
         promptType: "queued_prompt",
         boundaryIdentity: nextPrompt.id ?? `${nextPrompt.timestamp ?? dispatchStartedAt}:${nextPrompt.content}`,
         acceptedAt: nextPrompt.timestamp,
-        onAccepted: () => ctx.promptQueueStore.completeClaim(session.id, nextPrompt.id, nextPrompt.claimToken!),
-        onRejected: () => ctx.promptQueueStore.releaseRejectedClaim(session.id, nextPrompt.id, nextPrompt.claimToken!) });
+        onAccepted: () => {
+          acceptanceObserved = true;
+          ctx.promptQueueStore.recordClaimAcceptance(session.id, nextPrompt.id, nextPrompt.claimToken!);
+          ctx.promptQueueStore.completeClaim(session.id, nextPrompt.id, nextPrompt.claimToken!);
+        },
+        onRejected: (certainty) => ctx.promptQueueStore.releaseRejectedClaim(session.id, nextPrompt.id, nextPrompt.claimToken!, certainty) });
       deliveryMs = delivered.deliveryMs;
       messageSyncMs = delivered.messageSyncMs;
       clearQueueDispatchCooldown(session.id);
@@ -303,10 +317,16 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
       });
       return { id: session.id, messages: delivered.messages, sentPrompt: nextPrompt };
     } catch (error) {
+      const current = ctx.promptQueueStore.getSessionQueue(session.id).find((prompt) => prompt.id === nextPrompt.id);
+      if (current?.state === "claimed" && current.deliveryState === "unsent") {
+        ctx.promptQueueStore.releaseRejectedClaim(session.id, nextPrompt.id, nextPrompt.claimToken!, "unsent");
+      }
+      const failurePayload = current?.state === "claimed" && current.deliveryState !== "unsent"
+        ? { claimedPrompt: current, reviewRequired: true }
+        : acceptanceObserved ? { sentPrompt: nextPrompt, deliveryAccepted: true }
+        : { failedPrompt: nextPrompt };
       if (error instanceof QueueDispatchError) {
-        error.payload = { ...(error.status === 409
-          ? { failedPrompt: nextPrompt }
-          : { claimedPrompt: nextPrompt, reviewRequired: true }), ...error.payload };
+        error.payload = { ...failurePayload, ...error.payload };
         logQueueDispatchTiming({
           sessionId: session.id,
           agent: session.agent,
@@ -329,9 +349,7 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
         messageSyncMs,
         errorStatus: 502,
       });
-      throw new QueueDispatchError(`Failed to contact agent: ${(error as Error).message}`, 502, {
-        claimedPrompt: nextPrompt, reviewRequired: true,
-      });
+      throw new QueueDispatchError(`Failed to contact agent: ${(error as Error).message}`, 502, failurePayload);
     }
   }
 
@@ -349,6 +367,8 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
         promptType: "dispatch_inbox_wake",
         boundaryIdentity: `${claim.inboxFingerprint}:${claim.attemptCount}`,
         beforeSend: () => ctx.dispatchInbox?.validateClaim(claim) ?? false,
+        onSending: () => ctx.dispatchInbox?.markDeliveryUncertain(claim),
+        onRejected: () => ctx.dispatchInbox?.releaseRejectedDelivery(claim),
         onAccepted: () => ctx.dispatchInbox?.markSubmitted(claim) });
       // A synced message proves the accepted wake reached the session even when
       // a very fast turn skips a separately observable runtime=running event.

@@ -1,0 +1,66 @@
+import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { SessionSnapshot } from "../agents/process-manager";
+import type { RequestAuthContext } from "../auth/request-context";
+import { PromptQueueStore } from "../storage/prompt-queue-store";
+import type { SessionApiContext } from "./session-api-routes";
+import { handleQueueRoutes } from "./session-queue-routes";
+
+test("reconciliation cannot invalidate a delivery that is still in flight", async () => {
+  const root = mkdtempSync(join(tmpdir(), "queue-active-reconcile-"));
+  try {
+    const store = new PromptQueueStore(join(root, "queue.db"));
+    const item = store.addPrompt("session", { content: "Possibly accepted work" })!;
+    const claim = store.claimNextPrompt("session")!;
+    store.markClaimSending("session", item.id, claim.claimToken!);
+    const active = new Set(["session"]);
+    const context = { promptQueueStore: store, queueDispatchInFlight: active } as unknown as SessionApiContext;
+    const session = { id: "session", status: "running" } as SessionSnapshot;
+    const auth = { capabilitySessionId: "session" } as RequestAuthContext;
+    const parts = ["", "api", "sessions", "session", "queue", item.id, "reconcile"];
+    const request = () => new Request(`http://localhost${parts.join("/")}`, {
+      method: "POST",
+      body: JSON.stringify({ revision: claim.revision, claimToken: claim.claimToken,
+        resolution: "accepted", reason: "Acceptance confirmed independently" }),
+      headers: { "content-type": "application/json" },
+    });
+    const blocked = await handleQueueRoutes(request(), "POST", parts, "session", session, auth, context);
+    expect(blocked.status).toBe(409);
+    expect(store.getSessionQueue("session")[0]?.claimToken).toBe(claim.claimToken);
+    active.clear();
+    const resolved = await handleQueueRoutes(request(), "POST", parts, "session", session, auth, context);
+    expect(resolved.status).toBe(200);
+    expect(store.getQueueCount("session")).toBe(0);
+    expect(store.getHandledPrompts("session")[0]?.deliveryState).toBe("accepted");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("retention keeps a newer dispatched receipt ahead of older handled records", () => {
+  const root = mkdtempSync(join(tmpdir(), "queue-receipt-retention-"));
+  const path = join(root, "queue.db");
+  let inspect: Database | undefined;
+  try {
+    const store = new PromptQueueStore(path);
+    const item = store.addPrompt("session", { content: "Latest delivery" })!;
+    const claim = store.claimNextPrompt("session")!;
+    store.completeClaim("session", item.id, claim.claimToken!);
+    inspect = new Database(path);
+    const older = `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`;
+    const insert = inspect.query(`INSERT INTO prompt_queue
+      (id, session_id, content, timestamp, queue_order, state, handled_at)
+      VALUES (?, 'session', 'Earlier work', ?, 1, 'handled', ?)`);
+    inspect.transaction(() => {
+      for (let index = 0; index < 1000; index++) insert.run(`older-${index}`, older, older);
+    })();
+    store.getHandledPrompts("session");
+    expect(inspect.query("SELECT state FROM prompt_queue WHERE id = ?").get(item.id)).toEqual({ state: "dispatched" });
+  } finally {
+    inspect?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

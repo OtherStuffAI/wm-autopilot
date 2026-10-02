@@ -114,7 +114,7 @@ describe("deliverSessionAgentMessage adapter routing", () => {
       adapter,
     });
 
-    expect(result).toEqual({ ok: false, status: 409, message: "Agent working" });
+    expect(result).toEqual({ ok: false, status: 409, message: "Agent working", certainty: "rejected" });
     expect(waitForReady).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
   });
@@ -138,7 +138,34 @@ describe("deliverSessionAgentMessage adapter routing", () => {
     expect(result).toEqual({
       ok: false,
       status: 502,
+      certainty: "uncertain",
       message: 'Failed to contact agent: Pi ACP model "openrouter/google/missing" is not advertised by this session; provider "openrouter" is not authenticated',
     });
   });
+});
+
+test("response loss after acceptance submits exactly once and preserves uncertainty without PM2 replay", async () => {
+  const original = globalThis.fetch;
+  let accepted = 0;
+  globalThis.fetch = (async () => { accepted++; throw new Error("lost response after accepted"); }) as typeof fetch;
+  try {
+    const result = await deliverSessionAgentMessage({ ...baseInput, agent: "codex", pm2Name: "never-restart", deliveryId: "durable-id" });
+    expect(result.certainty).toBe("uncertain");
+    expect(accepted).toBe(1);
+  } finally { globalThis.fetch = original; }
+});
+
+test("readiness and before-send exceptions are definitely unsent; explicit rejection never retries", async () => {
+  let sent = 0;
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => { sent++; return new Response('{"error":"rejected"}', { status: 422 }); }) as typeof fetch;
+  try {
+    const ready = await deliverSessionAgentMessage({ ...baseInput, agent: "codex", adapter: buildAdapter({ waitForReady: async () => { throw new Error("not ready"); } }) });
+    expect(ready.certainty).toBe("unsent");
+    const gate = await deliverSessionAgentMessage({ ...baseInput, agent: "codex", beforeSend: () => { throw new Error("gate"); } });
+    expect(gate.certainty).toBe("unsent");
+    expect(sent).toBe(0);
+    expect((await deliverSessionAgentMessage({ ...baseInput, agent: "codex" })).certainty).toBe("rejected");
+    expect(sent).toBe(1);
+  } finally { globalThis.fetch = original; }
 });

@@ -20,8 +20,11 @@ export async function handleQueueRoutes(
     return Response.json({ id, queue: { prompts, handled: ctx.promptQueueStore.getHandledPrompts(id), maxSize: 21 } });
   }
 
-  if (method === "POST" && parts.length === 7 && parts[6] === "acknowledge") {
+  if (method === "POST" && parts.length === 7 && ["acknowledge", "reconcile"].includes(parts[6]!)) {
     if (ownedSession.status !== "running") return Response.json({ error: "Active session required" }, { status: 409 });
+    if (parts[6] === "reconcile" && ctx.queueDispatchInFlight.has(id)) {
+      return Response.json({ error: "Delivery attempt is still active; wait for its outcome before reconciling" }, { status: 409 });
+    }
     let payload: Record<string, unknown>;
     try { payload = await request.json() as Record<string, unknown>; } catch { return Response.json({ error: "Invalid JSON payload" }, { status: 400 }); }
     if (typeof payload?.revision !== "string" || !/^[1-9][0-9]*$/.test(payload.revision)
@@ -33,7 +36,13 @@ export async function handleQueueRoutes(
       : authContext.subjectNpub ?? authContext.signerNpub ?? authContext.npub;
     if (!actor) return Response.json({ error: "Authenticated actor required" }, { status: 403 });
     try {
-      const prompt = ctx.promptQueueStore.acknowledgePrompt(id, parts[5]!, payload.revision, actor, payload.reason);
+      if (parts[6] === "reconcile" && ctx.queueDispatchInFlight.has(id))
+        return Response.json({ error: "Delivery is still in flight; wait for its outcome before reconciliation" }, { status: 409 });
+      if (parts[6] === "reconcile" && (typeof payload.claimToken !== "string" || typeof payload.resolution !== "string"))
+        return Response.json({ error: "Exact claimToken and resolution accepted|retry required" }, { status: 400 });
+      const prompt = parts[6] === "reconcile"
+        ? ctx.promptQueueStore.reconcileClaim(id, parts[5]!, payload.revision, payload.claimToken as string, payload.resolution as string, actor, payload.reason)
+        : ctx.promptQueueStore.acknowledgePrompt(id, parts[5]!, payload.revision, actor, payload.reason);
       return Response.json({ id, prompt, queue: {
         prompts: ctx.promptQueueStore.getSessionQueue(id),
         handled: ctx.promptQueueStore.getHandledPrompts(id), maxSize: 21,

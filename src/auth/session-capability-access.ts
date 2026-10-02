@@ -18,7 +18,7 @@ export function isCapabilityBoundSelfSessionMetadataRead(context: AccessContext)
 
 export function isCapabilityBoundSelfSessionQueueOperation(context: Pick<AccessContext, "request" | "url" | "auth">): boolean {
   if (context.auth.authMethod !== "nip98" || !context.auth.capabilitySessionId) return false;
-  const match = context.url.pathname.match(/^\/api\/sessions\/([^/]+)\/queue(?:\/([^/]+)\/acknowledge)?$/);
+  const match = context.url.pathname.match(/^\/api\/sessions\/([^/]+)\/queue(?:\/([^/]+)\/(?:acknowledge|reconcile))?$/);
   if (!match) return false;
   try {
     return decodeURIComponent(match[1]!) === context.auth.capabilitySessionId

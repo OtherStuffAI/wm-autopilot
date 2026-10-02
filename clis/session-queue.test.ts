@@ -22,3 +22,11 @@ describe("session queue CLI", () => {
     }
   });
 });
+
+test("reconcile carries exact version and claim identity and requires explicit retry decision", async () => {
+  let call: unknown[] = [];
+  const deps = { env: { SESSION_ID: "self" }, request: async (...args: unknown[]) => { call = args; return {}; }, stdout: () => {} };
+  await runSessionQueueCli(["reconcile", "id", "--revision", "2", "--claim-token", "token", "--resolution", "retry", "--reason", "receiver inspected; accept duplicate risk"], deps);
+  expect(call.slice(1)).toEqual(["POST", "/api/sessions/self/queue/id/reconcile", { revision: "2", reason: "receiver inspected; accept duplicate risk", claimToken: "token", resolution: "retry" }]);
+  await expect(runSessionQueueCli(["reconcile", "id", "--revision", "2", "--reason", "no decision"], deps)).rejects.toThrow();
+});

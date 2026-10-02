@@ -33,6 +33,9 @@ describe("live ACP permission and queue surface", () => {
     expect(source).toContain("fetchSessionQueueApi(sessionId)");
     expect(source).toContain("PromptQueueStore.replaceSession(sessionId, payload.queue.prompts, payload.queue.handled)");
     expect(source).toContain('data-testid="queued-prompt-state"');
+    expect(source).toContain("message.queueState === 'claimed' ? 'Delivery unresolved — inspect queue and reconcile explicitly' : 'Queued'");
+    expect(source).toContain('data-testid="handled-prompt-state"');
+    expect(source).toContain("'Handled: ' + message.handledReason");
     expect(source).toContain("mergeConversationWithQueuedPrompts(this.messages, this.queuedPrompts)");
   });
 

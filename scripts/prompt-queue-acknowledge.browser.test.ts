@@ -73,6 +73,16 @@ browserTest("busy queue acknowledgement updates Dexie, pending count and histori
     await page.reload();
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="handled-prompt-state"]').length === 1);
     expect(await page.getByTestId("pending-count").textContent()).toBe("1");
+    // A durable unresolved claim remains visible after Dexie refresh and reload.
+    const unresolved = queue.claimNextPrompt("fixture")!;
+    queue.markClaimSending("fixture", unresolved.id, unresolved.claimToken!);
+    await page.evaluate(() => (window as any).fixture.refresh());
+    await page.waitForFunction(() => document.querySelector('[data-testid="queued-prompt-state"]')?.textContent?.includes('Delivery unresolved'));
+    expect(await page.getByTestId("queued-prompt-state").textContent()).toContain("reconcile explicitly");
+    expect(await page.getByTestId("pending-count").textContent()).toBe("1");
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('[data-testid="queued-prompt-state"]')?.textContent?.includes('Delivery unresolved'));
+    expect(await page.getByTestId("queued-prompt-state").count()).toBe(1);
     expect(errors).toEqual([]);
     if (process.env.QUEUE_ACK_SCREENSHOT) await page.screenshot({ path: process.env.QUEUE_ACK_SCREENSHOT, fullPage: true });
   } finally { await browser.close(); server.stop(true); }

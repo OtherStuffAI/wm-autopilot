@@ -68,8 +68,10 @@ test("exact-session queue authority grants list and acknowledge only", () => {
   for (const [method, path, allowed] of [
     ["GET", "/api/sessions/session-self/queue", true],
     ["POST", "/api/sessions/session-self/queue/item/acknowledge", true],
+    ["POST", "/api/sessions/session-self/queue/item/reconcile", true],
     ["GET", "/api/sessions/session-other/queue", false],
     ["POST", "/api/sessions/session-other/queue/item/acknowledge", false],
+    ["POST", "/api/sessions/session-other/queue/item/reconcile", false],
     ["POST", "/api/sessions/session-self/queue/next", false],
     ["DELETE", "/api/sessions/session-self/queue/item", false],
     ["GET", "/api/owners/owner/sessions/session-self/queue", false],

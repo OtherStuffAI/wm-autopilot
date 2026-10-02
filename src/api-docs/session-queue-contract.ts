@@ -6,11 +6,14 @@ export function addSessionQueueContract(paths: Record<string, Record<string, unk
     state: { type: "string", enum: ["pending", "claimed", "dispatched", "handled"] },
     timestamp: { type: "string", format: "date-time" }, order: { type: "integer" },
     handledAt: { type: "string", format: "date-time", nullable: true }, handledBy: { type: "string", nullable: true },
+    deliveryState: { type: "string", nullable: true, enum: ["unsent", "uncertain", "accepted", "rejected"] },
+    deliveryId: { type: "string", nullable: true }, claimToken: { type: "string", nullable: true },
+    deliveryUpdatedAt: { type: "string", nullable: true },
     handledReason: { type: "string", nullable: true },
   } };
   const queue = { type: "object", required: ["prompts", "handled", "maxSize"], properties: {
     prompts: { type: "array", items: item, description: "Pending and claimed items, in queue order." },
-    handled: { type: "array", items: item, description: "Durable handled history; does not count toward pending queue capacity." },
+    handled: { type: "array", items: item, description: "Latest 100 full handled records. Retry tombstones retain the most recent 1000 terminal records for seven days; unresolved claims never expire." },
     maxSize: { type: "integer", enum: [21] },
   } };
   const response = { description: "Current queue and handled history", content: { "application/json": { schema: {
@@ -27,4 +30,13 @@ export function addSessionQueueContract(paths: Record<string, Record<string, unk
   acknowledge.responses = { "200": response, "400": { description: "Missing read revision or nonempty reason" },
     "403": { description: "Different session or denied caller" }, "404": { description: "Item not found in this session" },
     "409": { description: "Edited, claimed/dispatched, differently handled, or inactive session" } };
+  const reconcile = paths["/api/sessions/{id}/queue/{itemId}/reconcile"]!.post as Record<string, unknown>;
+  reconcile.description = "Explicit authenticated audited recovery of an unresolved claim. Compare exact read revision and claimToken. accepted records verified receiver acceptance without sending; retry explicitly permits another submission and may duplicate accepted work. No lease replay. In-flight delivery conflicts; successful resolution increments revision, making stale resolution conflict.";
+  reconcile.requestBody = { required: true, content: { "application/json": { schema: {
+    type: "object", required: ["revision", "claimToken", "resolution", "reason"], properties: {
+      revision, claimToken: { type: "string", minLength: 1 }, resolution: { type: "string", enum: ["accepted", "retry"] }, reason: { type: "string", minLength: 1 },
+    },
+  } } } };
+  reconcile.responses = acknowledge.responses;
+
 }

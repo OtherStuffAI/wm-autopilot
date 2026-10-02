@@ -55,6 +55,7 @@ export async function normalizeBusySessionMessageFailure(
   }
 
   return {
+    certainty: result.certainty,
     ok: false,
     status: 409,
     message: "Agent working",

@@ -171,3 +171,7 @@ bun clis/scheduler.ts runs <job-id>
 - `resolveBaseUrl()` — URL resolution from flags/env
 - `parseCommonFlags()` — shared CLI flag parsing
 - `buildConfig()` — combine URL + key into a CliConfig
+
+### Explicit prompt delivery recovery
+
+`bun clis/wingman.ts session queue reconcile <item-id> --revision <read-revision> --claim-token <read-token> --resolution accepted|retry --reason <evidence>` uses exact current-session broker authority. `accepted` records verified acceptance without sending; `retry` explicitly permits another delivery and may duplicate possibly accepted work. Stale versions/tokens and active sends conflict. See [queue delivery and retention contract](../docs/session-prompt-queue.md). No automatic timeout replay or raw-key fallback.

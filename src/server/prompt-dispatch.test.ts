@@ -47,6 +47,9 @@ function createQueue(prompts: string[]) {
       const prompt = this.getNextQueuedPrompt(sessionId);
       return prompt ? { ...prompt, claimToken: "test-claim" } : null;
     },
+    getSessionQueue() { return this.prompts; },
+    markClaimSending() {},
+    recordClaimAcceptance() {},
     completeClaim(sessionId: string, id: string) {
       if (sessionId === "session-1") this.prompts = this.prompts.filter((prompt) => prompt.id !== id);
     },
@@ -467,4 +470,74 @@ describe("prompt dispatch engine", () => {
     expect(queue.acknowledgePrompt("session-1", prompt.id, prompt.revision, "session:session-1", "Completed in busy turn").state).toBe("handled");
   });
 
+});
+
+describe("queue delivery recovery boundaries", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+  test("drain gate and message lookup exceptions after claim release exact unsent claim", async () => {
+    const { restartDrainGate } = await import("../agents/session-admission");
+    const original = restartDrainGate.assertPromptExecutionAllowed;
+    for (const boundary of ["drain", "messages", "adapter", "readiness"]) {
+      const root = mkdtempSync(join(tmpdir(), "queue-presend-")); roots.push(root);
+      const queue = new PromptQueueStore(join(root, "queue.db"));
+      const first = queue.addPrompt("session-1", { content: boundary })!;
+      const second = queue.addPrompt("session-1", { content: "second" })!;
+      const f = buildEngine({ promptQueueStore: queue, ...(boundary === "messages" ? { messageStore: { listSessionMessages: () => { throw new Error("lookup failed"); } } } : {}),
+        ...(boundary === "adapter" ? { manager: { listSessions: () => [], getAdapter: () => { throw new Error("adapter lookup failed"); } } } : {}) });
+      if (boundary === "readiness") f.adapter.waitForReady = mock(async () => { throw new Error("readiness failed"); });
+      try {
+        if (boundary === "drain") restartDrainGate.assertPromptExecutionAllowed = () => { throw new Error("draining"); };
+        await expect(f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner")).rejects.toThrow();
+        expect(queue.getSessionQueue("session-1").map(p => p.id)).toEqual([first.id, second.id]);
+        expect(queue.getSessionQueue("session-1")[0]?.state).toBe("pending");
+      } finally { restartDrainGate.assertPromptExecutionAllowed = original; }
+    }
+  });
+  test("lost HTTP acceptance response never replays across reopen; accepted recovery releases second FIFO item", async () => {
+    const root = mkdtempSync(join(tmpdir(), "queue-response-loss-")); roots.push(root);
+    const path = join(root, "queue.db");
+    const queue = new PromptQueueStore(path);
+    const first = queue.addPrompt("session-1", { content: "first" })!;
+    const second = queue.addPrompt("session-1", { content: "second" })!;
+    let accepted = 0;
+    globalThis.fetch = (async () => { accepted++; throw new Error("response lost after acceptance"); }) as typeof fetch;
+    const f = buildEngine({ promptQueueStore: queue });
+    await expect(f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner")).rejects.toThrow();
+    const reopened = new PromptQueueStore(path);
+    const again = buildEngine({ promptQueueStore: reopened });
+    await expect(again.engine.dispatchNextQueuedPromptForSession(again.session, "npub1owner")).rejects.toMatchObject({ status: 409 });
+    expect(accepted).toBe(1);
+    const read = reopened.getSessionQueue("session-1")[0]!;
+    expect(read.deliveryState).toBe("uncertain");
+    reopened.reconcileClaim("session-1", first.id, read.revision, read.claimToken!, "accepted", "actor", "confirmed in receiver conversation");
+    expect(reopened.claimNextPrompt("session-1")?.id).toBe(second.id);
+  });
+  test("acceptance receipt survives failure before completion and prevents automatic replay", async () => {
+    const root = mkdtempSync(join(tmpdir(), "queue-accepted-crash-")); roots.push(root);
+    const path = join(root, "queue.db");
+    const queue = new PromptQueueStore(path);
+    const prompt = queue.addPrompt("session-1", { content: "first" })!;
+    queue.completeClaim = () => { throw new Error("crash before completion"); };
+    const f = buildEngine({ promptQueueStore: queue });
+    const send = mock(async () => new Response("{}")); globalThis.fetch = send as typeof fetch;
+    await expect(f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner")).rejects.toThrow();
+    const reopened = new PromptQueueStore(path);
+    expect(reopened.getSessionQueue("session-1")[0]).toMatchObject({ id: prompt.id, deliveryState: "accepted" });
+    expect(reopened.claimNextPrompt("session-1")).toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+});
+
+test("post-acceptance synchronization failure never suggests replaying the accepted prompt", async () => {
+  const root = mkdtempSync(join(tmpdir(), "queue-sync-failure-"));
+  const original = globalThis.fetch;
+  try {
+    const queue = new PromptQueueStore(join(root, "queue.db"));
+    queue.addPrompt("session-1", { content: "accepted work" });
+    const f = buildEngine({ promptQueueStore: queue, syncSessionMessages: async () => { throw new Error("sync failed"); } });
+    globalThis.fetch = (async () => new Response("{}")) as typeof fetch;
+    await expect(f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner")).rejects.toMatchObject({ payload: { deliveryAccepted: true } });
+    expect(queue.getQueueCount("session-1")).toBe(0);
+  } finally { globalThis.fetch = original; rmSync(root, { recursive: true, force: true }); }
 });

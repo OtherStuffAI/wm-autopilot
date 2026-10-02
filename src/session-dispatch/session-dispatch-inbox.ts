@@ -126,9 +126,22 @@ export class SessionDispatchInboxCoordinator {
       && wake.attemptCount === claim.attemptCount && !this.leaseExpired(wake, this.now());
   }
 
+  markDeliveryUncertain(claim: DispatchInboxWakeClaim): void {
+    if (!this.validateClaim(claim)) throw new Error("Wake claim changed before delivery");
+    const wake = this.store.getWake(claim.callbackSessionId)!;
+    this.store.saveWake({ ...wake, state: "blocked", leaseExpiresAt: null, nextRetryAt: null,
+      lastError: "Delivery may have been accepted; inspect receiver before explicit retry", updatedAt: this.now().toISOString() });
+  }
+
+  releaseRejectedDelivery(claim: DispatchInboxWakeClaim): void {
+    const wake = this.store.getWake(claim.callbackSessionId);
+    if (!wake || wake.state !== "blocked" || wake.inboxFingerprint !== claim.inboxFingerprint || wake.attemptCount !== claim.attemptCount) return;
+    this.store.saveWake({ ...wake, state: "claimed", lastError: null });
+  }
+
   markSubmitted(claim: DispatchInboxWakeClaim): void {
     const wake = this.store.getWake(claim.callbackSessionId);
-    if (!wake || wake.state !== "claimed" || wake.inboxFingerprint !== claim.inboxFingerprint || wake.attemptCount !== claim.attemptCount) return;
+    if (!wake || !["claimed", "blocked"].includes(wake.state) || wake.inboxFingerprint !== claim.inboxFingerprint || wake.attemptCount !== claim.attemptCount) return;
     this.store.saveWake({ ...wake, state: "submitted", submittedAt: this.now().toISOString(), lastError: null });
   }
 

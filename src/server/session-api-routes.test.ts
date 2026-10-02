@@ -2144,3 +2144,29 @@ describe("active session prompt acknowledgement API", () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 });
+
+test("reconcile API scopes exact session, blocks active sends and audits version-checked recovery", async () => {
+  const root = await mkdtemp(join(tmpdir(), "queue-reconcile-api-"));
+  try {
+    const store = new PromptQueueStore(join(root, "queue.db"));
+    const prompt = store.addPrompt("session-1", { content: "uncertain" })!;
+    const claim = store.claimNextPrompt("session-1")!;
+    store.markClaimSending("session-1", prompt.id, claim.claimToken!);
+    const ctx = buildCtx({ promptQueueStore: store, getViewerNormalizedNpub: () => "npub1unapprovedbot" });
+    const call = async (sessionId: string, body: unknown, capabilitySessionId = "session-1") => {
+      const request = new Request(`http://localhost/api/sessions/${sessionId}/queue/${prompt.id}/reconcile`, { method: "POST", body: JSON.stringify(body) });
+      return (await handleSessionApi(request, new URL(request.url), "POST", makeAuth({ capabilitySessionId, delegatedByBot: false, delegatedOwnerNpub: null }), ctx))!;
+    };
+    const body = { revision: "1", claimToken: claim.claimToken, resolution: "accepted", reason: "receiver conversation confirms acceptance" };
+    expect((await call("session-2", body)).status).toBe(403);
+    expect((await call("session-1", body, "session-2")).status).toBe(403);
+    ctx.queueDispatchInFlight.add("session-1");
+    expect((await call("session-1", body)).status).toBe(409);
+    ctx.queueDispatchInFlight.clear();
+    expect((await call("session-1", { ...body, claimToken: "stale" })).status).toBe(409);
+    expect((await call("session-1", { ...body, resolution: "automatic" })).status).toBe(400);
+    expect((await call("session-1", body)).status).toBe(200);
+    expect((await call("session-1", body)).status).toBe(409);
+    expect(store.getHandledPrompts("session-1")[0]).toMatchObject({ revision: "2", handledBy: "session:session-1", deliveryState: "accepted" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
