@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { redactPipelineValue } from "./pipeline-evidence-redaction";
+import { pipelineProviderSecrets, pipelineValueCredentials, redactPipelineValue } from "./pipeline-evidence-redaction";
+import { retainedCredentialExposure } from "./pipeline-evidence-scope";
 import { evidenceDigest, PipelineEvidencePayloads } from "./pipeline-evidence-payloads";
 
 import type { EvidencePreview } from "./pipeline-evidence-preview";
@@ -64,7 +65,7 @@ export class PipelineEvidenceStore {
   }
 
   assertViewerSafe(runId: string): void {
-    assertViewerEvidenceSafe(this.db, runId);
+    assertViewerEvidenceSafe(this.db, this.payloads.root(runId));
   }
 
   private captureValue(input: EvidenceCapture): EvidenceReference {
@@ -78,7 +79,9 @@ export class PipelineEvidenceStore {
     const sanitized = retained ? this.sanitize(retained.value, input.secrets) : { value: boundary.value, redacted: boundary.redacted };
     sanitized.redacted ||= boundary.redacted;
     sanitized.redacted ||= retained?.redacted ?? false;
-    if (sanitized.redacted) refineCapturedViewerPins(this.db, input.runId, root, input.value, value => this.sanitize(value, input.secrets));
+    const unsafeBody = retainedCredentialExposure(this.db, root,
+      [...this.executionSecrets, ...pipelineProviderSecrets(), ...(input.secrets ?? []), ...pipelineValueCredentials(input.value)], this.runLimit);
+    if (sanitized.redacted || unsafeBody) refineCapturedViewerPins(this.db, input.runId, root, input.value, value => this.sanitize(value, input.secrets), unsafeBody);
     const json = JSON.stringify(sanitized.value ?? null);
     const bytes = Buffer.byteLength(json);
     const hash = evidenceDigest(json);

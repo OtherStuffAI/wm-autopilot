@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
+import { compositionEvidenceFamily } from "./pipeline-evidence-scope";
 
 export function evidenceDigest(json: string): string {
   return createHash("sha256").update(json).digest("hex");
@@ -8,14 +9,7 @@ export function evidenceDigest(json: string): string {
 type EvidenceRow = Record<string, unknown>;
 type RunAuthority = { id: string; owner_npub: string | null; owner_alias: string | null };
 
-const rootEvidenceRows = `WITH RECURSIVE evidence_runs(id) AS (
-  SELECT ? UNION SELECT link.child_run_id FROM evidence_runs tree
-  JOIN pipeline_child_runs link ON link.parent_run_id = tree.id
-  JOIN pipeline_runs parent ON parent.id = link.parent_run_id
-  JOIN pipeline_runs child ON child.id = link.child_run_id
-  JOIN pipeline_steps step ON step.id = link.parent_step_id AND step.run_id = parent.id
-  WHERE parent.owner_npub IS child.owner_npub AND parent.owner_alias IS child.owner_alias
-) SELECT evidence.* FROM pipeline_evidence evidence JOIN evidence_runs tree ON tree.id = evidence.run_id WHERE `;
+const rootEvidenceRows = `${compositionEvidenceFamily} SELECT evidence.* FROM pipeline_evidence evidence JOIN evidence_runs tree ON tree.id = evidence.run_id WHERE `;
 
 /** Internal content storage; public reads still resolve run-bound evidence IDs. */
 export class PipelineEvidencePayloads {

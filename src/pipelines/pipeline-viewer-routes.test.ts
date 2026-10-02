@@ -38,16 +38,27 @@ async function request(path: string, signer = owner, query = "", method = "GET")
   return (await handlePipelineViewerApi(new Request(url, { method }), url,
     { authMethod: "nip98", npub: signer, subjectNpub: signer, signerNpub: signer } as RequestAuthContext, ctx))!;
 }
-for (const earlier of ["missing", "present"]) test(`actual runner late discovery refuses ${earlier} earlier input selectors across authorized reads`, async () => {
-  const secret = "synthetic-late-boundary-credential";
+for (const earlier of ["missing", "present", "long-declared", "long-generic", "later-record", "omitted-field", "escaped-text"]) test(`actual runner late discovery refuses ${earlier} earlier full values across authorized reads`, async () => {
+  const secret = earlier === "escaped-text" ? "synthetic-\"credential\\with\nnewline" : "synthetic-late-boundary-credential";
   const port = { label: "Value", path: `$.${secret}` };
-  const pinnedDefinition = { ...definition, spec: { name: "synthetic", steps: [{ id: "emit", name: "emit", type: "code", function: "emit", display: { in: [port], out: [port] } }] } } as PipelineDefinitionRecord;
+  const selector = ["missing", "present"].includes(earlier);
+  const display = selector ? { in: [port], out: [port] } : earlier === "long-generic" ? undefined
+    : earlier === "later-record" ? { in: [{ label: "Records", path: "$.records" }] }
+    : earlier === "omitted-field" ? { in: Array.from({ length: 17 }, (_, i) => ({ label: "Field", path: `$.field${i}` })) }
+    : { in: [{ label: "Message", path: "$.message" }], out: [{ label: "Result", path: "$.result" }] };
+  const input = earlier === "missing" ? {} : earlier === "present" ? { [secret]: "earlier-value" }
+    : earlier === "later-record" ? { records: Array.from({ length: 37 }, (_, i) => ({ text: i === 36 ? secret : `safe ${i}` })) }
+    : earlier === "omitted-field" ? Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`field${i}`, i === 16 ? secret : "safe"]))
+    : { message: "x".repeat(1000) + secret };
+  const pinnedDefinition = { ...definition, spec: { name: "synthetic", steps: [{ id: "emit", name: "emit", type: "code", function: "emit", display }] } } as PipelineDefinitionRecord;
   const run = await runDeclarativePipeline({ store, definition: pinnedDefinition, registry: { emit: () => ({ apiKey: secret, [secret]: "safe" }) },
-    input: earlier === "present" ? { [secret]: "earlier-value" } : {}, ownerNpub: owner, ownerAlias: null, callbackOrigin: "http://localhost", sessionApiContext: {} as never });
+    input, ownerNpub: owner, ownerAlias: null, callbackOrigin: "http://localhost", sessionApiContext: {} as never });
   expect(run.status).toBe("ok");
   store.addEvent({ runId: run.id, type: "flightdeck_invocation_context", level: "info", data: context });
   const refs = store.evidence.list(run.id); const pin = store.composition.snapshot(run.id)!;
-  expect(refs.find(ref => ref.kind === "resolved_input")!.preview!.fields![port.path]!.present).toBe(earlier === "present");
+  const initial = refs.find(ref => ref.kind === "resolved_input")!;
+  if (selector) expect(initial.preview!.fields![port.path]!.present).toBe(earlier === "present");
+  else expect(JSON.stringify(initial.preview)).not.toContain(secret);
   expect(() => store.evidence.get(run.id, refs[0]!.id)).toThrow("pipeline-viewer-evidence-redaction-review-required");
   for (let reopened = 0; reopened < 2; reopened++) {
     store = new PipelineStore(store.path); ctx.store = store; store.compactCompletedRunPayloads({});

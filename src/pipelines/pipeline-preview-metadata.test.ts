@@ -7,6 +7,8 @@ import { PipelineStore } from "./pipeline-store";
 import { viewerSnapshot } from "./pipeline-viewer-dto";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
 import { runDeclarativePipeline } from "./pipeline-runner";
+import { retainedCredentialExposure } from "./pipeline-evidence-scope";
+import { PipelineEvidenceStore } from "./pipeline-evidence-store";
 
 let directory: string; let store: PipelineStore;
 beforeEach(() => { directory = mkdtempSync(join(tmpdir(), "preview-selectors-")); store = new PipelineStore(join(directory, "runs.sqlite")); });
@@ -166,7 +168,7 @@ test("late child discovery quarantines actual parent and child projections with 
   const parentEntered = new Promise<void>(resolve => { enteredParent = resolve; });
   const childEntered = new Promise<void>(resolve => { enteredChild = resolve; });
   const start = (registry: Record<string, (value: unknown) => Promise<Record<string, unknown>>>, onRunCreated?: (run: { id: string }) => void) => runDeclarativePipeline({ store, definition, registry, onRunCreated,
-    input: {}, ownerNpub: null, ownerAlias: null, callbackOrigin: "http://localhost", sessionApiContext: {} as never });
+    input: { message: "x".repeat(1000) + secret }, ownerNpub: null, ownerAlias: null, callbackOrigin: "http://localhost", sessionApiContext: {} as never });
   const parentPromise = start({ emit: () => new Promise(resolve => { releaseParent = resolve; enteredParent(); }) });
   await parentEntered;
   const parent = store.listRuns()[0]!; const parentStep = store.listSteps(parent.id)[0]!;
@@ -177,9 +179,13 @@ test("late child discovery quarantines actual parent and child projections with 
   const child = store.listRuns().find(run => run.id !== parent.id)!; const childStep = store.listSteps(child.id)[0]!;
   const db = new Database(store.path);
   const before = store.composition.snapshot(parent.id)!;
+  const records = () => JSON.stringify(Object.fromEntries(["pipeline_steps", "pipeline_run_snapshots", "pipeline_evidence", "pipeline_evidence_payloads", "pipeline_events"]
+    .map(table => [table, db.query(`SELECT * FROM ${table} ORDER BY rowid`).all()])));
+  const beforeRecords = records();
   db.run("CREATE TRIGGER reject_late_output BEFORE INSERT ON pipeline_evidence WHEN NEW.kind = 'returned_output' BEGIN SELECT RAISE(ABORT, 'synthetic capture rejection'); END");
   expect(() => store.evidence.capture({ runId: child.id, stepId: childStep.id, kind: "returned_output", scope: "rollback", value: { apiKey: secret } })).toThrow("synthetic capture rejection");
   expect(store.composition.snapshot(parent.id)).toEqual(before);
+  expect(records()).toBe(beforeRecords);
   expect(() => viewerSnapshot(parent.id, store, "synthetic")).not.toThrow();
   db.run("DROP TRIGGER reject_late_output"); db.close();
   releaseChild({ apiKey: secret }); expect((await childPromise).status).toBe("ok");
@@ -189,4 +195,55 @@ test("late child discovery quarantines actual parent and child projections with 
     expect(() => viewerSnapshot(run.id, store, "synthetic")).toThrow("pipeline-viewer-evidence-redaction-review-required");
     expect(store.evidence.list(run.id).some(ref => ref.kind === "resolved_input")).toBe(true);
   }
+});
+
+for (const mismatch of ["owner", "alias", "parent-step"]) test(`foreign ${mismatch} descendants cannot influence root refusal or viewer pins`, () => {
+  const secret = "synthetic-foreign-history-credential";
+  const definition = { id: "synthetic", name: "safe", scope: "shared", path: "/synthetic.json", ownerAlias: null,
+    spec: { name: "safe", steps: [] } } as PipelineDefinitionRecord;
+  const root = store.createRun({ definitionId: "synthetic", name: "safe", scope: "shared", ownerNpub: "owner-A", ownerAlias: "alias-A", input: {} });
+  const foreign = store.createRun({ definitionId: "synthetic", name: "safe", scope: "shared",
+    ownerNpub: mismatch === "owner" ? "owner-B" : "owner-A", ownerAlias: mismatch === "alias" ? "alias-B" : "alias-A", input: {} });
+  for (const run of [root, foreign]) store.composition.pin(run.id, definition, {});
+  const step = store.createStep({ runId: root.id, stepIndex: 0, name: "safe", kind: "code", input: {} });
+  const foreignStep = store.createStep({ runId: foreign.id, stepIndex: 0, name: "foreign", kind: "code", input: { message: "x".repeat(1000) + secret },
+    metadata: { display: { in: [{ label: "Value", path: `$.${secret}` }] } } });
+  store.composition.link({ parentRunId: root.id, parentStepId: mismatch === "parent-step" ? foreignStep.id : step.id, childRunId: foreign.id, deadline: Date.now() + 10000 });
+  const before = store.composition.snapshot(foreign.id);
+  store.completeStep({ id: step.id, status: "ok", output: { apiKey: secret }, result: {} });
+  expect(store.composition.snapshot(root.id)!.context.viewerEvidenceUnsafe).toBeUndefined();
+  expect(store.composition.snapshot(foreign.id)).toEqual(before);
+  expect(() => store.evidence.assertViewerSafe(root.id)).not.toThrow();
+  expect(() => store.evidence.assertViewerSafe(foreign.id)).toThrow("composition authority mismatch");
+});
+
+test("actual retained shared bodies bound credential verification work without hydration or duplicate counting", async () => {
+  const definition = { id: "synthetic", name: "safe", scope: "shared", path: "/synthetic.json", ownerAlias: null,
+    spec: { name: "safe", steps: [{ name: "echo", type: "code", function: "echo" }] } } as PipelineDefinitionRecord;
+  const run = await runDeclarativePipeline({ store, definition, registry: { echo: input => input },
+    input: { message: "x".repeat(1024 * 1024) }, ownerNpub: null, ownerAlias: null, callbackOrigin: "http://localhost", sessionApiContext: {} as never });
+  expect(run.status).toBe("ok");
+  const db = new Database(store.path);
+  const size = db.query("SELECT sum(bytes) AS bytes, count(*) AS count FROM pipeline_evidence_payloads WHERE root_run_id = ?").get(run.id) as { bytes: number; count: number };
+  expect(size.count).toBe(2); expect(store.evidence.list(run.id)).toHaveLength(4);
+  expect(retainedCredentialExposure(db, run.id, ["absent-credential"], size.bytes)).toBe(false);
+  expect(retainedCredentialExposure(db, run.id, ["absent-credential"], size.bytes - 1)).toBe(true);
+  expect(retainedCredentialExposure(db, run.id, ["absent-credential", "second-absent-credential"], size.bytes)).toBe(true);
+  expect(retainedCredentialExposure(db, run.id, [], 0)).toBe(false);
+  // The complete readonly query returns only a scalar; application full-body reads remain lazy.
+  expect(retainedCredentialExposure(db, run.id, ["x".repeat(1000)], size.bytes)).toBe(true);
+  // Reproduce the additive pre-sharing layout with actual runner values, not a populated API fixture.
+  db.run("DROP TRIGGER pipeline_evidence_immutable_update");
+  db.query(`UPDATE pipeline_evidence SET
+    value_json = replace((SELECT value_json FROM pipeline_evidence_payloads WHERE id = pipeline_evidence.payload_id), 'x', ?),
+    bytes = length(CAST(replace((SELECT value_json FROM pipeline_evidence_payloads WHERE id = pipeline_evidence.payload_id), 'x', ?) AS BLOB)),
+    payload_id = NULL, content_hash = NULL, source_hash = NULL WHERE run_id = ?`).run("\\u0078", "\\u0078", run.id);
+  db.run("CREATE TRIGGER pipeline_evidence_immutable_update BEFORE UPDATE ON pipeline_evidence BEGIN SELECT RAISE(ABORT, 'Pipeline evidence is immutable'); END");
+  const legacy = db.query("SELECT sum(bytes) AS bytes FROM pipeline_evidence WHERE run_id = ?").get(run.id) as { bytes: number };
+  expect(retainedCredentialExposure(db, run.id, ["absent-credential"], legacy.bytes)).toBe(false);
+  expect(retainedCredentialExposure(db, run.id, ["x".repeat(1000)], legacy.bytes)).toBe(true);
+  store.evidence = new PipelineEvidenceStore(db, { runBytes: legacy.bytes - 1 });
+  store.evidence.capture({ runId: run.id, stepId: store.listSteps(run.id)[0]!.id, kind: "returned_output", scope: "bounded-verification", value: { apiKey: "absent-credential" } });
+  expect(() => store.evidence.assertViewerSafe(run.id)).toThrow("pipeline-viewer-evidence-redaction-review-required");
+  db.close();
 });

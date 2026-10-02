@@ -3,15 +3,7 @@ const credentialKey = /^(?:authorization|proxyauthorization|cookie|setcookie|pas
 export function redactPipelineValue(value: unknown, secrets: string[] = []): { value: unknown; redacted: boolean } {
   let redacted = false;
   const knownSecrets = [...pipelineProviderSecrets(), ...secrets];
-  function collect(item: unknown): void {
-    if (Array.isArray(item)) { item.forEach(collect); return; }
-    if (!item || typeof item !== "object") return;
-    for (const [key, child] of Object.entries(item)) {
-      if (isCredentialKey(key) && typeof child === "string" && child) knownSecrets.push(child);
-      else collect(child);
-    }
-  }
-  collect(value);
+  knownSecrets.push(...pipelineValueCredentials(value));
   function visit(item: unknown): unknown {
     if (typeof item === "string") {
       let text = item;
@@ -34,6 +26,21 @@ export function redactPipelineValue(value: unknown, secrets: string[] = []): { v
     return item;
   }
   return { value: visit(value), redacted };
+}
+
+/** Ephemeral capture context only; never persist discovered credential lists. */
+export function pipelineValueCredentials(value: unknown): string[] {
+  const credentials: string[] = [];
+  function collect(item: unknown): void {
+    if (Array.isArray(item)) { item.forEach(collect); return; }
+    if (!item || typeof item !== "object") return;
+    for (const [key, child] of Object.entries(item)) {
+      if (isCredentialKey(key) && typeof child === "string" && child) credentials.push(child);
+      else collect(child);
+    }
+  }
+  collect(value);
+  return credentials;
 }
 
 /** Only provider credentials already available to execution; never identity keys. */

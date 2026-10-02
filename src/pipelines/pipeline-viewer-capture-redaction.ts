@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
 import type { PipelineBlockSnapshots } from "./pipeline-block-snapshot";
 import type { PipelineRunContext } from "./pipeline-composition-store";
+import { evidenceFamily } from "./pipeline-evidence-scope";
 
 type Sanitize = (value: unknown) => { value: unknown; redacted?: boolean };
 
@@ -13,14 +14,17 @@ export function captureViewerPin(db: Database, runId: string, definition: Pipeli
 }
 
 /** Monotonic viewer-only refinement when execution discovers a new credential, inside capture's transaction. */
-export function refineCapturedViewerPins(db: Database, runId: string, rootId: string, value: unknown, sanitize: Sanitize): void {
-  if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pipeline_run_snapshots'").get()) return;
+export function refineCapturedViewerPins(db: Database, runId: string, rootId: string, value: unknown, sanitize: Sanitize, unsafeBody = false): void {
+  if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pipeline_run_snapshots'").get()) {
+    if (unsafeBody) throw new Error("Missing durable viewer refusal provenance for unsafe prior evidence");
+    return;
+  }
   // Immutable previews may predate discovery. Keep archive truth; refuse the whole
   // composition's outward projection durably rather than rewriting old references.
-  const previews = db.query(`WITH RECURSIVE family(id) AS (SELECT ? UNION SELECT child_run_id FROM pipeline_child_runs JOIN family ON parent_run_id = family.id)
-    SELECT preview_json FROM pipeline_evidence JOIN family ON run_id = family.id WHERE preview_json IS NOT NULL
-    UNION ALL SELECT metadata_json AS preview_json FROM pipeline_steps JOIN family ON run_id = family.id WHERE metadata_json IS NOT NULL`).iterate(rootId) as Iterable<{ preview_json: string }>;
-  let unsafe = false;
+  const previews = unsafeBody ? [] : db.query(`${evidenceFamily(db)}
+    SELECT preview_json FROM pipeline_evidence JOIN evidence_runs tree ON run_id = tree.id WHERE preview_json IS NOT NULL
+    UNION ALL SELECT metadata_json AS preview_json FROM pipeline_steps JOIN evidence_runs tree ON run_id = tree.id WHERE metadata_json IS NOT NULL`).iterate(rootId) as Iterable<{ preview_json: string }>;
+  let unsafe = unsafeBody;
   for (const row of previews) {
     if (unsafe) continue; // Exhaust SQLite's cursor before later transactional writes.
     const preview = JSON.parse(row.preview_json);
@@ -51,11 +55,10 @@ export function refineCapturedViewerPins(db: Database, runId: string, rootId: st
 }
 
 /** Viewer-only guard; execution/archive consumers retain exact immutable evidence. */
-export function assertViewerEvidenceSafe(db: Database, runId: string): void {
+export function assertViewerEvidenceSafe(db: Database, rootId: string): void {
   if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pipeline_run_snapshots'").get()) return;
-  const rows = db.query(`WITH RECURSIVE ancestors(id) AS (SELECT ? UNION SELECT parent_run_id FROM pipeline_child_runs JOIN ancestors ON child_run_id = ancestors.id)
-    SELECT context_json FROM pipeline_run_snapshots JOIN ancestors ON run_id = ancestors.id`).all(runId) as Array<{ context_json: string }>;
-  if (rows.some(row => (JSON.parse(row.context_json) as PipelineRunContext).viewerEvidenceUnsafe)) {
+  const row = db.query("SELECT context_json FROM pipeline_run_snapshots WHERE run_id = ?").get(rootId) as { context_json: string } | null;
+  if (row && (JSON.parse(row.context_json) as PipelineRunContext).viewerEvidenceUnsafe) {
     throw new Error("pipeline-viewer-evidence-redaction-review-required");
   }
 }
