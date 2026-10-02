@@ -5,7 +5,7 @@ import { evidenceDigest, PipelineEvidencePayloads } from "./pipeline-evidence-pa
 import type { EvidencePreview } from "./pipeline-evidence-preview";
 import { declaredEvidencePreview } from "./pipeline-declared-previews";
 import { sanitizePreviewCapture } from "./pipeline-preview-metadata";
-import { refineCapturedViewerPins } from "./pipeline-viewer-capture-redaction";
+import { assertViewerEvidenceSafe, refineCapturedViewerPins } from "./pipeline-viewer-capture-redaction";
 
 export type EvidenceKind = "resolved_input" | "executor_request" | "returned_output" | "state_write" | "side_effect_confirmation";
 export type EvidenceAvailability = "complete" | "redacted" | "preview_only" | "not_captured" | "expired" | "oversized" | "unavailable";
@@ -63,6 +63,10 @@ export class PipelineEvidenceStore {
     return this.db.transaction(() => this.captureValue(input))();
   }
 
+  assertViewerSafe(runId: string): void {
+    assertViewerEvidenceSafe(this.db, runId);
+  }
+
   private captureValue(input: EvidenceCapture): EvidenceReference {
     const root = this.payloads.root(input.runId, input.stepId);
     this.payloads.refuseMissingProvenance(input.runId, input.stepId, input.kind);
@@ -100,7 +104,7 @@ export class PipelineEvidenceStore {
     const row = this.db.query(`SELECT ${referenceColumns} FROM pipeline_evidence WHERE run_id = ? AND step_id = ? AND kind = ? AND (content_hash = ? OR source_hash = ?) AND (availability IN ('complete', 'redacted', 'oversized', 'unavailable') OR (? = 'preview_only' AND availability = 'preview_only')) ORDER BY rowid DESC LIMIT 1`)
       .get(input.runId, input.stepId, input.kind, hash, evidenceDigest(JSON.stringify(input.value ?? null)), input.availability ?? "complete") as Record<string, unknown> | null;
     if (row) {
-      this.get(input.runId, String(row.id));
+      this.readArchive(input.runId, String(row.id));
       return reference(row);
     }
     this.payloads.refuseMissingProvenance(input.runId, input.stepId, input.kind);
@@ -128,6 +132,11 @@ export class PipelineEvidenceStore {
   }
 
   get(runId: string, id: string): { evidence: EvidenceReference; value: unknown } | null {
+    this.assertViewerSafe(runId);
+    return this.readArchive(runId, id);
+  }
+
+  private readArchive(runId: string, id: string): { evidence: EvidenceReference; value: unknown } | null {
     const row = this.db.query(`SELECT * FROM pipeline_evidence WHERE run_id = ? AND id = ?`).get(runId, id) as Record<string, unknown> | null;
     return row ? { evidence: reference(row), value: this.payloads.read(row) } : null;
   }

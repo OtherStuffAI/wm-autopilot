@@ -7,6 +7,7 @@ import { PipelineStore } from "./pipeline-store";
 import { handlePipelineViewerApi, type PipelineViewerRoutesContext } from "./pipeline-viewer-routes";
 import type { RequestAuthContext } from "../auth/request-context";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
+import { runDeclarativePipeline } from "./pipeline-runner";
 
 const owner = nip19.npubEncode("11".repeat(32)); const delegate = nip19.npubEncode("22".repeat(32));
 const context = { workspaceId: "synthetic-workspace", towerServiceNpub: "synthetic-tower", appNpub: "synthetic-app",
@@ -37,6 +38,30 @@ async function request(path: string, signer = owner, query = "", method = "GET")
   return (await handlePipelineViewerApi(new Request(url, { method }), url,
     { authMethod: "nip98", npub: signer, subjectNpub: signer, signerNpub: signer } as RequestAuthContext, ctx))!;
 }
+for (const earlier of ["missing", "present"]) test(`actual runner late discovery refuses ${earlier} earlier input selectors across authorized reads`, async () => {
+  const secret = "synthetic-late-boundary-credential";
+  const port = { label: "Value", path: `$.${secret}` };
+  const pinnedDefinition = { ...definition, spec: { name: "synthetic", steps: [{ id: "emit", name: "emit", type: "code", function: "emit", display: { in: [port], out: [port] } }] } } as PipelineDefinitionRecord;
+  const run = await runDeclarativePipeline({ store, definition: pinnedDefinition, registry: { emit: () => ({ apiKey: secret, [secret]: "safe" }) },
+    input: earlier === "present" ? { [secret]: "earlier-value" } : {}, ownerNpub: owner, ownerAlias: null, callbackOrigin: "http://localhost", sessionApiContext: {} as never });
+  expect(run.status).toBe("ok");
+  store.addEvent({ runId: run.id, type: "flightdeck_invocation_context", level: "info", data: context });
+  const refs = store.evidence.list(run.id); const pin = store.composition.snapshot(run.id)!;
+  expect(refs.find(ref => ref.kind === "resolved_input")!.preview!.fields![port.path]!.present).toBe(earlier === "present");
+  expect(() => store.evidence.get(run.id, refs[0]!.id)).toThrow("pipeline-viewer-evidence-redaction-review-required");
+  for (let reopened = 0; reopened < 2; reopened++) {
+    store = new PipelineStore(store.path); ctx.store = store; store.compactCompletedRunPayloads({});
+    for (const route of [`runs/${run.id}`, `runs/${run.id}/updates`, ...refs.map(ref => `runs/${run.id}/evidence/${ref.id}`)]) {
+      const response = await request(route); expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ error: "pipeline-viewer-evidence-redaction-review-required" });
+    }
+    expect((await request(`runs/${run.id}`, delegate, "workspace_id=foreign")).status).toBe(404);
+    expect(await (await request("runs")).text()).not.toContain(secret);
+    expect(store.evidence.list(run.id)).toEqual(refs); // Archive/reference truth is immutable.
+    expect(store.composition.snapshot(run.id)!.definition).toEqual(pin.definition);
+    expect(store.composition.snapshot(run.id)!.hash).toBe(pin.hash);
+  }
+});
 test("late callback selectors are redacted in snapshot/list/lazy routes after reopen", async () => {
   const secret = "synthetic-route-selector-credential";
   const step = store.createStep({ runId, stepIndex: 0, name: "safe", kind: "code", input: { [secret]: "safe" }, callbackToken: secret,

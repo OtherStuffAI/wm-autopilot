@@ -8,6 +8,7 @@ import { captureViewerPin } from "./pipeline-viewer-capture-redaction";
 export interface PipelineRunContext {
   blockExpansions?: PipelineBlockSnapshots;
   viewerRedacted?: boolean;
+  viewerEvidenceUnsafe?: boolean;
   viewerDefinition?: PipelineDefinitionRecord;
   viewerBlockExpansions?: PipelineBlockSnapshots;
   functionHashes?: Record<string, string>;

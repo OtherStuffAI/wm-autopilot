@@ -155,3 +155,38 @@ test("new aliases after credential retirement cannot attest themselves or retain
   const safe = store.evidence.capture({ runId: run.id, stepId: first.id, kind: "returned_output", scope: "verified-retired-alias", value });
   expect(JSON.stringify(safe)).not.toContain(secret);
 });
+
+test("late child discovery quarantines actual parent and child projections with atomic rollback", async () => {
+  const secret = "synthetic-late-child-preview-credential";
+  const definition = { id: "synthetic", name: "synthetic", scope: "shared", path: "/synthetic.json", ownerAlias: null,
+    spec: { name: "synthetic", steps: [{ id: "emit", name: "emit", type: "code", function: "emit", display: { in: [{ label: "Value", path: `$.${secret}` }] } }] } } as PipelineDefinitionRecord;
+  let releaseParent!: (value: Record<string, unknown>) => void;
+  let releaseChild!: (value: Record<string, unknown>) => void;
+  let enteredParent!: () => void; let enteredChild!: () => void;
+  const parentEntered = new Promise<void>(resolve => { enteredParent = resolve; });
+  const childEntered = new Promise<void>(resolve => { enteredChild = resolve; });
+  const start = (registry: Record<string, (value: unknown) => Promise<Record<string, unknown>>>, onRunCreated?: (run: { id: string }) => void) => runDeclarativePipeline({ store, definition, registry, onRunCreated,
+    input: {}, ownerNpub: null, ownerAlias: null, callbackOrigin: "http://localhost", sessionApiContext: {} as never });
+  const parentPromise = start({ emit: () => new Promise(resolve => { releaseParent = resolve; enteredParent(); }) });
+  await parentEntered;
+  const parent = store.listRuns()[0]!; const parentStep = store.listSteps(parent.id)[0]!;
+  const childPromise = start({ emit: () => new Promise(resolve => { releaseChild = resolve; enteredChild(); }) }, child => {
+    store.composition.link({ parentRunId: parent.id, parentStepId: parentStep.id, childRunId: child.id, deadline: Date.now() + 10000 });
+  });
+  await childEntered;
+  const child = store.listRuns().find(run => run.id !== parent.id)!; const childStep = store.listSteps(child.id)[0]!;
+  const db = new Database(store.path);
+  const before = store.composition.snapshot(parent.id)!;
+  db.run("CREATE TRIGGER reject_late_output BEFORE INSERT ON pipeline_evidence WHEN NEW.kind = 'returned_output' BEGIN SELECT RAISE(ABORT, 'synthetic capture rejection'); END");
+  expect(() => store.evidence.capture({ runId: child.id, stepId: childStep.id, kind: "returned_output", scope: "rollback", value: { apiKey: secret } })).toThrow("synthetic capture rejection");
+  expect(store.composition.snapshot(parent.id)).toEqual(before);
+  expect(() => viewerSnapshot(parent.id, store, "synthetic")).not.toThrow();
+  db.run("DROP TRIGGER reject_late_output"); db.close();
+  releaseChild({ apiKey: secret }); expect((await childPromise).status).toBe("ok");
+  releaseParent({}); expect((await parentPromise).status).toBe("ok");
+  store = new PipelineStore(store.path); store.compactCompletedRunPayloads({});
+  for (const run of [parent, child]) {
+    expect(() => viewerSnapshot(run.id, store, "synthetic")).toThrow("pipeline-viewer-evidence-redaction-review-required");
+    expect(store.evidence.list(run.id).some(ref => ref.kind === "resolved_input")).toBe(true);
+  }
+});

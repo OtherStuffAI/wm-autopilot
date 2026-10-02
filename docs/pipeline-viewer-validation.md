@@ -123,3 +123,5 @@ Run repository validation as configured. If discovery includes nested ignored
 checkouts, preserve them and distinguish their results from current-source
 checks. Record compiler, lint, dependency-audit and runtime test failures
 separately; do not claim full validation passed merely because focused tests did.
+
+Late-discovery regression: a real code runner captures both input and output selectors containing a synthetic credential, then discovers it only in output. Authorized snapshot/update/lazy routes must return the explicit redaction-review 409 after reopening and compaction while references and raw execution pins remain unchanged. Actual concurrently paused parent/child runners link before child capture; child discovery must refuse both projections through durable ancestry. An injected evidence insertion failure must roll back the refusal and viewer refinement. No retry, timing workaround, service restart, fixture export or live side effect is used.

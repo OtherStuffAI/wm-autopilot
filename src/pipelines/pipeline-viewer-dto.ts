@@ -70,6 +70,7 @@ export function viewerRunSummary(run: PipelineRunRecord | PipelineRunSummary, st
 }
 
 export function viewerSnapshot(runId: string, store: PipelineStore, serviceId: string) {
+  store.evidence.assertViewerSafe(runId);
   const run = store.getRunSummary(runId)!;
   const pinned = store.composition.snapshot(runId);
   const definition: ViewerDefinition = pinned ? viewerDefinition(pinned.context.viewerDefinition ?? pinned.definition, pinned.hash, pinned.context.viewerBlockExpansions ?? pinned.context.blockExpansions ?? {}, store.evidence.sanitize.bind(store.evidence)) : {

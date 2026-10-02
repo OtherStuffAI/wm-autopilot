@@ -102,6 +102,7 @@ export async function handlePipelineViewerApi(request: Request, url: URL, auth: 
     if (resource.length === 4 && resource[2] === "evidence") {
       const offset = integer(url, "offset", 0, 0, Number.MAX_SAFE_INTEGER);
       const limit = integer(url, "limit", 100, 1, 500);
+      ctx.store.evidence.assertViewerSafe(runId);
       const record = ctx.store.evidence.get(runId, resource[3]!);
       if (!record) return reply({ error: "not-found" }, 404);
       if (!Array.isArray(record.value)) {
@@ -116,6 +117,9 @@ export async function handlePipelineViewerApi(request: Request, url: URL, auth: 
     const unchanged = resource[2] === "updates" && url.searchParams.get("after") === snapshot.revision;
     return reply({ ...snapshot, ...(resource[2] === "updates" ? { unchanged } : {}) });
   } catch (error) {
+    if (error instanceof Error && error.message === "pipeline-viewer-evidence-redaction-review-required") {
+      return reply({ error: error.message }, 409);
+    }
     if (error instanceof URIError || error instanceof Error && /^(invalid-|missing-|offset-only)/.test(error.message)) {
       return reply({ error: error instanceof Error ? error.message : "invalid-request" }, 400);
     }
