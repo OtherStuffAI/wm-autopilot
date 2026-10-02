@@ -1,3 +1,4 @@
+export { registerContextTreeTools, handleContextTree } from "./context-tree.ts";
 import { z } from "zod";
 
 import { callCapabilityBroker } from "../capability-client";

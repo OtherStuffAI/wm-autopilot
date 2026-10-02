@@ -1,3 +1,4 @@
+import { handleContextTreeHelper } from "./context-tree-helper.ts";
 import { rootPipelineRunId } from "../pipelines/pipeline-run-authority";
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
 import { flightDeckDocumentBase } from "../agent-chat/flightdeck-document-base";
@@ -1393,6 +1394,12 @@ async function handleFlightDeckHelper(
 
   const missing = requireFlightDeckPgContext(resolved);
   if (missing) return missing;
+  if (action.startsWith("context_tree_")) {
+    return handleContextTreeHelper({ action, body, request, sessionId,
+      workspaceId: resolved.workspaceId!, backendBaseUrl: resolved.backendBaseUrl!,
+      appNpub: resolved.appNpub!, botIdentity: resolved.botIdentity!,
+      subscriptionId: resolved.subscriptionId, backendConnectionId: resolved.backendConnectionId });
+  }
   if (action === "transport_prepare" || action === "transport_request") {
     if (!resolved.subscriptionId) return jsonError("Bound Tower subscription is required", 400);
     return handleFlightDeckTransport({ action, body, subscriptionId: resolved.subscriptionId,

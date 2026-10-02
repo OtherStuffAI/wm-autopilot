@@ -1,3 +1,5 @@
+import { contextCliHelp, runContextCli } from "./context-cli.ts";
+import { FlightDeckPgResponseError } from "./response-error.ts";
 import { readFileSync } from 'node:fs';
 
 import { resolveSecretKey } from '../../clis/lib/auth';
@@ -27,6 +29,12 @@ export async function runFlightDeckPgCli(argv: string[], io: {
 } = {}): Promise<FlightDeckPgCliResult> {
   try {
     const parsed = parseFlags(argv);
+    if (!parsed.positionals.length || parsed.positionals[0] === "help" || parsed.flags.has("--help") ||
+      (parsed.positionals[0] === "context-tree" && parsed.positionals[1] === "help")) {
+      const stdout = parsed.positionals[0] === "context-tree" ? contextCliHelp : usageText();
+      io.stdout?.(stdout);
+      return { exitCode: 0, stdout };
+    }
     const flags = parsed.flags;
     const keyInput = stringFlag(flags, '--key') ?? undefined;
     const sessionId = stringFlag(flags, '--session-id') ?? Bun.env.SESSION_ID ?? null;
@@ -111,6 +119,7 @@ async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagM
   if (!area || area === 'help') return usageText();
   const limit = optionalNumber(flags, '--limit');
 
+  if (area === "context-tree") return runContextCli(client.contextTree, args, flags);
   if (area === 'context') return await client.context();
   if (area === 'status') return await client.status();
   if (area === 'workspaces' && action === 'list') return await client.listWorkspaces();
@@ -413,6 +422,8 @@ function stringValue(value: unknown): string | undefined {
 }
 
 function serializeError(error: unknown): Record<string, unknown> {
+  if (error instanceof FlightDeckPgResponseError) return { ok: false, ...error.envelope, status: error.status };
+  if (error instanceof Error && "envelope" in error && "status" in error) return { ok: false, ...(error.envelope as Record<string, unknown>), status: error.status };
   if (error instanceof MissingFlightDeckPgRouteError) {
     return { ok: false, error: error.message, missingRoute: error.routeGap };
   }
@@ -420,7 +431,9 @@ function serializeError(error: unknown): Record<string, unknown> {
 }
 
 function usageText(): string {
-  return `Wingman Flight Deck PG CLI
+  return `${contextCliHelp}
+
+Wingman Flight Deck PG CLI
 
 Usage:
   bun clis/wingman.ts flightdeck context --json

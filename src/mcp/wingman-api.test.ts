@@ -381,6 +381,17 @@ describe("wingman-api Flight Deck helpers", () => {
       bot: { npub: botNpub, available: true },
     });
 
+    const contextBoundary = await handler(
+      new Request("http://localhost/api/mcp/wingman/flightdeck", {
+        method: "POST", headers: { authorization: "Bearer invalid-for-no-signing" },
+        body: JSON.stringify({ sessionId: "direct-1", action: "context_tree_list", params: {
+          workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", scope_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        } }),
+      }), new URL("http://localhost/api/mcp/wingman/flightdeck"), "POST",
+    );
+    expect(contextBoundary?.status).toBe(404);
+    expect(await contextBoundary!.json()).toMatchObject({ code: "context_not_found" });
+
     const requests: Request[] = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {

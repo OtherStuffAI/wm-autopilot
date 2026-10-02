@@ -1,3 +1,5 @@
+import { ContextTreeClient } from "./context-tree.ts";
+import { FlightDeckPgResponseError } from "./response-error.ts";
 import { readFlightDeckHistory } from "./thread-history.ts";
 import { flightDeckDocumentBase } from "../agent-chat/flightdeck-document-base";
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -33,6 +35,7 @@ import {
   uploadFlightDeckPgStorageObject,
   signFlightDeckPgBotRequest,
   type FlightDeckPgBotIdentity,
+  type BrokeredFlightDeckPgBotIdentity,
   type FlightDeckPgDocumentComment,
   type FlightDeckPgDocumentResult,
 } from '../agent-chat/tower-client';
@@ -83,17 +86,18 @@ export function createBotIdentityFromSecret(secretKey: Uint8Array): RuntimeBotId
 
 export function createBotIdentityFromCapability(input: {
   useHostTransport?: boolean;
+  useSessionEnvironment?: boolean;
   wingmanUrl: string;
   sessionId: string;
   capabilityToken: string;
   botNpub: string;
   botPubkeyHex: string;
   fetchImpl?: typeof fetch;
-}): FlightDeckPgBotIdentity {
+}): BrokeredFlightDeckPgBotIdentity {
   const currentContext = (): CapabilityClientContext => ({
-    wingmanUrl: Bun.env.WINGMAN_BROKER_URL?.trim() || input.wingmanUrl,
+    wingmanUrl: input.useSessionEnvironment === false ? input.wingmanUrl : Bun.env.WINGMAN_BROKER_URL?.trim() || input.wingmanUrl,
     sessionId: input.sessionId,
-    capabilityToken: Bun.env.WINGMAN_CAPABILITY?.trim() || input.capabilityToken,
+    capabilityToken: input.useSessionEnvironment === false ? input.capabilityToken : Bun.env.WINGMAN_CAPABILITY?.trim() || input.capabilityToken,
     fetch: input.fetchImpl,
   });
   return {
@@ -200,10 +204,19 @@ export function resolveFlightDeckPgConfig(input: {
 export class FlightDeckPgClient {
   private readonly config: FlightDeckPgClientConfig;
   private readonly fetchImpl: typeof fetch;
+  readonly contextTree: ContextTreeClient;
 
   constructor(config: FlightDeckPgClientConfig) {
     this.config = config;
     this.fetchImpl = config.fetchImpl ?? fetch;
+    this.contextTree = new ContextTreeClient(this.signedJson.bind(this), {
+      doc: async (workspace, id) => {
+        const result = await this.signedJson("GET", `/api/v4/flightdeck-pg/workspaces/${workspace}/docs/${id}/body`);
+        return { ...result, body_text: decodeFlightDeckPgDocumentBody(result as unknown as FlightDeckPgDocumentResult) };
+      },
+      file: (workspace, id) => this.showFile(workspace, id, true),
+      task: (workspace, id) => this.signedJson("GET", `/api/v4/flightdeck-pg/workspaces/${workspace}/tasks/${id}`),
+    });
   }
 
   async context(): Promise<Record<string, unknown>> {
@@ -999,7 +1012,7 @@ async function readJsonResponse(response: Response, label: string): Promise<Reco
     const error = payload && typeof payload === 'object' && typeof (payload as { error?: unknown }).error === 'string'
       ? (payload as { error: string }).error
       : response.statusText;
-    throw new Error(`${label} failed (${response.status}): ${error}`);
+    throw new FlightDeckPgResponseError(response.status, { ...(payload as Record<string, unknown>), error }, label);
   }
   return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : { value: payload };
 }

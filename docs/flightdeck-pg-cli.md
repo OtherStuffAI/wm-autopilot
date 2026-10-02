@@ -79,3 +79,9 @@ Validation:
 bun --check clis/wingman.ts
 bun test src/flightdeck-pg/*.test.ts 'clis/wingman*.test.ts'
 ```
+
+## Context Tree
+
+Use `flightdeck context-tree help` for explicit workspace/scope exploration and
+management commands. See [Context Tree agent tools](context-tree-agent-tools.md)
+for typed CLI/MCP contracts, target ACLs, pagination and confirmed deletion.

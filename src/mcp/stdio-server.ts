@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { registerContextTreeTools } from "./tools/flightdeck.ts";
 /**
  * Wingman MCP Server — stdio transport
  *
@@ -399,6 +400,7 @@ registerWingmanTool(server,
 );
 
 // ---- Flight Deck PG helpers ----
+registerContextTreeTools(server, wingmanUrl, sessionId);
 registerWingmanTool(server,
   "flightdeck_context",
   flightdeckContextDescription,

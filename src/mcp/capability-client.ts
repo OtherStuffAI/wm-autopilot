@@ -78,7 +78,7 @@ export async function callCapabilityBroker<T>(
         : Number.isFinite(headerSeconds) ? headerSeconds * 1_000 : 60_000;
       throw new CapabilityRateLimitError(error.error ?? "Capability broker rate limit exceeded", retryAfterMs, error as Record<string, unknown>);
     }
-    throw new Error(error.error ?? `Capability broker request failed (${response.status})`);
+    throw Object.assign(new Error(error.error ?? `Capability broker request failed (${response.status})`), { status: response.status, envelope: error });
   }
   return await response.json() as T;
 }
