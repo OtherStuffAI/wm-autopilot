@@ -20,6 +20,11 @@ served assets, signed capabilities and actual runtime reads establish activation
    effects. Older runs without their required definition/block snapshots cannot
    safely resume from current code. The audit is read-only; it does not recreate
    snapshots, retry delivery or dispose of runs.
+   Keep affected error/needs-input records unmodified and unavailable where
+   historical pins are missing. Do not retry or replay them to populate the
+   viewer. Startup recovery selects running roots only; verify the actual
+   running/queued inventory again before cutover. Retained delivery flags are
+   state evidence, and their absence does not establish that nothing was posted.
 4. Review additive evidence storage: nullable reference columns, immutable
    root-scoped shared payloads and retained legacy inline rows. Defaults retain
    evidence without automatic deletion or expiry, with a 16 MiB value limit and
