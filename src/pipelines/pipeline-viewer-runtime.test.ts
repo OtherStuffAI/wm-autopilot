@@ -25,6 +25,53 @@ function runner(def: PipelineDefinitionRecord, sessionApiContext: SessionApiCont
   return { store, definition: def, sessionApiContext, registry: {}, input: {}, ownerNpub: "synthetic-owner", ownerAlias: null, callbackOrigin: "http://callback.local" };
 }
 
+test("already-known long-lived credential contexts stay readable after capture and reopen", async () => {
+  const secrets = Array.from({ length: 2000 }, (_, i) => `synthetic-long-lived-credential-${i}-suffix`);
+  for (const secret of secrets) store.evidence.registerSecret(secret);
+  const def = definition([{ id: "safe", name: "safe", type: "code", function: "safe" }]);
+  const run = await runDeclarativePipeline({ ...runner(def), input: { message: "x".repeat(80000) }, registry: { safe: async () => ({ safe: true }) } });
+  expect(run.status).toBe("ok");
+  expect(() => store.evidence.assertViewerSafe(run.id)).not.toThrow();
+  const before = store.evidence.list(run.id).map(ref => store.evidence.get(run.id, ref.id));
+  store = new PipelineStore(store.path);
+  for (const secret of secrets) store.evidence.registerSecret(secret);
+  const step = store.listSteps(run.id)[0]!;
+  store.evidence.capture({ runId: run.id, stepId: step.id, scope: "reopen", kind: "executor_request", value: { safe: "reopened" } });
+  expect(() => store.evidence.assertViewerSafe(run.id)).not.toThrow();
+  expect(before.map(row => store.evidence.get(run.id, row!.evidence.id))).toEqual(before);
+  expect(JSON.stringify(store.composition.snapshot(run.id))).not.toContain(secrets[0]!);
+});
+
+test("a newly discovered hidden credential still refuses a previously attested long-lived root", async () => {
+  const secrets = Array.from({ length: 2000 }, (_, i) => `synthetic-established-credential-${i}-suffix`);
+  for (const secret of secrets) store.evidence.registerSecret(secret);
+  const secret = "synthetic-new-hidden-credential";
+  const def = definition([{ id: "discover", name: "discover", type: "code", function: "discover" }]);
+  const run = await runDeclarativePipeline({ ...runner(def), input: { message: "x".repeat(80000) + secret },
+    registry: { discover: async () => ({ apiKey: secret }) } });
+  expect(run.status).toBe("ok");
+  expect(() => store.evidence.assertViewerSafe(run.id)).toThrow("pipeline-viewer-evidence-redaction-review-required");
+  store = new PipelineStore(store.path);
+  expect(() => store.evidence.assertViewerSafe(run.id)).toThrow("pipeline-viewer-evidence-redaction-review-required");
+});
+
+test("rolled-back sanitation contexts cannot attest immutable references or poison retry", async () => {
+  for (let i = 0; i < 2000; i++) store.evidence.registerSecret(`synthetic-rollback-known-${i}`);
+  const def = definition([{ id: "safe", name: "safe", type: "code", function: "safe" }]);
+  const run = await runDeclarativePipeline({ ...runner(def), input: { message: "x".repeat(80000) }, registry: { safe: async () => ({ safe: true }) } });
+  const step = store.listSteps(run.id)[0]!;
+  const before = store.composition.snapshot(run.id);
+  const references = store.evidence.list(run.id);
+  expect(() => store.composition.transaction(() => {
+    store.evidence.capture({ runId: run.id, stepId: step.id, scope: "rollback", kind: "executor_request", value: { apiKey: "synthetic-rolled-back-secret" } });
+    throw new Error("synthetic rollback");
+  })).toThrow("synthetic rollback");
+  expect(store.composition.snapshot(run.id)).toEqual(before);
+  expect(store.evidence.list(run.id)).toEqual(references);
+  store.evidence.capture({ runId: run.id, stepId: step.id, scope: "retry", kind: "executor_request", value: { safe: true } });
+  expect(() => store.evidence.assertViewerSafe(run.id)).not.toThrow();
+});
+
 test("successful classifier echoes redact provider credentials in requests output state and summaries", async () => {
   const secret = "synthetic-known-provider-key"; process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY = secret;
   globalThis.fetch = (async () => Response.json({ choices: [{ message: { content: JSON.stringify({ context: `echo ${secret}`, ordinary: "  unchanged\n prose  " }) } }] })) as typeof fetch;

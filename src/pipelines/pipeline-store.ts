@@ -291,7 +291,7 @@ export class PipelineStore {
       const id = crypto.randomUUID();
       const status = input.status ?? "running";
       const captureMetadata = input.metadata ? preparePreviewMetadata(input.metadata, input.input,
-        value => this.evidence.sanitize(value, [input.callbackToken ?? ""])).metadata : null;
+        value => this.evidence.sanitize(value, [input.callbackToken ?? ""], input.runId)).metadata : null;
       this.db.run(
         `INSERT INTO pipeline_steps (
           id, run_id, step_index, name, kind, status, input_json, result_json, error,
@@ -377,7 +377,7 @@ export class PipelineStore {
       const step = this.getStep(input.id)!;
       const controlFlow = pipelineControlFlow(input.output);
       if (controlFlow) this.db.run(`UPDATE pipeline_steps SET metadata_json = ? WHERE id = ?`,
-        [encodeJson(this.evidence.sanitize({ ...step.metadata, controlFlow }).value), step.id]);
+        [encodeJson(this.evidence.sanitize({ ...step.metadata, controlFlow }, [], step.runId).value), step.id]);
       if (step.status !== "cancelled" && step.status !== "skipped") {
         const secrets = [step.callbackToken ?? ""];
         if (input.output !== undefined && input.output !== null) this.evidence.capture({ runId: step.runId, stepId: step.id,

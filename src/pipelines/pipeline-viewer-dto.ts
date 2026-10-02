@@ -101,6 +101,7 @@ export function viewerSnapshot(runId: string, store: PipelineStore, serviceId: s
   const snapshot = store.evidence.sanitize({ run: viewerRunSummary(run, store, serviceId), definition, steps, children },
     summaries.map(step => step.callbackToken ?? "")).value as { run: ViewerRunSummary; definition: ViewerDefinition; steps: ViewerStepSummary[]; children: ViewerRunSummary[] };
   const revision = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+  store.evidence.assertViewerSafe(runId);
   return { ...snapshot, revision };
 }
 

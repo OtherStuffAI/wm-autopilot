@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { pipelineProviderSecrets, pipelineValueCredentials, redactPipelineValue } from "./pipeline-evidence-redaction";
 import { retainedCredentialExposure } from "./pipeline-evidence-scope";
 import { evidenceDigest, PipelineEvidencePayloads } from "./pipeline-evidence-payloads";
+import { PipelineEvidenceSanitation } from "./pipeline-evidence-sanitation";
 
 import type { EvidencePreview } from "./pipeline-evidence-preview";
 import { declaredEvidencePreview } from "./pipeline-declared-previews";
@@ -31,13 +32,16 @@ export class PipelineEvidenceStore {
     return secret;
   }
 
-  sanitize(value: unknown, secrets: string[] = []) {
-    return redactPipelineValue(value, [...this.executionSecrets, ...secrets]);
+  sanitize(value: unknown, secrets: string[] = [], runId?: string) {
+    const base = [...this.executionSecrets, ...pipelineProviderSecrets(), ...secrets];
+    const credentials = runId ? this.sanitation.prepare(this.payloads.root(runId), base, pipelineValueCredentials(value)).credentials : base;
+    return redactPipelineValue(value, credentials);
   }
 
   readonly valueLimit: number;
   readonly runLimit: number;
   private readonly payloads: PipelineEvidencePayloads;
+  private readonly sanitation: PipelineEvidenceSanitation;
   constructor(private readonly db: Database, limits: { valueBytes?: number; runBytes?: number } = {}) {
     this.valueLimit = limits.valueBytes ?? positiveLimit(process.env.WINGMEN_PIPELINE_EVIDENCE_VALUE_BYTES, 16 * 1024 * 1024);
     this.runLimit = limits.runBytes ?? positiveLimit(process.env.WINGMEN_PIPELINE_EVIDENCE_RUN_BYTES, 128 * 1024 * 1024);
@@ -52,6 +56,7 @@ export class PipelineEvidenceStore {
     if (!columns.some(column => column.name === "preview_json")) db.run("ALTER TABLE pipeline_evidence ADD COLUMN preview_json TEXT");
     if (!columns.some(column => column.name === "source_hash")) db.run("ALTER TABLE pipeline_evidence ADD COLUMN source_hash TEXT");
     this.payloads = new PipelineEvidencePayloads(db);
+    this.sanitation = new PipelineEvidenceSanitation(db);
     if (!columns.some(column => column.name === "payload_id")) db.run("ALTER TABLE pipeline_evidence ADD COLUMN payload_id TEXT REFERENCES pipeline_evidence_payloads(id)");
     db.run(`CREATE INDEX IF NOT EXISTS idx_pipeline_evidence_run ON pipeline_evidence(run_id, step_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_pipeline_evidence_source ON pipeline_evidence(source_hash)`);
@@ -73,15 +78,17 @@ export class PipelineEvidenceStore {
     this.payloads.refuseMissingProvenance(input.runId, input.stepId, input.kind);
     const sourceHash = evidenceDigest(JSON.stringify(input.value ?? null));
     const retained = this.payloads.retainedSource(root, sourceHash);
+    const context = this.sanitation.prepare(root,
+      [...this.executionSecrets, ...pipelineProviderSecrets(), ...(input.secrets ?? [])], pipelineValueCredentials(input.value));
+    const sanitize = (value: unknown) => redactPipelineValue(value, context.credentials);
     // Use raw boundary values to discover credentials echoed in selectors as well as content.
     const boundary = sanitizePreviewCapture(this.db, input.stepId, input.kind, input.value, retained,
-      value => this.sanitize(value, input.secrets));
-    const sanitized = retained ? this.sanitize(retained.value, input.secrets) : { value: boundary.value, redacted: boundary.redacted };
+      sanitize);
+    const sanitized = retained ? sanitize(retained.value) : { value: boundary.value, redacted: boundary.redacted };
     sanitized.redacted ||= boundary.redacted;
     sanitized.redacted ||= retained?.redacted ?? false;
-    const unsafeBody = retainedCredentialExposure(this.db, root,
-      [...this.executionSecrets, ...pipelineProviderSecrets(), ...(input.secrets ?? []), ...pipelineValueCredentials(input.value)], this.runLimit);
-    if (sanitized.redacted || unsafeBody) refineCapturedViewerPins(this.db, input.runId, root, input.value, value => this.sanitize(value, input.secrets), unsafeBody);
+    const unsafeBody = context.uncertain || retainedCredentialExposure(this.db, root, context.scan, this.runLimit);
+    if (sanitized.redacted || unsafeBody) refineCapturedViewerPins(this.db, input.runId, root, input.value, sanitize, unsafeBody);
     const json = JSON.stringify(sanitized.value ?? null);
     const bytes = Buffer.byteLength(json);
     const hash = evidenceDigest(json);
@@ -98,6 +105,7 @@ export class PipelineEvidenceStore {
     this.db.query(`INSERT INTO pipeline_evidence (id, run_id, step_id, attempt, kind, scope, content_type, bytes, availability, redacted, captured_at, content_hash, value_json, preview_json, source_hash, payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(ref.id, ref.runId, ref.stepId, ref.attempt, ref.kind, ref.scope, ref.contentType, ref.bytes,
         ref.availability, Number(ref.redacted), ref.capturedAt, hash, null, JSON.stringify(ref.preview), sourceHash, payloadId);
+    if (!unsafeBody) context.attest();
     return ref;
   }
 

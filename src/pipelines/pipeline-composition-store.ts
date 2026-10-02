@@ -9,6 +9,7 @@ export interface PipelineRunContext {
   blockExpansions?: PipelineBlockSnapshots;
   viewerRedacted?: boolean;
   viewerEvidenceUnsafe?: boolean;
+  viewerEvidenceSanitation?: { version: 1; contextHash: string; references: number };
   viewerDefinition?: PipelineDefinitionRecord;
   viewerBlockExpansions?: PipelineBlockSnapshots;
   functionHashes?: Record<string, string>;
@@ -49,7 +50,7 @@ export class PipelineCompositionStore {
     const hash = createHash("sha256").update(JSON.stringify({ spec: definition.spec, blockExpansions })).digest("hex");
     const viewer = captureViewerPin(this.db, runId, definition, blockExpansions, this.sanitize);
     this.db.query(`INSERT OR IGNORE INTO pipeline_run_snapshots VALUES (?, ?, ?, ?)`)
-      .run(runId, json, hash, JSON.stringify({ ...context, blockExpansions, ...viewer }));
+      .run(runId, json, hash, JSON.stringify({ ...context, viewerEvidenceSanitation: undefined, blockExpansions, ...viewer }));
   }
 
   snapshot(runId: string): { definition: PipelineDefinitionRecord; hash: string; context: PipelineRunContext } | null {

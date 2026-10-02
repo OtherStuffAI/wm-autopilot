@@ -113,7 +113,16 @@ export async function handlePipelineViewerApi(request: Request, url: URL, auth: 
         nextOffset: offset + limit < record.value.length ? offset + limit : null });
     }
     if (resource.length !== 2 && !(resource.length === 3 && resource[2] === "updates")) return reply({ error: "not-found" }, 404);
-    const snapshot = ctx.store.composition.transaction(() => viewerSnapshot(runId, ctx.store, serviceId));
+    const snapshot = ctx.store.composition.transaction(() => {
+      try { return viewerSnapshot(runId, ctx.store, serviceId); }
+      catch (error) {
+        // Commit a refusal discovered while archiving legacy inline evidence. All
+        // other failures still roll back the complete projection transaction.
+        if (error instanceof Error && error.message === "pipeline-viewer-evidence-redaction-review-required") return error;
+        throw error;
+      }
+    });
+    if (snapshot instanceof Error) throw snapshot;
     const unchanged = resource[2] === "updates" && url.searchParams.get("after") === snapshot.revision;
     return reply({ ...snapshot, ...(resource[2] === "updates" ? { unchanged } : {}) });
   } catch (error) {
