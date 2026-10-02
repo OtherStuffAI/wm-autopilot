@@ -159,3 +159,29 @@ test("retained full inline is separately archived without promoting an older pre
   expect(refs.map(ref => ref.availability)).toEqual(["preview_only", "complete"]);
   expect(store.evidence.get(run.id, preview.id)!.evidence.availability).toBe("preview_only");
 });
+
+
+test("retired provider credentials cannot create unredacted archives after reopen and compaction", () => {
+  const secret = "synthetic-retired-provider"; store.evidence.registerSecret(secret);
+  const run = store.createRun({ name: "synthetic", definitionId: "synthetic", scope: "shared", input: {} });
+  const step = store.createStep({ runId: run.id, stepIndex: 0, name: "step", kind: "code", input: { prose: secret } });
+  store.completeStep({ id: step.id, status: "ok", output: { prose: secret }, result: { prose: secret } }); store.completeRun(run.id, "ok", { prose: secret });
+  const before = store.evidence.list(run.id); store = new PipelineStore(store.path);
+  store.compactCompletedRunPayloads({});
+  expect(store.getStep(step.id)!.input).toEqual({});
+  const after = store.evidence.list(run.id); expect(after.map(ref => ref.id)).toEqual(before.map(ref => ref.id));
+  for (const ref of after) expect(JSON.stringify(store.evidence.get(run.id, ref.id))).not.toContain(secret);
+  expect(after.every(ref => !("source_hash" in ref))).toBe(true);
+});
+
+
+test("old redacted evidence without source provenance refuses unsafe recapture", () => {
+  const secret = "synthetic-old-provider"; store.evidence.registerSecret(secret);
+  const { run, step } = fixture();
+  const capture = { runId: run.id, stepId: step.id, kind: "returned_output" as const, scope: "synthetic", value: { prose: secret } };
+  const ref = store.evidence.capture(capture);
+  const db = new Database(store.path); db.run("DROP TRIGGER pipeline_evidence_immutable_update"); db.run("UPDATE pipeline_evidence SET source_hash = NULL WHERE id = ?", [ref.id]); db.close();
+  store = new PipelineStore(store.path);
+  expect(() => store.evidence.ensureArchived(capture)).toThrow("lacks exact source provenance");
+  expect(store.evidence.list(run.id).filter(item => item.kind === "returned_output")).toHaveLength(1);
+});

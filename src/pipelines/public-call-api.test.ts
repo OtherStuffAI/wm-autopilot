@@ -243,3 +243,16 @@ test("public calls transactionally pin executable block expansion and definition
   expect(snapshot.definition.spec.steps[0]!.type).toBe("block"); expect(snapshot.context.blockExpansions?.accept?.steps).toHaveLength(1);
   expect(store.listSteps(result.runId).map(step => step.logicalKey)).toEqual(["accept", "accept/accept / normalise-thread-invocation"]);
 });
+
+
+test("public owner provider pin stays redacted after credential removal and reopen", async () => {
+  const { viewerSnapshot } = await import("./pipeline-viewer-dto");
+  const provider = "synthetic-retired-public-provider";
+  ctx.sessionApiContext = { getStoredInstanceSetting: (key: string) => key === "pipelines.classifier_openrouter_api_key" ? provider : null } as never;
+  writeFileSync(join(directory, "root/shared/definitions/retired.json"), JSON.stringify({ name: "retired", description: provider, steps: [] }));
+  const response = await call(signedRequest("/api/pipelines/definitions/retired/runs", "POST", { input: {} }));
+  const result = await response.json(); expect(result.status).toBe("ok");
+  store = new PipelineStore(store.path);
+  const snapshot = viewerSnapshot(result.runId, store, "service");
+  expect(JSON.stringify(snapshot)).not.toContain(provider); expect(snapshot.definition.availability).toBe("redacted");
+});

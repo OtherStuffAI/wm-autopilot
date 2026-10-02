@@ -6,6 +6,7 @@ import { snapshotPipelineBlocks, type PipelineBlockSnapshots } from "./pipeline-
 
 export interface PipelineRunContext {
   blockExpansions?: PipelineBlockSnapshots;
+  viewerRedacted?: boolean;
   viewerDefinition?: PipelineDefinitionRecord;
   viewerBlockExpansions?: PipelineBlockSnapshots;
   functionHashes?: Record<string, string>;
@@ -21,7 +22,7 @@ export interface ChildRunLink {
 
 /** Durable composition state lives beside the runner's cursor and step records. */
 export class PipelineCompositionStore {
-  constructor(private readonly db: Database, private readonly sanitize: (value: unknown) => { value: unknown }) {
+  constructor(private readonly db: Database, private readonly sanitize: (value: unknown) => { value: unknown; redacted?: boolean }) {
     db.run(`CREATE TABLE IF NOT EXISTS pipeline_run_snapshots (
       run_id TEXT PRIMARY KEY REFERENCES pipeline_runs(id) ON DELETE CASCADE,
       definition_json TEXT NOT NULL, definition_hash TEXT NOT NULL, context_json TEXT NOT NULL
@@ -44,8 +45,10 @@ export class PipelineCompositionStore {
     const json = JSON.stringify(definition);
     const blockExpansions = context.blockExpansions ?? snapshotPipelineBlocks(definition.spec.steps);
     const hash = createHash("sha256").update(JSON.stringify({ spec: definition.spec, blockExpansions })).digest("hex");
+    const viewerDefinition = this.sanitize(definition);
+    const viewerBlockExpansions = this.sanitize(blockExpansions);
     this.db.query(`INSERT OR IGNORE INTO pipeline_run_snapshots VALUES (?, ?, ?, ?)`)
-      .run(runId, json, hash, JSON.stringify({ ...context, blockExpansions, viewerDefinition: this.sanitize(definition).value, viewerBlockExpansions: this.sanitize(blockExpansions).value }));
+      .run(runId, json, hash, JSON.stringify({ ...context, blockExpansions, viewerDefinition: viewerDefinition.value, viewerBlockExpansions: viewerBlockExpansions.value, viewerRedacted: Boolean(viewerDefinition.redacted || viewerBlockExpansions.redacted) }));
   }
 
   snapshot(runId: string): { definition: PipelineDefinitionRecord; hash: string; context: PipelineRunContext } | null {

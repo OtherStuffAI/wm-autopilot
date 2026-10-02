@@ -247,3 +247,5 @@ silently backfill expansions from current code. Rollback retains the nullable
 column and newly captured snapshots/evidence.
 
 New pins retain a sanitized viewer definition and block expansion alongside the immutable execution pin. Capture-time provider context redacts these durable viewer copies and step metadata; removing or rotating a credential does not restore it in historical DTOs. Authorized reads resolve current owner/instance provider settings before lazy archival and outward serialization. Catalogue definitions with an identical retained execution spec reuse its sanitized viewer copy; changed definitions use current credential context. No retired secret list or identity keys are persisted.
+
+Evidence also stores an internal, non-exposed source-value SHA-256 digest beside the sanitized content hash. Compaction recognizes the exact captured raw version after credentials are retired without persisting a secret list or creating an unredacted duplicate. The nullable additive source_hash column preserves existing evidence immutability; no backfill changes evidence rows.

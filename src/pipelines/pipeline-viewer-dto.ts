@@ -73,6 +73,7 @@ export function viewerSnapshot(runId: string, store: PipelineStore, serviceId: s
     id: run.definitionId, name: run.name, title: run.name, description: "Historical definition snapshot was not captured",
     version: null, hash: null, availability: "unavailable", steps: [], wiring: [],
   };
+  if (pinned?.context.viewerRedacted && definition.availability === "complete") definition.availability = "redacted";
   const children = store.composition.children(runId).map(link => viewerRunSummary(store.getRunSummary(link.childRunId)!, store, serviceId));
   const counts = new Map<string, number>();
   const summaries = store.listStepSummaries(runId);

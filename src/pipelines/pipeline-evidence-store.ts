@@ -45,6 +45,7 @@ export class PipelineEvidenceStore {
     const columns = db.query("PRAGMA table_info(pipeline_evidence)").all() as Array<{ name: string }>;
     if (!columns.some(column => column.name === "content_hash")) db.run("ALTER TABLE pipeline_evidence ADD COLUMN content_hash TEXT");
     if (!columns.some(column => column.name === "preview_json")) db.run("ALTER TABLE pipeline_evidence ADD COLUMN preview_json TEXT");
+    if (!columns.some(column => column.name === "source_hash")) db.run("ALTER TABLE pipeline_evidence ADD COLUMN source_hash TEXT");
     db.run(`CREATE INDEX IF NOT EXISTS idx_pipeline_evidence_run ON pipeline_evidence(run_id, step_id)`);
     db.run(`CREATE TRIGGER IF NOT EXISTS pipeline_evidence_immutable_update BEFORE UPDATE ON pipeline_evidence BEGIN SELECT RAISE(ABORT, 'Pipeline evidence is immutable'); END`);
     db.run(`CREATE TRIGGER IF NOT EXISTS pipeline_evidence_immutable_delete BEFORE DELETE ON pipeline_evidence BEGIN SELECT RAISE(ABORT, 'Pipeline evidence retention forbids deletion'); END`);
@@ -63,18 +64,21 @@ export class PipelineEvidenceStore {
       kind: input.kind, scope: input.scope, contentType: typeof sanitized.value === "string" ? "text/plain" : "application/json",
       bytes, availability, preview: pipelineEvidencePreview(sanitized.value), redacted: sanitized.redacted, capturedAt: new Date().toISOString(), expiresAt: null,
     };
-    this.db.query(`INSERT INTO pipeline_evidence (id, run_id, step_id, attempt, kind, scope, content_type, bytes, availability, redacted, captured_at, content_hash, value_json, preview_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    this.db.query(`INSERT INTO pipeline_evidence (id, run_id, step_id, attempt, kind, scope, content_type, bytes, availability, redacted, captured_at, content_hash, value_json, preview_json, source_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(ref.id, ref.runId, ref.stepId, ref.attempt, ref.kind, ref.scope, ref.contentType, ref.bytes,
-        ref.availability, Number(ref.redacted), ref.capturedAt, createHash("sha256").update(json).digest("hex"), retain ? json : null, JSON.stringify(ref.preview));
+        ref.availability, Number(ref.redacted), ref.capturedAt, createHash("sha256").update(json).digest("hex"), retain ? json : null, JSON.stringify(ref.preview), createHash("sha256").update(JSON.stringify(input.value ?? null)).digest("hex"));
     return ref;
   }
 
   ensureArchived(input: EvidenceCapture): EvidenceReference {
     const json = JSON.stringify(this.sanitize(input.value, input.secrets).value ?? null);
     const hash = createHash("sha256").update(json).digest("hex");
-    const row = this.db.query(`SELECT ${referenceColumns} FROM pipeline_evidence WHERE run_id = ? AND step_id = ? AND kind = ? AND content_hash = ? AND (availability IN ('complete', 'redacted', 'oversized', 'unavailable') OR (? = 'preview_only' AND availability = 'preview_only')) ORDER BY rowid DESC LIMIT 1`)
-      .get(input.runId, input.stepId, input.kind, hash, input.availability ?? "complete") as Record<string, unknown> | null;
-    return row ? reference(row) : this.capture(input);
+    const row = this.db.query(`SELECT ${referenceColumns} FROM pipeline_evidence WHERE run_id = ? AND step_id = ? AND kind = ? AND (content_hash = ? OR source_hash = ?) AND (availability IN ('complete', 'redacted', 'oversized', 'unavailable') OR (? = 'preview_only' AND availability = 'preview_only')) ORDER BY rowid DESC LIMIT 1`)
+      .get(input.runId, input.stepId, input.kind, hash, createHash("sha256").update(JSON.stringify(input.value ?? null)).digest("hex"), input.availability ?? "complete") as Record<string, unknown> | null;
+    if (row) return reference(row);
+    const missingProvenance = this.db.query("SELECT 1 FROM pipeline_evidence WHERE run_id = ? AND step_id = ? AND kind = ? AND redacted = 1 AND source_hash IS NULL LIMIT 1").get(input.runId, input.stepId, input.kind);
+    if (missingProvenance) throw new Error("Redacted historical evidence lacks exact source provenance; retain inline values for operator review");
+    return this.capture(input);
   }
 
   nextExecutorAttempt(stepId: string): number {

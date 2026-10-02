@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, writeFileSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { installationIdForIdentity } from "../src/control-plane/connect-package";
 import { PipelineStore } from "../src/pipelines/pipeline-store";
@@ -13,7 +13,9 @@ import chatSpec from "../src/pipelines/default-definitions/bird.timeline.chat.v2
 import retrieveSpec from "../src/pipelines/default-definitions/bird.retrieve.v2.json";
 
 const directory = mkdtempSync(join(tmpdir(), "pipeline-viewer-fixture-"));
-const target = new URL("../docs/fixtures/pipeline-viewer/", import.meta.url).pathname;
+const args = process.argv.slice(2);
+if (args.length && (args.length !== 2 || args[0] !== "--output" || !args[1]?.trim())) throw new Error("Usage: bun scripts/pipeline-viewer-fixtures.ts [--output directory]");
+const target = args[1] ? resolve(args[1]) : new URL("../docs/fixtures/pipeline-viewer/", import.meta.url).pathname;
 mkdirSync(target, { recursive: true });
 const store = new PipelineStore(join(directory, "fixtures.sqlite"));
 const serviceId = installationIdForIdentity({ pubkeyHex: "33".repeat(32) });
