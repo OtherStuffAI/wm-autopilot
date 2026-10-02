@@ -102,11 +102,16 @@ test("real broker + disposable HTTP route exercises client/registered MCP, exact
     expect((await client.create(workspace, scope, { title: "Disposable" })).component.id).toBe(root);
     expect((await client.list(workspace, scope)).components).toHaveLength(1);
     const registered = new Map<string, (params: never) => Promise<{ isError?: boolean; content: Array<{ text: string }> }>>();
-    registerContextTreeTools({ registerTool(name: string, _config: unknown, callback: never) { registered.set(name, callback); } } as unknown as McpServer, hostUrl, session.id);
+    Bun.env.WINGMAN_BROKER_URL = hostUrl;
+    registerContextTreeTools({ registerTool(name: string, _config: unknown, callback: never) { registered.set(name, callback); } } as unknown as McpServer, "https://public-autopilot.example", session.id);
     const invoke = async (operation: string, params: Record<string, unknown>) => {
       const result = await registered.get(`flightdeck_context_tree_${operation}`)!({ workspace_id: workspace, scope_id: scope, ...params } as never);
       return { ...result, payload: JSON.parse(result.content[0]!.text) };
     };
+    expect((await invoke("read", { component_id: root })).payload.component.id).toBe(root);
+    expect((await invoke("path", { component_id: root })).payload.path[0].id).toBe(root);
+    expect((await invoke("references", { component_id: root })).payload.references).toHaveLength(1);
+    expect((await invoke("link", { component_id: root, input: { target_type: "task", target: { record_id: root } } })).payload.reference.id).toBe(ref);
     expect((await invoke("reference", { component_id: root, reference_id: ref })).payload.source.task.title).toBe("Actual authoritative record");
     expect((await invoke("update", { component_id: root, input: { expected_row_version: 99, title: "Stale" } })).payload.code).toBe("row_version_conflict");
     expect((await invoke("unlink", { component_id: root, reference_id: ref, expected_row_version: 99 })).payload.code).toBe("row_version_conflict");

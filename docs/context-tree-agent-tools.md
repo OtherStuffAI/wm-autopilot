@@ -61,6 +61,16 @@ Reads use scope visibility (`scope.read` or existing active scope-channel read);
 every edit and delete preview uses visibility plus `scope.manage` on Tower.
 Inherited session routing and bot identity are not grants.
 
+The stdio process may receive a public `WINGMAN_URL`. The standard MCP injector
+also supplies `WINGMAN_BROKER_URL` at the host's loopback port. Context tools
+prefer that local broker URL, so the helper receives a local request URL even
+when the public Autopilot URL differs. The host-local check prevents forwarding
+bearer credentials to a supplied remote Host. A legacy session with a public URL
+and no local broker URL must receive the standard broker configuration; the tools
+do not weaken the boundary to make that configuration work. The disposable HTTP
+test uses a public tool URL plus a separate loopback broker and real registration
+callbacks to prove this path.
+
 The stdio registration delegates to the capability-protected host Flight Deck
 helper. The host resolves the trusted current/inherited dispatch binding, rejects
 workspace overrides, validates inputs again, and obtains every NIP-98 signature
