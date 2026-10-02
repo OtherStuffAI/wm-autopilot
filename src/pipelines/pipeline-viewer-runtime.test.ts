@@ -194,6 +194,8 @@ test("reopened viewer routes resolve configured provider secrets for all outward
   const settings = { getStoredInstanceSetting: (key: string) => key === "pipelines.classifier_openrouter_api_key" ? secret : null } as unknown as SessionApiContext;
   globalThis.fetch = (async () => Response.json({ choices: [{ message: { content: JSON.stringify({ context: secret }) } }] })) as typeof fetch;
   const def = definition([{ id: "judge", name: "judge", type: "classifier", prompt: secret, description: secret }]);
+  def.name = secret;
+  def.spec.name = secret;
   def.spec.description = secret;
   const run = await runDeclarativePipeline({ ...runner(def, settings), ownerNpub: owner });
   expect(run.status).toBe("ok");

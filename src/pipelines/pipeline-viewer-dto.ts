@@ -65,7 +65,7 @@ export function viewerRunSummary(run: PipelineRunRecord | PipelineRunSummary, st
   const pinned = store.composition.snapshot(run.id);
   const parent = store.composition.parent(run.id);
   return { id: run.id, serviceId, definitionId: run.definitionId, definitionVersion: pinned?.definition.spec.version ?? null,
-    definitionHash: pinned?.hash ?? null, name: run.name, status: run.status, startedAt: run.startedAt,
+    definitionHash: pinned?.hash ?? null, name: pinned?.context.viewerDefinition?.spec.name ?? run.name, status: run.status, startedAt: run.startedAt,
     completedAt: run.completedAt, parentRunId: parent?.parentRunId ?? null, parentStepId: parent?.parentStepId ?? null };
 }
 
