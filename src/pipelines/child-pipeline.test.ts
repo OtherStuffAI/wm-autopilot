@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DeclarativeStep, FunctionRegistry } from "./declarative";
@@ -11,12 +11,20 @@ import { cancelPipelineTree, resolveChildDefinition, validateChildPipelineSteps,
 import { canAccessPipelineRun } from "./pipeline-route-helpers";
 import { responseSteps } from "./public-call-contract";
 import { runtimeFunctionHash } from "./pipeline-function-pins";
+import { observeChildRunnerLifecycle } from "./child-runner-test-lifecycle";
 
 let dir: string;
 let store: PipelineStore;
 let priorRoot: string | undefined;
-beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "child-pipeline-")); store = new PipelineStore(join(dir, "runs.sqlite")); priorRoot = process.env.WINGMEN_PIPELINES_ROOT; process.env.WINGMEN_PIPELINES_ROOT = join(dir, "definitions"); });
-afterEach(() => { if (priorRoot === undefined) delete process.env.WINGMEN_PIPELINES_ROOT; else process.env.WINGMEN_PIPELINES_ROOT = priorRoot; rmSync(dir, { recursive: true, force: true }); });
+let childLifecycle: ReturnType<typeof observeChildRunnerLifecycle>;
+beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "child-pipeline-")); store = new PipelineStore(join(dir, "runs.sqlite")); priorRoot = process.env.WINGMEN_PIPELINES_ROOT; process.env.WINGMEN_PIPELINES_ROOT = join(dir, "definitions"); childLifecycle = observeChildRunnerLifecycle(); });
+afterEach(async () => {
+  await childLifecycle.drain();
+  childLifecycle.restore();
+  if (priorRoot === undefined) delete process.env.WINGMEN_PIPELINES_ROOT;
+  else process.env.WINGMEN_PIPELINES_ROOT = priorRoot;
+  rmSync(dir, { recursive: true, force: true });
+});
 
 function definition(name: string, steps: DeclarativeStep[], version = 1): PipelineDefinitionRecord {
   return { id: `${name}-${version}`, name, slug: `${name}.v${version}`, scope: "user", ownerAlias: "owner", path: join(dir, `${name}.v${version}.json`), spec: { name, version, steps } };
@@ -102,7 +110,7 @@ test("timeout cancels live descendants and prevents late continuation", async ()
   expect(run.status).toBe("error"); expect(run.error).toContain("timeout");
   const childId = store.composition.children(run.id)[0]!.childRunId;
   expect(store.getRun(childId)!.status).toBe("cancelled");
-  resolve({ late: true }); await Bun.sleep(40);
+  resolve({ late: true }); await childLifecycle.drain();
   expect(continued).toBe(false); expect(store.getRun(childId)!.status).toBe("cancelled");
   store.completeRun(run.id, "ok", {}); expect(store.getRun(run.id)!.status).toBe("error");
 });
@@ -205,7 +213,7 @@ test("parent cancellation during a live wait prevents parent and child continuat
   while (!store.composition.children(rootId).length) await Bun.sleep(5);
   store.cancelRun(rootId);
   expect((await pending).status).toBe("cancelled");
-  resolve({ late: true }); await Bun.sleep(30);
+  resolve({ late: true }); await childLifecycle.drain();
   expect(continued).toBe(false); expect(store.getRun(rootId)!.status).toBe("cancelled");
 });
 
@@ -329,6 +337,36 @@ test("outer ancestor deadline limits a grandchild with a longer local timeout", 
   expect(store.getRun(grandchildId)!.status).toBe("error");
   expect(store.getRun(grandchildId)!.error).toBe("Child pipeline timeout");
   expect(store.listSteps(grandchildId).map(step => step.name)).toEqual(["echo"]);
+});
+
+test("fixture cleanup awaits detached child and grandchild unwind after timeout", async () => {
+  let release!: (value: Record<string, unknown>) => void;
+  const gate = new Promise<Record<string, unknown>>(resolve => { release = resolve; });
+  let unwound = false; let continued = false; let cleaned = false;
+  const pending = runDeclarativePipeline(runner(
+    definition("p", [call("child", { timeoutMs: 10 })]),
+    [definition("child", [call("grandchild", { timeoutMs: 1000 })]),
+      definition("grandchild", [echo, { name: "late", type: "code", function: "late" }])],
+    { echo: async () => {
+      try { return await gate; }
+      finally { expect(existsSync(store.path)).toBe(true); unwound = true; }
+    }, late: () => { continued = true; return {}; } },
+  ));
+  let cleanup: Promise<void> | undefined;
+  try {
+    const parent = await pending;
+    expect(parent.status).toBe("error"); expect(parent.error).toContain("timeout");
+    expect(unwound).toBe(false); expect(childLifecycle.pendingCount).toBeGreaterThan(0);
+    cleanup = childLifecycle.drain().then(() => {
+      expect(unwound).toBe(true); expect(continued).toBe(false);
+      expect(store.getRun(parent.id)!.status).toBe("error");
+      rmSync(dir, { recursive: true, force: true }); cleaned = true;
+    });
+    await Promise.resolve();
+    expect(cleaned).toBe(false); expect(existsSync(store.path)).toBe(true);
+  } finally { release({ late: true }); }
+  await cleanup;
+  expect(childLifecycle.pendingCount).toBe(0); expect(cleaned).toBe(true);
 });
 
 test("recovery accepts on-time completion even when parent resumes after deadline", async () => {
