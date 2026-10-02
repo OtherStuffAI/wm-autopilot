@@ -331,7 +331,7 @@ describe("syncLiveSessionMessages", () => {
     }
   });
 
-  test("uses Claude JSONL history when native transcript is richer than live adapter messages", async () => {
+  test("uses Claude JSONL history even when AgentAPI has more message rows", async () => {
     const root = await mkdtemp(join(tmpdir(), "live-claude-sync-test-"));
     const claudeHome = join(root, ".claude");
     const sessionFile = join(claudeHome, "projects", "-repo", "claude-native-1.jsonl");
@@ -384,7 +384,7 @@ describe("syncLiveSessionMessages", () => {
         manager: {
           getSession: () => session,
           getAdapter: () => ({
-            fetchMessages: async () => [{ role: "agent", content: "terminal transcript", createdAt: "2026-06-26T00:00:03.000Z" }],
+            fetchMessages: async () => Array.from({ length: 6 }, () => ({ role: "agent", content: "terminal transcript", createdAt: "2026-06-26T00:00:03.000Z" })),
           }),
         } as never,
         messageStore: {

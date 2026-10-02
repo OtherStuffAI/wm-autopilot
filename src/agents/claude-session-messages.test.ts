@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
+import { ClaudeMessageImporter } from "./claude-message-importer";
+
 import { findClaudeSessionFile, readClaudeSessionMessagesFromFile } from "./claude-session-messages";
 
 describe("Claude session message importer", () => {
@@ -18,7 +20,6 @@ describe("Claude session message importer", () => {
           timestamp: "2026-06-26T00:00:01.000Z",
           sessionId: "claude-native-1",
           cwd: "/repo",
-          promptSource: "typed",
           message: { role: "user", content: "What should I do?" },
         }),
         JSON.stringify({
@@ -30,7 +31,7 @@ describe("Claude session message importer", () => {
           cwd: "/repo",
           message: {
             role: "assistant",
-            content: [{ type: "thinking", thinking: "", signature: "signed" }],
+            content: [{ type: "thinking", thinking: "Check the failing tests before editing.", signature: "signed" }],
           },
         }),
         JSON.stringify({
@@ -103,10 +104,11 @@ describe("Claude session message importer", () => {
         createdAt: "2026-06-26T00:00:01.000Z",
       });
       expect(messages[1]?.role).toBe("agent-working");
-      expect(messages[1]?.content).toContain("Thinking...");
+      expect(messages[1]?.content).toContain("Thinking:\nCheck the failing tests before editing.");
       expect(messages[1]?.content).toContain("Tool call: Bash `bun test src/agents/claude-session-messages.test.ts`");
       expect(messages[1]?.content).toContain("Tool result: Bash completed: pass");
       expect(messages[1]?.content).toContain("I will inspect the tests first.");
+      expect(messages[1]?.content.indexOf("I will inspect")).toBeLessThan(messages[1]!.content.indexOf("Tool call:"));
       expect(messages[2]).toEqual({
         role: "agent",
         content: "The tests pass. Ship it.",
@@ -115,6 +117,26 @@ describe("Claude session message importer", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  test("keeps commentary as working while tools run and imports every parallel result", () => {
+    const importer = new ClaudeMessageImporter();
+    const timestamp = "2026-06-26T00:00:01.000Z";
+    importer.addRecord({ type: "user", timestamp, message: { content: "Inspect" } });
+    importer.addRecord({ type: "assistant", timestamp, message: { content: [
+      { type: "text", text: "Inspecting files." },
+      { type: "tool_use", id: "a", name: "Read", input: {} },
+      { type: "tool_use", id: "b", name: "Bash", input: { command: "pwd" } },
+    ] } });
+    importer.addRecord({ type: "user", timestamp, message: { content: [
+      { type: "tool_result", tool_use_id: "a", content: "file contents" },
+      { type: "tool_result", tool_use_id: "b", content: "denied", is_error: true },
+    ] } });
+    importer.addRecord({ type: "assistant", isSidechain: true, timestamp,
+      message: { content: [{ type: "text", text: "Subagent output" }] } });
+    const messages = importer.finish();
+    expect(messages.map((message) => message.role)).toEqual(["user", "agent-working"]);
+    expect(messages[1]?.content).toBe("Inspecting files.\n\nTool call: Read\n\nTool call: Bash `pwd`\n\nTool result: Read completed: file contents\n\nTool result: Bash failed: denied");
   });
 
   test("finds a Claude session file by native id and working directory", async () => {

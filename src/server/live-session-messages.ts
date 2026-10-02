@@ -121,7 +121,8 @@ export async function syncLiveSessionMessages(input: SyncLiveSessionMessagesInpu
     const authoritativeStartedAt = Date.now();
     const messages = await resolveAuthoritativeSessionMessages(session, liveMessages);
     authoritativeMs = Date.now() - authoritativeStartedAt;
-    if (isAgentapiCodex && messages.length === 0) {
+    const usesNativeTranscript = isAgentapiCodex || session.agent === "claude";
+    if (usesNativeTranscript && messages.length === 0) {
       if (!hadMessages) {
         messageStore.replaceMessages(sessionId, userMessagesOnly(liveMessages));
       }

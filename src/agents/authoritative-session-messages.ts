@@ -9,7 +9,9 @@ export async function resolveAuthoritativeSessionMessages(
   options: { requireNative?: boolean; minimumRefreshIntervalMs?: number } = {},
 ): Promise<ReplaceMessageInput[]> {
   const nativeSession = session.metadata?.nativeAgentSession;
-  if (!nativeSession?.sessionId || !nativeSession.workingDirectory) return liveMessages;
+  if (!nativeSession?.sessionId || !nativeSession.workingDirectory) {
+    return session.agent === 'claude' ? [] : liveMessages;
+  }
 
   let nativeMessages: ReplaceMessageInput[] = [];
   if (session.agent === 'codex' && nativeSession.agent === 'codex') {
@@ -27,7 +29,8 @@ export async function resolveAuthoritativeSessionMessages(
     nativeMessages = await readClaudeSessionMessages({
       sessionId: nativeSession.sessionId,
       workingDirectory: nativeSession.workingDirectory,
-    }).catch(() => []);
+    });
+    return nativeMessages;
   }
-  return nativeMessages.length >= liveMessages.length ? nativeMessages : liveMessages;
+  return liveMessages;
 }
