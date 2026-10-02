@@ -232,3 +232,14 @@ describe("public pipeline calls", () => {
     expect(store.listRuns({ ownerNpub: owner })).toHaveLength(0);
   });
 });
+
+
+test("public calls transactionally pin executable block expansion and definition history", async () => {
+  writeFileSync(join(directory, "root/shared/definitions/block.json"), JSON.stringify({ name: "block", steps: [{ id: "accept", name: "accept", type: "block", block: "flightdeck.threadInvocation" }] }));
+  const response = await call(signedRequest("/api/pipelines/definitions/block/runs", "POST", { input: {
+    workspaceId: "11111111-1111-4111-8111-111111111111", threadId: "22222222-2222-4222-8222-222222222222", frmNpub: "npub1synthetic", prompt: "synthetic" } }));
+  const result = await response.json(); expect(response.status).toBe(200); expect(result.status).toBe("ok");
+  const snapshot = store.composition.snapshot(result.runId)!; expect(snapshot).not.toBeNull();
+  expect(snapshot.definition.spec.steps[0]!.type).toBe("block"); expect(snapshot.context.blockExpansions?.accept?.steps).toHaveLength(1);
+  expect(store.listSteps(result.runId).map(step => step.logicalKey)).toEqual(["accept", "accept/accept / normalise-thread-invocation"]);
+});

@@ -1,3 +1,4 @@
+import { pipelineFunctionHashes } from "./pipeline-function-pins";
 import { PublicCallReplay } from "./public-call-store";
 import { createHash } from "node:crypto";
 import type { RequestAuthContext } from "../auth/request-context";
@@ -93,6 +94,7 @@ export async function handlePublicPipelineCall(request: Request, url: URL, authC
     run = ctx.store.publicCalls.create({ owner: ownerNpub, definitionId: definition.id, key: key as string | null, fingerprint, webhookUrl }, () => {
       const created = ctx.store.createRun({ definitionId: definition.id, definitionPath: definition.path,
         name: definition.spec.name, ownerNpub, ownerAlias, scope: definition.scope, input });
+      ctx.store.composition.pin(created.id, definition, { functionHashes: pipelineFunctionHashes(definition, functions.registry) });
       if (learningKey) ctx.store.bindLearningRun(ownerNpub, definition.spec.name, learningKey, created.id);
       return created;
     });
