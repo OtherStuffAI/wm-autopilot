@@ -508,10 +508,13 @@ export const PromptQueueStore = {
     });
   },
 
-  async replaceSession(sessionId, prompts) {
+  async replaceSession(sessionId, prompts, handled) {
     await db.transaction("rw", db.promptQueue, async () => {
+      const existing = handled === undefined
+        ? (await db.promptQueue.where("sessionId").equals(sessionId).toArray()).filter((prompt) => prompt.state === "handled")
+        : handled;
       await db.promptQueue.where("sessionId").equals(sessionId).delete();
-      const records = (Array.isArray(prompts) ? prompts : [])
+      const records = [...(Array.isArray(prompts) ? prompts : []), ...(Array.isArray(existing) ? existing : [])]
         .filter((prompt) => prompt?.id)
         .map((prompt) => ({ ...prompt, sessionId, updatedAt: new Date().toISOString() }));
       if (records.length > 0) await db.promptQueue.bulkPut(records);

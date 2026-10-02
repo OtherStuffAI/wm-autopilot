@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { runSessionQueueCli } from "./session-queue";
 
 import { runFlightDeckPgCli } from '../src/flightdeck-pg/cli';
 import { runForgejoCli } from '../src/forgejo/cli';
@@ -11,6 +12,8 @@ Usage:
   bun clis/wingman.ts flightdeck <command> [options]
   bun clis/wingman.ts forgejo issues <list|read|create|comment> [options]
   bun clis/wingman.ts dispatch [create|status|list|inbox|acknowledge|close|retry] [options]
+  bun clis/wingman.ts session queue list [--session <id>]
+  bun clis/wingman.ts session queue acknowledge <item-id> --revision <revision> --reason <text>
 
 The retired board/sync command path has been removed from production CLI handling.
 Use the PG-native Flight Deck command group instead.`);
@@ -22,6 +25,9 @@ async function main() {
     return;
   }
   const [command, ...rest] = process.argv.slice(2);
+  if (command === 'session' && rest[0] === 'queue') {
+    process.exit(await runSessionQueueCli(rest.slice(1)));
+  }
   if (command === 'dispatch') {
     process.exit(await runDispatchCli(rest));
   }

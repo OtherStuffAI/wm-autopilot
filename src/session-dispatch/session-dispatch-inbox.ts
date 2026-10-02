@@ -108,15 +108,33 @@ export class SessionDispatchInboxCoordinator {
       attemptCount: claimed.attemptCount, prompt: DISPATCH_INBOX_WAKE_PROMPT } : null;
   }
 
+  reconcileHandledCallbacks(callbackSessionId: string): void {
+    const wake = this.store.getWake(callbackSessionId);
+    if (!wake) return;
+    const fingerprint = this.store.getInboxFingerprint(callbackSessionId);
+    if (fingerprint === wake.inboxFingerprint) return;
+    this.store.saveWake({ ...wake, inboxFingerprint: fingerprint ?? wake.inboxFingerprint,
+      state: fingerprint ? "pending" : "resolved", attemptCount: 0,
+      claimedAt: null, submittedAt: null, busyObservedAt: null, leaseExpiresAt: null,
+      nextRetryAt: null, lastError: null, updatedAt: this.now().toISOString() });
+  }
+
+  validateClaim(claim: DispatchInboxWakeClaim): boolean {
+    this.reconcileHandledCallbacks(claim.callbackSessionId);
+    const wake = this.store.getWake(claim.callbackSessionId);
+    return wake?.state === "claimed" && wake.inboxFingerprint === claim.inboxFingerprint
+      && wake.attemptCount === claim.attemptCount && !this.leaseExpired(wake, this.now());
+  }
+
   markSubmitted(claim: DispatchInboxWakeClaim): void {
     const wake = this.store.getWake(claim.callbackSessionId);
-    if (!wake || wake.state !== "claimed" || wake.inboxFingerprint !== claim.inboxFingerprint) return;
+    if (!wake || wake.state !== "claimed" || wake.inboxFingerprint !== claim.inboxFingerprint || wake.attemptCount !== claim.attemptCount) return;
     this.store.saveWake({ ...wake, state: "submitted", submittedAt: this.now().toISOString(), lastError: null });
   }
 
   markSubmissionFailed(claim: DispatchInboxWakeClaim, error: string): void {
     const wake = this.store.getWake(claim.callbackSessionId);
-    if (!wake || wake.state !== "claimed" || wake.inboxFingerprint !== claim.inboxFingerprint) return;
+    if (!wake || wake.state !== "claimed" || wake.inboxFingerprint !== claim.inboxFingerprint || wake.attemptCount !== claim.attemptCount) return;
     this.recordFailedAttempt(wake, error, this.now());
   }
 

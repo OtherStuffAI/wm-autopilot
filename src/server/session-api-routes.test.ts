@@ -2092,3 +2092,55 @@ describe("handleSessionApi", () => {
     });
   });
 });
+
+import { PromptQueueStore } from "../storage/prompt-queue-store";
+
+describe("active session prompt acknowledgement API", () => {
+  test("broker-bound busy session can read then acknowledge; owner sees history and refreshed pending count", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-api-"));
+    try {
+      const store = new PromptQueueStore(join(root, "queue.db"));
+      const prompt = store.addPrompt("session-1", { content: "handled from another source" })!;
+      const ctx = buildCtx({ promptQueueStore: store, getViewerNormalizedNpub: () => "npub1unapprovedbot" });
+      const auth = makeAuth({ capabilitySessionId: "session-1", delegatedByBot: false, delegatedOwnerNpub: null });
+      const call = async (path: string, method = "GET", body?: unknown, actor = auth) => {
+        const request = new Request(`http://localhost${path}`, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
+        return (await handleSessionApi(request, new URL(request.url), method as any, actor, ctx))!;
+      };
+      const path = "/api/sessions/session-1/queue";
+      const read = await (await call(path)).json() as any;
+      expect(read.queue.prompts[0]).toMatchObject({ id: prompt.id, revision: "1" });
+      const body = { revision: read.queue.prompts[0].revision, reason: "Completed in current turn" };
+      const acknowledged = await call(`${path}/${prompt.id}/acknowledge`, "POST", body);
+      expect(acknowledged.status).toBe(200);
+      const result = await acknowledged.json() as any;
+      expect(result.queue.prompts).toEqual([]);
+      expect(result.queue.handled[0]).toMatchObject({ handledBy: "session:session-1", handledReason: body.reason, state: "handled" });
+      expect((await call(`${path}/${prompt.id}/acknowledge`, "POST", body)).status).toBe(200);
+      expect((await call(`${path}/${prompt.id}/acknowledge`, "POST", { reason: "no revision" })).status).toBe(400);
+      expect((await call(`/api/sessions/session-2/queue`)).status).toBe(403);
+      expect((await call(`${path}/${prompt.id}`, "DELETE")).status).toBe(403);
+      expect((await call(`${path}/next`, "POST")).status).toBe(403);
+      ctx.getViewerNormalizedNpub = () => "npub1owner";
+      const ownerRead = await (await call(path, "GET", undefined, makeAuth({ authMethod: "session", capabilitySessionId: null }))).json() as any;
+      expect(ownerRead.queue.handled).toEqual(result.queue.handled);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  test("edited item returns 409 and owner queue CRUD still works", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-api-"));
+    try {
+      const store = new PromptQueueStore(join(root, "queue.db"));
+      const prompt = store.addPrompt("session-1", { content: "original" })!;
+      const ctx = buildCtx({ promptQueueStore: store });
+      const call = async (path: string, method: string, body?: unknown) => {
+        const request = new Request(`http://localhost${path}`, { method, body: body ? JSON.stringify(body) : undefined });
+        return (await handleSessionApi(request, new URL(request.url), method as any, makeAuth(), ctx))!;
+      };
+      const path = `/api/sessions/session-1/queue/${prompt.id}`;
+      expect((await call(path, "PUT", { content: "edited" })).status).toBe(200);
+      expect((await call(`${path}/acknowledge`, "POST", { revision: "1", reason: "stale read" })).status).toBe(409);
+      expect((await call(path, "DELETE")).status).toBe(200);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+});

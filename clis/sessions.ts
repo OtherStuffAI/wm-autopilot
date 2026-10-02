@@ -9,6 +9,7 @@
  *           archive, archive-info, archive-logs, archive-metadata-update, archive-delete
  */
 
+import { runSessionQueueCli } from "./session-queue";
 import { parseCommonFlags, buildConfig, requestJson, requestJsonBotCrypto, resolveBaseUrl } from "./lib/auth";
 import {
   buildSessionMetadataPath,
@@ -33,7 +34,8 @@ Commands:
   send <id> <message>  Send a message to a session
   interrupt <id>       Interrupt the active agent turn
   artifacts <id>       List session artifacts
-  queue <id>           Show prompt queue
+  queue [id]           Show prompt queue (defaults SESSION_ID)
+  queue-acknowledge <item-id> --revision <revision> --reason <text> [--session <id>]
   queue-add <id> <msg> Add prompt to queue
   queue-next <id>      Execute next queued prompt
   nightwatch-status <id>  Show Night Watch state for a live session
@@ -177,6 +179,10 @@ function printNightWatchState(state: NightWatchState) {
 }
 
 async function run() {
+  if (Bun.argv[2] === "queue-acknowledge") {
+    await runSessionQueueCli(["acknowledge", ...Bun.argv.slice(3)]);
+    return;
+  }
   const { args, urlInput, keyInput, asJson, help, botCrypto } = parseCommonFlags(Bun.argv.slice(2));
 
   // Extract session-specific flags
@@ -603,25 +609,25 @@ async function run() {
 
     case "queue": {
       const id = positional[1];
-      if (!id) throw new Error("queue requires <id>");
-      const resolvedId = await resolveActiveSessionId(id);
-      const payload = await req<{ queue?: Array<Record<string, unknown>> }>(
+      const targetId = id ?? Bun.env.SESSION_ID;
+      if (!targetId) throw new Error("queue requires <id> or SESSION_ID");
+      const resolvedId = shouldResolveSessionMetadataTargetId(targetId, Bun.env.SESSION_ID) ? await resolveActiveSessionId(targetId) : targetId;
+      const payload = await req<{ queue?: { prompts: Array<Record<string, unknown>>; handled?: unknown[] } }>(
         "GET", sessionQueuePath(resolvedId),
       );
-      const queue = Array.isArray(payload.queue)
-        ? payload.queue
-        : Array.isArray(payload) ? (payload as Array<Record<string, unknown>>) : [];
+      if (!Array.isArray(payload.queue?.prompts)) throw new Error("Invalid queue response: queue.prompts is required");
+      const queue = payload.queue.prompts;
       if (asJson) {
-        console.log(JSON.stringify(queue, null, 2));
+        console.log(JSON.stringify(payload, null, 2));
       } else {
         if (queue.length === 0) {
           console.log("Queue empty.");
         } else {
           for (const item of queue) {
-            const promptId = String(item.id ?? "?").slice(0, 8);
+            const promptId = String(item.id ?? "?");
             const content = String(item.content ?? item.prompt ?? "").slice(0, 100);
-            const status = String(item.status ?? "-");
-            console.log(`  ${promptId}\t${status}\t${content}`);
+            const status = String(item.state ?? "-");
+            console.log(`  ${promptId}\t${status}\trevision=${item.revision}\t${content}`);
           }
         }
       }

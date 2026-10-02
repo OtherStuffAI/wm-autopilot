@@ -1,3 +1,4 @@
+import { PromptQueueStore } from "../storage/prompt-queue-store";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -42,6 +43,14 @@ function createQueue(prompts: string[]) {
     getNextQueuedPrompt(sessionId: string) {
       return sessionId === "session-1" ? this.prompts[0] ?? null : null;
     },
+    claimNextPrompt(sessionId: string) {
+      const prompt = this.getNextQueuedPrompt(sessionId);
+      return prompt ? { ...prompt, claimToken: "test-claim" } : null;
+    },
+    completeClaim(sessionId: string, id: string) {
+      if (sessionId === "session-1") this.prompts = this.prompts.filter((prompt) => prompt.id !== id);
+    },
+    releaseRejectedClaim() {},
     removeNextPrompt(sessionId: string) {
       if (sessionId === "session-1") {
         this.prompts.shift();
@@ -376,4 +385,86 @@ describe("prompt dispatch engine", () => {
     await f.engine.reconcileNextTurn(f.session);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+  test("acknowledgement during dispatcher readiness wait prevents delivery", async () => {
+    const root = mkdtempSync(join(tmpdir(), "queue-dispatch-race-")); roots.push(root);
+    const queue = new PromptQueueStore(join(root, "queue.db"));
+    const prompt = queue.addPrompt("session-1", { content: "handled while busy" })!;
+    let ready!: () => void;
+    const waiting = new Promise<void>((resolve) => { ready = resolve; });
+    const f = buildEngine({ promptQueueStore: queue, waitForSessionPromptReadiness: () => waiting });
+    const send = mock(async () => new Response("{}")); globalThis.fetch = send as typeof fetch;
+    const dispatch = f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner");
+    queue.acknowledgePrompt("session-1", prompt.id, prompt.revision, "session:session-1", "handled through callback");
+    ready();
+    await expect(dispatch).rejects.toMatchObject({ status: 404 });
+    expect(send).not.toHaveBeenCalled();
+    expect(queue.getHandledPrompts("session-1")).toHaveLength(1);
+  });
+
+  test("dispatch claim wins before asynchronous adapter delivery and cannot be acknowledged", async () => {
+    const root = mkdtempSync(join(tmpdir(), "queue-dispatch-race-")); roots.push(root);
+    const queue = new PromptQueueStore(join(root, "queue.db"));
+    const prompt = queue.addPrompt("session-1", { content: "dispatch first" })!;
+    const f = buildEngine({ promptQueueStore: queue });
+    Object.assign(f.adapter, { deliversPromptsDirectly: () => true });
+    f.adapter.sendMessage = mock(async () => {
+      expect(() => queue.acknowledgePrompt("session-1", prompt.id, prompt.revision, "actor", "too late")).toThrow("already claimed");
+      expect(queue.deletePromptById("session-1", prompt.id)).toBeFalse();
+    });
+    await f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner");
+    expect(f.adapter.sendMessage).toHaveBeenCalledTimes(1);
+    expect(queue.getQueueCount("session-1")).toBe(0);
+    expect(() => queue.acknowledgePrompt("session-1", prompt.id, prompt.revision, "actor", "too late")).toThrow("already dispatched");
+  });
+
+  test("ambiguous adapter failure retains the durable claim across restart", async () => {
+    const root = mkdtempSync(join(tmpdir(), "queue-dispatch-failure-")); roots.push(root);
+    const path = join(root, "queue.db");
+    const queue = new PromptQueueStore(path);
+    queue.addPrompt("session-1", { content: "uncertain delivery" });
+    const f = buildEngine({ promptQueueStore: queue });
+    Object.assign(f.adapter, { deliversPromptsDirectly: () => true });
+    f.adapter.sendMessage = mock(async () => { throw new Error("connection lost after submission"); });
+    await expect(f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner")).rejects.toMatchObject({ status: 502, payload: { reviewRequired: true } });
+    await expect(f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner")).rejects.toMatchObject({ status: 409, payload: { reviewRequired: true } });
+    expect(f.adapter.sendMessage).toHaveBeenCalledTimes(1);
+    expect(new PromptQueueStore(path).claimNextPrompt("session-1")).toBeNull();
+    expect(queue.getSessionQueue("session-1")[0]?.state).toBe("claimed");
+  });
+
+  test("a handled callback cannot deliver a stale wake after adapter readiness yields", async () => {
+    const root = mkdtempSync(join(tmpdir(), "callback-wake-race-")); roots.push(root);
+    const store = new SessionDispatchStore(join(root, "dispatch.db"));
+    const record = store.create({ workerSessionId: "worker", callbackSessionId: "session-1", ownerNpub: "npub1owner",
+      state: "callback_pending", prompt: "work", promptQueuedAt: "2026-10-02T00:00:00Z", reportingContext: {},
+      terminalStatus: "completed", terminalMessage: "done", terminalMessageCreatedAt: "2026-10-02T00:00:01Z",
+      terminalFingerprint: "done-1", callbackPrompt: null, nativeDiscoveryStartedAt: null,
+      nativeDiscoveryNextAttemptAt: null, nativeDiscoveryAttemptCount: 0, nativeDiscoveryLastError: null,
+      callbackAttemptCount: 0, callbackNextAttemptAt: null, callbackExpiresAt: null, callbackQueuedAt: null,
+      callbackAcknowledgedAt: null, closedAt: null, lastError: null });
+    const inbox = new SessionDispatchInboxCoordinator(store);
+    const f = buildEngine({ dispatchInbox: inbox });
+    f.queue.prompts = []; f.session.agentRuntimeStatus = "stable";
+    Object.assign(f.adapter, { deliversPromptsDirectly: () => true });
+    f.adapter.waitForReady = mock(async () => {
+      store.update(record.dispatchId, { state: "acknowledged" });
+      inbox.reconcileHandledCallbacks("session-1");
+    });
+    await f.engine.reconcileNextTurn(f.session);
+    expect(f.adapter.sendMessage).not.toHaveBeenCalled();
+    expect(inbox.inspect("session-1").wake?.state).toBe("resolved");
+  });
+
+  test("explicit busy rejection releases its exact claim for active-turn acknowledgement", async () => {
+    const root = mkdtempSync(join(tmpdir(), "queue-dispatch-busy-")); roots.push(root);
+    const queue = new PromptQueueStore(join(root, "queue.db"));
+    const prompt = queue.addPrompt("session-1", { content: "handled while busy" })!;
+    const f = buildEngine({ promptQueueStore: queue });
+    Object.assign(f.adapter, { deliversPromptsDirectly: () => true });
+    f.getPromptReadiness.mockResolvedValue({ state: "busy", reason: "active-turn", retryAfterMs: 250, observedAt: Date.now() });
+    await expect(f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner")).rejects.toMatchObject({ status: 409 });
+    expect(f.adapter.sendMessage).not.toHaveBeenCalled();
+    expect(queue.acknowledgePrompt("session-1", prompt.id, prompt.revision, "session:session-1", "Completed in busy turn").state).toBe("handled");
+  });
+
 });

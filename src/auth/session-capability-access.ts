@@ -15,3 +15,13 @@ export function isCapabilityBoundSelfSessionMetadataOperation(context: AccessCon
 export function isCapabilityBoundSelfSessionMetadataRead(context: AccessContext): boolean {
   return context.request.method === "GET" && isCapabilityBoundSelfSessionMetadataOperation(context);
 }
+
+export function isCapabilityBoundSelfSessionQueueOperation(context: Pick<AccessContext, "request" | "url" | "auth">): boolean {
+  if (context.auth.authMethod !== "nip98" || !context.auth.capabilitySessionId) return false;
+  const match = context.url.pathname.match(/^\/api\/sessions\/([^/]+)\/queue(?:\/([^/]+)\/acknowledge)?$/);
+  if (!match) return false;
+  try {
+    return decodeURIComponent(match[1]!) === context.auth.capabilitySessionId
+      && ((!match[2] && context.request.method === "GET") || (!!match[2] && context.request.method === "POST"));
+  } catch { return false; }
+}

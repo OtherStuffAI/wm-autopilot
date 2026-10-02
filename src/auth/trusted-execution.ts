@@ -1,3 +1,4 @@
+import { isCapabilityBoundSelfSessionQueueOperation } from "./session-capability-access";
 import { allow, deny, type AccessRule } from "./access-control";
 import { normaliseNpub } from "../identity/npub-utils";
 
@@ -28,6 +29,7 @@ const allowsCapabilityBoundSelfSessionOperation = (
   if (kind !== "sessions" || context.auth.authMethod !== "nip98" || !context.auth.capabilitySessionId) {
     return false;
   }
+  if (context.request.method === "POST" && isCapabilityBoundSelfSessionQueueOperation(context)) return true;
   const target = resolveSelfSessionTarget(context.url.pathname);
   if (!target || target.sessionId !== context.auth.capabilitySessionId) return false;
   return (target.operation === "metadata" && context.request.method === "PATCH") ||

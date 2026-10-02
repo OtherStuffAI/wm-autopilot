@@ -1,3 +1,5 @@
+import { handleQueueRoutes } from "./session-queue-routes";
+import { isCapabilityBoundSelfSessionQueueOperation } from "../auth/session-capability-access";
 /**
  * API route handlers for session and archive endpoints.
  * Extracted from server.ts to reduce file size.
@@ -113,6 +115,8 @@ export interface SessionApiContext {
   };
   promptQueueStore: {
     getSessionQueue: (id: string) => unknown[];
+    getHandledPrompts: (id: string) => unknown[];
+    acknowledgePrompt: (sessionId: string, id: string, revision: string, actor: string, reason: string) => unknown;
     addPrompt: (id: string, options: { content: string }) => unknown;
     updatePromptContent: (sessionId: string, promptId: string, content: string) => boolean;
     deletePromptById: (sessionId: string, promptId: string) => boolean;
@@ -1381,6 +1385,9 @@ export async function handleSessionApi(
       }
     }
 
+    if (ownerRoute.remainder[1] === "queue" && authContext.capabilitySessionId) {
+      return Response.json({ error: "Agent queue actions require the exact self-session route" }, { status: 403 });
+    }
     const id = ownerRoute.remainder[0];
     if (!id) {
       return Response.json({ error: "Session id required" }, { status: 400 });
@@ -1822,6 +1829,15 @@ export async function handleSessionApi(
 
     if (!id) {
       return Response.json({ error: "Session id required" }, { status: 400 });
+    }
+
+    if (parts[4] === "queue" && authContext.capabilitySessionId) {
+      if (!isCapabilityBoundSelfSessionQueueOperation({ request, url, auth: authContext })) {
+        return Response.json({ error: "Agent queue access is limited to its exact current session" }, { status: 403 });
+      }
+      const session = ctx.manager.getSession(id);
+      if (!session || session.status !== "running") return Response.json({ error: "Active session required" }, { status: 409 });
+      return handleQueueRoutes(request, method, parts, id, session, authContext, ctx);
     }
 
     const viewerNormalizedNpub = resolveSelfSpaceViewerNpub(authContext, ctx);
@@ -2613,102 +2629,6 @@ async function handleSessionHistory(
   }
 
   return Response.json({ error: "Session not found" }, { status: 404 });
-}
-
-async function handleQueueRoutes(
-  request: Request,
-  method: HttpMethod,
-  parts: string[],
-  id: string,
-  ownedSession: SessionSnapshot | null,
-  authContext: RequestAuthContext,
-  ctx: SessionApiContext,
-): Promise<Response> {
-  if (method === "GET") {
-    const prompts = ctx.promptQueueStore.getSessionQueue(id);
-    return Response.json({ id, queue: { prompts, maxSize: 21 } });
-  }
-
-  if (method === "POST") {
-    let payload: unknown;
-    try {
-      payload = await request.json();
-    } catch {
-      return Response.json({ error: "Invalid JSON payload" }, { status: 400 });
-    }
-
-    if (!payload || typeof payload !== "object") {
-      return Response.json({ error: "Invalid JSON payload" }, { status: 400 });
-    }
-
-    const record = payload as Record<string, unknown>;
-    const content = typeof record.content === "string" ? record.content.trim() : "";
-
-    if (!content) {
-      return Response.json({ error: "Prompt content is required" }, { status: 400 });
-    }
-
-    try {
-      const prompt = ctx.promptQueueStore.addPrompt(id, { content });
-      if (!prompt) {
-        return Response.json({ error: "Failed to add prompt to queue" }, { status: 400 });
-      }
-      if (ownedSession) {
-        void ctx.maybeAutoDispatchQueuedPrompt(ownedSession);
-      }
-      return Response.json({ id, prompt });
-    } catch (error) {
-      return Response.json({ error: (error as Error).message }, { status: 400 });
-    }
-  }
-
-  if (method === "PUT" && parts.length === 6) {
-    const promptId = parts[5];
-    if (!promptId) {
-      return Response.json({ error: "Prompt ID required" }, { status: 400 });
-    }
-
-    let payload: unknown;
-    try {
-      payload = await request.json();
-    } catch {
-      return Response.json({ error: "Invalid JSON payload" }, { status: 400 });
-    }
-
-    if (!payload || typeof payload !== "object") {
-      return Response.json({ error: "Invalid JSON payload" }, { status: 400 });
-    }
-
-    const record = payload as Record<string, unknown>;
-    const content = typeof record.content === "string" ? record.content.trim() : "";
-
-    if (!content) {
-      return Response.json({ error: "Prompt content is required" }, { status: 400 });
-    }
-
-    const updated = ctx.promptQueueStore.updatePromptContent(id, promptId, content);
-    if (!updated) {
-      return Response.json({ error: "Prompt not found or failed to update" }, { status: 404 });
-    }
-
-    return Response.json({ id, promptId, updated: true });
-  }
-
-  if (method === "DELETE" && parts.length === 6) {
-    const promptId = parts[5];
-    if (!promptId) {
-      return Response.json({ error: "Prompt ID required" }, { status: 400 });
-    }
-
-    const deleted = ctx.promptQueueStore.deletePromptById(id, promptId);
-    if (!deleted) {
-      return Response.json({ error: "Prompt not found" }, { status: 404 });
-    }
-
-    return Response.json({ id, promptId, deleted: true });
-  }
-
-  return Response.json({ error: "Not found" }, { status: 404 });
 }
 
 async function handleQueueNext(

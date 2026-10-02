@@ -13,6 +13,12 @@ export interface QueuedPrompt {
   type: string | null;
   dedupeKey: string | null;
   payload: Record<string, unknown> | null;
+  revision: string;
+  state: "pending" | "claimed" | "dispatched" | "handled";
+  handledAt: string | null;
+  handledBy: string | null;
+  handledReason: string | null;
+  claimToken: string | null;
 }
 
 export interface QueuedPromptInput {
@@ -41,7 +47,7 @@ export class PromptQueueStore {
     this.db = new Database(databasePath);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
-    this.initialise();
+    this.db.transaction(() => this.initialise()).immediate();
     
     this.insertPrompt = this.db.prepare(`
       INSERT OR IGNORE INTO prompt_queue
@@ -51,24 +57,24 @@ export class PromptQueueStore {
     
     this.getQueue = this.db.prepare(`
       SELECT * FROM prompt_queue
-      WHERE session_id = ?
+      WHERE session_id = ? AND state IN ('pending', 'claimed')
       ORDER BY queue_order ASC
     `);
     
     this.updatePrompt = this.db.prepare(`
       UPDATE prompt_queue
-      SET content = ?
-      WHERE id = ? AND session_id = ?
+      SET content = ?, revision = revision + 1
+      WHERE id = ? AND session_id = ? AND state = 'pending'
     `);
     
     this.deletePrompt = this.db.prepare(`
       DELETE FROM prompt_queue
-      WHERE id = ? AND session_id = ?
+      WHERE id = ? AND session_id = ? AND state = 'pending'
     `);
     
     this.getNextPrompt = this.db.prepare(`
       SELECT * FROM prompt_queue
-      WHERE session_id = ?
+      WHERE session_id = ? AND state IN ('pending', 'claimed')
       ORDER BY queue_order ASC
       LIMIT 1
     `);
@@ -76,14 +82,14 @@ export class PromptQueueStore {
     this.hasPromptByContentStmt = this.db.prepare(`
       SELECT 1
       FROM prompt_queue
-      WHERE session_id = ? AND content = ?
+      WHERE session_id = ? AND state IN ('pending', 'claimed') AND content = ?
       LIMIT 1
     `);
 
     this.hasTaskDispatchPromptStmt = this.db.prepare(`
       SELECT 1
       FROM prompt_queue
-      WHERE session_id = ?
+      WHERE session_id = ? AND state IN ('pending', 'claimed')
         AND instr(content, 'Agent work dispatch.') > 0
         AND instr(content, ?) > 0
       LIMIT 1
@@ -92,12 +98,12 @@ export class PromptQueueStore {
     this.countPrompts = this.db.prepare(`
       SELECT COUNT(*) as count
       FROM prompt_queue
-      WHERE session_id = ?
+      WHERE session_id = ? AND state IN ('pending', 'claimed')
     `);
     
     this.clearQueue = this.db.prepare(`
       DELETE FROM prompt_queue
-      WHERE session_id = ?
+      WHERE session_id = ? AND state = 'pending'
     `);
   }
 
@@ -142,6 +148,8 @@ export class PromptQueueStore {
       type: input.type?.trim() || null,
       dedupeKey: input.dedupeKey?.trim() || null,
       payload: input.payload ?? null,
+      revision: "1", state: "pending", handledAt: null, handledBy: null,
+      handledReason: null, claimToken: null,
     };
   }
 
@@ -175,12 +183,10 @@ export class PromptQueueStore {
   }
 
   removeNextPrompt(sessionId: string): QueuedPrompt | null {
-    const nextPrompt = this.getNextQueuedPrompt(sessionId);
-    if (nextPrompt) {
-      this.deletePromptById(sessionId, nextPrompt.id);
-      return nextPrompt;
-    }
-    return null;
+    return this.db.transaction(() => {
+      const next = this.getNextQueuedPrompt(sessionId);
+      return next?.state === "pending" && this.deletePromptById(sessionId, next.id) ? next : null;
+    }).immediate();
   }
 
   getQueueCount(sessionId: string): number {
@@ -218,11 +224,58 @@ export class PromptQueueStore {
   deletePromptsByType(type: string): number {
     const normalizedType = type.trim();
     if (!normalizedType) return 0;
-    const sessionRows = this.db.query(`SELECT DISTINCT session_id FROM prompt_queue WHERE type = ?`)
+    const sessionRows = this.db.query(`SELECT DISTINCT session_id FROM prompt_queue WHERE type = ? AND state = 'pending'`)
       .all(normalizedType) as Array<{ session_id: string }>;
-    const result = this.db.query(`DELETE FROM prompt_queue WHERE type = ?`).run(normalizedType);
+    const result = this.db.query(`DELETE FROM prompt_queue WHERE type = ? AND state = 'pending'`).run(normalizedType);
     for (const row of sessionRows) this.reorderQueue(row.session_id);
     return result.changes;
+  }
+
+  getHandledPrompts(sessionId: string): QueuedPrompt[] {
+    return (this.db.query("SELECT * FROM prompt_queue WHERE session_id = ? AND state = 'handled' ORDER BY handled_at, id")
+      .all(sessionId) as Array<Record<string, unknown>>).map(this.mapPrompt);
+  }
+
+  acknowledgePrompt(sessionId: string, id: string, revision: string, actor: string, reason: string): QueuedPrompt {
+    if (!/^[1-9][0-9]*$/.test(revision) || !actor.trim() || !reason.trim()) {
+      throw new PromptQueueConflict("Revision, actor and reason are required", 400);
+    }
+    return this.db.transaction(() => {
+      const row = this.db.query("SELECT * FROM prompt_queue WHERE session_id = ? AND id = ?").get(sessionId, id);
+      if (!row) throw new PromptQueueConflict("Prompt not found", 404);
+      const prompt = this.mapPrompt(row as Record<string, unknown>);
+      if (prompt.revision !== revision) throw new PromptQueueConflict("Prompt revision changed");
+      if (prompt.state === "handled" && prompt.handledBy === actor && prompt.handledReason === reason.trim()) return prompt;
+      if (prompt.state !== "pending") throw new PromptQueueConflict(`Prompt is already ${prompt.state}`);
+      this.db.query(`UPDATE prompt_queue SET state = 'handled', handled_at = ?, handled_by = ?, handled_reason = ?
+        WHERE session_id = ? AND id = ? AND revision = ? AND state = 'pending'`)
+        .run(new Date().toISOString(), actor, reason.trim(), sessionId, id, revision);
+      this.reorderQueue(sessionId);
+      return this.mapPrompt(this.db.query("SELECT * FROM prompt_queue WHERE id = ?").get(id) as Record<string, unknown>);
+    }).immediate();
+  }
+
+  claimNextPrompt(sessionId: string): QueuedPrompt | null {
+    return this.db.transaction(() => {
+      const prompt = this.getNextQueuedPrompt(sessionId);
+      if (!prompt || prompt.state !== "pending") return null;
+      const claimToken = randomUUID();
+      this.db.query("UPDATE prompt_queue SET state = 'claimed', claim_token = ? WHERE id = ? AND state = 'pending'")
+        .run(claimToken, prompt.id);
+      return { ...prompt, state: "claimed" as const, claimToken };
+    }).immediate();
+  }
+
+  completeClaim(sessionId: string, id: string, claimToken: string): void {
+    const result = this.db.query(`UPDATE prompt_queue SET state = 'dispatched' WHERE session_id = ?
+      AND id = ? AND claim_token = ? AND state = 'claimed'`).run(sessionId, id, claimToken);
+    if (!result.changes) throw new PromptQueueConflict("Dispatch claim changed");
+    this.reorderQueue(sessionId);
+  }
+
+  releaseRejectedClaim(sessionId: string, id: string, claimToken: string): void {
+    this.db.query(`UPDATE prompt_queue SET state = 'pending', claim_token = NULL WHERE session_id = ?
+      AND id = ? AND claim_token = ? AND state = 'claimed'`).run(sessionId, id, claimToken);
   }
 
   private reorderQueue(sessionId: string): void {
@@ -261,14 +314,27 @@ export class PromptQueueStore {
     `);
     const columns = this.db.query("PRAGMA table_info(prompt_queue)").all() as Array<{ name: string }>;
     const names = new Set(columns.map((column) => column.name));
+    for (const [name, definition] of Object.entries({
+      revision: "INTEGER NOT NULL DEFAULT 1", state: "TEXT NOT NULL DEFAULT 'pending'",
+      handled_at: "TEXT", handled_by: "TEXT", handled_reason: "TEXT", claim_token: "TEXT",
+    })) {
+      if (!names.has(name)) this.db.exec(`ALTER TABLE prompt_queue ADD COLUMN ${name} ${definition}`);
+    }
     if (!names.has("type")) this.db.exec("ALTER TABLE prompt_queue ADD COLUMN type TEXT");
     if (!names.has("dedupe_key")) this.db.exec("ALTER TABLE prompt_queue ADD COLUMN dedupe_key TEXT");
     if (!names.has("payload_json")) this.db.exec("ALTER TABLE prompt_queue ADD COLUMN payload_json TEXT");
+    this.db.exec("DROP INDEX IF EXISTS idx_prompt_queue_dedupe");
     this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_queue_dedupe
-      ON prompt_queue(session_id, dedupe_key) WHERE dedupe_key IS NOT NULL`);
+      ON prompt_queue(session_id, dedupe_key) WHERE dedupe_key IS NOT NULL AND state IN ('pending', 'claimed')`);
   }
 
   private mapPrompt = (row: Record<string, unknown>): QueuedPrompt => ({
+    revision: String(row.revision),
+    state: row.state as QueuedPrompt["state"],
+    handledAt: row.handled_at as string | null,
+    handledBy: row.handled_by as string | null,
+    handledReason: row.handled_reason as string | null,
+    claimToken: row.claim_token as string | null,
     id: String(row.id),
     sessionId: String(row.session_id),
     content: String(row.content),
@@ -280,4 +346,8 @@ export class PromptQueueStore {
       ? JSON.parse(row.payload_json) as Record<string, unknown>
       : null,
   });
+}
+
+export class PromptQueueConflict extends Error {
+  constructor(message: string, public status = 409) { super(message); }
 }

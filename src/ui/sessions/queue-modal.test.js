@@ -7,7 +7,7 @@ const source = readFileSync(new URL("./queue-modal.js", import.meta.url), "utf8"
 describe("prompt queue Dexie projection", () => {
   test("keeps Dexie synchronized across add, reload, edit, delete, and release", () => {
     expect(source).toContain("PromptQueueStore.upsert(sessionId, result.prompt)");
-    expect(source).toContain("PromptQueueStore.replaceSession(sessionId, queue.prompts)");
+    expect(source).toContain("PromptQueueStore.replaceSession(sessionId, data.queue?.prompts ?? [], data.queue?.handled ?? [])");
     expect(source).toContain("PromptQueueStore.updateContent(sessionId, promptId, newContent)");
     expect(source).toContain("PromptQueueStore.remove(sessionId, promptId)");
     expect(source).toContain("PromptQueueStore.remove(sessionId, result.sentPrompt.id)");

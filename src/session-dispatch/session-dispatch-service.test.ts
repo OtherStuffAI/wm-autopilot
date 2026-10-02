@@ -218,3 +218,19 @@ describe("SessionDispatchService callback inbox", () => {
       nativeDiscoveryLastError: null });
   });
 });
+
+test("service handling clears obsolete wakes while closing an older callback preserves a late result", async () => {
+  const f = fixture();
+  const first = await f.service.create({ agent: "claude", prompt: "Work 1", callbackEnabled: true, callbackSessionId: "supervisor" });
+  await f.service.checkRunning();
+  const claim = f.inbox.claimForStableSession("supervisor")!;
+  const handled = f.service.acknowledge(first.dispatchId, "supervisor");
+  expect(f.service.acknowledge(first.dispatchId, "supervisor").callbackAcknowledgedAt).toBe(handled.callbackAcknowledgedAt);
+  expect(f.inbox.validateClaim(claim)).toBeFalse();
+  expect(f.inbox.inspect("supervisor").wake?.state).toBe("resolved");
+  const late = await f.service.create({ agent: "claude", prompt: "Work 2", callbackEnabled: true, callbackSessionId: "supervisor" });
+  await f.service.checkRunning();
+  f.service.close(first.dispatchId, "supervisor");
+  expect(f.service.getInbox("supervisor").callbacks.map((record) => record.dispatchId)).toEqual([late.dispatchId]);
+  expect(f.inbox.claimForStableSession("supervisor")).not.toBeNull();
+});

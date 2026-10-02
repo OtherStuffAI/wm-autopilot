@@ -5,6 +5,7 @@ import type { AgentType } from "../config";
 
 export interface SessionAgentMessageInput {
   sessionId?: string;
+  beforeSend?: () => boolean;
   agentHost: string;
   buildAgentUrl: (host: string, port: number, path: string) => string | URL;
   agent: AgentType;
@@ -85,6 +86,7 @@ async function tryWithTransientRetries(input: SessionAgentMessageInput): Promise
 
   for (let attempt = 1; attempt <= MAX_TRANSIENT_ATTEMPTS; attempt += 1) {
     try {
+      if (input.beforeSend && !input.beforeSend()) return { ok: false, status: 409, message: "Delivery claim is no longer current" };
       const response = await postMessage(input);
       if (response.ok) {
         return { ok: true, status: response.status, message: "" };
@@ -130,6 +132,7 @@ export async function deliverSessionAgentMessage(
         timeoutMs: 8000,
         pollIntervalMs: 100,
       });
+      if (input.beforeSend && !input.beforeSend()) return { ok: false, status: 409, message: "Delivery claim is no longer current" };
       await input.adapter.sendMessage(input.content, input.type);
       return { ok: true, status: 200, message: "" };
     } catch (error) {

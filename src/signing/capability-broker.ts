@@ -1,3 +1,4 @@
+import { permitsSessionQueueSigning, containsSessionQueueAuthTarget } from "./session-queue-policy";
 import type { WalletConstraint, WalletBrokerAdapter } from "./wallet-types.ts";
 export type { WalletConstraint, WalletBrokerAdapter } from "./wallet-types.ts";
 import { executeWalletSpend, WALLET_READ_METHODS, WALLET_SPEND_METHODS, WalletBudgetError } from "./wallet-capability.ts";
@@ -788,6 +789,10 @@ export class CapabilityBroker {
     if (!extraTags) {
       return this.deniedNip98(authorized.capability, "tags must be an array of two-string tuples", { parsed, method }, 400);
     }
+    if (!permitsSessionQueueSigning(parsed.pathname, method, authorized.capability.sessionId, bodyHash)) {
+      return this.deniedNip98(authorized.capability,
+        "Queue capability permits only exact-session list and acknowledgement", { parsed, method });
+    }
     const constraint = authorized.capability.policy.nip98;
     if (!constraint) return this.deniedNip98(authorized.capability, "NIP-98 policy is missing", { parsed, method });
     const allowAnyTarget = constraint.allowAnyTarget === true;
@@ -1050,6 +1055,9 @@ export class CapabilityBroker {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event tags exceed policy", 400);
     }
     const stringTags = tags as string[][];
+    if (kind === NIP98_KIND && containsSessionQueueAuthTarget(stringTags)) {
+      return this.denied(authorized.capability, "nostr.sign", "Queue authentication requires the session-bound NIP-98 broker operation");
+    }
     const tagBytes = stringTags.reduce((total, tag) => total + tag.reduce((size, value) => size + Buffer.byteLength(value), 0), 0);
     if (tagBytes > (effectiveConstraint.maxTagBytes ?? 65_536)) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event tags exceed byte policy", 400);

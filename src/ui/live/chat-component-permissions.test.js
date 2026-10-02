@@ -31,8 +31,8 @@ describe("live ACP permission and queue surface", () => {
 
   test("hydrates queued prompts from the server into Dexie and labels their timeline projection", () => {
     expect(source).toContain("fetchSessionQueueApi(sessionId)");
-    expect(source).toContain("PromptQueueStore.replaceSession(sessionId, payload.queue.prompts)");
-    expect(source).toContain('data-testid="queued-prompt-state">Queued');
+    expect(source).toContain("PromptQueueStore.replaceSession(sessionId, payload.queue.prompts, payload.queue.handled)");
+    expect(source).toContain('data-testid="queued-prompt-state"');
     expect(source).toContain("mergeConversationWithQueuedPrompts(this.messages, this.queuedPrompts)");
   });
 

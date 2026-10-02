@@ -1,3 +1,4 @@
+import { addSessionQueueContract } from "./session-queue-contract";
 import { schemas, runExample, acceptedExample } from "./schemas";
 import { endpointCatalog } from "./endpoint-catalog";
 
@@ -32,6 +33,7 @@ export function createOpenApiSpec() {
       },
     };
   }
+  addSessionQueueContract(paths);
   paths["/api/pipelines/definitions/{id}/runs"] = { post: {
     operationId: "startPipeline", tags: ["pipelines"], summary: "Call a pipeline: wait, poll, or signed webhook",
     description: "Default wait mode uses at most 60 seconds of HTTP execution wait. HTTP 200 means a terminal run, including status=error, needs_input or cancelled: inspect status/error. HTTP 202 means accepted/running; timedOut=true marks wait expiry. The same durable run continues; never retry to poll. mode=poll or webhook returns HTTP 202 immediately after acceptance. Legacy ?async=1 selects poll when mode is omitted. Explicit mode takes precedence. Pre-acceptance validation/access errors use HTTP 4xx/5xx with Error. An optional idempotency key is scoped to caller and resolved definition ID. Matching input/webhook returns the original run; changes return 409. Wait settings/mode may change without starting another run when the webhook target is unchanged. No key means each POST starts a run. Keys have no automatic expiry. Public calls remain owner-private even on a shared instance; existing shared run visibility is preserved. Learning definitions additionally require their existing input.idempotencyKey and authorized session-bound Tower context.",

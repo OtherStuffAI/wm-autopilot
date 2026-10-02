@@ -163,8 +163,8 @@ export function initQueueModule(deps) {
       }
       const data = await response.json();
       const queue = getSessionQueue(sessionId);
-      queue.prompts = data.queue?.prompts ?? [];
-      await PromptQueueStore.replaceSession(sessionId, queue.prompts);
+      await PromptQueueStore.replaceSession(sessionId, data.queue?.prompts ?? [], data.queue?.handled ?? []);
+      queue.prompts = (await PromptQueueStore.getSessionPrompts(sessionId)).filter((prompt) => prompt.state !== "handled");
       updateAgentStatusIndicators();
       return queue.prompts;
     } catch (error) {
@@ -182,7 +182,11 @@ export function initQueueModule(deps) {
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
 
-        if (data.failedPrompt) {
+        if (data.reviewRequired) {
+          showToast(data.error || "Delivery outcome is uncertain; inspect the retained dispatch claim before recovery", {
+            type: "error", duration: 8000,
+          });
+        } else if (data.failedPrompt) {
           const textarea = document.querySelector(".wm-composer textarea");
           if (textarea) {
             textarea.value = data.failedPrompt.content;

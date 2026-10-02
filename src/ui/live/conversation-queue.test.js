@@ -45,3 +45,18 @@ describe("queued prompt conversation projection", () => {
     expect(projected[1]).toMatchObject({ id: "queued:second", queued: true });
   });
 });
+
+test("handled prompts stay as historical events in an active conversation without queue controls", () => {
+  const history = { id: "handled-id", sessionId: "busy", content: "already acted", timestamp: "2026-10-02T00:00:00Z",
+    state: "handled", handledAt: "2026-10-02T00:01:00Z", handledBy: "session:busy", handledReason: "Completed this turn", order: 1 };
+  const projected = mergeConversationWithQueuedPrompts([{ role: "user", content: "already acted", createdAt: "2026-10-02T00:00:30Z" }], [history]);
+  expect(projected).toHaveLength(2);
+  expect(projected[1]).toMatchObject({ handled: true, queued: false, handledReason: "Completed this turn", createdAt: history.handledAt });
+});
+
+test("authoritative pending queue rows are not hidden by matching conversation text", () => {
+  const rows = mergeConversationWithQueuedPrompts([{ role: "user", content: "matching prompt", createdAt: "2026-10-02T00:01:00Z" }],
+    [{ id: "pending", content: "matching prompt", state: "pending", timestamp: "2026-10-02T00:00:00Z", order: 1 }]);
+  expect(rows).toHaveLength(2);
+  expect(rows[1]).toMatchObject({ promptId: "pending", queued: true, handled: false });
+});

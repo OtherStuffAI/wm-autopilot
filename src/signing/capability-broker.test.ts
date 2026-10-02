@@ -947,3 +947,33 @@ describe("CapabilityBroker", () => {
     });
   });
 });
+
+test("broker restricts queue capabilities to exact-session list and acknowledgement even in full-agent mode", async () => {
+  for (const mode of ["standard-agent", "full-agent"] as const) {
+    const issued = issue("session-a", ownerA, buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example", autopilotUrl: "http://localhost:3600", ownerNpub: ownerA, mode,
+    }));
+    for (const [path, method, status] of [
+      ["/api/sessions/session-a/queue", "GET", 200],
+      ["/api/sessions/session-a/queue/item/acknowledge", "POST", 200],
+      ["/api/sessions/session-b/queue", "GET", 403],
+      ["/api/sessions/session-b/queue/item/acknowledge", "POST", 403],
+      ["/api/sessions/session-a/queue/next", "POST", 403],
+      ["/api/sessions/session-a/queue/item", "DELETE", 403],
+      [`/api/owners/${ownerA}/sessions/session-a/queue`, "GET", 403],
+    ] as const) {
+      expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+        sessionId: "session-a", url: `http://localhost:3600${path}`, method, bodyHash: "ab".repeat(32),
+      })).status).toBe(status);
+    }
+    expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a", url: "http://localhost:3600/api/sessions/session-a/queue/item/acknowledge", method: "POST",
+    })).status).toBe(403);
+    expect((await call("/api/mcp/capabilities/nostr-event", issued.token, {
+      sessionId: "session-a", event: { kind: 27235, content: "", tags: [
+        ["u", "http://localhost:3600/api/sessions/session-b/queue"], ["method", "GET"],
+      ] },
+    })).status).toBe(403);
+
+  }
+});

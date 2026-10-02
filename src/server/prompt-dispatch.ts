@@ -31,8 +31,10 @@ export interface PromptDispatchContext {
   };
   isUserApprovedForWork?: (npub: string) => boolean;
   promptQueueStore: {
-    getNextQueuedPrompt: (sessionId: string) => { id?: string; content: string; timestamp?: string } | null;
-    removeNextPrompt: (sessionId: string) => void;
+    getNextQueuedPrompt: (sessionId: string) => { id?: string; state?: string; content: string } | null;
+    claimNextPrompt: (sessionId: string) => { id: string; content: string; timestamp?: string; claimToken: string | null } | null;
+    completeClaim: (sessionId: string, id: string, claimToken: string) => void;
+    releaseRejectedClaim: (sessionId: string, id: string, claimToken: string) => void;
     getQueueCount: (sessionId: string) => number;
   };
   buildAgentUrl: (host: string, port: number, path: string) => string | URL;
@@ -210,6 +212,8 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
     boundaryIdentity: string;
     acceptedAt?: string;
     onAccepted?: () => void;
+    onRejected?: () => void;
+    beforeSend?: () => boolean;
   }): Promise<{ messages: unknown[]; deliveryMs: number; messageSyncMs: number; turnObserved: boolean }> {
     restartDrainGate.assertPromptExecutionAllowed();
     const initialCount = ctx.messageStore.listSessionMessages(input.session.id).length;
@@ -224,9 +228,13 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
       type: "user",
       pm2Name: input.session.pm2Name,
       adapter: ctx.manager.getAdapter(input.session.id),
+      beforeSend: input.beforeSend,
     });
     const deliveryMs = elapsedSince(deliveryStartedAt);
-    if (!result.ok) throw new QueueDispatchError(result.message, result.status);
+    if (!result.ok) {
+      if (result.status === 409) input.onRejected?.();
+      throw new QueueDispatchError(result.message, result.status);
+    }
 
     input.onAccepted?.();
     void ctx.manager.captureAgentapiCodexSessionIdFromPrompt?.(input.session.id, input.content, { sentAtMs });
@@ -265,8 +273,12 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
       );
     }
 
-    const nextPrompt = ctx.promptQueueStore.getNextQueuedPrompt(session.id);
+    const nextPrompt = ctx.promptQueueStore.claimNextPrompt(session.id);
     if (!nextPrompt) {
+      const head = ctx.promptQueueStore.getNextQueuedPrompt(session.id);
+      if (head?.state === "claimed") throw new QueueDispatchError(
+        "Queued prompt has an unresolved dispatch claim; inspect delivery before operator recovery", 409,
+        { promptId: head.id, state: "claimed", reviewRequired: true });
       throw new QueueDispatchError("No prompts in queue", 404);
     }
 
@@ -275,7 +287,8 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
         promptType: "queued_prompt",
         boundaryIdentity: nextPrompt.id ?? `${nextPrompt.timestamp ?? dispatchStartedAt}:${nextPrompt.content}`,
         acceptedAt: nextPrompt.timestamp,
-        onAccepted: () => ctx.promptQueueStore.removeNextPrompt(session.id) });
+        onAccepted: () => ctx.promptQueueStore.completeClaim(session.id, nextPrompt.id, nextPrompt.claimToken!),
+        onRejected: () => ctx.promptQueueStore.releaseRejectedClaim(session.id, nextPrompt.id, nextPrompt.claimToken!) });
       deliveryMs = delivered.deliveryMs;
       messageSyncMs = delivered.messageSyncMs;
       clearQueueDispatchCooldown(session.id);
@@ -291,7 +304,9 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
       return { id: session.id, messages: delivered.messages, sentPrompt: nextPrompt };
     } catch (error) {
       if (error instanceof QueueDispatchError) {
-        error.payload = { failedPrompt: nextPrompt, ...error.payload };
+        error.payload = { ...(error.status === 409
+          ? { failedPrompt: nextPrompt }
+          : { claimedPrompt: nextPrompt, reviewRequired: true }), ...error.payload };
         logQueueDispatchTiming({
           sessionId: session.id,
           agent: session.agent,
@@ -315,7 +330,7 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
         errorStatus: 502,
       });
       throw new QueueDispatchError(`Failed to contact agent: ${(error as Error).message}`, 502, {
-        failedPrompt: nextPrompt,
+        claimedPrompt: nextPrompt, reviewRequired: true,
       });
     }
   }
@@ -329,9 +344,11 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
       const readinessStartedAt = Date.now();
       await ensureSessionReadyForPromptDispatch(session);
       readinessMs = elapsedSince(readinessStartedAt);
+      if (!ctx.dispatchInbox?.validateClaim(claim)) return;
       const delivered = await deliverAcceptedPrompt({ session, content: claim.prompt,
         promptType: "dispatch_inbox_wake",
         boundaryIdentity: `${claim.inboxFingerprint}:${claim.attemptCount}`,
+        beforeSend: () => ctx.dispatchInbox?.validateClaim(claim) ?? false,
         onAccepted: () => ctx.dispatchInbox?.markSubmitted(claim) });
       // A synced message proves the accepted wake reached the session even when
       // a very fast turn skips a separately observable runtime=running event.

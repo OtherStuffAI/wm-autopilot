@@ -113,3 +113,22 @@ describe("SessionDispatchInboxCoordinator", () => {
     expect(f.inbox.migrateLegacyCallbacks(queue)).toEqual({ removedPromptRows: 0, recoveredDispatches: 0 });
   });
 });
+
+test("handled callback cancels a claimed wake and late arrivals remain unresolved after old closure", () => {
+  const f = fixture();
+  const older = f.addCallback();
+  const claim = f.inbox.claimForStableSession("supervisor")!;
+  f.store.update(older.dispatchId, { state: "acknowledged" });
+  f.inbox.reconcileHandledCallbacks("supervisor");
+  expect(f.inbox.validateClaim(claim)).toBeFalse();
+  expect(f.inbox.inspect("supervisor").wake?.state).toBe("resolved");
+  const late = f.addCallback();
+  f.store.update(older.dispatchId, { state: "closed" });
+  f.inbox.reconcileHandledCallbacks("supervisor");
+  expect(f.inbox.inspect("supervisor").callbacks.map((record) => record.dispatchId)).toEqual([late.dispatchId]);
+  const next = f.inbox.claimForStableSession("supervisor")!;
+  expect(next).not.toBeNull();
+  expect(next.inboxFingerprint).not.toBe(claim.inboxFingerprint);
+  f.inbox.markSubmitted(claim);
+  expect(f.inbox.inspect("supervisor").wake?.state).toBe("claimed");
+});

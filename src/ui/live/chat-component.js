@@ -339,7 +339,7 @@ export function registerChatComponent() {
     async _syncPromptQueueFromServer(sessionId) {
       const payload = await fetchSessionQueueApi(sessionId).catch(() => null);
       if (this.sessionId !== sessionId || !Array.isArray(payload?.queue?.prompts)) return;
-      await PromptQueueStore.replaceSession(sessionId, payload.queue.prompts);
+      await PromptQueueStore.replaceSession(sessionId, payload.queue.prompts, payload.queue.handled);
     },
 
     async respondToPermission(permission, response) {
@@ -872,8 +872,12 @@ export function getChatTemplate(sessionId) {
         <template x-if="$store.chat.isIntermediateAssistantMessage(message)">
           <span class="wm-message-intermediate-state" role="status" data-testid="intermediate-agent-output">Intermediate · agent loop still running</span>
         </template>
+        <template x-if="message.handled">
+          <span class="wm-message-queued-state" role="status" aria-live="polite" data-testid="handled-prompt-state"
+                x-text="'Handled: ' + message.handledReason" :title="message.handledBy"></span>
+        </template>
         <template x-if="message.queued">
-          <span class="wm-message-queued-state" role="status" data-testid="queued-prompt-state">Queued</span>
+          <span class="wm-message-queued-state" role="status" data-testid="queued-prompt-state" x-text="message.queueState === 'claimed' ? 'Dispatching' : 'Queued'">Queued</span>
         </template>
         <template x-if="$store.chat.getSpeechSummary(message)">
           <p class="wm-message-speech-summary"

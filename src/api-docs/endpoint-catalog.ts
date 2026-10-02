@@ -17,6 +17,8 @@ export const endpointCatalog = [
   ["post", "/api/sessions/{id}/messages", "Send an agent message", "sessions:manage; owned live session or configured admin", "src/server/session-api-routes.ts"],
   ["get", "/api/sessions/{id}/events", "Stream session events", "sessions:read; owned live session or configured admin; text/event-stream", "src/server/session-api-routes.ts"],
   ["patch", "/api/sessions/{id}/metadata", "Update session metadata", "sessions:manage; owner/admin; capability-bound self-update also allowed", "src/server/session-api-routes.ts"],
+  ["get", "/api/sessions/{id}/queue", "Inspect pending prompts and handled history", "sessions:read; owner/admin or broker-bound exact active session", "src/server/session-queue-routes.ts"],
+  ["post", "/api/sessions/{id}/queue/{itemId}/acknowledge", "Acknowledge the exact read prompt revision", "sessions:manage; owner/admin or broker-bound exact active session; atomic revision/claim guard", "src/server/session-queue-routes.ts"],
   ["get", "/api/archive", "List archived sessions", "sessions:read; owner scope", "src/server/session-api-routes.ts"],
   ["get", "/api/apps", "List managed apps", "apps:read; approved work access; owner visibility or configured shared/admin visibility", "src/server/apps-api-routes.ts"],
   ["post", "/api/apps", "Register an app", "apps:self-manage; approved caller owner/admin", "src/server/apps-api-routes.ts"],

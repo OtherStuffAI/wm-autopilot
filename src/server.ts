@@ -193,7 +193,7 @@ import {
   type RequestAuthContext,
 } from "./auth/request-context";
 import { getEffectiveOwnerAuthContext, getEffectiveOwnerNpub } from "./auth/effective-owner";
-import { isCapabilityBoundSelfSessionMetadataOperation } from "./auth/session-capability-access";
+import { isCapabilityBoundSelfSessionMetadataOperation, isCapabilityBoundSelfSessionQueueOperation } from "./auth/session-capability-access";
 import { resolveNip98AuthContext } from "./auth/nip98-auth";
 import { Nip98ReplayCache, verifyNip98Request } from "./auth/nip98-verifier";
 import { deriveNpubSegment, normaliseNpub, normaliseNpubList } from "./identity/npub-utils";
@@ -688,7 +688,7 @@ let sessionApiContextRef: SessionApiContext | null = null;
 
 const requireApprovedWorkAccess = (): AccessRule => {
   return (context) => {
-    if (isCapabilityBoundSelfSessionMetadataOperation(context)) return allow();
+    if (isCapabilityBoundSelfSessionMetadataOperation(context) || isCapabilityBoundSelfSessionQueueOperation(context)) return allow();
     const ownerNpub = getEffectiveOwnerNpub(context.auth);
     return isUserApprovedForWork(ownerNpub)
       ? allow()

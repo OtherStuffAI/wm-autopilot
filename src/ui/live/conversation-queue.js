@@ -19,7 +19,7 @@ export function mergeConversationWithQueuedPrompts(messages, prompts) {
 
   for (const message of canonicalMessages) {
     const released = queuedPrompts.find((prompt) => (
-      !releasedPromptIds.has(prompt.id) && isReleasedQueuedPrompt(message, prompt)
+      prompt.state == null && !releasedPromptIds.has(prompt.id) && isReleasedQueuedPrompt(message, prompt)
     ));
     if (released?.id) releasedPromptIds.add(released.id);
   }
@@ -33,8 +33,12 @@ export function mergeConversationWithQueuedPrompts(messages, prompts) {
       sessionId: prompt.sessionId,
       role: "user",
       content: String(prompt.content ?? ""),
-      createdAt: prompt.timestamp,
-      queued: true,
+      createdAt: prompt.state === "handled" ? prompt.handledAt : prompt.timestamp,
+      queued: prompt.state !== "handled",
+      handled: prompt.state === "handled",
+      handledBy: prompt.handledBy,
+      handledReason: prompt.handledReason,
+      queueState: prompt.state,
       queueOrder: prompt.order,
     }));
 

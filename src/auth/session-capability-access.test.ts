@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { AccessActions, type AccessContext } from "./access-control";
 import {
   isCapabilityBoundSelfSessionMetadataOperation,
+  isCapabilityBoundSelfSessionQueueOperation,
   isCapabilityBoundSelfSessionMetadataRead,
 } from "./session-capability-access";
 
@@ -61,4 +62,16 @@ describe("session capability access helpers", () => {
       context("PATCH", "/api/owners/npub1owner/sessions/session-self/metadata", "session-self"),
     )).toBeFalse();
   });
+});
+
+test("exact-session queue authority grants list and acknowledge only", () => {
+  for (const [method, path, allowed] of [
+    ["GET", "/api/sessions/session-self/queue", true],
+    ["POST", "/api/sessions/session-self/queue/item/acknowledge", true],
+    ["GET", "/api/sessions/session-other/queue", false],
+    ["POST", "/api/sessions/session-other/queue/item/acknowledge", false],
+    ["POST", "/api/sessions/session-self/queue/next", false],
+    ["DELETE", "/api/sessions/session-self/queue/item", false],
+    ["GET", "/api/owners/owner/sessions/session-self/queue", false],
+  ] as const) expect(isCapabilityBoundSelfSessionQueueOperation(context(method, path, "session-self"))).toBe(allowed);
 });

@@ -1,0 +1,24 @@
+import { describe, expect, test } from "bun:test";
+import { runSessionQueueCli } from "./session-queue";
+
+describe("session queue CLI", () => {
+  test("defaults to exact SESSION_ID without listing sessions and prints IDs/revisions intact", async () => {
+    const calls: unknown[][] = [];
+    const output: string[] = [];
+    const deps = { env: { SESSION_ID: "current-session", WINGMAN_URL: "http://localhost:3600" },
+      request: async (...args: unknown[]) => { calls.push(args); return { queue: { prompts: [{ id: "full-id", revision: "12" }] } }; },
+      stdout: (text: string) => output.push(text) };
+    await runSessionQueueCli(["list"], deps);
+    await runSessionQueueCli(["acknowledge", "full-id", "--revision", "12", "--reason", "Handled in active turn"], deps);
+    expect(calls).toEqual([
+      ["http://localhost:3600", "GET", "/api/sessions/current-session/queue"],
+      ["http://localhost:3600", "POST", "/api/sessions/current-session/queue/full-id/acknowledge", { revision: "12", reason: "Handled in active turn" }],
+    ]);
+    expect(JSON.parse(output[0]!).queue.prompts[0]).toEqual({ id: "full-id", revision: "12" });
+  });
+  test("requires a read revision and reason and refuses raw signing options", async () => {
+    for (const args of [["acknowledge", "id", "--reason", "handled"], ["acknowledge", "id", "--revision", "1"], ["list", "--key", "value"]]) {
+      await expect(runSessionQueueCli(args, { env: { SESSION_ID: "self" } })).rejects.toThrow();
+    }
+  });
+});

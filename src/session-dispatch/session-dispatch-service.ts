@@ -146,15 +146,19 @@ export class SessionDispatchService {
     if (record.state !== "callback_pending" && record.state !== "callback_delivered" && record.state !== "acknowledged") {
       throw new Error(`Cannot acknowledge dispatch in ${record.state}`);
     }
-    return this.store.update(id, { state: "acknowledged", callbackAcknowledgedAt: this.now().toISOString(),
+    const updated = this.store.update(id, { state: "acknowledged", callbackAcknowledgedAt: record.callbackAcknowledgedAt ?? this.now().toISOString(),
       callbackExpiresAt: null });
+    this.inbox?.reconcileHandledCallbacks(callerSessionId);
+    return updated;
   }
 
   close(id: string, callerSessionId: string): SessionDispatch {
     const record = this.get(id, callerSessionId);
     if (record.callbackSessionId !== callerSessionId) throw new Error("Only the callback session can close this dispatch");
     if (record.state !== "acknowledged" && record.state !== "closed") throw new Error("A dispatch must be acknowledged before it is closed");
-    return this.store.update(id, { state: "closed", closedAt: this.now().toISOString() });
+    const updated = this.store.update(id, { state: "closed", closedAt: record.closedAt ?? this.now().toISOString() });
+    this.inbox?.reconcileHandledCallbacks(callerSessionId);
+    return updated;
   }
 
   async retryCallback(id: string, callerSessionId: string): Promise<SessionDispatch> {
