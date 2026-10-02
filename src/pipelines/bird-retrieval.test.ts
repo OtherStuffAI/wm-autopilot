@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import spec from "./default-definitions/bird.retrieve.v1.json";
+import specV2 from "./default-definitions/bird.retrieve.v2.json";
 import type { DeclarativePipeline } from "./declarative";
 import type { JsonObject } from "./pipeline-store";
 import { PipelineStore } from "./pipeline-store";
@@ -35,9 +36,13 @@ async function compose(request: string, responses: JsonObject[], executor: BirdE
     return Response.json({ model: "jev-fixture", answers: answer, usage: { input_tokens: 100, output_tokens: 30 } });
   }) as typeof fetch;
   try {
-    const run = await runDeclarativePipeline({ store, sessionApiContext: {} as never, definition: { id: "bird-test", slug: "bird-test", name: "bird-test", scope: "shared", ownerAlias: null, path: "fixture.json", spec: spec as DeclarativePipeline }, registry: birdRetrievalFunctions(executor), input: { request }, ownerNpub: "fixture-owner", ownerAlias: "fixture-owner-alias", callbackOrigin: "http://localhost" });
+    const definitionSpec = process.env.BIRD_TEST_VERSION === "2" ? specV2 : spec;
+    const run = await runDeclarativePipeline({ store, sessionApiContext: {} as never, definition: { id: "bird-test", slug: "bird-test", name: "bird-test", scope: "shared", ownerAlias: null, path: "fixture.json", spec: definitionSpec as DeclarativePipeline }, registry: birdRetrievalFunctions(executor), input: { request }, ownerNpub: "fixture-owner", ownerAlias: "fixture-owner-alias", callbackOrigin: "http://localhost" });
     expect(run.status).toBe("ok");
-    return { state: run.result!.retrieval as JsonObject, calls };
+    const executorRefs = store.evidence.list(run.id).filter(ref => ref.scope === "assembled_model_request");
+    expect(executorRefs).toHaveLength(calls);
+    for (const ref of executorRefs) expect(store.evidence.get(run.id, ref.id)!.value).toMatchObject({ model: "~typesafe/jev-latest" });
+    return { state: run!.result!.retrieval as JsonObject, calls };
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 

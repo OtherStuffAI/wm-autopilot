@@ -358,6 +358,9 @@ describe("runDeclarativePipeline", () => {
     expect(run.result?.decision).toEqual({ intent: "answer_now", dispatchTask: false });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.authorization).toBe("Bearer stored-speech-openrouter-key");
+    const requestRef = store.evidence.list(run.id).find(ref => ref.kind === "executor_request")!;
+    expect(store.evidence.get(run.id, requestRef.id)!.value).toEqual(calls[0]!.body);
+    expect(JSON.stringify(store.evidence.get(run.id, requestRef.id))).not.toContain("stored-speech-openrouter-key");
     const step = store.listSteps(run.id)[0]!;
     expect(step.kind).toBe("classifier");
     expect(step.wingmanSessionId).toBeNull();
@@ -420,6 +423,10 @@ describe("runDeclarativePipeline", () => {
 
     expect(run.status).toBe("ok");
     expect(calls).toBe(3);
+    const refs = store.evidence.list(run.id);
+    expect(refs.filter(ref => ref.kind === "executor_request").map(ref => ref.attempt)).toEqual([1, 2, 3]);
+    expect(refs.filter(ref => ref.kind === "returned_output").at(-1)!.attempt).toBe(3);
+    expect(refs.filter(ref => ref.kind === "state_write").at(-1)!.attempt).toBe(3);
     expect(run.result?.selection).toEqual({ recommendedPipelineId: "do-and-review", confidence: 0.9 });
   });
 
@@ -876,6 +883,12 @@ describe("runDeclarativePipeline", () => {
 
     expect(run.status).toBe("ok");
     expect(run.result?.agentRaw).toEqual({ answer: "native adapter delivered" });
+    const requestRef = store.evidence.list(run.id).find(ref => ref.kind === "executor_request")!;
+    expect(requestRef.scope).toBe("agent_invocation_prompt_persistent_session_not_full_conversation");
+    const archivedRequest = store.evidence.get(run.id, requestRef.id)!.value as { prompt: string };
+    expect(archivedRequest.prompt).toContain("Step instruction:");
+    expect(archivedRequest.prompt).toContain("[REDACTED]");
+    expect(archivedRequest.prompt).not.toContain(store.listSteps(run.id)[0]!.callbackToken!);
     expect(adapterSendCount).toBe(1);
     expect(store.listSteps(run.id)[0]?.wingmanSessionId).toBe(sessionId);
   });
@@ -1146,6 +1159,9 @@ describe("runDeclarativePipeline", () => {
     expect(run.result?.agentRaw).toEqual({ answer: "delivery retry delivered" });
     expect(createCount).toBe(3);
     expect(adapterSendCount).toBe(3);
+    const refs = store.evidence.list(run.id);
+    expect(refs.filter(ref => ref.kind === "executor_request").map(ref => ref.attempt)).toEqual([1, 2, 3]);
+    expect(refs.filter(ref => ref.kind === "returned_output").at(-1)!.attempt).toBe(3);
     const [step] = store.listSteps(run.id);
     expect(step?.status).toBe("ok");
     expect(step?.wingmanSessionId).toBe("delivery-retry-codex-session-3");

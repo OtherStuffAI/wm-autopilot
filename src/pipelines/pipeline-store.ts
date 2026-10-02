@@ -1,3 +1,5 @@
+import { pipelineControlFlow } from "./pipeline-control-flow";
+import { PipelineEvidenceStore } from "./pipeline-evidence-store";
 import { PipelineCompositionStore } from "./pipeline-composition-store";
 import { PublicCallStore } from "./public-call-store";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
@@ -136,6 +138,7 @@ export class PipelineStore {
   readonly path: string;
   readonly publicCalls: PublicCallStore;
   readonly composition: PipelineCompositionStore;
+  readonly evidence: PipelineEvidenceStore;
   private readonly db: Database;
 
   constructor(path = process.env.WINGMEN_PIPELINES_DB || DEFAULT_DB_PATH) {
@@ -147,6 +150,7 @@ export class PipelineStore {
     this.migrate();
     this.publicCalls = new PublicCallStore(this.db);
     this.composition = new PipelineCompositionStore(this.db);
+    this.evidence = new PipelineEvidenceStore(this.db);
   }
 
   reserveLearningRun(ownerNpub: string, definitionId: string, key: string, inputHash: string): { state: 'new' | 'pending' | 'existing' | 'conflict'; runId?: string } {
@@ -316,6 +320,8 @@ export class PipelineStore {
         metadata: input.metadata ?? null,
       }),
     });
+    if (status !== "skipped") this.evidence.capture({ runId: input.runId, stepId: id,
+      kind: "resolved_input", scope: "selected_step_input", value: input.input, secrets: [input.callbackToken ?? ""] });
     return this.getStep(id)!;
   }
 
@@ -346,38 +352,50 @@ export class PipelineStore {
     error?: string | null;
     wingmanSessionId?: string | null;
   }): PipelineStepRecord {
-    this.db.run(
-      `UPDATE pipeline_steps
-       SET status = ?, result_json = ?, output_json = COALESCE(?, output_json), error = ?, wingman_session_id = COALESCE(?, wingman_session_id), completed_at = ?
-       WHERE id = ? AND status != 'cancelled'`,
-      [
-        input.status,
-        input.result ? encodeJson(input.result) : null,
-        input.output ? encodeJson(input.output) : null,
-        input.error ?? null,
-        input.wingmanSessionId ?? null,
-        now(),
-        input.id,
-      ],
-    );
-    const step = this.getStep(input.id)!;
-    this.addEvent({
-      runId: step.runId,
-      stepId: input.id,
-      level: input.status === "ok" ? "info" : "warn",
-      type: "step_completed",
-      message: input.status,
-      data: compactStepEventData({
-        storage: "compact",
-        phase: "completed",
-        inputBytes: jsonByteLength(step.input),
-        resultBytes: input.result ? jsonByteLength(input.result) : 0,
-        outputBytes: input.output ? jsonByteLength(input.output) : 0,
-        status: input.status,
-        metadata: step.metadata,
-      }),
-    });
-    return step;
+    return this.db.transaction(() => {
+      this.db.run(
+        `UPDATE pipeline_steps
+         SET status = ?, result_json = ?, output_json = COALESCE(?, output_json), error = ?, wingman_session_id = COALESCE(?, wingman_session_id), completed_at = ?
+         WHERE id = ? AND status != 'cancelled'`,
+        [
+          input.status,
+          input.result ? encodeJson(input.result) : null,
+          input.output ? encodeJson(input.output) : null,
+          input.error ?? null,
+          input.wingmanSessionId ?? null,
+          now(),
+          input.id,
+        ],
+      );
+      const step = this.getStep(input.id)!;
+      const controlFlow = pipelineControlFlow(input.output);
+      if (controlFlow) this.db.run(`UPDATE pipeline_steps SET metadata_json = ? WHERE id = ?`,
+        [encodeJson({ ...step.metadata, controlFlow }), step.id]);
+      if (step.status !== "cancelled" && step.status !== "skipped") {
+        const secrets = [step.callbackToken ?? ""];
+        if (input.output !== undefined && input.output !== null) this.evidence.capture({ runId: step.runId, stepId: step.id,
+          kind: "returned_output", scope: ["block", "pipeline", "loop", "parallel"].includes(step.kind) ? "wrapper_output_child_evidence_separate" : "executor_return", value: input.output, secrets });
+        if (input.result !== null) this.evidence.capture({ runId: step.runId, stepId: step.id,
+          kind: "state_write", scope: "state_after_assignment", value: input.result, secrets });
+      }
+      this.addEvent({
+        runId: step.runId,
+        stepId: input.id,
+        level: input.status === "ok" ? "info" : "warn",
+        type: "step_completed",
+        message: input.status,
+        data: compactStepEventData({
+          storage: "compact",
+          phase: "completed",
+          inputBytes: jsonByteLength(step.input),
+          resultBytes: input.result ? jsonByteLength(input.result) : 0,
+          outputBytes: input.output ? jsonByteLength(input.output) : 0,
+          status: input.status,
+          metadata: step.metadata,
+        }),
+      });
+      return this.getStep(input.id)!;
+    })();
   }
 
   setStepSession(stepId: string, sessionId: string): void {
@@ -443,6 +461,15 @@ export class PipelineStore {
       rows = this.db.query(`SELECT * FROM pipeline_runs ORDER BY started_at DESC LIMIT ?`).all(limit) as Record<string, unknown>[];
     }
     return rows.map(mapRun);
+  }
+
+  pageOwnerRuns(ownerNpub: string, before: { startedAt: string; id: string } | null, limit: number): PipelineRunSummary[] {
+    const rows = this.db.query(`SELECT *, length(input_json) AS input_bytes, length(current_json) AS current_bytes,
+      length(coalesce(result_json,'')) AS result_bytes FROM pipeline_runs WHERE owner_npub = ?
+      AND (? IS NULL OR started_at < ? OR (started_at = ? AND id < ?))
+      ORDER BY started_at DESC, id DESC LIMIT ?`).all(ownerNpub, before?.startedAt ?? null,
+        before?.startedAt ?? null, before?.startedAt ?? null, before?.id ?? null, limit) as Record<string, unknown>[];
+    return rows.map(mapRunSummary);
   }
 
   listSteps(runId: string): PipelineStepRecord[] {
@@ -556,12 +583,23 @@ export class PipelineStore {
       ).get(...runIds) as { count?: number } | null)?.count ?? 0);
 
       const stepRows = this.db.query(
-        `SELECT id, input_json, result_json, output_json, metadata_json
+        `SELECT id, run_id, callback_token, input_json, result_json, output_json, metadata_json
          FROM pipeline_steps
          WHERE run_id IN (${placeholders})
            AND (input_json <> '{}' OR result_json IS NOT NULL OR output_json IS NOT NULL)`,
       ).all(...runIds) as Array<Record<string, unknown>>;
+      let removedSteps = 0;
       for (const row of stepRows) {
+        let archived = true;
+        for (const [column, kind] of [["input_json", "resolved_input"], ["output_json", "returned_output"], ["result_json", "state_write"]] as const) {
+          if (row[column] !== null) {
+            const ref = this.evidence.ensureArchived({
+              runId: String(row.run_id), stepId: String(row.id), kind, scope: "legacy_inline_archive",
+              value: JSON.parse(String(row[column])), secrets: [String(row.callback_token ?? "")], availability: "preview_only" });
+            if (!["complete", "redacted", "preview_only"].includes(ref.availability)) archived = false;
+          }
+        }
+        if (!archived) continue;
         const metadata = tryDecodeJsonObject(row.metadata_json);
         this.db.run(
           `UPDATE pipeline_steps SET metadata_json = ? WHERE id = ?`,
@@ -577,14 +615,10 @@ export class PipelineStore {
             String(row.id),
           ],
         );
+        this.db.run(`UPDATE pipeline_steps SET input_json = '{}', result_json = NULL, output_json = NULL WHERE id = ?`, [String(row.id)]);
+        removedSteps += 1;
       }
 
-      this.db.run(
-        `UPDATE pipeline_steps
-         SET input_json = '{}', result_json = NULL, output_json = NULL
-         WHERE run_id IN (${placeholders})`,
-        runIds,
-      );
       this.db.run(
         `UPDATE pipeline_events
          SET data_json = '{}'
@@ -593,7 +627,7 @@ export class PipelineStore {
       );
       return {
         matchedRuns: runIds.length,
-        compactedSteps,
+        compactedSteps: removedSteps,
         compactedEvents,
       };
     })(rows.map((row) => row.id));

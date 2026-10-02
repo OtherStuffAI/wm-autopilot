@@ -132,3 +132,67 @@ long text and >20 records after compaction; definition changes; archive failure;
 exact executor capture and redaction; disconnected/recovered snapshots; safe
 rendering and exact copy; child/attempt navigation. Bird formatting is
 deterministic, and delivery confirmation remains separate from response text.
+
+## Backend v1 implementation detail (WP2–WP4)
+
+DTO types are exported from `src/pipelines/pipeline-viewer-dto.ts` and
+`pipeline-evidence-store.ts`. JSON response fixtures are under
+`docs/fixtures/pipeline-viewer`; regenerate with
+`bun scripts/pipeline-viewer-fixtures.ts`. They contain synthetic context only.
+The additive Connect capability is `pipelines.viewer.read.v1`, with
+`api.pipeline_viewer_path` containing the owner-scoped prefix. Service IDs use
+`installationIdForIdentity` from the actual installation signer.
+
+Lists use opaque base64url collection-bound cursors; definitions sort by ID,
+runs by descending `(startedAt, id)`. Limits: definitions/runs 1–100 (default
+50), evidence arrays 1–500 (default 100). Empty initial cursors are accepted;
+malformed cursors and duplicate required context/limit fields are rejected.
+Updates return the full authoritative snapshot and `unchanged`, with a SHA-256
+revision over the sanitized summary snapshot. No archive filenames are exposed.
+A successful detail response carries `run`, `definition`, `steps`, `children`
+and `revision`; `children` contains direct child RunSummary entries.
+
+Ports in both modes contain labels, paths and formats, not inline private
+values. Resolve values through each step's evidence references. Object evidence
+returns the exact full redacted object (including every nested record); top-level
+array evidence supports offset pages. Uncaptured references have `capturedAt: null` and use
+`not-captured:<step-id>:<kind>` IDs and have no value endpoint. Existing inline
+legacy values archived at compaction are `preview_only`, because completeness
+at their original executor boundary cannot be asserted. Missing trusted identity
+or historical snapshot is never reconstructed from run input/latest definitions.
+Native statuses: queued, running, ok, needs_input, error, skipped, cancelled.
+
+Evidence request attempts identify actual model/agent transport attempts;
+StepSummary attempts identify executions of a logical node (including loop
+iterations). Missing evidence kinds remain explicit `not_captured` references;
+these have no value endpoint, even when other kinds were captured. Agent request scope explicitly covers the assembled invocation
+prompt, not later conversation. Wrapper outputs/state writes are distinct from
+child executor evidence. Evidence is append-only and never automatically pruned.
+Limits are configurable via `WINGMEN_PIPELINE_EVIDENCE_VALUE_BYTES` and
+`WINGMEN_PIPELINE_EVIDENCE_RUN_BYTES` (positive integer bytes).
+
+### Bird v2 boundaries
+
+New `bird.timeline.chat.v2` and `bird.retrieve.v2` definitions preserve v1.
+The wrapper retains validate invocation → retrieve child → deterministic format
+→ deliver: authentication, child inspection/time budget, exact format inspection,
+and side-effect/retry boundaries justify all four actions. Thread block expansion
+remains visible as its real native child; it is not a presentation-only group.
+
+The child retains request validation and bounded retrieval attempts. `choose`
+and `judge-evidence` remain explicit advisory classifiers. Their supporting
+`bird.modelState.v1` operation is configured as `inputFunction`, so projection
+and remaining-time calculation are inside each classifier operation, with its
+function hash pinned for historical resume. `execute` and `check` keep actual
+read-only execution and deterministic continuation policy explicit. The three
+iteration limit and source lock are unchanged. Delivery uses a stable run + delivery-step
+thread-reply idempotency key; a failed acknowledgement retry cannot create a new
+post identity. No model drafts the final tweet response.
+
+Compaction verifies a SHA-256 match for each exact redacted inline value/version,
+not merely the existence of a same-kind reference. Over-budget values are
+explicitly `oversized`; compaction retains their inline step payloads. Caller
+availability labels cannot bypass byte budgets. Successful executor returns and
+state writes carry the most recent actual executor request attempt; resolved
+input remains the original selection. Evidence order is durable insertion order,
+including multiple captures within the same millisecond.

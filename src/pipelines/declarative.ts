@@ -49,6 +49,7 @@ export type DeclarativeStep =
   | {
       id?: string;
       name: string;
+      title?: string;
       description?: string;
       display?: StepDisplaySpec;
       type: "pipeline";
@@ -63,6 +64,7 @@ export type DeclarativeStep =
   | {
       id?: string;
       name: string;
+      title?: string;
       description?: string;
       display?: StepDisplaySpec;
       type: "block";
@@ -75,6 +77,7 @@ export type DeclarativeStep =
   | {
       id?: string;
       name: string;
+      title?: string;
       description?: string;
       display?: StepDisplaySpec;
       type: "code";
@@ -86,6 +89,7 @@ export type DeclarativeStep =
   | {
       id?: string;
       name: string;
+      title?: string;
       description?: string;
       display?: StepDisplaySpec;
       type: "agent";
@@ -101,9 +105,11 @@ export type DeclarativeStep =
   | {
       id?: string;
       name: string;
+      title?: string;
       description?: string;
       display?: StepDisplaySpec;
       type: "classifier";
+      inputFunction?: string;
       prompt: string;
       input?: SelectorSpec;
       assign?: string;
@@ -121,6 +127,7 @@ export type DeclarativeStep =
   | {
       id?: string;
       name: string;
+      title?: string;
       description?: string;
       display?: StepDisplaySpec;
       type: "loop";
@@ -137,6 +144,7 @@ export type DeclarativeStep =
   | {
       id?: string;
       name: string;
+      title?: string;
       description?: string;
       display?: StepDisplaySpec;
       type: "parallel";

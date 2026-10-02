@@ -1,3 +1,5 @@
+import { handlePipelineViewerApi } from "../pipelines/pipeline-viewer-routes";
+import type { PipelineStore } from "../pipelines/pipeline-store";
 import type { AgentDefinitionRecord } from "../agent-chat/types";
 import { DelegationScopes, resolveOwnerAccess } from "../auth/delegation-access";
 import type { RequestAuthContext } from "../auth/request-context";
@@ -36,6 +38,7 @@ interface AgentStore {
 
 export interface ControlPlaneRoutesContext {
   identity: WingmanInstanceIdentity | null;
+  pipelineStore?: PipelineStore;
   baseUrl: string;
   baseUrlConfigured: boolean;
   getFipsEndpoint: () => FipsAppEndpoint;
@@ -211,6 +214,10 @@ export async function handleControlPlaneApi(
   authContext: RequestAuthContext,
   ctx: ControlPlaneRoutesContext,
 ): Promise<Response | null> {
+  if (url.pathname.includes("/control-plane/v1/pipeline-viewer")) {
+    if (!ctx.pipelineStore) return noStore(Response.json({ version: 1, serviceId: ctx.identity ? installationIdForIdentity(ctx.identity) : null, error: "pipeline-viewer-unavailable" }, { status: 503 }));
+    return handlePipelineViewerApi(request, url, authContext, { ...ctx, store: ctx.pipelineStore });
+  }
   if (url.pathname === "/api/control-plane/v1/connect-package" || url.pathname === "/api/control-plane/v2/connect-package") {
     if (method !== "GET") return noStore(Response.json({ error: "method-not-allowed" }, { status: 405 }));
     if (authContext.authMethod !== "nip98") {

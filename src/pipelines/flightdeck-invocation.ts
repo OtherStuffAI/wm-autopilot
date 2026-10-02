@@ -17,6 +17,7 @@ export interface FlightDeckInvocationResolution extends JsonObject {
 export type FlightDeckInvocationResolver = (
   input: FlightDeckPipelineInvocation,
   ownerNpub?: string | null,
+  initiatingAgentNpub?: string | null,
 ) => Promise<FlightDeckInvocationResolution>;
 
 export type FlightDeckThreadSender = (
@@ -68,6 +69,7 @@ export function normalizeFlightDeckPipelineInvocation(value: unknown): FlightDec
 export async function resolveFlightDeckPipelineInvocation(
   value: unknown,
   ownerNpub?: string | null,
+  initiatingAgentNpub?: string | null,
 ): Promise<{ input: FlightDeckPipelineInvocation; resolution: FlightDeckInvocationResolution }> {
   const keys = value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value) : [];
   const unexpected = keys.filter((key) => !["workspaceId", "threadId", "frmNpub", "prompt"].includes(key));
@@ -75,7 +77,7 @@ export async function resolveFlightDeckPipelineInvocation(
   const input = normalizeFlightDeckPipelineInvocation(value);
   const resolver = (globalThis as FlightDeckInvocationGlobal)[resolverKey];
   if (!resolver) throw new Error("Flight Deck pipeline invocation is not configured");
-  return { input, resolution: await resolver(input, ownerNpub) };
+  return { input, resolution: await resolver(input, ownerNpub, initiatingAgentNpub) };
 }
 
 export async function returnPipelineMarkdownToFlightDeckThread(input: JsonObject): Promise<JsonObject> {
@@ -83,7 +85,9 @@ export async function returnPipelineMarkdownToFlightDeckThread(input: JsonObject
   const message = requiredText(input.message, "message");
   const sender = (globalThis as FlightDeckInvocationGlobal)[senderKey];
   if (!sender) throw new Error("Flight Deck pipeline thread delivery is not configured");
-  return await sender({ ...invocation, message, pipelineRunId: typeof input.pipelineRunId === "string" ? input.pipelineRunId : undefined });
+  return await sender({ ...invocation, message, pipelineRunId: typeof input.pipelineRunId === "string" ? input.pipelineRunId : undefined,
+    clientRequestId: typeof input.idempotencyKey === "string" ? input.idempotencyKey
+      : typeof input.pipelineRunId === "string" ? `pipeline:${input.pipelineRunId}:thread-reply` : undefined });
 }
 
 export async function deliverPipelineMessageToFlightDeckRoute(input: JsonObject): Promise<JsonObject> {

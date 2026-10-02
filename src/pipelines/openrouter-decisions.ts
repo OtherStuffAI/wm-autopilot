@@ -1,3 +1,4 @@
+import { redactPipelineValue } from "./pipeline-evidence-redaction";
 import type { DecisionQuestion } from "./declarative";
 import { assertObject } from "./declarative";
 import type { JsonObject } from "./pipeline-store";
@@ -13,6 +14,7 @@ export async function runOpenRouterDecisions(input: {
   attempts: number;
   apiKey: string;
   fetch?: typeof fetch;
+  captureRequest?: (value: JsonObject, attempt: number) => unknown;
 }): Promise<JsonObject> {
   if (Object.keys(input.questions).length === 0) {
     throw new Error("OpenRouter decisions classifier requires at least one question");
@@ -23,6 +25,12 @@ export async function runOpenRouterDecisions(input: {
     const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
     const startedAt = performance.now();
     try {
+      const body = {
+        model: input.model,
+        state: input.instructionContext?.trim() ? { instructionContext: input.instructionContext, ...input.state } : input.state,
+        questions: input.questions,
+      };
+      input.captureRequest?.(body, attempt);
       const response = await (input.fetch ?? fetch)(OPENROUTER_DECISIONS_URL, {
         method: "POST",
         headers: {
@@ -32,13 +40,7 @@ export async function runOpenRouterDecisions(input: {
           "x-title": "Wingman Autopilot Pipeline Decisions",
         },
         signal: controller.signal,
-        body: JSON.stringify({
-          model: input.model,
-          state: input.instructionContext?.trim()
-            ? { instructionContext: input.instructionContext, ...input.state }
-            : input.state,
-          questions: input.questions,
-        }),
+        body: JSON.stringify(body),
       });
       const rawText = await response.text();
       if (!response.ok) {
@@ -70,7 +72,7 @@ export async function runOpenRouterDecisions(input: {
     }
   }
   const message = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown error");
-  throw new Error(`Decisions classifier failed after ${input.attempts} attempts: ${message}`);
+  throw new Error(String(redactPipelineValue(`Decisions classifier failed after ${input.attempts} attempts: ${message}`, [input.apiKey]).value));
 }
 
 export function buildShadowDecisionsError(error: unknown, requestedModel: string): JsonObject {

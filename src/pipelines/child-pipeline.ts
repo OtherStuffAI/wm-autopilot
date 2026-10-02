@@ -76,7 +76,7 @@ export async function executeChildPipeline(input: PipelineRunnerInput & {
   const existing = parent.activeStepId ? store.getStep(parent.activeStepId) : null;
   const selected = selectInput(input.current, step.input);
   const record = existing ?? store.createStep({ runId, stepIndex: input.nextStepIndex(), name: step.name,
-    kind: "pipeline", input: selected, metadata: buildPipelineStepMetadata(step) });
+    kind: "pipeline", input: selected, logicalKey: step.id ?? step.name, metadata: buildPipelineStepMetadata(step) });
   store.setRunActiveStep(runId, record.id);
   if (record.status === "ok") return { current: record.result ?? input.current };
   let link = store.composition.child(record.id);

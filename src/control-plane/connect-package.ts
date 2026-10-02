@@ -18,6 +18,7 @@ export const CONNECT_PACKAGE_EVENT_KIND = 27236;
 export const DEFAULT_CONNECT_PACKAGE_MAX_AGE_SECONDS = 300;
 export const CONTROL_READ_CAPABILITIES = [
   "health",
+  "pipelines.viewer.read.v1",
   "agents.read",
   "agents.overview.read",
   "agents.pipelines.read",
@@ -88,6 +89,7 @@ function manifestApi(ownerNpub: string): AutopilotConnectManifestV1["api"] {
     capabilities: [...CONTROL_READ_CAPABILITIES],
     health_path: `/api/owners/${ownerSegment}/control-plane/v1/health`,
     agents_path: `/api/owners/${ownerSegment}/control-plane/v1/agents`,
+    pipeline_viewer_path: `/api/owners/${ownerSegment}/control-plane/v1/pipeline-viewer`,
     controlled_restart_path: "/api/system/controlled-restart",
     controlled_restart_status_path: "/api/system/controlled-restart/status",
   };
@@ -196,6 +198,7 @@ export function verifyAutopilotConnectPackage(
   if (!Array.isArray(manifest.api.capabilities)) throw new Error("Connect package capabilities are invalid");
   exactAdvertisedPath(manifest.api.health_path, "Health route");
   exactAdvertisedPath(manifest.api.agents_path, "Agents route");
+  if (manifest.api.capabilities.includes("pipelines.viewer.read.v1")) exactAdvertisedPath(manifest.api.pipeline_viewer_path, "Pipeline viewer route");
   if (manifest.api.capabilities.includes("system.controlled-restart.v1")) {
     exactAdvertisedPath(manifest.api.controlled_restart_path, "Controlled restart route");
     exactAdvertisedPath(manifest.api.controlled_restart_status_path, "Controlled restart status route");

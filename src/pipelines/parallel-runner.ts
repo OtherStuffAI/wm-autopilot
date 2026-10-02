@@ -198,6 +198,8 @@ async function runParallelChild(
   if (child.type === "code") {
     const fn = input.registry[child.function];
     if (!fn) throw new Error(`Unknown pipeline function: ${child.function}`);
+    input.store.evidence.capture({ runId: input.runId, stepId: runningChild.id, kind: "executor_request",
+      scope: "code_function_arguments", value: { function: child.function, arguments: selected } });
     const result = await fn(selected);
     assertObject(result, `parallel child ${runningChild.name} result`);
     input.store.completeStep({ id: runningChild.id, status: "ok", result, output: result });

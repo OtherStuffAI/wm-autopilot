@@ -8,9 +8,10 @@ export function pipelineFunctionHashes(definition: PipelineDefinitionRecord, reg
   const hashes: Record<string, string> = {};
   function visit(steps: DeclarativeStep[]): void {
     for (const step of steps) {
-      if (step.type === "code") {
-        const hash = (registry[step.function] as unknown as Record<symbol, unknown> | undefined)?.[runtimeFunctionHash];
-        if (typeof hash === "string") hashes[step.function] = hash;
+      const functionName = step.type === "code" ? step.function : step.type === "classifier" ? step.inputFunction : undefined;
+      if (functionName) {
+        const hash = (registry[functionName] as unknown as Record<symbol, unknown> | undefined)?.[runtimeFunctionHash];
+        if (typeof hash === "string") hashes[functionName] = hash;
       }
       if (step.type === "block") visit(expandPipelineBlock(step).steps);
       if (step.type === "loop" && step.steps) visit(step.steps);

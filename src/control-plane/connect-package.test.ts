@@ -62,6 +62,7 @@ describe("Autopilot connect package", () => {
         version: 1,
         capabilities: [
           "health",
+          "pipelines.viewer.read.v1",
           "agents.read",
           "agents.overview.read",
           "agents.pipelines.read",
@@ -72,6 +73,7 @@ describe("Autopilot connect package", () => {
         ],
         health_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/health`,
         agents_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/agents`,
+        pipeline_viewer_path: `/api/owners/${fixture.ownerNpub}/control-plane/v1/pipeline-viewer`,
         controlled_restart_path: "/api/system/controlled-restart",
         controlled_restart_status_path: "/api/system/controlled-restart/status",
       },

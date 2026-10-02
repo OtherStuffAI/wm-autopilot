@@ -318,7 +318,7 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
 
     if (/^\/api\/owners\/[^/]+\/control-plane\/v1\//.test(pathname)) {
       const controlAuthContext = await ctx.resolveNip98AuthContext(request, url, authContext);
-      if (controlAuthContext.authMethod !== "nip98") {
+      if (controlAuthContext.authMethod !== "nip98" && !/^\/api\/owners\/[^/]+\/control-plane\/v1\/pipeline-viewer(?:\/|$)/.test(pathname)) {
         return Response.json({ error: "nip98-authentication-required" }, { status: 401 });
       }
       const response = await runWithRequestContext(

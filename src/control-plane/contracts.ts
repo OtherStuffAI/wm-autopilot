@@ -11,6 +11,7 @@ export interface AutopilotConnectManifestV1 {
     capabilities: string[];
     health_path: string;
     agents_path: string;
+    pipeline_viewer_path?: string;
     controlled_restart_path?: string;
     controlled_restart_status_path?: string;
   };

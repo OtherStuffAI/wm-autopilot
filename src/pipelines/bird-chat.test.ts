@@ -8,7 +8,7 @@ import { loadPipelineFunctionRegistry } from "./function-loader";
 import { builtinPipelineFunctions } from "./functions";
 import { birdRetrievalFunctions, executeBirdDecision, prepareBirdRetrieval } from "./bird-retrieval";
 import { formatBirdRetrieval } from "./bird-format";
-import { runDeclarativePipeline } from "./pipeline-runner";
+import { runDeclarativePipeline, resumeErroredDeclarativePipeline } from "./pipeline-runner";
 import { configureFlightDeckPipelineInvocation } from "./flightdeck-invocation";
 import { createFlightDeckThreadRuntime } from "./flightdeck-thread-runtime";
 import { isChatAddressable, createPipelineRouterHandler } from "../agent-chat/pipeline-router-handler";
@@ -40,8 +40,8 @@ function configureDelivery() {
   return posts;
 }
 
-for (const verdict of ["complete", "partial", "clarification", "blocked"]) test(`real wrapper composition returns ${verdict} to the exact thread as Piper`, async () => {
-  const definition = (await getPipelineDefinition("bird.timeline.chat.v1", "owner"))!;
+for (const version of [1, 2]) for (const verdict of ["complete", "partial", "clarification", "blocked"]) test(`v${version} real wrapper composition returns ${verdict} to the exact thread as Piper`, async () => {
+  const definition = (await getPipelineDefinition(`bird.timeline.chat.v${version}`, "owner"))!;
   const loaded = await loadPipelineFunctionRegistry("owner", builtinPipelineFunctions);
   expect(loaded.records.filter(record => record.name.startsWith("bird.")).every(record => record.status === "ok")).toBe(true);
   let models = 0; let cli = 0;
@@ -52,6 +52,10 @@ for (const verdict of ["complete", "partial", "clarification", "blocked"]) test(
     ownerNpub: "npub1owner", ownerAlias: "owner", sessionApiContext: {} as never, callbackOrigin: "http://localhost", initiatingAgentProfileId: "piper", initiatingAgentNpub: "npub1piper",
     onRunCreated: created => store.addEvent({ runId: created.id, level: "info", type: "flightdeck_invocation_context", data: { ...invocation, initiatingAgentNpub: "npub1piper" } }) });
   expect(run.status).toBe("ok"); expect(posts).toHaveLength(1);
+  expect(posts[0]!.clientRequestId).toBe(`pipeline:${run.id}:thread-reply:reply / return-to-thread`);
+  const confirmations = store.evidence.list(run.id).filter(ref => ref.kind === "side_effect_confirmation");
+  expect(confirmations).toHaveLength(1);
+  expect(store.evidence.get(run.id, confirmations[0]!.id)!.value).toMatchObject({ delivered: true, messageId: "fixture-delivery" });
   expect(posts[0]).toMatchObject({ workspaceId: invocation.workspaceId, channelId: "channel", threadId: invocation.threadId, botIdentity: { botNpub: "npub1piper" }, metadata: { requester_npub: invocation.frmNpub } });
   expect(posts[0]!.mentions).toBeUndefined(); expect(String(posts[0]!.body)).not.toContain("@[Rick](mention:agent:");
   if (verdict === "clarification") { expect(posts[0]!.body).toBe("Would you like your Following feed or your For You feed?"); expect(models).toBe(0); expect(cli).toBe(0); }
@@ -76,9 +80,9 @@ test("unused argument uncertainty never vetoes a valid applicable judgment; malf
 
 test("existing router discovers the wrapper and routes the unchanged caller and source prompt", async () => {
   const definitions = await listLatestPipelineDefinitions("owner");
-  const wrapper = definitions.find(definition => definition.name === "bird.timeline.chat.v1")!;
+  const wrapper = definitions.find(definition => definition.name === "bird.timeline.chat.v2")!;
   expect(isChatAddressable(wrapper)).toBe(true);
-  expect(isChatAddressable(definitions.find(definition => definition.name === "bird.retrieve.v1")!)).toBe(false);
+  expect(isChatAddressable(definitions.find(definition => definition.name === "bird.retrieve.v2")!)).toBe(false);
   let started: JsonObject | null = null; let catalogue: string[] = [];
   const published: JsonObject[] = [];
   const handler = createPipelineRouterHandler({ store, callbackOrigin: "http://localhost", getSessionApiContext: () => ({}) as never,
@@ -95,4 +99,28 @@ test("format rejects missing state and constructs links only from validated IDs 
   expect(() => formatBirdRetrieval({})).toThrow("Missing terminal");
   expect(formatBirdRetrieval({ state: { verdict: "complete", source: "following", tweets: [{ id: "1", text: "exact", author: { username: "../../evil" } }] } }).message).toContain("https://x.com/i/status/1");
   expect(() => formatBirdRetrieval({ state: { verdict: "complete", source: "following", tweets: [{ id: "bad/id", text: "x" }] } })).toThrow("Invalid Bird");
+});
+
+
+test("v2 delivery acknowledgment failure retries with one stable thread post identity", async () => {
+  const definition = (await getPipelineDefinition("bird.timeline.chat.v2", "owner"))!;
+  const loaded = await loadPipelineFunctionRegistry("owner", builtinPipelineFunctions);
+  const posts = new Map<string, string>(); let deliveries = 0;
+  configureFlightDeckPipelineInvocation({
+    resolve: async input => ({ ...input, channelId: "channel", senderNpub: "npub1piper" }),
+    send: async input => {
+      expect(input.clientRequestId).toBeString();
+      posts.set(input.clientRequestId!, input.message); deliveries++;
+      if (deliveries === 1) throw new Error("synthetic acknowledgment lost after posting");
+      return { delivered: true, messageId: "synthetic-post" };
+    },
+  });
+  const runner = { store, definition, registry: loaded.registry,
+    input: { ...invocation, prompt: "Get the latest tweets" }, ownerNpub: "npub1owner", ownerAlias: "owner",
+    sessionApiContext: {} as never, callbackOrigin: "http://localhost" };
+  const run = await runDeclarativePipeline(runner);
+  expect(run.status).toBe("error");
+  const recovered = await resumeErroredDeclarativePipeline(runner, run.id);
+  expect(recovered!.status).toBe("ok"); expect(deliveries).toBe(2); expect(posts.size).toBe(1);
+  expect([...posts.keys()][0]).toBe(`pipeline:${run.id}:thread-reply:reply / return-to-thread`);
 });

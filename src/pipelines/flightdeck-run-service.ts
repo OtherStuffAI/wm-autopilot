@@ -14,7 +14,7 @@ export async function startFlightDeckPipelineRun(input: {
   onRunCreated?: Parameters<typeof startDeclarativePipeline>[0]["onRunCreated"];
   onRunCompleted?: Parameters<typeof startDeclarativePipeline>[0]["onRunCompleted"];
 }) {
-  const resolved = await resolveFlightDeckPipelineInvocation(input.invocation, input.ownerNpub);
+  const resolved = await resolveFlightDeckPipelineInvocation(input.invocation, input.ownerNpub, input.initiatingAgentNpub);
   const functions = await loadPipelineFunctionRegistry(input.ownerAlias, builtinPipelineFunctions);
   const run = startDeclarativePipeline({ store: input.store, sessionApiContext: input.sessionApiContext,
     definition: input.definition, registry: functions.registry,
@@ -26,6 +26,8 @@ export async function startFlightDeckPipelineRun(input: {
       input.store.addEvent({ runId: created.id, level: "info", type: "flightdeck_invocation_context",
         message: "Trusted Flight Deck invocation context", data: { initiatingAgentProfileId: input.initiatingAgentProfileId ?? null,
           initiatingAgentNpub: input.initiatingAgentNpub ?? null,
+          towerServiceNpub: resolved.resolution.towerServiceNpub ?? null, appNpub: resolved.resolution.appNpub ?? null,
+          resolvedAgentProfileId: resolved.resolution.agentProfileId ?? null,
           sourceMessageId: input.sourceMessageId ?? null, workspaceId: resolved.input.workspaceId, threadId: resolved.input.threadId } });
       input.onRunCreated?.(created);
     },

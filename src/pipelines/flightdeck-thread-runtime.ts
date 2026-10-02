@@ -30,17 +30,19 @@ interface ThreadRuntimeDependencies {
 }
 
 export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): {
-  resolve: (input: FlightDeckPipelineInvocation, ownerNpub?: string | null) => Promise<FlightDeckInvocationResolution>;
+  resolve: (input: FlightDeckPipelineInvocation, ownerNpub?: string | null, initiatingAgentNpub?: string | null) => Promise<FlightDeckInvocationResolution>;
   send: FlightDeckThreadSender;
 } {
-  const resolve = async (input: FlightDeckPipelineInvocation, ownerNpub?: string | null) => {
-    const selected = selectManagedSubscription(deps, input.workspaceId, ownerNpub);
-    const agent = deps.agentStore.getByBotNpub(selected.botNpub);
+  const resolve = async (input: FlightDeckPipelineInvocation, ownerNpub?: string | null, initiatingAgentNpub?: string | null) => {
+    const selected = selectManagedSubscription(deps, input.workspaceId, ownerNpub, initiatingAgentNpub);
+    const senderNpub = initiatingAgentNpub ?? selected.botNpub;
+    const agent = deps.agentStore.getByBotNpub(senderNpub);
+    if (ownerNpub && agent?.managedByNpub !== ownerNpub) throw new Error("Resolved agent manager differs from requested owner");
     if (!agent || !agent.enabled || agent.archived) {
       throw new Error(`Workspace ${input.workspaceId} has no active managed agent identity`);
     }
     return await deps.withAgentIdentity(agent, async (botIdentity) => {
-      if (botIdentity.botNpub !== selected.botNpub) {
+      if (botIdentity.botNpub !== senderNpub) {
         throw new Error("Resolved managed agent identity does not match the workspace subscription");
       }
       const channel = await resolveThreadChannel(deps, selected, botIdentity, input.threadId);
@@ -49,13 +51,17 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
         threadId: input.threadId,
         channelId: channel.id,
         senderNpub: botIdentity.botNpub,
+        towerServiceNpub: selected.towerServiceNpub ?? null,
+        appNpub: selected.sourceAppNpub,
+        agentProfileId: agent.agentId,
       };
     });
   };
 
   const send: FlightDeckThreadSender = async (input) => {
     const trustedAgentNpub = input.pipelineRunId && deps.resolveTrustedAgentNpub?.(input.pipelineRunId);
-    const selected = selectManagedSubscription(deps, input.workspaceId, null, trustedAgentNpub || null);
+    const trustedAgent = trustedAgentNpub ? deps.agentStore.getByBotNpub(trustedAgentNpub) : null;
+    const selected = selectManagedSubscription(deps, input.workspaceId, trustedAgent?.managedByNpub ?? null, trustedAgentNpub || null);
     const agent = deps.agentStore.getByBotNpub(trustedAgentNpub || selected.botNpub);
     if (!agent || !agent.enabled || agent.archived) {
       throw new Error(`Workspace ${input.workspaceId} has no active managed agent identity`);
@@ -130,7 +136,8 @@ function selectManagedSubscription(
     record.workspaceId === workspaceId && (record.lifecycleStatus ?? "active") === "active"
   );
   const owned = ownerNpub ? active.filter((record) => record.managedByNpub === ownerNpub) : [];
-  const candidates = owned.length > 0 ? owned : active;
+  if (ownerNpub && !owned.length) throw new Error(`No active requested-owner subscription resolves workspace ${workspaceId}`);
+  const candidates = ownerNpub ? owned : active;
   const preferredAgent = preferredBotNpub ? deps.agentStore.getByBotNpub(preferredBotNpub) : null;
   const linkedSubscriptionIds = preferredAgent?.managedByNpub && deps.profileStore
     ? new Set(deps.profileStore.listWorkspacesForProfile(preferredAgent.agentId, preferredAgent.managedByNpub)

@@ -11,7 +11,7 @@ const invocation = {
 function fixture(options: { workspaceId?: string; hasThread?: boolean } = {}) {
   const created: Array<Record<string, unknown>> = [];
   const runtime = createFlightDeckThreadRuntime({
-    agentStore: { getByBotNpub: () => ({ enabled: true, archived: false, botNpub: "npub1managed" }) as never },
+    agentStore: { getByBotNpub: () => ({ agentId: "managed", managedByNpub: "npub1owner", enabled: true, archived: false, botNpub: "npub1managed" }) as never },
     subscriptionStore: { listAll: () => [{
       workspaceId: options.workspaceId ?? invocation.workspaceId,
       subscriptionId: "subscription-1",
@@ -47,6 +47,7 @@ describe("Flight Deck thread runtime", () => {
       threadId: invocation.threadId,
       channelId: "channel-1",
       senderNpub: "npub1managed",
+      towerServiceNpub: null, appNpub: "npub1app", agentProfileId: "managed",
     });
     expect(created[0]).toMatchObject({
       workspaceId: invocation.workspaceId,
@@ -227,3 +228,23 @@ function fixtureWithChannels(fetchMessages: NonNullable<Parameters<typeof create
 function towerError(status: number, detailCode: string, message: string): Error {
   return Object.assign(new Error(message), { status, detailCode });
 }
+
+test("wrong requested owner never resolves a foreign subscription or invokes identity/Tower", async () => {
+  const { runtime } = fixture();
+  await expect(runtime.resolve(invocation, "npub1wrong-owner")).rejects.toThrow("requested-owner subscription");
+});
+
+test("requested initiating profile resolves its linked subscription and persists trusted identities", async () => {
+  const runtime = createFlightDeckThreadRuntime({
+    agentStore: { getByBotNpub: npub => ({ agentId: "addressed", managedByNpub: "npub1owner", botNpub: npub, enabled: true }) as never },
+    profileStore: { listWorkspacesForProfile: () => [{ workspaceId: invocation.workspaceId, subscriptionId: "linked" }] as never },
+    subscriptionStore: { listAll: () => [{ workspaceId: invocation.workspaceId, subscriptionId: "linked", managedByNpub: "npub1owner",
+      botNpub: "npub1subscription", sourceAppNpub: "npub1trusted-app", towerServiceNpub: "npub1trusted-tower", lifecycleStatus: "active" }] as never },
+    withAgentIdentity: async (agent, op) => op({ botNpub: agent.botNpub } as never),
+    fetchScopes: async () => ({ scopes: [{ id: "scope" }], next_cursor: null }),
+    fetchChannels: async () => ({ channels: [{ id: "channel" }], next_cursor: null }),
+    fetchMessages: async () => ({ messages: [{ id: invocation.threadId }], next_cursor: null }),
+  });
+  const resolution = await runtime.resolve(invocation, "npub1owner", "npub1addressed");
+  expect(resolution).toMatchObject({ senderNpub: "npub1addressed", agentProfileId: "addressed", towerServiceNpub: "npub1trusted-tower", appNpub: "npub1trusted-app" });
+});

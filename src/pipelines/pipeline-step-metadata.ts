@@ -9,6 +9,7 @@ export function buildPipelineStepMetadata(step: DeclarativeStep, options: {
   return compactObject({
     definitionStepId: step.id ?? null,
     name: step.name,
+    title: step.title ?? step.name,
     description: step.description ?? null,
     display: step.display ?? null,
     type: step.type,

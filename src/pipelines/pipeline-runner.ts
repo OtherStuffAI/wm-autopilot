@@ -1,3 +1,6 @@
+import { buildAgentPrompt } from "./agent-invocation-prompt";
+import { runClassifierStep } from "./classifier-executor";
+import { prepareClassifierInput } from "./classifier-input";
 import { pipelineFunctionHashes, assertPipelineFunctionPins } from "./pipeline-function-pins";
 import { pipelineAuthorityInput, assertPipelineReplyContext, assertPipelineAncestorsRunning } from "./pipeline-run-authority";
 import { executeChildPipeline, validateChildPipelineSteps } from "./child-pipeline";
@@ -32,7 +35,6 @@ const DEFAULT_AGENT_STEP_MAX_ATTEMPTS = 3;
 const DEFAULT_CLASSIFIER_MODEL = "openai/gpt-oss-120b:nitro";
 const DEFAULT_CLASSIFIER_TIMEOUT_MS = 8_000;
 const DEFAULT_CLASSIFIER_ATTEMPTS = 3;
-const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
 const activeRunExecutions = new Set<string>();
 
 export interface PipelineRunnerInput {
@@ -223,6 +225,8 @@ async function executePipelineStep(input: PipelineRunnerInput & {
   nextStepIndex: () => number;
   targetIndex?: Map<string, number>;
   namePrefix?: string;
+  parentStepId?: string;
+  logicalPrefix?: string;
   trackActive?: boolean;
 }): Promise<{ current: JsonObject; jumpTo?: number }> {
   const { store, registry, step } = input;
@@ -235,7 +239,10 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       stepIndex: input.nextStepIndex(),
       name: stepName,
       kind: step.type,
+      status: "skipped",
       input: input.current,
+      parentStepId: input.parentStepId ?? null,
+      logicalKey: `${input.logicalPrefix ?? ""}${step.id ?? step.name}`,
       metadata: buildPipelineStepMetadata(step),
     });
     store.completeStep({ id: skipped.id, status: "skipped", result: input.current });
@@ -260,6 +267,8 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       name: stepName,
       kind: "code",
       input: selected,
+      parentStepId: input.parentStepId ?? null,
+      logicalKey: `${input.logicalPrefix ?? ""}${step.id ?? step.name}`,
       metadata: buildPipelineStepMetadata(step),
     });
     setActiveStep(input, stepRecord.id);
@@ -268,9 +277,15 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       throw new Error(`Unknown pipeline function: ${step.function}`);
     }
     if (step.function === "flightdeck.returnToThread") assertPipelineReplyContext(store, input.runId, selected);
-    const result = await fn(step.function === "flightdeck.returnToThread"
-      ? { ...selected, pipelineRunId: input.runId }
-      : selected);
+    const request = step.function === "flightdeck.returnToThread" ? { ...selected, pipelineRunId: input.runId,
+      idempotencyKey: `pipeline:${input.runId}:thread-reply:${stepName}` } : selected;
+    store.evidence.capture({ runId: input.runId, stepId: stepRecord.id, kind: "executor_request",
+      scope: "code_function_arguments", value: { function: step.function, arguments: request } });
+    const result = await fn(request);
+    if (step.function === "flightdeck.returnToThread" || step.function === "flightdeck.sendDirectMessage") {
+      store.evidence.capture({ runId: input.runId, stepId: stepRecord.id, kind: "side_effect_confirmation",
+        scope: "delivery_adapter_confirmation", value: result });
+    }
     assertPipelineAncestorsRunning(store, input.runId);
     throwIfRunCancelled(store, input.runId);
     assertObject(result, `step ${stepName} result`);
@@ -296,6 +311,8 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       name: stepName,
       kind: "block",
       input: blockInput,
+      parentStepId: input.parentStepId ?? null,
+      logicalKey: `${input.logicalPrefix ?? ""}${step.id ?? step.name}`,
       metadata: buildPipelineStepMetadata(step),
     });
     setActiveStep(input, stepRecord.id);
@@ -304,6 +321,8 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       const childOutcome = await executePipelineStep({
         ...input,
         step: child,
+        parentStepId: stepRecord.id,
+        logicalPrefix: `${input.logicalPrefix ?? ""}${step.id ?? step.name}/`,
         current,
         trackActive: false,
       });
@@ -339,6 +358,8 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       name: stepName,
       kind: "loop",
       input: selected,
+      parentStepId: input.parentStepId ?? null,
+      logicalKey: `${input.logicalPrefix ?? ""}${step.id ?? step.name}`,
       metadata: buildPipelineStepMetadata(step),
     });
     setActiveStep(input, stepRecord.id);
@@ -352,6 +373,8 @@ async function executePipelineStep(input: PipelineRunnerInput & {
           const childOutcome = await executePipelineStep({
             ...input,
             step: child,
+            parentStepId: stepRecord.id,
+            logicalPrefix: `${input.logicalPrefix ?? ""}${step.id ?? step.name}/`,
             current,
             namePrefix: `${stepName} #${iteration}`,
             trackActive: false,
@@ -408,6 +431,8 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       name: stepName,
       kind: "parallel",
       input: selected,
+      parentStepId: input.parentStepId ?? null,
+      logicalKey: `${input.logicalPrefix ?? ""}${step.id ?? step.name}`,
       metadata: buildPipelineStepMetadata(step),
     });
     setActiveStep(input, stepRecord.id);
@@ -460,24 +485,29 @@ async function executePipelineStep(input: PipelineRunnerInput & {
         const requestedModel = resolveStringTemplate(input.current, childStep.model) ?? DEFAULT_CLASSIFIER_MODEL;
         let result: JsonObject;
         try {
+          const prepared = await prepareClassifierInput(selectedInput, childStep.inputFunction, registry);
           const classifierInput = {
-            selectedInput,
+            selectedInput: prepared,
             prompt: childStep.prompt,
             provider: childStep.provider ?? "openrouter" as const,
             model: requestedModel,
-            timeoutMs: resolveDurationMs(input.current, childStep.timeoutMs, DEFAULT_CLASSIFIER_TIMEOUT_MS),
+            timeoutMs: resolveDurationMs(childStep.inputFunction ? prepared : input.current, childStep.timeoutMs, DEFAULT_CLASSIFIER_TIMEOUT_MS),
             attempts: resolveClassifierAttempts(input.current, childStep.retries),
             apiKey: resolveClassifierOpenRouterApiKey(input),
+            captureRequest: (value: JsonObject, attempt: number) => store.evidence.capture({
+              runId: input.runId, stepId: childRecord.id, kind: "executor_request", scope: "assembled_model_request",
+              value, attempt }),
           };
           result = childStep.mode === "decisions"
             ? await runOpenRouterDecisions({
-              state: selectedInput,
+              state: prepared,
               instructionContext: childStep.prompt,
               model: classifierInput.model,
               questions: childStep.questions ?? {},
               timeoutMs: classifierInput.timeoutMs,
               attempts: classifierInput.attempts,
               apiKey: classifierInput.apiKey,
+              captureRequest: classifierInput.captureRequest,
             })
             : await runClassifierStep({
               ...classifierInput,
@@ -498,7 +528,8 @@ async function executePipelineStep(input: PipelineRunnerInput & {
   }
 
   if (step.type === "classifier") {
-    const selected = selectInput(input.current, step.input);
+    const resolvedInput = selectInput(input.current, step.input);
+    const selected = await prepareClassifierInput(resolvedInput, step.inputFunction, registry);
     const activeStep = getActiveStep(store, input.runId, stepName, "classifier");
     if (activeStep?.status === "ok") {
       const raw = activeStep.output ?? activeStep.result ?? {};
@@ -513,7 +544,9 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       stepIndex: input.nextStepIndex(),
       name: stepName,
       kind: "classifier",
-      input: selected,
+      input: resolvedInput,
+      parentStepId: input.parentStepId ?? null,
+      logicalKey: `${input.logicalPrefix ?? ""}${step.id ?? step.name}`,
       metadata: buildPipelineStepMetadata(step),
     });
     setActiveStep(input, stepRecord.id);
@@ -524,9 +557,12 @@ async function executePipelineStep(input: PipelineRunnerInput & {
         prompt: step.prompt,
         provider: step.provider ?? "openrouter" as const,
         model: resolveStringTemplate(input.current, step.model) ?? DEFAULT_CLASSIFIER_MODEL,
-        timeoutMs: resolveDurationMs(input.current, step.timeoutMs, DEFAULT_CLASSIFIER_TIMEOUT_MS),
+        timeoutMs: resolveDurationMs(step.inputFunction ? selected : input.current, step.timeoutMs, DEFAULT_CLASSIFIER_TIMEOUT_MS),
         attempts: resolveClassifierAttempts(input.current, step.retries),
         apiKey: resolveClassifierOpenRouterApiKey(input),
+        captureRequest: (value: JsonObject, attempt: number) => store.evidence.capture({
+          runId: input.runId, stepId: stepRecord.id, kind: "executor_request", scope: "assembled_model_request",
+          value, attempt }),
       };
       result = step.mode === "decisions"
         ? await runOpenRouterDecisions({
@@ -537,6 +573,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
           timeoutMs: classifierInput.timeoutMs,
           attempts: classifierInput.attempts,
           apiKey: classifierInput.apiKey,
+          captureRequest: classifierInput.captureRequest,
         })
         : await runClassifierStep({
           ...classifierInput,
@@ -718,145 +755,6 @@ function resolveStringTemplate(current: JsonObject, value: string | undefined): 
   if (!value) return undefined;
   const resolved = value.startsWith("$.") || value === "$" ? resolvePath(current, value) : value;
   return typeof resolved === "string" && resolved.trim() ? resolved.trim() : undefined;
-}
-
-async function runClassifierStep(input: {
-  selectedInput: JsonObject;
-  prompt: string;
-  provider: "openrouter";
-  model: string;
-  temperature?: number;
-  maxTokens?: number;
-  timeoutMs: number;
-  attempts: number;
-  apiKey: string;
-}): Promise<JsonObject> {
-  if (input.provider !== "openrouter") {
-    throw new Error(`Unsupported classifier provider: ${input.provider}`);
-  }
-  let lastError: unknown = null;
-  for (let attempt = 1; attempt <= input.attempts; attempt += 1) {
-    try {
-      const result = await callOpenRouterJsonClassifier({
-        ...input,
-        attempt,
-      });
-      assertObject(result, "classifier result");
-      return result;
-    } catch (error) {
-      lastError = error;
-      if (attempt >= input.attempts) break;
-    }
-  }
-  const message = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown error");
-  throw new Error(`Classifier step failed after ${input.attempts} attempts: ${message}`);
-}
-
-async function callOpenRouterJsonClassifier(input: {
-  selectedInput: JsonObject;
-  prompt: string;
-  model: string;
-  temperature?: number;
-  maxTokens?: number;
-  timeoutMs: number;
-  apiKey: string;
-  attempt: number;
-}): Promise<JsonObject> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
-  try {
-    const response = await fetch(OPENROUTER_CHAT_COMPLETIONS_URL, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${input.apiKey}`,
-        "content-type": "application/json",
-        "http-referer": "https://runwingman.com",
-        "x-title": "Wingman Autopilot Pipeline Classifier",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: input.model,
-        messages: [
-          {
-            role: "system",
-            content: [
-              "You are a JSON-only classifier inside a Wingman pipeline.",
-              "Return exactly one valid JSON object and no prose, no markdown, no code fence.",
-              "The object must satisfy the step instruction.",
-            ].join(" "),
-          },
-          {
-            role: "user",
-            content: [
-              "Step instruction:",
-              input.prompt,
-              "",
-              "Selected input:",
-              JSON.stringify(input.selectedInput),
-              "",
-              `Attempt: ${input.attempt}`,
-            ].join("\n"),
-          },
-        ],
-        temperature: typeof input.temperature === "number" ? input.temperature : 0,
-        max_tokens: typeof input.maxTokens === "number" ? input.maxTokens : 1200,
-        response_format: { type: "json_object" },
-      }),
-    });
-    const rawText = await response.text();
-    if (!response.ok) {
-      throw new Error(`OpenRouter classifier request failed (${response.status}): ${rawText.slice(0, 500)}`);
-    }
-    const payload = JSON.parse(rawText) as Record<string, unknown>;
-    const content = extractOpenRouterMessageContent(payload);
-    return parseClassifierJsonContent(content);
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error(`OpenRouter classifier request timed out after ${Math.round(input.timeoutMs / 1000)}s`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function extractOpenRouterMessageContent(payload: Record<string, unknown>): string {
-  const choices = payload.choices;
-  if (!Array.isArray(choices) || choices.length === 0) {
-    throw new Error("OpenRouter classifier response did not include choices");
-  }
-  const first = choices[0];
-  if (!first || typeof first !== "object" || Array.isArray(first)) {
-    throw new Error("OpenRouter classifier response choice was invalid");
-  }
-  const message = (first as Record<string, unknown>).message;
-  if (!message || typeof message !== "object" || Array.isArray(message)) {
-    throw new Error("OpenRouter classifier response did not include a message");
-  }
-  const content = (message as Record<string, unknown>).content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content.map((part) => {
-      if (part && typeof part === "object" && !Array.isArray(part)) {
-        const text = (part as Record<string, unknown>).text;
-        return typeof text === "string" ? text : "";
-      }
-      return "";
-    }).join("");
-  }
-  throw new Error("OpenRouter classifier message content was not text");
-}
-
-function parseClassifierJsonContent(content: string): JsonObject {
-  const trimmed = content.trim();
-  const withoutFence = trimmed.startsWith("```")
-    ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim()
-    : trimmed;
-  const parsed = JSON.parse(withoutFence);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Classifier response JSON must be an object");
-  }
-  return parsed as JsonObject;
 }
 
 export async function acceptAgentCallback(input: {
@@ -1058,6 +956,10 @@ async function runAgentStep(input: PipelineRunnerInput & {
 
       throwIfRunCancelled(input.store, input.runId);
       assertPipelineAncestorsRunning(input.store, input.runId);
+      input.store.evidence.capture({ runId: input.runId, stepId: input.stepId, attempt,
+        kind: "executor_request", scope: "agent_invocation_prompt_persistent_session_not_full_conversation",
+        value: { prompt, agent: session.agent, model: input.model ?? null, sessionId: session.id, type: "user" },
+        secrets: [input.callbackToken] });
       const delivered = await deliverSessionAgentMessage({
         agentHost: sessionCtx.agentHost,
         buildAgentUrl: sessionCtx.buildAgentUrl,
@@ -1215,40 +1117,6 @@ function buildCallbackUrl(origin: string, runId: string, stepId: string, token: 
   const url = new URL(`/api/pipelines/runs/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/callback`, origin);
   url.searchParams.set("token", token);
   return url.toString();
-}
-
-function buildAgentPrompt(input: {
-  prompt: string;
-  selectedInput: JsonObject;
-  callbackUrl: string;
-  callbackToken: string;
-  runId: string;
-  stepId: string;
-}): string {
-  return `You are running one step in a Wingmen pipeline.
-
-Step instruction:
-${input.prompt}
-
-Selected input:
-${JSON.stringify(input.selectedInput, null, 2)}
-
-Completion contract:
-- You are not complete until the webhook returns HTTP 200.
-- POST exactly one JSON object to:
-  ${input.callbackUrl}
-- Header: x-wingmen-pipeline-token: ${input.callbackToken}
-- Body:
-  {
-    "runId": "${input.runId}",
-    "stepId": "${input.stepId}",
-    "status": "ok",
-    "result": {}
-  }
-- status must be "ok", "needs_input", or "error"; result must be a JSON object.
-- Use "error" only when the step itself cannot be completed. For transport/auth/probe failures, fix the request and retry until HTTP 200.
-- If selected input includes documentUrl and the step asks for document edits, use that reference directly.
-- Do not include full document text in result; return concise summary fields, changed sections/lines, comment IDs, and status metadata only.`;
 }
 
 async function waitForCallbackResult(
