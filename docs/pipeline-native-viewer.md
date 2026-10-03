@@ -17,7 +17,9 @@ signed owner control-plane viewer with trusted workspace, Tower, app, scope and
 agent checks. This is a native owner adapter, not an alternate delegation path.
 
 Every run ancestor must belong to the session owner, with consistent owner alias
-and parent-step linkage. Foreign child links refuse the parent projection.
+and parent-step linkage. Every emitted child link must match its actual parent
+run and step in both directions. Foreign or inconsistent child links refuse the
+whole parent projection.
 Evidence IDs resolve only within the authorized run. Responses are version 1,
 service `native`, `Cache-Control: no-store`; integer array page sizes are 1–500.
 Strings and objects remain exact retained values. Historical runs use captured
@@ -28,7 +30,8 @@ content, budget limits and durable redaction-review refusal.
 ## Browser ownership and privacy
 
 A native session service owns requests, periodic authorized refresh, cancellation
-and generations. The copied renderer contains no Flight Deck signing, transport,
+and generations. Refreshes are serialized per selection, and superseded initial
+reads or errors cannot overwrite newer snapshots. The copied renderer contains no Flight Deck signing, transport,
 workspace store or navigation layer. Native responses pass the reviewed DTO parser and remain in a private session
 projection. Only status and a notification revision enter a distinct Dexie
 partition; liveQuery supplies the ephemeral projection to Alpine. No definition
@@ -59,9 +62,9 @@ recorded result. A formatted reply alone never establishes delivery.
 Focused validation:
 
 ```sh
-bun test src/pipelines/pipeline-native-viewer-routes.test.ts \
-  src/pipelines/pipeline-viewer-routes.test.ts src/server/static-routes.test.ts \
-  src/ui/pipelines/*.test.js
+bun test ./src/pipelines/pipeline-native-viewer-routes.test.ts \
+  ./src/pipelines/pipeline-viewer-routes.test.ts ./src/server/static-routes.test.ts \
+  ./src/ui/pipelines
 bun run typecheck
 bun run lint:check
 ```
@@ -72,7 +75,7 @@ installed Playwright entry point and optionally `CHROMIUM_EXECUTABLE` to Chrome.
 `NATIVE_VIEWER_EVIDENCE_DIR` optionally captures screenshots into a verified
 ignored directory. Its loopback server serves the real index, app, static asset
 service, pipeline page, native API, Dexie and Alpine. Actual synthetic runner
-fixtures use a disposable SQLite database and definition root; no live API,
+fixtures include a real running-to-completed execution and use a disposable SQLite database and definition root; no live API,
 provider, delivery, process restart or live database operation is involved.
 
 Architecture reference: latest local Wingman Suite saved scene v7 and
