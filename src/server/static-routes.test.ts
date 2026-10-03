@@ -73,6 +73,16 @@ describe("createStaticRouteHandler", () => {
 
     for (const pathname of [
       "/pipelines/child-run-links.js",
+      "/pipelines/viewer-mount.js",
+      "/pipelines/viewer-view.js",
+      "/pipelines/viewer-session.js",
+      "/pipelines/viewer-store.js",
+      "/pipelines/viewer-contract.js",
+      "/pipelines/viewer-projection.js",
+      "/pipelines/viewer-diagram.js",
+      "/pipelines/viewer-geometry.js",
+      "/pipelines/viewer-values.js",
+      "/pipelines/viewer-template.js",
       "/apps/lifecycle-command.js",
       "/core/attachment-upload-flows.js",
       "/core/image-upload-request.js",

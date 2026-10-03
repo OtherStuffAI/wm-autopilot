@@ -275,8 +275,8 @@ function renderDefinitionDetail(state, definition) {
       </dl>
       ${state.manualEditDefinitionId === definition.id ? renderManualEditPanel(state, definition) : ""}
       ${state.editDefinitionId === definition.id ? renderEditWizard(state, definition) : ""}
-      <h3>Step Preview</h3>
-      ${renderDefinitionFlow(definition)}
+      ${state.nativeViewerEnabled ? "" : "<h3>Step Preview</h3>"}
+      ${state.nativeViewerEnabled ? "" : renderDefinitionFlow(definition)}
       <details>
         <summary>Default input</summary>
         <pre>${escapeHtml(JSON.stringify(definition.input ?? {}, null, 2))}</pre>

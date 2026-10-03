@@ -1,4 +1,5 @@
 import { MISSING_PIPELINE_HISTORY_REASON } from "./pipeline-history-resume";
+import { handleNativePipelineViewerApi } from "./pipeline-native-viewer-routes";
 import { cancelPipelineTree } from "./child-pipeline";
 import { rootPipelineRunId, assertPipelineAncestorsRunning } from "./pipeline-run-authority";
 import { join } from "node:path";
@@ -67,6 +68,8 @@ export async function handlePipelineApi(
   ctx: PipelineApiContext,
 ): Promise<Response | null> {
   const pathname = url.pathname;
+  const viewer = await handleNativePipelineViewerApi(request, url, authContext, ctx);
+  if (viewer) return viewer;
   const explanation = await handleSpaceExplainApi(request, url, authContext, ctx);
   if (explanation) return explanation;
 

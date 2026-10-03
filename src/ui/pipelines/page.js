@@ -36,9 +36,12 @@ import {
 } from "./state.js";
 import { escapeHtml } from "./view-utils.js";
 import { isActivePipelineRunStatus } from "./db.js";
+import { mountNativePipelineViewer } from "./viewer-mount.js";
 
 export function initPipelinesPage({ showToast, isFeatureEnabledForViewer = () => false }) {
   const state = createPipelinesState();
+  state.nativeViewerEnabled = true;
+  let disposeViewer = () => {};
   const loaded = {
     root: false,
     definitions: false,
@@ -130,6 +133,7 @@ export function initPipelinesPage({ showToast, isFeatureEnabledForViewer = () =>
   }
 
   function renderShell(page) {
+    disposeViewer();
     const route = getCurrentRoute();
     syncFeatureFlagState();
     applyRoute(route);
@@ -144,6 +148,7 @@ export function initPipelinesPage({ showToast, isFeatureEnabledForViewer = () =>
       ${renderRouteContent(route, selected)}
     `;
     bindActions(wrap, page);
+    if (!state.loading) disposeViewer = mountNativePipelineViewer(wrap, route);
     return wrap;
   }
 
@@ -241,7 +246,7 @@ export function initPipelinesPage({ showToast, isFeatureEnabledForViewer = () =>
     if (shouldRefreshRun) {
       state.selectedRun = await fetchPipelineRun(route.id, {
         includeRunPayload: false,
-        includeStepPayload: true,
+        includeStepPayload: false,
         forceFresh: runIsActive,
       });
       if (runChanged) {

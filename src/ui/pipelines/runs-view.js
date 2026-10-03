@@ -172,7 +172,7 @@ function renderRunDetail(state) {
           <span class="wm-pipeline-status-chip" data-status="${escapeAttribute(run.status)}">${escapeHtml(statusLabel(run.status))}</span>
         </div>
       </header>
-      ${renderPipelineComposition(state.selectedRun.composition)}
+      ${state.nativeViewerEnabled ? "" : renderPipelineComposition(state.selectedRun.composition)}
       <dl class="wm-pipeline-facts">
         <div><dt>Started</dt><dd>${escapeHtml(formatDateTime(run.startedAt ?? run.started_at))}</dd></div>
         <div><dt>Completed</dt><dd>${escapeHtml(formatDateTime(run.completedAt ?? run.completed_at))}</dd></div>
@@ -180,16 +180,16 @@ function renderRunDetail(state) {
         <div><dt>Definition</dt><dd>${escapeHtml(run.definitionSlug ?? run.definitionId ?? "--")}</dd></div>
         <div><dt>Default</dt><dd>${run.definitionDefault ? "Yes" : "No"}</dd></div>
         <div><dt>Tags</dt><dd>${escapeHtml((run.tags ?? []).join(", ") || "--")}</dd></div>
-        <div><dt>Steps</dt><dd>${steps.length}</dd></div>
+        ${state.nativeViewerEnabled ? "" : `<div><dt>Steps</dt><dd>${steps.length}</dd></div>`}
       </dl>
-      <div class="wm-pipeline-detail-tabs" role="tablist" aria-label="Run detail">
+      ${state.nativeViewerEnabled ? "" : `<div class="wm-pipeline-detail-tabs" role="tablist" aria-label="Run detail">
         ${["overview", "ledger", "input", "result"].map((tab) => `
           <button type="button" data-action="set-run-tab" data-tab="${tab}" role="tab" aria-selected="${state.selectedRunTab === tab}">
             ${escapeHtml(tab === "ledger" ? "State Ledger" : tab[0].toUpperCase() + tab.slice(1))}
           </button>
         `).join("")}
       </div>
-      ${renderSelectedRunTab(state, run, steps)}
+      ${renderSelectedRunTab(state, run, steps)}`}
     </article>
   `;
 }

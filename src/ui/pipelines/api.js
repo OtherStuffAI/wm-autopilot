@@ -168,6 +168,7 @@ export async function fetchPipelineRun(id, options = {}) {
   if (!res.ok) throw new Error(`Failed to fetch pipeline run: ${res.status}`);
   const payload = await res.json();
   await cacheRunDetail(payload);
+  if (includeRunPayload || options.includeStepPayload === true) return payload;
   return await getStoredRunDetail(id);
 }
 

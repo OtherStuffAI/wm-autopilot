@@ -175,7 +175,7 @@ function hasAuthorizedScopeRun(store: PipelineStore, owner: string, canRead: (id
 }
 
 
-function retainedSanitizedDefinition(store: PipelineStore, owner: string, definition: import("./pipeline-loader").PipelineDefinitionRecord) {
+export function retainedSanitizedDefinition(store: PipelineStore, owner: string, definition: import("./pipeline-loader").PipelineDefinitionRecord) {
   let before: { id: string; startedAt: string } | null = null;
   while (true) {
     const runs = store.pageOwnerRuns(owner, before, 100);
