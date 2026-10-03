@@ -28,7 +28,8 @@ export function createNativeViewerSession({
     values = new Map();
   let valueGeneration = 0,
     valueController = new AbortController();
-  let refreshingGeneration = null;
+  let refreshingGeneration = null,
+    snapshotGeneration = 0;
   async function read(path, signal) {
     const response = await request(`/api/pipelines/viewer/${path}`, {
       credentials: "include",
@@ -70,6 +71,7 @@ export function createNativeViewerSession({
   }
   function clear() {
     generation++;
+    snapshotGeneration++;
     controller.abort();
     controller = new AbortController();
     previews.clear();
@@ -93,7 +95,8 @@ export function createNativeViewerSession({
     async select(mode, id) {
       clear();
       selection = { mode, id };
-      const ticket = generation;
+      const ticket = generation,
+        snapshotTicket = ++snapshotGeneration;
       await publish({ status: "loading", snapshot: null, reason: null });
       if (disposed || ticket !== generation) return;
       try {
@@ -101,7 +104,12 @@ export function createNativeViewerSession({
           `${mode === "run" ? "runs" : "definitions"}/${encodeURIComponent(id)}`,
           controller.signal,
         );
-        if (disposed || ticket !== generation) return;
+        if (
+          disposed ||
+          ticket !== generation ||
+          snapshotTicket !== snapshotGeneration
+        )
+          return;
         for (const step of snapshot.steps || [])
           for (const ref of step.evidence)
             if (ref.preview) previews.set(ref.id, ref.preview);
@@ -112,19 +120,25 @@ export function createNativeViewerSession({
         });
         changed();
       } catch (error) {
-        await fail(error, ticket);
+        if (snapshotTicket === snapshotGeneration) await fail(error, ticket);
       }
     },
     async refresh() {
       if (!selection || disposed || refreshingGeneration === generation) return;
-      const ticket = generation;
+      const ticket = generation,
+        snapshotTicket = ++snapshotGeneration;
       refreshingGeneration = ticket;
       try {
         const snapshot = await read(
           `${selection.mode === "run" ? "runs" : "definitions"}/${encodeURIComponent(selection.id)}`,
           controller.signal,
         );
-        if (disposed || ticket !== generation) return;
+        if (
+          disposed ||
+          ticket !== generation ||
+          snapshotTicket !== snapshotGeneration
+        )
+          return;
         previews.clear();
         for (const step of snapshot.steps || [])
           for (const ref of step.evidence)
@@ -136,7 +150,7 @@ export function createNativeViewerSession({
         });
         changed();
       } catch (error) {
-        await fail(error, ticket);
+        if (snapshotTicket === snapshotGeneration) await fail(error, ticket);
       } finally {
         if (refreshingGeneration === ticket) refreshingGeneration = null;
       }
@@ -194,7 +208,7 @@ export function createNativeViewerSession({
         changed();
       } catch (error) {
         if (ticket === generation && valueTicket === valueGeneration)
-          await fail(error, ticket);
+          if (snapshotTicket === snapshotGeneration) await fail(error, ticket);
       }
     },
     dispose() {

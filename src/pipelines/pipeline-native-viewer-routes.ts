@@ -99,6 +99,8 @@ export async function handleNativePipelineViewerApi(
     }
     if (parts.length !== 2 && !(parts.length === 3 && parts[2] === "updates"))
       return reply({ error: "not-found" }, 404);
+    if (!nativeViewerValidChildLinks(ctx, runId, owner))
+      return reply({ error: "invalid-run-ancestry" }, 409);
     const snapshot = ctx.store.composition.transaction(() => {
       try {
         return viewerSnapshot(runId, ctx.store, "native");
@@ -163,10 +165,48 @@ export function nativeViewerOwnsRun(
     const step = ctx.store
       .listStepSummaries(parent.parentRunId)
       .find((item) => item.id === parent.parentStepId);
-    if (!step || step.runId !== parent.parentRunId) return false;
+    if (
+      !step ||
+      step.runId !== parent.parentRunId ||
+      ctx.store.composition.child(step.id)?.childRunId !== runId
+    )
+      return false;
     runId = parent.parentRunId;
   }
   return false;
+}
+
+function nativeViewerValidChildLinks(
+  ctx: Pick<PipelineApiContext, "store">,
+  runId: string,
+  owner: string,
+): boolean {
+  for (const step of ctx.store.listStepSummaries(runId)) {
+    const link = ctx.store.composition.child(step.id);
+    if (!link) continue;
+    if (
+      link.parentRunId !== runId ||
+      link.parentStepId !== step.id ||
+      !nativeViewerOwnsRun(ctx, link.childRunId, owner)
+    )
+      return false;
+    const parent = ctx.store.composition.parent(link.childRunId);
+    if (
+      !parent ||
+      parent.parentRunId !== runId ||
+      parent.parentStepId !== step.id
+    )
+      return false;
+  }
+  return ctx.store.composition
+    .children(runId)
+    .every(
+      (link) =>
+        ctx.store
+          .listStepSummaries(runId)
+          .some((step) => step.id === link.parentStepId) &&
+        nativeViewerOwnsRun(ctx, link.childRunId, owner),
+    );
 }
 
 function pageInteger(

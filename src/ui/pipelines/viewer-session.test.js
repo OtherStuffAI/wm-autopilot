@@ -244,3 +244,34 @@ test("mismatched authorized snapshot identities are unavailable rather than disp
   });
   session.dispose();
 });
+
+test("a slow initial read cannot overwrite a newer refresh or revoke its access", async () => {
+  for (const staleStatus of [200, 403]) {
+    const old = deferred(),
+      records = [];
+    let calls = 0;
+    const session = createNativeViewerSession({
+      publish: async (row) => records.push(row),
+      request: async () =>
+        ++calls === 1
+          ? old.promise
+          : json({
+              ...snapshot,
+              revision: "b".repeat(64),
+              run: { ...snapshot.run, status: "ok" },
+            }),
+    });
+    const initial = session.select("run", "a");
+    await Promise.resolve();
+    await session.refresh();
+    old.resolve(
+      staleStatus === 200
+        ? json({ ...snapshot, revision: "c".repeat(64) })
+        : json({ error: "old-denial" }, 403),
+    );
+    await initial;
+    expect(records.at(-1).status).toBe("ready");
+    expect(records.at(-1).snapshot.revision).toBe("b".repeat(64));
+    session.dispose();
+  }
+});

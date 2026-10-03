@@ -217,3 +217,34 @@ test("foreign ancestry denies a same-owner child", async () => {
   });
   expect((await request(`runs/${result.id}`)).status).toBe(404);
 });
+
+test("malformed step child links refuse the whole projection without disclosing child IDs", async () => {
+  const unrelated = store.createRun({
+    name: "unrelated",
+    definitionId: "unrelated",
+    ownerNpub: owner,
+    scope: "shared",
+    input: {},
+  });
+  for (const childOwner of [other, owner]) {
+    const root = await run();
+    const step = store.listStepSummaries(root.id)[0]!;
+    const child = store.createRun({
+      name: "child",
+      definitionId: "child",
+      ownerNpub: childOwner,
+      scope: "shared",
+      input: {},
+    });
+    store.composition.link({
+      parentRunId: unrelated.id,
+      parentStepId: step.id,
+      childRunId: child.id,
+      deadline: Date.now() + 1000,
+    });
+    const response = await request(`runs/${root.id}`);
+    expect(response.status).toBe(409);
+    expect(await response.text()).not.toContain(child.id);
+    expect((await request(`runs/${child.id}`)).status).toBe(404);
+  }
+});
