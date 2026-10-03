@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { nip19 } from "nostr-tools";
+import { createNativeLiveFixture } from "./pipeline-native-viewer-live-fixture";
 import { PipelineStore } from "../src/pipelines/pipeline-store";
 import { runDeclarativePipeline } from "../src/pipelines/pipeline-runner";
 import {
@@ -168,6 +169,7 @@ export async function createNativeViewerFixture() {
   const loaded = await listLatestPipelineDefinitions(null);
   parent = loaded.find((definition) => definition.name === parent.name)!;
   child = loaded.find((definition) => definition.name === child.name)!;
+  const live = createNativeLiveFixture(store, fixtureOwner);
   const runs: Record<string, string> = {};
   for (const outcome of [
     "full",
@@ -348,6 +350,7 @@ export async function createNativeViewerFixture() {
   });
   return {
     server,
+    live,
     runs,
     parent,
     store,
@@ -371,6 +374,7 @@ export async function createNativeViewerFixture() {
     },
     async close() {
       release?.();
+      await live.close();
       server.stop(true);
       if (priorRoot === undefined) delete process.env.WINGMEN_PIPELINES_ROOT;
       else process.env.WINGMEN_PIPELINES_ROOT = priorRoot;

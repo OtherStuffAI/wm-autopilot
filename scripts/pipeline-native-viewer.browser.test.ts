@@ -43,6 +43,7 @@ browserTest(
           );
         }, fixtureOwner);
         const page = await context.newPage();
+        page.setDefaultTimeout(10000);
         const errors: string[] = [];
         page.on("pageerror", (error: Error) => {
           errors.push(error.message);
@@ -275,6 +276,29 @@ browserTest(
               )
               .waitFor({ state: "visible" });
         }
+        const liveId = fixture.live.start();
+        await page.goto(`${fixture.server.url}pipelines/runs/${liveId}`);
+        await page
+          .getByTestId("pipeline-run-status")
+          .filter({ hasText: "running" })
+          .waitFor({ timeout: 10000 });
+        expect(
+          await page.getByTestId("pipeline-step-wait").innerText(),
+        ).toContain("running");
+        await fixture.live.complete(liveId);
+        await page
+          .getByTestId("pipeline-run-status")
+          .filter({ hasText: "ok" })
+          .waitFor({ timeout: 10000 });
+        await page.getByTestId("pipeline-port-wait-outputs-$.answer").click();
+        await page
+          .getByTestId("pipeline-value-completeness")
+          .filter({ hasText: "Complete retained value" })
+          .waitFor();
+        expect(
+          await page.getByTestId("pipeline-exact-value").textContent(),
+        ).toBe("Exact live completion");
+        await page.keyboard.press("Escape");
         await page.goto(
           `${fixture.server.url}pipelines/definitions/${encodeURIComponent(fixture.parent.id)}`,
         );
