@@ -275,3 +275,28 @@ test("a slow initial read cannot overwrite a newer refresh or revoke its access"
     session.dispose();
   }
 });
+
+test("lazy evidence denial and redaction refusal clear the projection and private values", async () => {
+  for (const status of [403, 409]) {
+    const records = [];
+    const session = createNativeViewerSession({
+      publish: async (row) => records.push(row),
+      request: async (path) =>
+        path.includes("/evidence/")
+          ? json(
+              { error: status === 403 ? "denied" : REDACTION_REASON },
+              status,
+            )
+          : json(snapshot),
+    });
+    await session.select("run", "a");
+    await session.evidence(ref);
+    expect(records.at(-1)).toMatchObject({
+      status: status === 403 ? "denied" : "unavailable",
+      snapshot: null,
+    });
+    expect(session.preview(ref.id)).toBeUndefined();
+    expect(session.value(ref.id)).toBeUndefined();
+    session.dispose();
+  }
+});

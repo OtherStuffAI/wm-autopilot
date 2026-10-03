@@ -208,7 +208,7 @@ export function createNativeViewerSession({
         changed();
       } catch (error) {
         if (ticket === generation && valueTicket === valueGeneration)
-          if (snapshotTicket === snapshotGeneration) await fail(error, ticket);
+          await fail(error, ticket);
       }
     },
     dispose() {
