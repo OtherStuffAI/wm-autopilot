@@ -148,3 +148,26 @@ test("rejected stale and disposed layouts are ignored while current errors remai
   pending[2].reject(new Error("Disposed engine failure"));
   expect(await disposed).toBeNull();
 });
+
+test("ELK loads only on diagram demand and a failed load can retry", async () => {
+  let loads = 0;
+  const gate = createElkLayout(undefined, async () => {
+    if (++loads === 1) throw new Error("library request failed");
+    return { layout: async graph => graph };
+  });
+  expect(loads).toBe(0);
+  await expect(gate.layout({ id: "first" })).rejects.toThrow("library request failed");
+  expect(await gate.layout({ id: "retry" })).toEqual({ id: "retry" });
+  expect(loads).toBe(2);
+  gate.dispose();
+});
+
+test("leaving the viewer while ELK loads does not run or revive the layout", async () => {
+  let resolve, layouts = 0;
+  const gate = createElkLayout(undefined, () => new Promise(done => { resolve = done; }));
+  const pending = gate.layout({ id: "abandoned" });
+  gate.dispose();
+  resolve({ layout: async graph => { layouts++; return graph; } });
+  expect(await pending).toBeNull();
+  expect(layouts).toBe(0);
+});

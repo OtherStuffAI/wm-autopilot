@@ -33,7 +33,9 @@ from `scripts/pipeline-elk-entry.ts` using Bun's browser ESM bundler. The build
 rewrites multiline literal templates with trailing whitespace into equivalent
 quoted strings using the TypeScript AST, preserving cooked string values. It includes
 the bundled in-process ELK implementation; there is no CDN import or worker
-asset request. ELK.js is licensed under EPL-2.0; its complete license is included
+asset request. The viewer imports the bundle on first layout demand, so the main
+application can boot without downloading or evaluating ELK. Library load failures
+are confined to the diagram and can retry. ELK.js is licensed under EPL-2.0; its complete license is included
 in `src/ui/pipelines/elk-license.md`. Upstream source:
 https://github.com/kieler/elkjs (tag v0.11.0).
 

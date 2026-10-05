@@ -1,5 +1,3 @@
-import ELK from "./elk-bundle.js";
-
 export function portId(key, side, path) { return JSON.stringify([key, side, path]); }
 export function elkGraph(cards, links, direction) {
   const ports = new Set(cards.flatMap(card => card.ports.map(port => port.id)));
@@ -26,12 +24,20 @@ export function elkGraph(cards, links, direction) {
   };
 }
 // The generation gate also invalidates layouts after scope changes or teardown.
-export function createElkLayout(engine = new ELK()) {
-  let generation = 0, disposed = false;
+export function createElkLayout(engine, loadEngine = async () => {
+  const { default: ELK } = await import("./elk-bundle.js");
+  return new ELK();
+}) {
+  let generation = 0, disposed = false, loading;
   return {
     async layout(graph) {
       const current = ++generation;
       try {
+        if (!engine) {
+          loading ||= loadEngine().catch(error => { loading = null; throw error; });
+          engine = await loading;
+        }
+        if (disposed || current !== generation) return null;
         const result = await engine.layout(graph);
         return disposed || current !== generation ? null : result;
       } catch (error) {
@@ -40,6 +46,6 @@ export function createElkLayout(engine = new ELK()) {
       }
     },
     invalidate() { generation++; },
-    dispose() { disposed = true; generation++; if (!engine.worker || typeof engine.worker.worker?.terminate === "function") engine.terminateWorker?.(); },
+    dispose() { disposed = true; generation++; if (engine && (!engine.worker || typeof engine.worker.worker?.terminate === "function")) engine.terminateWorker?.(); },
   };
 }
