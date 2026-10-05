@@ -1,3 +1,5 @@
+import { agentDirectEnrichmentOptions } from "./agent-direct-enrichment-options.ts";
+import { directChatHandlerMode, parseEnrichmentConfigs } from "../agent-chat/direct-chat-enrichment-config.ts";
 import { isAbsolute } from 'node:path';
 import { handleTowerTransportRoute } from "./tower-transport-routes";
 import { transportForConnection } from "../agent-chat/tower-transport-runtime";
@@ -638,6 +640,7 @@ const AGENT_CHAT_API_PREFIXES = [
   '/api/agent-chat/agent-connect',
   '/api/agent-chat/dispatch-routes',
   '/api/agent-chat/dispatch-outcomes',
+  '/api/agent-chat/enrichment-options',
 ] as const;
 
 export function isAgentChatApiPath(pathname: string): boolean {
@@ -1205,6 +1208,11 @@ export async function handleAgentChatApi(
     if (denied) return denied;
     return deleteAgentProfile(ctx, decodeURIComponent(profileMatch[1]!), scope.managerNpub);
   }
+  if (url.pathname === "/api/agent-chat/enrichment-options" && method === "GET") {
+    const denied = requireAgentChatManagement(scope);
+    if (denied) return denied;
+    return Response.json(await agentDirectEnrichmentOptions(scope.managerNpub));
+  }
   if (profileMatch && method === 'PATCH') {
     const denied = requireAgentChatManagement(scope);
     if (denied) return denied;
@@ -1220,6 +1228,10 @@ export async function handleAgentChatApi(
     const directChatInput = body.directChat && typeof body.directChat === 'object' && !Array.isArray(body.directChat)
       ? body.directChat as Record<string, unknown>
       : null;
+    try {
+      directChatHandlerMode(directChatInput?.handlerMode, existing.directChat?.handlerMode);
+      parseEnrichmentConfigs(directChatInput?.enrichmentByWorkspace);
+    } catch (error) { return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 }); }
     const workingDirectory = typeof body.workingDirectory === 'string'
       ? body.workingDirectory
       : typeof directChatInput?.directory === 'string' ? directChatInput.directory : '';
@@ -1271,7 +1283,8 @@ export async function handleAgentChatApi(
       publicProfile,
       capabilities: Array.isArray(body.capabilities) ? parseDispatchCapabilities(body.capabilities) : existing.capabilities,
       directChat: {
-        handlerMode: directChatInput?.handlerMode === 'pipeline_router' ? 'pipeline_router' : 'session',
+        handlerMode: directChatHandlerMode(directChatInput?.handlerMode, existing.directChat?.handlerMode),
+        enrichmentByWorkspace: parseEnrichmentConfigs(directChatInput?.enrichmentByWorkspace) ?? existing.directChat?.enrichmentByWorkspace,
         enabled: typeof body.directChatEnabled === 'boolean'
           ? body.directChatEnabled
           : directChatInput?.enabled !== false,

@@ -1,3 +1,4 @@
+import { persistDispatchPage } from './dispatch-page-cache.js';
 export async function listAgentChatSubscriptions() {
   const response = await fetch('/api/agent-chat/subscriptions', { credentials: 'include' });
   const payload = await response.json().catch(() => ({}));
@@ -22,12 +23,12 @@ export async function listFlightDeckDispatchOutcomes({ limit = 25, offset = 0, i
   if (!response.ok) {
     throw new Error(payload.error || 'Failed to load Flight Deck dispatch outcomes');
   }
-  return {
+  return await persistDispatchPage({
     rows: Array.isArray(payload.rows) ? payload.rows : [],
     total: Number.isFinite(payload.total) ? payload.total : 0,
     limit: Number.isFinite(payload.limit) ? payload.limit : limit,
     offset: Number.isFinite(payload.offset) ? payload.offset : offset,
-  };
+  }, query.toString());
 }
 
 export async function listAgentChatAgents() {

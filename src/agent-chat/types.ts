@@ -1,3 +1,4 @@
+import type { DirectChatHandlerMode, DirectChatEnrichmentConfig } from "./direct-chat-enrichment-config.ts";
 export type WorkspaceKeyStatus = 'pending' | 'active' | 'refresh_required' | 'revoked' | 'failed';
 export type GroupKeyStatus = 'pending' | 'active' | 'refresh_required' | 'revoked' | 'failed';
 export type SseStatus = 'disconnected' | 'connecting' | 'connected' | 'backoff' | 'disabled';
@@ -215,7 +216,8 @@ export interface AgentDefinitionRecord {
     error: string | null;
   };
   directChat?: {
-    handlerMode?: 'session' | 'pipeline_router';
+    handlerMode?: DirectChatHandlerMode;
+    enrichmentByWorkspace?: Record<string, DirectChatEnrichmentConfig>;
     enabled: boolean;
     sessionAgent: string | null;
     directory: string;

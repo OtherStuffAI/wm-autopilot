@@ -111,7 +111,7 @@ export function buildDirectChatPublicationPayload(record: DirectChatTurnRecord, 
 export class DirectChatTurnStore {
   private readonly db: Database;
 
-  constructor(filePath = databaseFile) {
+  constructor(readonly filePath = databaseFile) {
     mkdirSync(dirname(filePath), { recursive: true });
     this.db = new Database(filePath);
     this.db.exec('PRAGMA busy_timeout = 5000');
@@ -169,7 +169,7 @@ export class DirectChatTurnStore {
         workspace_id=COALESCE(agent_direct_chat_turns.workspace_id,excluded.workspace_id), source_app_npub=COALESCE(agent_direct_chat_turns.source_app_npub,excluded.source_app_npub),
         channel_id=COALESCE(agent_direct_chat_turns.channel_id,excluded.channel_id), thread_id=COALESCE(agent_direct_chat_turns.thread_id,excluded.thread_id),
         agent_id=COALESCE(agent_direct_chat_turns.agent_id,excluded.agent_id), agent_npub=COALESCE(agent_direct_chat_turns.agent_npub,excluded.agent_npub),
-        session_id=COALESCE(excluded.session_id,agent_direct_chat_turns.session_id), prompt=COALESCE(agent_direct_chat_turns.prompt,excluded.prompt),
+        session_id=COALESCE(excluded.session_id,agent_direct_chat_turns.session_id), prompt=CASE WHEN excluded.session_id IS NOT NULL AND excluded.session_id!=agent_direct_chat_turns.session_id THEN excluded.prompt ELSE COALESCE(agent_direct_chat_turns.prompt,excluded.prompt) END,
         prompt_type=COALESCE(agent_direct_chat_turns.prompt_type,excluded.prompt_type), trigger_message_id=COALESCE(agent_direct_chat_turns.trigger_message_id,excluded.trigger_message_id),
         publication_payload_json=COALESCE(agent_direct_chat_turns.publication_payload_json,excluded.publication_payload_json),
         payload_hash=COALESCE(agent_direct_chat_turns.payload_hash,excluded.payload_hash), attempt_count=MAX(agent_direct_chat_turns.attempt_count,excluded.attempt_count),

@@ -1,7 +1,9 @@
+import { isChatAddressable } from "../pipelines/chat-pipeline-catalogue.ts";
+export { isChatAddressable } from "../pipelines/chat-pipeline-catalogue.ts";
 import { readRouterContext, routingInstructions } from "./pipeline-router-context.ts";
 import { generateIdentityAlias } from '../identity/identity-alias';
 import { runOpenRouterDecisions } from '../pipelines/openrouter-decisions';
-import { listLatestPipelineDefinitions, type PipelineDefinitionRecord } from '../pipelines/pipeline-loader';
+import { listLatestPipelineDefinitions } from '../pipelines/pipeline-loader';
 import { startFlightDeckPipelineRun } from '../pipelines/flightdeck-run-service';
 import { resolveClassifierOpenRouterApiKey } from '../pipelines/classifier-openrouter-credentials';
 import type { PipelineStore } from '../pipelines/pipeline-store';
@@ -130,9 +132,4 @@ export function createPipelineRouterHandler(deps: { store: PipelineStore; getSes
           : { sourceMessageId, sourceQuestion: request.message.body ?? null, error: error instanceof Error ? error.message : String(error) });
     }
   };
-}
-
-export function isChatAddressable(definition: PipelineDefinitionRecord): boolean {
-  const first = definition.spec.steps[0];
-  return Boolean(first?.type === 'block' && first.block === 'flightdeck.threadInvocation');
 }

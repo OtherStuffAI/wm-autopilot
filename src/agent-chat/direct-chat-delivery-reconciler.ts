@@ -1,3 +1,4 @@
+import { DirectChatEnrichmentStore } from "./direct-chat-enrichment-store.ts";
 import { randomUUID } from 'node:crypto';
 import type { ProcessManager } from '../agents/process-manager';
 import type { ChatInterceptStateStore } from './chat-intercept-state-store';
@@ -56,6 +57,7 @@ export class AgentDirectDeliveryReconciler {
   readonly instanceId: string;
   readonly runtimeLeaseOwner: string;
   private readonly store: DirectChatTurnStore;
+  private readonly enrichmentStore: DirectChatEnrichmentStore;
   private readonly intervalMs: number;
   private readonly activeIntervalMs: number;
   private readonly unavailableIntervalMs: number;
@@ -69,6 +71,7 @@ export class AgentDirectDeliveryReconciler {
 
   constructor(private readonly deps: AgentDirectDeliveryReconcilerDependencies) {
     this.store = deps.store ?? getDirectChatTurnStore();
+    this.enrichmentStore = new DirectChatEnrichmentStore(this.store.filePath);
     this.instanceId = deps.instanceId ?? randomUUID();
     this.runtimeLeaseOwner = `${this.instanceId}:runtime`;
     this.intervalMs = deps.intervalMs ?? envMs('AGENT_DIRECT_RECONCILE_INTERVAL_MS', 2_000);
@@ -138,6 +141,7 @@ export class AgentDirectDeliveryReconciler {
     }
     const inspection = await inspectAcceptedFinalResponse(this.deps.manager, record.sessionId, record.prompt ?? '',
       record.sourceMessageIds, record.acceptedAt);
+    if (inspection.promptBoundary === "observed") this.enrichmentStore.accepted(record.turnId, record.sessionId);
     if (!inspection.reply) {
       const acceptedAt = Date.parse(record.acceptedAt ?? record.createdAt);
       if (inspection.promptBoundary === 'missing' && inspection.runtimeStable

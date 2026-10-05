@@ -1,3 +1,4 @@
+import { directChatHandlerMode, parseEnrichmentConfigs } from "./direct-chat-enrichment-config.ts";
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -47,7 +48,8 @@ function normaliseDirectChat(record: AgentDefinitionRecord): NonNullable<AgentDe
   const profile = record.directChat;
   const idleRetention = Number(profile?.idleRetentionMinutes ?? 60);
   return {
-    handlerMode: profile?.handlerMode === 'pipeline_router' ? 'pipeline_router' : 'session',
+    handlerMode: directChatHandlerMode(profile?.handlerMode),
+    enrichmentByWorkspace: parseEnrichmentConfigs(profile?.enrichmentByWorkspace),
     enabled: profile?.enabled ?? false,
     sessionAgent: record.harness?.trim() || profile?.sessionAgent?.trim() || null,
     directory: profile?.directory?.trim() || record.workingDirectory,
@@ -426,7 +428,8 @@ class AgentDefinitionStore {
           return normaliseDirectChat({
             workingDirectory: String(row.working_directory ?? ''),
             directChat: {
-              handlerMode: parsed.handlerMode === 'pipeline_router' ? 'pipeline_router' : 'session',
+              handlerMode: directChatHandlerMode(parsed.handlerMode),
+              enrichmentByWorkspace: parseEnrichmentConfigs(parsed.enrichmentByWorkspace),
               enabled: parsed.enabled === true,
               sessionAgent: typeof parsed.sessionAgent === 'string' ? parsed.sessionAgent : null,
               directory: typeof parsed.directory === 'string' ? parsed.directory : '',

@@ -1,3 +1,4 @@
+import { createDirectChatEnrichmentService } from "./agent-chat/direct-chat-enrichment-service.ts";
 import { createWalletRuntime } from "./wallets/wallet-runtime.ts";
 import { flightDeckSessionTransportBinding } from "./agent-chat/flightdeck-session-transport";
 import { createWorkerContextValidator } from "./session-dispatch/worker-context";
@@ -1779,6 +1780,9 @@ const agentChatSessionRuntime = new AgentChatSessionRuntime({
   directDeliveryReconciler: agentDirectDeliveryReconciler,
   publicationFilter: duplicateCallbackPublicationFilter,
   withBotIdentity: profileBotIdentityRunner,
+  enrichDirectChat: createDirectChatEnrichmentService({ store: pipelineStore,
+    getSessionApiContext: () => sessionApiContextRef ?? (() => { throw new Error("Pipeline runtime is not ready"); })(),
+    callbackOrigin: `http://127.0.0.1:${config.port}` }),
   routePipeline: createPipelineRouterHandler({ store: pipelineStore,
     getSessionApiContext: () => sessionApiContextRef ?? (() => { throw new Error('Pipeline runtime is not ready'); })(),
     callbackOrigin: `http://127.0.0.1:${config.port}` }),

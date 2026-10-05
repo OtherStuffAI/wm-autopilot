@@ -1,3 +1,4 @@
+import { searchTowerGraph, type TowerGraphSearchTransport } from "./tower-graph-search.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -15,14 +16,14 @@ import { indexCorpusSequentially, indexRepositoryForPipeline } from "../code-int
 import { composeJevRerank } from "./jev-reranker";
 import { normalizeSpaceResearchCandidate, retrieveSpacePrimarySources, selectSpaceResearchTopics, spaceResearchReviewGate, validateSpaceSourcePlan } from "./space-research";
 
-interface MemoryEntity {
+export interface MemoryEntity {
   name: string;
   type: string;
   reason: string;
   query: string;
 }
 
-interface GraphMemoryMatch {
+export interface GraphMemoryMatch {
   id: string;
   entity: string;
   entityType: string;
@@ -3653,53 +3654,7 @@ export const builtinPipelineFunctions: FunctionRegistry = {
   },
 
   async "tower.searchGraph"(input) {
-    const entities = normaliseMemoryEntities(input.entities).slice(0, positiveInteger(input.maxEntities, 8));
-    const topKPerEntity = positiveInteger(input.topKPerEntity, 5);
-    const maxMatches = positiveInteger(input.maxMatches, 20);
-    const warnings: string[] = [];
-    if (entities.length === 0) {
-      return {
-        matches: [],
-        entities,
-        warnings: ["No memory entities were provided for Tower graph search."],
-        graphMemoryAvailable: false,
-      };
-    }
-
-    const towerBaseUrl = getTowerGraphBaseUrl(input);
-    const settled = await Promise.all(entities.map(async (entity) => {
-      const requestUrl = buildTowerGraphSearchUrl(towerBaseUrl, entity, input, topKPerEntity);
-      try {
-        const { token } = await signWithWingmanKey(requestUrl, "GET");
-        const response = await fetch(requestUrl, {
-          method: "GET",
-          headers: {
-            accept: "application/json",
-            authorization: token,
-          },
-        });
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => "");
-          throw new Error(`Tower graph search failed (HTTP ${response.status})${errorText ? `: ${truncateText(errorText, 240)}` : ""}`);
-        }
-        const payload = await response.json();
-        return normaliseTowerGraphSearchResults(payload, entity);
-      } catch (error) {
-        warnings.push(`${entity.name}: ${error instanceof Error ? error.message : String(error)}`);
-        return [];
-      }
-    }));
-
-    const matches = dedupeGraphMemoryMatches(settled.flat()).slice(0, maxMatches);
-    return {
-      matches,
-      entities,
-      warnings,
-      graphMemoryAvailable: warnings.length < entities.length,
-      searchedAt: new Date().toISOString(),
-      source: "tower-postgres-graph",
-      towerBaseUrl,
-    };
+    return searchGraphWithTransport(input, { sign: async url => (await signWithWingmanKey(url, "GET")).token, fetch });
   },
 
   async "memory.consolidateGraphContext"(input) {
@@ -3956,6 +3911,11 @@ function normaliseTowerGraphSearchResults(payload: unknown, entity: MemoryEntity
         score: Number.isFinite(Number(item.score)) ? Number(item.score) : 0,
         excerpt,
         labels: Array.from(new Set(typedLabels)),
+        ...(item.updated_at || properties.updated_at ? { updatedAt: item.updated_at ?? properties.updated_at } : {}),
+        ...(item.workspace_owner_npub ? { workspaceOwnerNpub: item.workspace_owner_npub } : {}),
+        ...(item.owner_npub ? { ownerNpub: item.owner_npub } : {}),
+        ...(item.source_app_npub ? { sourceAppNpub: item.source_app_npub } : {}),
+        ...(item.group_id ? { groupId: item.group_id } : {}),
       };
     })
     .filter((item) => item.excerpt || item.title || item.source);
@@ -4106,4 +4066,9 @@ ORDER BY score DESC
       entityType: input.entity.type,
     };
   }).filter((match) => match.id || match.excerpt || match.title);
+}
+
+export function searchGraphWithTransport(input: JsonObject, transport: TowerGraphSearchTransport): Promise<JsonObject> {
+  return searchTowerGraph(input, transport, { entities: normaliseMemoryEntities, baseUrl: getTowerGraphBaseUrl,
+    url: buildTowerGraphSearchUrl, results: normaliseTowerGraphSearchResults, dedupe: dedupeGraphMemoryMatches });
 }

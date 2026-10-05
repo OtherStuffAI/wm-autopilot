@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
+mock.module('../../services/agent-enrichment-options.js', () => ({ loadAgentEnrichmentOptions: async () => null }));
+
 let createPayload = null;
 let updatePayload = null;
 let uploadPayload = null;

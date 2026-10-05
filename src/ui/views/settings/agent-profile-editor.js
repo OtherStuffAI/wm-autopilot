@@ -1,3 +1,4 @@
+import { createAgentEnrichmentFields } from './agent-enrichment-fields.js';
 import { createAgentModelLookupController, modelValueForPayload } from '../../common/agent-model-lookups.js';
 import { createButton, createCheckbox, createInput, createStatusLine, createTextarea } from './agent-chat-shared-ui.js';
 import { createAgentProfileMediaPicker } from './agent-profile-media-picker.js';
@@ -55,6 +56,8 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
     option.value = value;
     handlerMode.select.append(option);
   }
+  const enrichment = createAgentEnrichmentFields();
+  handlerMode.select.addEventListener('change', () => { enrichment.element.hidden = handlerMode.select.value !== 'pipeline_enrichment'; });
   const instructors = createTextarea('Who can instruct this agent?', '', 'agent-profile-edit-instructors', 4);
   instructors.input.setAttribute('aria-label', 'Instructor npubs, one per line');
   const name = createInput('Public Nostr name', '', 'agent-profile-edit-name');
@@ -79,7 +82,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
   summary.dataset.testid = 'agent-profile-edit-public-toggle';
   details.append(summary, name.row, mediaPicker.element, picture.row, about.row, nip05.row, identity.row);
   form.append(title, label.row, directory.row, harness.row, model.row, lookupStatus,
-    enabled.row, directChatEnabled.row, handlerMode.row, instructors.row, details, status, actions);
+    enabled.row, directChatEnabled.row, handlerMode.row, enrichment.element, instructors.row, details, status, actions);
   overlay.append(form);
   let current = null;
   let runtimeConfig = null;
@@ -95,7 +98,9 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
     directory.input.value = agent.workingDirectory || agent.directChat?.directory || '';
     enabled.input.checked = agent.enabled !== false;
     directChatEnabled.input.checked = agent.directChat?.enabled !== false;
-    handlerMode.select.value = agent.directChat?.handlerMode === 'pipeline_router' ? 'pipeline_router' : 'session';
+    handlerMode.select.value = agent.directChat?.handlerMode || 'session';
+    enrichment.open(agent);
+    enrichment.element.hidden = handlerMode.select.value !== 'pipeline_enrichment';
     instructors.input.value = (agent.instructorNpubs || []).join('\n');
     name.input.value = agent.publicProfile?.name || agent.label || '';
     picture.input.value = agent.publicProfile?.picture || '';
@@ -125,7 +130,7 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
         model: modelValueForPayload(model.select.value),
         enabled: enabled.input.checked,
         directChatEnabled: directChatEnabled.input.checked,
-        directChat: { handlerMode: handlerMode.select.value },
+        directChat: { handlerMode: handlerMode.select.value, enrichmentByWorkspace: enrichment.payload(handlerMode.select.value) },
         instructorNpubs: instructors.input.value.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean),
         capabilities: current.capabilities,
         publicProfile: {
@@ -151,6 +156,14 @@ export function createAgentProfileEditor({ onSave, onBrowseDirectory } = {}) {
   return {
     element: overlay,
     open,
+    setEnrichmentOptions(options) {
+      if (!options?.supported) return;
+      if (![...handlerMode.select.children].some(o => o.value === 'pipeline_enrichment')) {
+        const option = document.createElement('option');
+        option.value = 'pipeline_enrichment'; option.textContent = 'Agent Direct Pipeline'; handlerMode.select.append(option);
+      }
+      enrichment.setOptions(options);
+    },
     setRuntimeConfig(config) { runtimeConfig = config; },
     setRuntimeConfigUnavailable(message) { runtimeConfig = null; lookup.setUnavailable(message); },
   };

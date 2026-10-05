@@ -234,7 +234,7 @@ export async function inspectAcceptedFinalResponse(
   if (finalMessage && isDirectChatFinalReady({
     nativeCodexReady: Boolean(nativeCodexReady), agentTransport: session.metadata?.agentTransport, runtimeStatus,
   })) {
-    return { reply: { content: finalMessage.content, createdAt: finalMessage.createdAt }, sessionState: 'active' };
+    return { reply: { content: finalMessage.content, createdAt: finalMessage.createdAt }, sessionState: 'active', promptBoundary: 'observed' };
   }
   return {
     reply: null,

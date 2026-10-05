@@ -1,3 +1,8 @@
+import { DirectChatRequestQueue } from "./direct-chat-request-queue.ts";
+import { randomUUID } from "node:crypto";
+import { DirectChatEnrichmentCoordinator, supplementalContext } from "./direct-chat-enrichment-coordinator.ts";
+import { DirectChatEnrichmentStore } from "./direct-chat-enrichment-store.ts";
+import type { EnrichDirectChat } from "./direct-chat-enrichment-service.ts";
 import { DIRECT_CHAT_SUBMISSION_LEASE_MS } from './direct-chat-response';
 import type { AgentType } from '../config';
 import { isAgentType } from '../agent-types';
@@ -64,6 +69,7 @@ interface DirectChatRuntimeDependencies {
   turnStore?: DirectChatTurnStore;
   publish?: typeof createFlightDeckPgChannelMessage;
   createActivityPublisher?: (context: AgentActivityContext) => AgentActivityPublisher;
+  createLifecycleController?: (context: AgentActivityContext, publisher: AgentActivityPublisher) => AgentDirectLifecycleController;
   getArchivedSession?: (sessionId: string) => ArchivedSession | null;
   log?: Pick<Console, 'error' | 'warn'>;
   deliveryReconciler?: AgentDirectDeliveryReconciler;
@@ -74,6 +80,8 @@ interface DirectChatRuntimeDependencies {
     agent: AgentDefinitionRecord,
     operation: (identity: RuntimeBotIdentity) => Promise<T>,
   ) => Promise<T>;
+  enrichDirectChat?: EnrichDirectChat;
+  enrichmentStore?: DirectChatEnrichmentStore;
   routePipeline?: (input: PipelineRouterRequest) => Promise<void>;
 }
 
@@ -122,20 +130,25 @@ function withMvpDirectChatDefault(agent: AgentDefinitionRecord): AgentDefinition
 
 export class AgentDirectChatRuntime {
   private readonly running = new Map<string, Promise<void>>();
-  private readonly queued = new Map<string, DirectChatRuntimeInput>();
+  private readonly queued = new DirectChatRequestQueue();
   private readonly deliveryWaiters = new Map<string, Promise<void>>();
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly submissionOwner = randomUUID();
+  private readonly enrichment: DirectChatEnrichmentCoordinator;
   private readonly turnStore: DirectChatTurnStore;
   private readonly publish: typeof createFlightDeckPgChannelMessage;
   private readonly createActivityPublisher: (context: AgentActivityContext) => AgentActivityPublisher;
+  private readonly createLifecycleController: (context: AgentActivityContext, publisher: AgentActivityPublisher) => AgentDirectLifecycleController;
   private readonly log: Pick<Console, 'error' | 'warn'>;
   private readonly sendFinalResponse: typeof sendPromptAndAwaitFinalResponse;
   private readonly dispatchOutcomeStore: FlightDeckDispatchOutcomeStore;
 
   constructor(private readonly deps: DirectChatRuntimeDependencies) {
     this.turnStore = deps.turnStore ?? getDirectChatTurnStore();
+    this.enrichment = new DirectChatEnrichmentCoordinator(deps.enrichmentStore ?? new DirectChatEnrichmentStore(this.turnStore.filePath), deps.enrichDirectChat);
     this.publish = deps.publish ?? createFlightDeckPgChannelMessage;
     this.createActivityPublisher = deps.createActivityPublisher ?? ((context) => new AgentActivityPublisher(context));
+    this.createLifecycleController = deps.createLifecycleController ?? ((context, publisher) => new AgentDirectLifecycleController(context, deps.processManager, publisher));
     this.log = deps.log ?? console;
     this.sendFinalResponse = deps.sendFinalResponse ?? sendPromptAndAwaitFinalResponse;
     this.dispatchOutcomeStore = deps.dispatchOutcomeStore ?? flightDeckDispatchOutcomeStore;
@@ -312,7 +325,8 @@ export class AgentDirectChatRuntime {
     const resolvedAgent = withMvpDirectChatDefault(agent);
     if (!resolvedAgent.directChat?.enabled) return { handled: false, reason: 'recovery_agent_disabled' };
     const contextPrompt = channelDirectChatConfig(input.channel).contextPrompt || channelLegacyBasePrompt(input.channel);
-    if (hasRecoverableTurn && this.deps.deliveryReconciler) {
+    if (hasRecoverableTurn && this.deps.deliveryReconciler
+      && !(pending!.state === "accepted" && !pending!.prompt && this.enrichment.store.get(pending!.turnId)?.mode === "pipeline_enrichment")) {
       this.deps.deliveryReconciler.notify(pending!.turnId);
       if (hasPendingMessages) this.deferPendingInput(routingKey, resolvedAgent, contextPrompt, input, pending!.turnId);
       return { handled: true, reason: 'direct_chat_delivery_reconciliation_queued' };
@@ -334,7 +348,7 @@ export class AgentDirectChatRuntime {
   private enqueue(routingKey: string, agent: AgentDefinitionRecord, contextPrompt: string, input: DirectChatRuntimeInput): void {
     const idleTimer = this.idleTimers.get(routingKey);
     if (idleTimer) { clearTimeout(idleTimer); this.idleTimers.delete(routingKey); }
-    this.queued.set(routingKey, input);
+    this.queued.add(routingKey, input, { agent, contextPrompt });
     if (this.running.has(routingKey)) return;
     const run = (botIdentity: RuntimeBotIdentity) => this.run(routingKey, agent, contextPrompt, botIdentity);
     const work = (this.deps.withBotIdentity
@@ -358,8 +372,10 @@ export class AgentDirectChatRuntime {
     botIdentity: RuntimeBotIdentity,
   ): Promise<void> {
     while (this.queued.has(routingKey)) {
-      const input = { ...this.queued.get(routingKey)!, botIdentity };
-      this.queued.delete(routingKey);
+      const captured = this.queued.take(routingKey);
+      agent = captured.agent ?? agent;
+      contextPrompt = captured.contextPrompt ?? contextPrompt;
+      const input = { ...captured.input, botIdentity };
       let intercept = this.deps.interceptStore.getByRoutingKey(routingKey)!;
       let activity: AgentDirectLifecycleController | null = null;
       let outcomeRecordIds = input.event.entity_id ? [input.event.entity_id] : [];
@@ -367,14 +383,14 @@ export class AgentDirectChatRuntime {
       try {
         const pending = this.turnStore.getPending(routingKey);
         activeTurnId = pending?.turnId ?? null;
-        const pendingAwaiting = pending?.state === 'accepted' || pending?.state === 'awaiting_reply';
+        const pendingAwaiting = (pending?.state === 'accepted' && (Boolean(pending.prompt) || this.enrichment.store.get(pending.turnId)?.mode !== 'pipeline_enrichment')) || pending?.state === 'awaiting_reply';
         if (pending?.replyBody) {
           const activityContext = { backendConnectionId: input.subscription.backendConnectionId, subscriptionId: input.subscription.subscriptionId, backendBaseUrl: input.subscription.backendBaseUrl,
             workspaceId: input.subscription.workspaceId!, appNpub: input.subscription.sourceAppNpub,
             botIdentity: input.botIdentity, channelId: intercept.channelId, threadId: intercept.threadId,
             triggerMessageId: pending.sourceMessageIds.at(-1)!, sessionId: `pending:${pending.turnId}`,
             agentNpub: intercept.botNpub, turnId: pending.turnId, startedAt: pending.createdAt };
-          activity = new AgentDirectLifecycleController(activityContext, this.deps.processManager,
+          activity = this.createLifecycleController(activityContext,
             this.createActivityPublisher(activityContext));
           await activity.working((pending.sessionId ?? intercept.sessionId ?? activityContext.sessionId));
           await activity.commentary();
@@ -383,7 +399,9 @@ export class AgentDirectChatRuntime {
           if (published) await activity.finish('completed');
           continue;
         }
-        const history = orderDirectChatMessages(input.messages);
+        const completeHistory = orderDirectChatMessages(input.messages);
+        const triggerIndex = completeHistory.findIndex(message => message.messageId === input.event.entity_id);
+        const history = triggerIndex >= 0 ? completeHistory.slice(0, triggerIndex + 1) : completeHistory;
         const undelivered = pendingAwaiting
           ? history.filter((message) => pending.sourceMessageIds.includes(message.messageId)
               || selectUndeliveredActionableMessages(history, intercept, agent.botNpub, [input.subscription.wsKeyNpub ?? ''])
@@ -412,21 +430,27 @@ export class AgentDirectChatRuntime {
               lastErrorClass: pending.lastErrorClass ?? 'session_evidence_missing',
               updatedAt: new Date().toISOString(),
             });
-            this.queued.set(routingKey, input);
+            this.queued.add(routingKey, input);
             continue;
           }
           const hasNewerHumanMessage = delta.some((message) => !pending.sourceMessageIds.includes(message.messageId));
           if (hasNewerHumanMessage) {
             if (this.deps.deliveryReconciler) {
               await this.deps.deliveryReconciler.processTurnNow(pending.turnId);
-              this.queued.set(routingKey, input);
+              this.queued.add(routingKey, input);
               if (this.turnStore.getPending(routingKey)?.turnId !== pending.turnId) continue;
               this.deps.deliveryReconciler.notify(pending.turnId);
               this.deferPendingInput(routingKey, agent, contextPrompt, input, pending.turnId);
               return;
             }
             this.turnStore.save({ ...pending, state: 'completed', updatedAt: new Date().toISOString() });
-            this.queued.set(routingKey, input);
+            this.queued.add(routingKey, input);
+            continue;
+          }
+          if (this.enrichment.store.get(pending.turnId)?.mode === "pipeline_enrichment"
+            && !this.enrichment.store.claimSubmission(routingKey, this.submissionOwner, DIRECT_CHAT_SUBMISSION_LEASE_MS + 60000)) {
+            this.queued.add(routingKey, input);
+            await Bun.sleep(100);
             continue;
           }
           if (!intercept.sessionId) throw new Error('Accepted Agent Direct Chat turn has no bound session.');
@@ -458,20 +482,37 @@ export class AgentDirectChatRuntime {
             triggerMessageId: recoverySourceMessageIds.at(-1)!, sessionId: session.id,
             agentNpub: intercept.botNpub, turnId: pending.turnId, startedAt: pending.createdAt,
           };
-          activity = new AgentDirectLifecycleController(activityContext, this.deps.processManager,
+          activity = this.createLifecycleController(activityContext,
             this.createActivityPublisher(activityContext));
           await activity.working(session.id);
-          const recoveryPrompt = sessionResolution.bootstrap
+          const recoveredEnrichment = sessionResolution.bootstrap
+            ? await this.enrichment.prepare({ input, agent, turnId: pending.turnId,
+                sourceMessageIds: recoverySourceMessageIds, sessionId: session.id }, status => {
+                for (const recordId of recoverySourceMessageIds) this.dispatchOutcomeStore.recordEnrichment({
+                  subscriptionId: input.subscription.subscriptionId, agentId: agent.agentId,
+                  recordId, sessionId: session.id, details: status });
+              })
+            : null;
+          const recoveryPrompt = !sessionResolution.bootstrap && pending.prompt ? pending.prompt : sessionResolution.bootstrap
             ? buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
-                scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery })
+                scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery, supplementalContext: supplementalContext(recoveredEnrichment) })
             : intercept.lastCompletedTurnId
               ? buildDirectChatFollowUpPrompt({ routingKey, threadId: intercept.threadId, history, actionableMessages: delta,
                   historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId,
                   lastAgentMessageIdPublished: intercept.lastAgentMessageIdPublished })
               : buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
                   scopeId: input.channel.scope_id ?? null, history, nextMessages: delta });
+          if (sessionResolution.bootstrap) {
+            this.turnStore.save({ ...this.turnStore.get(pending.turnId)!, sessionId: session.id,
+              prompt: recoveryPrompt, state: 'accepted', updatedAt: new Date().toISOString() });
+          }
           const recovered = sessionResolution.bootstrap
             ? await this.sendFinalResponse(this.deps.processManager, session.id, recoveryPrompt, {
+                onAccepted: () => {
+                  this.enrichment.store.accepted(pending.turnId, session.id);
+                  this.turnStore.save({ ...this.turnStore.get(pending.turnId)!, state: 'awaiting_reply',
+                    acceptedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+                },
                 onPoll: () => activity?.commentary(),
               })
             : await awaitAcceptedFinalResponse(
@@ -481,6 +522,7 @@ export class AgentDirectChatRuntime {
                 recoverySourceMessageIds,
                 { acceptedAt: pending.createdAt, onPoll: () => activity?.commentary() },
               );
+          this.enrichment.store.accepted(pending.turnId, session.id);
           for (const recordId of recoverySourceMessageIds) {
             this.recordRecoveredSessionOutcome(input, agent, recordId, session.id, routingKey, 'final_turn');
           }
@@ -499,6 +541,13 @@ export class AgentDirectChatRuntime {
         activeTurnId = turnId;
         const clientRequestId = pending?.clientRequestId ?? buildDirectChatClientRequestId(routingKey, turnId);
         const now = pending?.createdAt ?? new Date().toISOString();
+        const capturedEnrichment = this.enrichment.capture(turnId, agent, input.subscription.workspaceId!);
+        if (capturedEnrichment.mode === "pipeline_enrichment"
+          && !this.enrichment.store.claimSubmission(routingKey, this.submissionOwner, DIRECT_CHAT_SUBMISSION_LEASE_MS + 60000)) {
+          this.queued.add(routingKey, input);
+          await Bun.sleep(100);
+          continue;
+        }
         const activityContext = {
           backendConnectionId: input.subscription.backendConnectionId, subscriptionId: input.subscription.subscriptionId,
           backendBaseUrl: input.subscription.backendBaseUrl, workspaceId: input.subscription.workspaceId!,
@@ -507,7 +556,7 @@ export class AgentDirectChatRuntime {
           triggerMessageId: sourceMessageIds.at(-1)!, sessionId: `pending:${turnId}`,
           agentNpub: intercept.botNpub, turnId, startedAt: now,
         };
-        activity = new AgentDirectLifecycleController(activityContext, this.deps.processManager,
+        activity = this.createLifecycleController(activityContext,
           this.createActivityPublisher(activityContext));
         await activity.accepted();
         this.turnStore.save({ turnId, routingKey, sourceMessageIds, clientRequestId, replyBody: null,
@@ -519,7 +568,7 @@ export class AgentDirectChatRuntime {
           triggerMessageId: sourceMessageIds.at(-1) ?? null, receivedAt: delta[0]?.createdAt ?? now,
           acceptedAt: now, nextAttemptAt: now,
           leaseOwner: this.deps.deliveryReconciler?.runtimeLeaseOwner ?? null,
-          leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS).toISOString() : null });
+          leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS + 60000).toISOString() : null });
         let sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null,
           delta.at(-1)?.message ?? '');
         let session = sessionResolution.session;
@@ -527,14 +576,23 @@ export class AgentDirectChatRuntime {
         intercept = this.deps.interceptStore.save({ ...intercept, sessionId: session.id,
           sessionGeneration: sessionResolution.generation, previousSessionIds: sessionResolution.previousSessionIds,
           state: 'active', pendingMessageCount: delta.length, lastDecision: 'pending', lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-        let prompt = sessionResolution.bootstrap
+        const prepareEnrichment = () => this.enrichment.prepare({ input, agent, turnId, sourceMessageIds, sessionId: session.id }, status => {
+          for (const recordId of sourceMessageIds) this.dispatchOutcomeStore.recordEnrichment({ subscriptionId: input.subscription.subscriptionId,
+            agentId: agent.agentId, recordId, sessionId: session.id, details: status });
+        });
+        let enrichmentResult = await prepareEnrichment();
+        if (capturedEnrichment.mode === "pipeline_enrichment" && !this.enrichment.store.ownsSubmission(routingKey, this.submissionOwner)) {
+          throw new Error("Enrichment lost the submission lease before prompt transport.");
+        }
+        let prompt = (sessionResolution.bootstrap || !intercept.nativeHistoryCheckpointMessageId)
           ? buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
-              scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery })
+              scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery, supplementalContext: supplementalContext(enrichmentResult) })
           : buildDirectChatFollowUpPrompt({ routingKey, threadId: intercept.threadId, history, actionableMessages: delta,
               historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId,
-              lastAgentMessageIdPublished: intercept.lastAgentMessageIdPublished });
+              lastAgentMessageIdPublished: intercept.lastAgentMessageIdPublished, supplementalContext: supplementalContext(enrichmentResult) });
         const acceptedHistoryCheckpointMessageId = history.at(-1)?.messageId ?? null;
         const onAccepted = () => {
+            this.enrichment.store.accepted(turnId, session.id);
             for (const recordId of sourceMessageIds) {
               this.recordSessionOutcome(input, agent, recordId, session.id, routingKey);
             }
@@ -556,7 +614,7 @@ export class AgentDirectChatRuntime {
         // Persist the intended prompt before transport so restart recovery can
         // inspect receipt without assuming that submission reached the agent.
         this.turnStore.save({ ...this.turnStore.get(turnId)!, sessionId: session.id, prompt,
-          leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS).toISOString() : null,
+          leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS + 60000).toISOString() : null,
           updatedAt: new Date().toISOString() });
         let reply;
         try {
@@ -587,12 +645,13 @@ export class AgentDirectChatRuntime {
           intercept = this.deps.interceptStore.save({ ...intercept, sessionId: session.id,
             sessionGeneration: sessionResolution.generation, previousSessionIds: sessionResolution.previousSessionIds,
             state: 'active', lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+          enrichmentResult = await prepareEnrichment();
           prompt = buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
-            scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery });
+            scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery, supplementalContext: supplementalContext(enrichmentResult) });
           await activity.working(session.id);
           await activity.progress(`Retired ${rejectedSessionId}: ${replacement.detail}`);
           this.turnStore.save({ ...this.turnStore.get(turnId)!, sessionId: session.id, prompt,
-            leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS).toISOString() : null,
+            leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS + 60000).toISOString() : null,
             updatedAt: new Date().toISOString() });
           reply = await this.sendFinalResponse(this.deps.processManager, session.id, prompt, {
             onAccepted, onPoll: () => activity?.commentary(),
@@ -687,6 +746,8 @@ export class AgentDirectChatRuntime {
           pendingMessageCount: intercept.pendingMessageCount,
           error: error instanceof Error ? error.message : String(error),
         });
+      } finally {
+        this.enrichment.store.releaseSubmission(routingKey, this.submissionOwner);
       }
     }
   }
@@ -816,14 +877,14 @@ export class AgentDirectChatRuntime {
 
   private deferPendingInput(routingKey: string, agent: AgentDefinitionRecord, contextPrompt: string,
     input: DirectChatRuntimeInput, turnId: string): void {
-    this.queued.set(routingKey, input);
+    this.queued.add(routingKey, input);
     if (this.deliveryWaiters.has(routingKey)) return;
     const waiter = (async () => {
       while (this.turnStore.get(turnId) && this.turnStore.getPending(routingKey)?.turnId === turnId) {
         this.deps.deliveryReconciler?.notify(turnId);
         await Bun.sleep(1_000);
       }
-      if (this.queued.has(routingKey)) this.enqueue(routingKey, agent, contextPrompt, this.queued.get(routingKey)!);
+      if (this.queued.has(routingKey)) this.enqueue(routingKey, agent, contextPrompt, this.queued.head(routingKey)!);
     })().finally(() => this.deliveryWaiters.delete(routingKey));
     this.deliveryWaiters.set(routingKey, waiter);
   }

@@ -124,6 +124,15 @@ export class FlightDeckDispatchOutcomeStore {
     });
   }
 
+  recordEnrichment(input: { subscriptionId: string; agentId: string; recordId: string; sessionId: string; details: Record<string, unknown> }): void {
+    const key = `${input.subscriptionId}:${input.agentId}:${input.recordId}:session`;
+    const row = this.db.query("SELECT details_json FROM flightdeck_dispatch_outcomes WHERE outcome_key=?").get(key) as { details_json: string | null } | null;
+    const details = row?.details_json ? JSON.parse(row.details_json) : {};
+    if (row) this.db.query("UPDATE flightdeck_dispatch_outcomes SET details_json=? WHERE outcome_key=?")
+      .run(JSON.stringify({ ...details, enrichment: input.details }), key);
+    else this.recordSession({ ...input, details: { enrichment: input.details } });
+  }
+
   recordSession(input: RecordFlightDeckSessionOutcomeInput): FlightDeckDispatchOutcomeRecord {
     return this.save({
       outcomeKey: `${input.subscriptionId}:${input.agentId}:${input.recordId}:session`,
@@ -326,7 +335,7 @@ export class FlightDeckDispatchOutcomeStore {
            WHEN excluded.source_label = '${FLIGHT_DECK_SOURCE_LABEL_NOT_RECORDED}' THEN flightdeck_dispatch_outcomes.source_label
            ELSE excluded.source_label
          END,
-         details_json = excluded.details_json,
+         details_json = CASE WHEN json_extract(flightdeck_dispatch_outcomes.details_json,'$.enrichment') IS NOT NULL THEN json_set(COALESCE(excluded.details_json,'{}'),'$.enrichment',json_extract(flightdeck_dispatch_outcomes.details_json,'$.enrichment')) ELSE excluded.details_json END,
          updated_at = excluded.updated_at`,
     ).run(
       input.outcomeKey,

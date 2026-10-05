@@ -1,3 +1,4 @@
+import { appendEnrichmentEvidence } from './enrichment-evidence.js';
 import { listFlightDeckDispatchOutcomes } from '../services/agent-chat.js';
 
 export const FLIGHT_DECK_DISPATCH_PAGE_SIZE = 25;
@@ -138,6 +139,7 @@ export function createDispatchTable(rows) {
     } else {
       linkCell.textContent = '—';
     }
+    appendEnrichmentEvidence(linkCell, row);
     tableRow.append(
       linkCell,
       createTextCell(formatFlightDeckDispatchTime(row.receivedAt), 'received'),

@@ -1,3 +1,4 @@
+import { loadAgentEnrichmentOptions } from '../../services/agent-enrichment-options.js';
 import { randomId } from "../../core/random-id.js";
 import { createProfileCard } from './agent-profile-card.js';
 import {
@@ -40,7 +41,7 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
         profileId: defaults.agentId,
         label: defaults.label,
         name: defaults.label,
-        directChat: { handlerMode: defaults.handlerMode },
+        directChat: { handlerMode: defaults.handlerMode, ...(Object.keys(defaults.enrichmentByWorkspace || {}).length ? { enrichmentByWorkspace: defaults.enrichmentByWorkspace } : {}) },
         workingDirectory: defaults.workingDirectory,
         harness: defaults.harness,
         model: defaults.model,
@@ -162,6 +163,9 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
       button.disabled = false;
     }
   }
+
+  void loadAgentEnrichmentOptions().then(options => { editor.setEnrichmentOptions(options); modal.setEnrichmentOptions(options); })
+    .catch(error => { status.textContent = error.message; });
 
   void fetchConfigApi()
     .then((config) => {

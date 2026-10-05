@@ -1336,7 +1336,9 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
   const learningDefinitions = await Promise.all(
     ['plan', 'question', 'lesson', 'assessment', 'recall'].map(action => readBundledDefaultDefinition(`learning-${action}.json`)),
   );
+  const enrichmentDefinition = await readBundledDefaultDefinition("agent-direct-context.v1.json");
   const defaultDefinitions = [
+    ["agent-direct-context.v1.json", enrichmentDefinition],
     ["fd-agent-dispatch-chat.json", buildFlightDeckPgDefaultDefinition(AGENT_DISPATCH_CHAT_DEFINITION as unknown as DeclarativePipeline, "fd-agent-dispatch-chat")],
     ["fd-agent-dispatch-task-response.json", buildFlightDeckPgDefaultDefinition(AGENT_DISPATCH_TASK_DEFINITION as unknown as DeclarativePipeline, "fd-agent-dispatch-task-response")],
     ["fd-agent-dispatch-comment-response.json", buildFlightDeckPgDefaultDefinition(AGENT_DISPATCH_COMMENT_DEFINITION as unknown as DeclarativePipeline, "fd-agent-dispatch-comment-response")],

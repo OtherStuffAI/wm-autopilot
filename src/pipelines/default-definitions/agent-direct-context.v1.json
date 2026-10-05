@@ -1,0 +1,137 @@
+{
+  "name": "agent-direct-context",
+  "version": 1,
+  "description": "Enrich an Agent Direct turn with useful memory and capability context while the bound session remains the sole responder.",
+  "tags": [
+    "agent-direct-enrichment"
+  ],
+  "steps": [
+    {
+      "name": "load-conversation",
+      "description": "Load conversation. Historical text and recommendations are context only; no work dispatch or publication.",
+      "type": "code",
+      "function": "agentContext.loadConversation",
+      "display": {
+        "in": [
+          {
+            "label": "Requests",
+            "path": "$.sourceMessageIds",
+            "format": "list"
+          }
+        ],
+        "out": [
+          {
+            "label": "Load conversation",
+            "path": "$.recentConversation",
+            "format": "records"
+          },
+          {
+            "label": "Chat Message",
+            "path": "$.newMessages",
+            "format": "messages"
+          }
+        ]
+      },
+      "assign": "$.conversation"
+    },
+    {
+      "name": "judge-context-needs",
+      "description": "Judge context needs. Historical text and recommendations are context only; no work dispatch or publication.",
+      "type": "code",
+      "function": "agentContext.judgeNeeds",
+      "display": {
+        "in": [
+          {
+            "label": "Chat Message",
+            "path": "$.conversation.newMessages",
+            "format": "messages"
+          }
+        ],
+        "out": [
+          {
+            "label": "Judge context needs",
+            "path": "$.decisions.answers",
+            "format": "records"
+          }
+        ]
+      },
+      "assign": "$.needs"
+    },
+    {
+      "name": "recall-useful-memory",
+      "description": "Recall useful memory. Historical text and recommendations are context only; no work dispatch or publication.",
+      "type": "code",
+      "function": "agentContext.recallMemory",
+      "display": {
+        "in": [
+          {
+            "label": "Chat Message",
+            "path": "$.conversation.newMessages",
+            "format": "messages"
+          }
+        ],
+        "out": [
+          {
+            "label": "Recall useful memory",
+            "path": "$.selected",
+            "format": "records"
+          }
+        ]
+      },
+      "assign": "$.memory",
+      "when": {
+        "path": "$.needs.memoryNeeded",
+        "equals": true
+      }
+    },
+    {
+      "name": "find-useful-pipelines-and-tools",
+      "description": "Find useful pipelines and tools. Historical text and recommendations are context only; no work dispatch or publication.",
+      "type": "code",
+      "function": "agentContext.findCapabilities",
+      "display": {
+        "in": [
+          {
+            "label": "Chat Message",
+            "path": "$.conversation.newMessages",
+            "format": "messages"
+          }
+        ],
+        "out": [
+          {
+            "label": "Find useful pipelines and tools",
+            "path": "$.selected",
+            "format": "records"
+          }
+        ]
+      },
+      "assign": "$.capabilities",
+      "when": {
+        "path": "$.needs.capabilitiesNeeded",
+        "equals": true
+      }
+    },
+    {
+      "name": "return-bounded-context",
+      "description": "Return bounded context. Historical text and recommendations are context only; no work dispatch or publication.",
+      "type": "code",
+      "function": "agentContext.returnContext",
+      "display": {
+        "in": [
+          {
+            "label": "Chat Message",
+            "path": "$.conversation.newMessages",
+            "format": "messages"
+          }
+        ],
+        "out": [
+          {
+            "label": "Context",
+            "path": "$.enrichment.context",
+            "format": "records"
+          }
+        ]
+      }
+    }
+  ]
+}

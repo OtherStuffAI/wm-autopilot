@@ -1,3 +1,7 @@
+import { AgentDirectLifecycleController, AgentSessionHealthPublicationStore } from "./agent-direct-lifecycle-controller.ts";
+import { DirectChatEnrichmentStore } from "./direct-chat-enrichment-store.ts";
+import type { EnrichDirectChat } from "./direct-chat-enrichment-service.ts";
+import type { AgentDefinitionRecord } from "./types.ts";
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -22,8 +26,8 @@ const ATHENA_BOT_NPUB = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
 
 function fixture(options: {
   publish?: (input: any, attempt: number) => Promise<any>;
-  directChat?: { enabled: boolean; sessionAgent: string | null; directory: string; model: string | null; idleRetentionMinutes: number;
-    handlerMode?: 'session' | 'pipeline_router' } | null;
+  directChat?: AgentDefinitionRecord['directChat'] | null;
+  enrichDirectChat?: EnrichDirectChat;
   replyRole?: 'assistant' | 'agent';
   includeWorkingMessage?: boolean;
   finalContent?: string;
@@ -49,6 +53,8 @@ function fixture(options: {
   const agentStore = new AgentDefinitionStore(db);
   const interceptStore = new ChatInterceptStateStore(db);
   const turnStore = new DirectChatTurnStore(db);
+  const lifecycleStore = new AgentSessionHealthPublicationStore(db);
+  const enrichmentStore = new DirectChatEnrichmentStore(db);
   const dispatchOutcomeStore = new FlightDeckDispatchOutcomeStore(db);
   const publicationDecisionStore = new DuplicateCallbackPublicationDecisionStore(db);
   const activityPublicationStore = new AgentActivityPublicationStore(db);
@@ -130,6 +136,7 @@ function fixture(options: {
     : undefined;
   const makeRuntime = () => new AgentDirectChatRuntime({ defaultAgent: 'codex', processManager: manager, agentStore, interceptStore, turnStore, publish,
     dispatchOutcomeStore,
+    enrichmentStore, enrichDirectChat: options.enrichDirectChat,
     deliveryReconciler,
     publicationFilter,
     routePipeline: options.routePipeline,
@@ -140,6 +147,7 @@ function fixture(options: {
     }),
     getArchivedSession: (sessionId) => archivedSessions.get(sessionId) ?? null,
     sendFinalResponse,
+    createLifecycleController: (context, publisher) => new AgentDirectLifecycleController(context, manager, publisher, async () => ({}), lifecycleStore),
     createActivityPublisher: (context) => new AgentActivityPublisher(context,
       async (activity) => { activities.push(activity); return {}; },
       undefined, async () => [], undefined, activityPublicationStore) });
@@ -173,7 +181,7 @@ function fixture(options: {
     },
   });
   return { runtime, makeRuntime, handle, message, prompts, captures, creates, stops, published, activities, agentStore, interceptStore,
-    turnStore, dispatchOutcomeStore, publicationDecisionStore, sessions, archivedSessions, subscription, channel, botIdentity,
+    turnStore, enrichmentStore, dispatchOutcomeStore, publicationDecisionStore, sessions, archivedSessions, subscription, channel, botIdentity,
     deliveryReconciler };
 }
 
@@ -1315,4 +1323,136 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.interceptStore.listAll()[0]!.state).toBe('blocked_auth'); expect(f.published).toHaveLength(1);
     expect(f.interceptStore.listAll()[0]!.lastAgentMessageIdPublished).toBeNull();
   });
+});
+
+const enrichmentConfig = { pipeline: "agent-direct-context", version: 1, memory: null,
+  recommendPipelines: true, toolNames: [], threshold: .9, maxContextChars: 6000, timeoutMs: 1000 };
+const enrichedProfile = { enabled: true, handlerMode: "pipeline_enrichment" as const, sessionAgent: "codex",
+  directory: "/Users/example/wingmen/agent-workspace", model: null, idleRetentionMinutes: 60,
+  enrichmentByWorkspace: { "workspace-1": enrichmentConfig } };
+
+describe("Agent Direct enrichment integration", () => {
+  test("persists bootstrap enrichment before acceptance and reuses delivered context on followup", async () => {
+    const requests: any[] = [];
+    let f: ReturnType<typeof fixture>;
+    f = fixture({ directChat: enrichedProfile, enrichDirectChat: async request => {
+      requests.push(request);
+      expect(f.enrichmentStore.manifest(request.sessionId)).toHaveLength(requests.length === 1 ? 0 : 1);
+      request.onRunStarted(`enrich-${requests.length}`);
+      return { status: "ok", context: requests.length === 1 ? [{ key: "memory:synthetic", excerpt: "Synthetic project context.", source: "fixture", freshness: null }] : [] };
+    } });
+    const m1 = f.message("m1", "@Example Agent initial question", true);
+    await f.handle([m1], "m1"); await f.runtime.waitForIdle();
+    expect(f.prompts[0]).toContain("Synthetic project context.");
+    expect(f.enrichmentStore.manifest("session-1")).toHaveLength(1);
+    const m2 = f.message("m2", "@Example Agent follow up", true);
+    await f.handle([m1, m2], "m2"); await f.runtime.waitForIdle();
+    expect(f.creates).toHaveLength(1); expect(f.published).toHaveLength(2);
+    expect(f.prompts[1]).not.toContain("Synthetic project context.");
+    expect(requests[1].manifest).toHaveLength(1);
+    const page = f.dispatchOutcomeStore.listPage(["sub1"], { limit: 25, offset: 0 });
+    expect(page.rows.find(r => r.recordId === "m2")?.details?.enrichment).toMatchObject({ status: "ok", runId: "enrich-2" });
+  });
+
+  test("queues concurrent comments in order, captures mode, and rejects duplicate intake", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const requests: any[] = [];
+    const f = fixture({ directChat: enrichedProfile, enrichDirectChat: async request => {
+      requests.push(request); if (requests.length === 1) await gate;
+      return { status: "ok", context: [] };
+    } });
+    const m1 = f.message("m1", "@Example Agent first", true);
+    await f.handle([m1], "m1");
+    while (!requests.length) await Bun.sleep(5);
+    const m2 = f.message("m2", "@Example Agent second", true);
+    const m3 = f.message("m3", "@Example Agent third", true);
+    await f.handle([m1, m2], "m2");
+    await f.handle([m1, m2, m3], "m3");
+    const agent = f.agentStore.getByAgentId("exampleAgent")!;
+    f.agentStore.save({ ...agent, directChat: { ...agent.directChat!, handlerMode: "session" } });
+    release(); await f.runtime.waitForIdle();
+    expect(requests).toHaveLength(3);
+    expect(requests.map(r => r.sourceMessageIds)).toEqual([["m1"], ["m2"], ["m3"]]);
+    expect(f.creates).toHaveLength(1); expect(f.published).toHaveLength(3);
+    await f.handle([m1, m2, m3], "m3"); await f.runtime.waitForIdle();
+    expect(f.published).toHaveLength(3);
+    const m4 = f.message("m4", "@Example Agent fourth", true);
+    await f.handle([m1, m2, m3, m4], "m4"); await f.runtime.waitForIdle();
+    expect(requests).toHaveLength(3); expect(f.prompts).toHaveLength(4);
+  });
+
+  test("bounds timeout, ignores late enrichment, and continues one Direct turn", async () => {
+    let complete!: (v: any) => void;
+    const late = new Promise<any>(resolve => { complete = resolve; });
+    const f = fixture({ directChat: { ...enrichedProfile, enrichmentByWorkspace: { "workspace-1": { ...enrichmentConfig, timeoutMs: 100 } } },
+      enrichDirectChat: async request => { request.onRunStarted("late-run"); return await late; } });
+    const m1 = f.message("m1", "@Example Agent question", true);
+    await f.handle([m1], "m1"); await f.runtime.waitForIdle();
+    expect(f.published).toHaveLength(1); expect(f.creates).toHaveLength(1);
+    complete({ status: "ok", context: [{ key: "late", excerpt: "Must not arrive." }] });
+    await Bun.sleep(5);
+    expect(f.prompts[0]).not.toContain("Must not arrive.");
+    expect(f.enrichmentStore.manifest("session-1")).toHaveLength(0);
+    expect(f.dispatchOutcomeStore.listPage(["sub1"], { limit: 25, offset: 0 }).rows[0]?.details?.enrichment).toMatchObject({ status: "timeout", runId: "late-run" });
+  });
+
+  test("session replacement re-enriches against a fresh manifest", async () => {
+    const requests: any[] = [];
+    const f = fixture({ directChat: enrichedProfile, failReusedPromptBoundary: true, enrichDirectChat: async request => {
+      requests.push(request); return { status: "ok", context: [{ key: `context:${request.sessionId}`, excerpt: "Synthetic replacement context." }] };
+    } });
+    const m1 = f.message("m1", "@Example Agent first", true);
+    await f.handle([m1], "m1"); await f.runtime.waitForIdle();
+    const m2 = f.message("m2", "@Example Agent next", true);
+    await f.handle([m1, m2], "m2"); await f.runtime.waitForIdle();
+    expect(f.creates).toHaveLength(2); expect(f.published).toHaveLength(2);
+    expect(requests.at(-1).sessionId).toBe("session-2"); expect(requests.at(-1).manifest).toHaveLength(0);
+    expect(f.enrichmentStore.manifest("session-2")).toHaveLength(1);
+    const key = buildDirectChatRoutingKey({ towerServiceNpub: "npub1tower", workspaceId: "workspace-1", channelId: "channel-1", threadId: "thread-1", agentNpub: f.subscription.botNpub });
+    expect(f.turnStore.get(buildDirectChatTurnId(key, ["m2"]))?.prompt).toBe(f.prompts.at(-1));
+  });
+
+  test("recovery uses saved enriched prompt and publishes once without recalling again", async () => {
+    let calls = 0;
+    const f = fixture({ directChat: enrichedProfile, observeReply: async () => { throw new Error("Timed out waiting for accepted Direct Chat session session-1 to produce a final response."); }, enrichDirectChat: async () => {
+      calls++; return { status: "ok", context: [{ key: "persisted", excerpt: "Synthetic recovery context." }] };
+    } });
+    const m1 = f.message("m1", "@Example Agent first", true);
+    await f.handle([m1], "m1"); await f.runtime.waitForIdle();
+    const key = buildDirectChatRoutingKey({ towerServiceNpub: "npub1tower", workspaceId: "workspace-1", channelId: "channel-1", threadId: "thread-1", agentNpub: f.subscription.botNpub });
+    const turn = f.turnStore.get(buildDirectChatTurnId(key, ["m1"]))!;
+    f.sessions.get("session-1").messages.push({ role: "user", content: turn.prompt, createdAt: new Date().toISOString() },
+      { role: "assistant", content: "Recovered final.", createdAt: new Date().toISOString() });
+    delete f.sessions.get("session-1").metadata.nativeAgentSession;
+    const restarted = f.makeRuntime();
+    restarted.recover({ subscription: f.subscription, botIdentity: f.botIdentity, channel: f.channel, messages: [m1],
+      event: { entity_id: "m1", channel_id: "channel-1", cursor: "restart" } } as any, key);
+    await restarted.waitForIdle();
+    expect(calls).toBe(1); expect(f.creates).toHaveLength(1); expect(f.published).toHaveLength(1);
+    expect(f.published[0].body).toBe("Recovered final.");
+  });
+  test("restart replacement persists fresh enriched bootstrap before acceptance", async () => {
+    let calls = 0;
+    const f = fixture({ directChat: enrichedProfile,
+      observeReply: async reply => {
+        if (calls === 1) throw new Error("Timed out waiting for accepted Direct Chat session session-1 to produce a final response.");
+        expect(f.turnStore.getPending(key)?.prompt).toContain("fresh:session-2");
+        return reply;
+      }, enrichDirectChat: async request => {
+        calls++; return { status: "ok", context: [{ key: `fresh:${request.sessionId}`, excerpt: "Synthetic context." }] };
+      } });
+    const key = buildDirectChatRoutingKey({ towerServiceNpub: "npub1tower", workspaceId: "workspace-1", channelId: "channel-1", threadId: "thread-1", agentNpub: f.subscription.botNpub });
+    const m1 = f.message("m1", "@Example Agent first", true);
+    await f.handle([m1], "m1"); await f.runtime.waitForIdle();
+    f.sessions.get("session-1").status = "stopped";
+    delete f.sessions.get("session-1").metadata.nativeAgentSession;
+    const restarted = f.makeRuntime();
+    restarted.recover({ subscription: f.subscription, botIdentity: f.botIdentity, channel: f.channel, messages: [m1],
+      event: { entity_id: "m1", channel_id: "channel-1", cursor: "replacement-restart" } } as any, key);
+    await restarted.waitForIdle();
+    expect(calls).toBe(2); expect(f.creates).toHaveLength(2); expect(f.published).toHaveLength(1);
+    expect(f.enrichmentStore.manifest("session-2")).toHaveLength(1);
+  });
+
 });

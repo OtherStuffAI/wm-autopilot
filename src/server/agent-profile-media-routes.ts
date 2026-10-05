@@ -1,3 +1,4 @@
+import { directChatHandlerMode, parseEnrichmentConfigs } from "../agent-chat/direct-chat-enrichment-config.ts";
 import { isAbsolute } from 'node:path';
 
 import {
@@ -180,10 +181,13 @@ export async function handleAgentProfileCreateApi(
     ? body.directChat as Record<string, unknown>
     : null;
   if (directChatInput && Object.prototype.hasOwnProperty.call(directChatInput, 'handlerMode')
-    && directChatInput.handlerMode !== 'session' && directChatInput.handlerMode !== 'pipeline_router') {
-    return Response.json({ error: 'directChat.handlerMode must be session or pipeline_router.' }, { status: 400 });
+    && directChatInput.handlerMode !== 'session' && directChatInput.handlerMode !== 'pipeline_router' && directChatInput.handlerMode !== 'pipeline_enrichment') {
+    return Response.json({ error: 'directChat.handlerMode must be session, pipeline_router or pipeline_enrichment.' }, { status: 400 });
   }
-  const handlerMode = directChatInput?.handlerMode === 'pipeline_router' ? 'pipeline_router' : 'session';
+  const handlerMode = directChatHandlerMode(directChatInput?.handlerMode);
+  let enrichmentByWorkspace;
+  try { enrichmentByWorkspace = parseEnrichmentConfigs(directChatInput?.enrichmentByWorkspace); }
+  catch (error) { return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 }); }
   let instructorNpubs: string[];
   try {
     instructorNpubs = Array.isArray(body.instructorNpubs)
@@ -234,7 +238,7 @@ export async function handleAgentProfileCreateApi(
       instructorNpubs,
       publicProfile,
       capabilities: ['chat_intercept', 'task_dispatch', 'comment_dispatch'],
-      directChat: { handlerMode, enabled: true, sessionAgent: harness, directory: workingDirectory, model, idleRetentionMinutes: 60 },
+      directChat: { handlerMode, enrichmentByWorkspace, enabled: true, sessionAgent: harness, directory: workingDirectory, model, idleRetentionMinutes: 60 },
       enabled: body.enabled !== false,
     });
     const owner = verified ? {
@@ -326,7 +330,8 @@ async function buildMediaCandidate(
       nip05: typeof publicInput.nip05 === 'string' ? publicInput.nip05.trim() || null : existing.publicProfile?.nip05 ?? null,
     },
     directChat: {
-      handlerMode: directChatInput?.handlerMode === 'pipeline_router' ? 'pipeline_router' : 'session',
+      handlerMode: directChatHandlerMode(directChatInput?.handlerMode, existing.directChat?.handlerMode),
+      enrichmentByWorkspace: parseEnrichmentConfigs(directChatInput?.enrichmentByWorkspace) ?? existing.directChat?.enrichmentByWorkspace,
       enabled: typeof body.directChatEnabled === 'boolean'
         ? body.directChatEnabled
         : directChatInput?.enabled === undefined ? existing.directChat?.enabled !== false : directChatInput.enabled !== false,

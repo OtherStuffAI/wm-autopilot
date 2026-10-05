@@ -1,3 +1,4 @@
+import type { EnrichDirectChat } from "./direct-chat-enrichment-service.ts";
 import type { AgentType } from '../config';
 import type { ProcessManager, SessionSnapshot } from '../agents/process-manager';
 import { chatInterceptStateStore, type ChatInterceptStateStore } from './chat-intercept-state-store';
@@ -49,6 +50,7 @@ interface AgentChatSessionRuntimeDependencies {
     agent: AgentDefinitionRecord,
     operation: (identity: RuntimeBotIdentity) => Promise<T>,
   ) => Promise<T>;
+  enrichDirectChat?: EnrichDirectChat;
   routePipeline?: (input: PipelineRouterRequest) => Promise<void>;
 }
 
@@ -84,6 +86,7 @@ export class AgentChatSessionRuntime {
       publicationFilter: deps.publicationFilter,
       dispatchOutcomeStore: this.dispatchOutcomeStore,
       routePipeline: deps.routePipeline,
+      enrichDirectChat: deps.enrichDirectChat,
       getArchivedSession: (sessionId) => (deps.archiveStore ?? sessionArchiveStore).getArchivedSession(sessionId) });
     this.restorePersistedStates();
   }

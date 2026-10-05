@@ -1,3 +1,4 @@
+import { createAgentEnrichmentFields } from './agent-enrichment-fields.js';
 import {
   createButton,
   createCapabilityPicker,
@@ -552,6 +553,8 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     handlerModeField.select.append(option);
   }
   handlerModeField.select.value = 'session';
+  const enrichmentFields = createAgentEnrichmentFields();
+  handlerModeField.select.addEventListener('change', () => { enrichmentFields.element.hidden = handlerModeField.select.value !== 'pipeline_enrichment'; });
   const handlerModeNote = document.createElement('p');
   handlerModeNote.className = 'wm-settings__port-note';
   handlerModeNote.dataset.testid = 'agent-chat-agent-create-handler-note';
@@ -673,7 +676,8 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     return {
       agentId,
       label: label || 'Agent',
-      handlerMode: handlerModeField.select.value === 'pipeline_router' ? 'pipeline_router' : 'session',
+      handlerMode: handlerModeField.select.value,
+      enrichmentByWorkspace: enrichmentFields.payload(handlerModeField.select.value),
       workingDirectory: customWorkingDirectory || deriveDefaultWorkingDirectory(agentId),
       harness: harnessField.select.value.trim(),
       model: modelValueForPayload(modelField.select.value),
@@ -808,7 +812,7 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
     heading,
     note,
     nameField.row,
-    ...(standalone ? [handlerModeField.row, handlerModeNote] : []),
+    ...(standalone ? [handlerModeField.row, enrichmentFields.element, handlerModeNote] : []),
     instructorsField.row,
     advancedPanel,
     ...(standalone ? [] : [preview]),
@@ -819,6 +823,14 @@ export function createPrimaryAgentNameModal({ onCreate, onBrowseDirectory, stand
 
   return {
     element: modal.overlay,
+    setEnrichmentOptions(options) {
+      if (!options?.supported) return;
+      if (![...handlerModeField.select.children].some(o => o.value === 'pipeline_enrichment')) {
+        const option = document.createElement('option'); option.value = 'pipeline_enrichment';
+        option.textContent = 'Agent Direct Pipeline'; handlerModeField.select.append(option);
+      }
+      enrichmentFields.setOptions(options);
+    },
     setRuntimeConfig(config, selectedHarness = '', selectedModel = '') {
       lookupController.setConfig(config, { harness: selectedHarness, model: selectedModel || 'default' });
     },
