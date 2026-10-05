@@ -38,7 +38,7 @@ describe('pipeline router handler', () => {
     const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
     const store = new PipelineStore(path); const published: any[] = []; const starts: any[] = [];
     const dispatchOutcomeStore = new FlightDeckDispatchOutcomeStore(path);
-    const handler = createPipelineRouterHandler({ store, dispatchOutcomeStore, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
+    const handler = createPipelineRouterHandler({ readContext: async () => ({ version: 1, messages: [] }), store, dispatchOutcomeStore, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
       userSettingsStore: { getAll: () => ({ openrouter_api_key: 'owner-key' }) },
     }) as any,
       listDefinitions: async () => [definition('council', 4), definition('hidden', 1, false)],
@@ -55,6 +55,7 @@ describe('pipeline router handler', () => {
     expect(starts).toHaveLength(1);
     expect(starts[0].invocation).toEqual({ workspaceId: '11111111-1111-4111-8111-111111111111',
       threadId: '22222222-2222-4222-8222-222222222222', frmNpub: 'npub1requester', prompt: '@Pipe use the council exactly' });
+    expect(starts[0].threadContext).toEqual({ version: 1, messages: [] });
     expect(starts[0].initiatingAgentNpub).toBe('npub1pipe');
     expect(starts[0].initiatingAgentProfileId).toBe('pipe');
     expect(published.map((item) => item.body)).toEqual(["I’ve started Pipeline council with your request. Its response will return here."]);
@@ -70,7 +71,7 @@ describe('pipeline router handler', () => {
     const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
     const store = new PipelineStore(path); const published: any[] = []; let starts = 0;
     const dispatchOutcomeStore = new FlightDeckDispatchOutcomeStore(path);
-    const handler = createPipelineRouterHandler({ store, dispatchOutcomeStore, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
+    const handler = createPipelineRouterHandler({ readContext: async () => ({ version: 1, messages: [] }), store, dispatchOutcomeStore, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
       userSettingsStore: { getAll: () => ({ openrouter_api_key: 'owner-key' }) },
     }) as any,
       listDefinitions: async () => [definition('council', 4)],
@@ -88,7 +89,7 @@ describe('pipeline router handler', () => {
   test('routes an explicit learning mention with trusted context after learner grant check', async () => {
     const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
     const store = new PipelineStore(path); const published: any[] = []; const starts: any[] = []; let checks = 0;
-    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({}) as any,
+    const handler = createPipelineRouterHandler({ readContext: async () => ({ version: 1, messages: [] }), store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({}) as any,
       listDefinitions: async () => [definition('learning-lesson', 1)],
       decide: async () => { throw new Error('learning route must not use classifier'); },
       authorizeLearning: async () => { checks += 1; },
@@ -108,7 +109,7 @@ describe('pipeline router handler', () => {
   test('fails closed when Piper has no learner grant and does not echo private text', async () => {
     const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
     const store = new PipelineStore(path); const published: any[] = []; let starts = 0;
-    const handler = createPipelineRouterHandler({ store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({}) as any,
+    const handler = createPipelineRouterHandler({ readContext: async () => ({ version: 1, messages: [] }), store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({}) as any,
       listDefinitions: async () => [definition('learning-assessment', 1)],
       authorizeLearning: async () => { throw new Error('Tower denied learner access (403)'); },
       startRun: async () => { starts += 1; throw new Error('unexpected'); },
@@ -129,7 +130,7 @@ describe('pipeline router handler', () => {
       evidence = input.evidence;
       completeDecision(sourceMessageId, input);
     };
-    const handler = createPipelineRouterHandler({ store, dispatchOutcomeStore, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
+    const handler = createPipelineRouterHandler({ readContext: async () => ({ version: 1, messages: [] }), store, dispatchOutcomeStore, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({
       userSettingsStore: { getAll: () => ({ openrouter_api_key: '   ' }) },
       getStoredInstanceSetting: () => null,
     }) as any,
@@ -153,4 +154,44 @@ describe('pipeline router handler', () => {
       reasonCode: 'pipeline_start_failed',
     });
   });
+});
+
+test('context retrieval failure is visible, starts nothing and never calls Jev', async () => {
+  const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
+  const store = new PipelineStore(path); const published: any[] = [];
+  const handler = createPipelineRouterHandler({ store, dispatchOutcomeStore: new FlightDeckDispatchOutcomeStore(path),
+    callbackOrigin: 'http://localhost', getSessionApiContext: () => ({ userSettingsStore: { getAll: () => ({ openrouter_api_key: 'fixture' }) } }) as any,
+    listDefinitions: async () => [definition('bird', 3)],
+    readContext: async () => { throw new Error('Tower denied required history (403)'); },
+    decide: async () => { throw new Error('must not classify'); },
+    startRun: async () => { throw new Error('must not start'); },
+    publish: async (input: any) => { published.push(input); return { message: { id: 'error' } } as any; } });
+  await handler(request());
+  expect(published).toHaveLength(1);
+  expect(published[0].body).toContain('Tower denied required history (403)');
+});
+
+test('Jev receives inert history and usefulness instructions; selected run keeps exact current correction', async () => {
+  const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
+  const store = new PipelineStore(path); let selection: any; let started: any;
+  const context = { version: 1, sourceMessageId: 'message-1', messages: [
+    { body: 'Summarize my latest tweets into 10 points', inherited: true },
+    { body: 'Following or For You, and how many tweets?', inherited: false },
+  ], truncated: false };
+  const handler = createPipelineRouterHandler({ store, dispatchOutcomeStore: new FlightDeckDispatchOutcomeStore(path),
+    callbackOrigin: 'http://localhost', getSessionApiContext: () => ({ userSettingsStore: { getAll: () => ({ openrouter_api_key: 'fixture' }) } }) as any,
+    listDefinitions: async () => [definition('bird', 3), { ...definition('disabled', 1), spec: { ...definition('disabled', 1).spec, enabled: false } }],
+    readContext: async () => context,
+    decide: async (input: any) => { selection = input; return { model: 'fixture', usage: {}, latencyMs: 1, answers: { pipeline: { choice: 'bird' } } } as any; },
+    startRun: async (input: any) => { started = input; return { run: { id: 'run' } } as any; },
+    publish: async () => ({ message: { id: 'ack' } }) as any });
+  const source = request(); source.message.body = 'Following, 100 please';
+  await handler(source);
+  expect(selection.state).toEqual({ sourceQuestion: source.message.body, threadContext: context });
+  expect(selection.questions.pipeline.instructions).toContain('contribute most usefully');
+  expect(selection.questions.pipeline.instructions).toContain('topic changes');
+  expect(selection.questions.pipeline.criteria).toEqual({ bird: 'Pipeline bird: bird description', no_match: 'None of the available pipelines is suitable for this request.' });
+  expect(started.threadContext).toEqual(context);
+  expect(started.invocation.prompt).toBe(source.message.body);
+  expect(started.invocation.frmNpub).toBe('npub1requester');
 });

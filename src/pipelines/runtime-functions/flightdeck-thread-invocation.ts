@@ -6,5 +6,5 @@ export const description = "Normalise the four-field Flight Deck thread invocati
 export const version = 1;
 
 export default function run(input: JsonObject): JsonObject {
-  return normalizeFlightDeckPipelineInvocation(input);
+  return { ...normalizeFlightDeckPipelineInvocation(input), ...(input.threadContext ? { threadContext: input.threadContext } : {}) };
 }

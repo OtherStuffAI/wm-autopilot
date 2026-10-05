@@ -109,7 +109,7 @@ test("existing router discovers the wrapper and routes the unchanged caller and 
   expect(isChatAddressable(definitions.find(definition => definition.name === "bird.retrieve.v3")!)).toBe(false);
   let started: JsonObject | null = null; let catalogue: string[] = [];
   const published: JsonObject[] = [];
-  const handler = createPipelineRouterHandler({ store, callbackOrigin: "http://localhost", getSessionApiContext: () => ({}) as never,
+  const handler = createPipelineRouterHandler({ readContext: async () => ({ version: 1, messages: [] }), store, callbackOrigin: "http://localhost", getSessionApiContext: () => ({}) as never,
     dispatchOutcomeStore: new FlightDeckDispatchOutcomeStore(join(dir, "outcomes.sqlite")), listDefinitions: async () => definitions,
     decide: async input => { catalogue = Object.keys((input.questions.pipeline as { criteria: Record<string, string> }).criteria); return { answers: { pipeline: choice(wrapper.id, catalogue) }, model: "fixture", usage: {}, latencyMs: 1 } as never; },
     startRun: async input => { started = input as unknown as JsonObject; return { run: { id: "fixture-run" } } as never; },

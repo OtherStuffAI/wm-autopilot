@@ -18,7 +18,7 @@ export function expandPipelineBlock(step: Extract<DeclarativeStep, { type: "bloc
         name: `${step.name} / normalise-thread-invocation`,
         description: "Validate and normalise the reusable four-field Flight Deck thread invocation contract.",
         type: "code", function: "flightdeck.threadInvocation",
-        input: { pick: { workspaceId: `${inputPath}.workspaceId`, threadId: `${inputPath}.threadId`, frmNpub: `${inputPath}.frmNpub`, prompt: `${inputPath}.prompt` } },
+        input: { pick: { workspaceId: `${inputPath}.workspaceId`, threadId: `${inputPath}.threadId`, frmNpub: `${inputPath}.frmNpub`, prompt: `${inputPath}.prompt`, threadContext: `${inputPath}.threadContext` } },
         assign: outputPath,
         display: { in: [{ label: "Thread", path: "$.threadId", format: "text" }, { label: "Chat Message", path: "$.prompt", format: "text" }], out: [{ label: "Thread", path: "$.threadId", format: "text" }, { label: "Chat Message", path: "$.prompt", format: "text" }] },
       }],

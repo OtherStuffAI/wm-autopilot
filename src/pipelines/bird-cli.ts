@@ -22,11 +22,11 @@ registerCliContract({
 });
 export const birdCliQuestions = cliQuestions(cliContract("bird.read.v1"));
 export function prepareBirdCli(input: JsonObject): JsonObject {
-  return prepareCliInterpretation({ request: input.request, contractId: "bird.read.v1" });
+  return prepareCliInterpretation({ request: input.request, threadContext: input.threadContext, contractId: "bird.read.v1" });
 }
 export { resolveCliFallback };
 export function resolveCliDecision(input: JsonObject): JsonObject {
-  const state = prepareBirdCli({ request: input.request });
+  const state = prepareBirdCli({ request: input.request, threadContext: input.threadContext });
   const latency = (input.decision as JsonObject | undefined)?.latencyMs;
   if (typeof latency === "number" && Number.isFinite(latency)) state.startedAt = Number(state.startedAt) - latency;
   return resolveDecision({ state, decision: input.decision });

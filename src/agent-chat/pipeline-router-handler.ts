@@ -1,3 +1,4 @@
+import { readRouterContext, routingInstructions } from "./pipeline-router-context.ts";
 import { generateIdentityAlias } from '../identity/identity-alias';
 import { runOpenRouterDecisions } from '../pipelines/openrouter-decisions';
 import { listLatestPipelineDefinitions, type PipelineDefinitionRecord } from '../pipelines/pipeline-loader';
@@ -20,6 +21,7 @@ export function createPipelineRouterHandler(deps: { store: PipelineStore; getSes
   listDefinitions?: typeof listLatestPipelineDefinitions; decide?: typeof runOpenRouterDecisions;
   startRun?: typeof startFlightDeckPipelineRun; publish?: typeof createFlightDeckPgChannelMessage;
   authorizeLearning?: typeof authorizeLearningPipelineRoute;
+  readContext?: typeof readRouterContext;
   dispatchOutcomeStore?: FlightDeckDispatchOutcomeStore }) {
   return async (request: PipelineRouterRequest): Promise<void> => {
     const sourceMessageId = request.message.id;
@@ -87,15 +89,17 @@ export function createPipelineRouterHandler(deps: { store: PipelineStore; getSes
       const criteria = Object.fromEntries([...ordinaryDefinitions.map((definition) => [definition.id,
         `${definition.spec.name}: ${definition.spec.description || 'No description provided.'}`]), ['no_match', 'None of the available pipelines is suitable for this request.']]);
       const sessionApiContext = deps.getSessionApiContext();
-      const decision = await (deps.decide ?? runOpenRouterDecisions)({ state: { sourceQuestion: prompt }, model: '~typesafe/jev-latest',
-        questions: { pipeline: { type: 'choice', instructions: 'Choose the single best pipeline for the exact source question, or no_match.', criteria } },
-        timeoutMs: 8000, attempts: 3, apiKey: resolveClassifierOpenRouterApiKey({ ownerNpub, sessionApiContext }) });
+      const apiKey = resolveClassifierOpenRouterApiKey({ ownerNpub, sessionApiContext });
+      const threadContext = await (deps.readContext ?? readRouterContext)(request);
+      const decision = await (deps.decide ?? runOpenRouterDecisions)({ state: { sourceQuestion: prompt, threadContext }, model: '~typesafe/jev-latest',
+        questions: { pipeline: { type: 'choice', instructions: routingInstructions, criteria } },
+        timeoutMs: 8000, attempts: 3, apiKey });
       const answer = (decision.answers as Record<string, Record<string, unknown>>).pipeline;
       const selectedId = String(answer?.choice ?? '');
       const evidence = { selectedId, probabilities: answer?.probabilities, confidence: answer?.confidence,
         model: decision.model, usage: decision.usage,
         cost: (decision.usage as Record<string, unknown> | undefined)?.cost ?? (decision.raw as Record<string, unknown> | undefined)?.cost ?? null,
-        latencyMs: decision.latencyMs, sourceMessageId, sourceQuestion: prompt };
+        latencyMs: decision.latencyMs, sourceMessageId, sourceQuestion: prompt, threadContext };
       if (selectedId === 'no_match') {
         outcomes.recordPipelineNoMatch({ ...outcomeBase, status: 'no_match', details: { ...outcomeBase.details, ...evidence } });
         return await publish('I could not find a suitable pipeline for this request.', 'no_match', evidence);
@@ -104,7 +108,7 @@ export function createPipelineRouterHandler(deps: { store: PipelineStore; getSes
       if (!selected) throw new Error('Jev selected a pipeline outside the eligible catalogue');
       const started = await (deps.startRun ?? startFlightDeckPipelineRun)({ store: deps.store, sessionApiContext,
         definition: selected, invocation: { workspaceId: request.subscription.workspaceId!, threadId: request.threadId,
-          frmNpub: request.message.sender_npub ?? request.message.created_by_actor_npub ?? '', prompt }, ownerNpub, ownerAlias, callbackOrigin: deps.callbackOrigin,
+          frmNpub: request.message.sender_npub ?? request.message.created_by_actor_npub ?? '', prompt }, threadContext, ownerNpub, ownerAlias, callbackOrigin: deps.callbackOrigin,
         initiatingAgentProfileId: request.agent.agentId, initiatingAgentNpub: request.agent.botNpub, sourceMessageId,
         onRunCreated: (run) => outcomes.recordPipelineStarted({ ...outcomeBase, runId: run.id, status: run.status,
           details: { ...outcomeBase.details, run_id: run.id, pipeline_name: run.name, status: run.status } }),

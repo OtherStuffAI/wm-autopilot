@@ -149,3 +149,41 @@ test("v3 authentication failures remain concrete user-facing blockers", async ()
   const state = await retrieveBirdCli({ interpretation: interpret("following tweets") }, async () => { throw new Error("cli_authentication"); });
   expect(formatBirdRetrieval({ state }).message).toContain("account authentication needs attention");
 });
+
+test("follow-up carries summary intent and corrected count through the real structured context contract", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bird-context-"));
+  process.env.PIPELINE_CLASSIFIER_OPENROUTER_API_KEY = "fixture-only";
+  const store = new PipelineStore(join(dir, "runs.sqlite"));
+  const threadContext = { version: 1, messages: [
+    { body: "Retrieve 20 For You tweets and summarize into 10 points", inherited: true },
+    { body: "Following or For You, and how many?", inherited: false },
+  ], truncated: false };
+  let modelState: any;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)); modelState = body.state;
+    expect(modelState.request).toBe("Following, 100 please");
+    expect(modelState.threadContext).toEqual(threadContext);
+    expect(modelState.candidates.count[0].value).toBe(100);
+    return Response.json({ answers: decision({ operation: "following", count: "c0", downstream: "summary", downstreamCount: "c2" }).answers, model: "fixture-jev", usage: {} });
+  }) as typeof fetch;
+  try {
+    const loaded = await loadPipelineFunctionRegistry(null, builtinPipelineFunctions);
+    const run = await runDeclarativePipeline({ store, definition: { id: "fixture", slug: spec.name, name: spec.name, scope: "shared", ownerAlias: null, path: "fixture", spec: spec as DeclarativePipeline },
+      registry: { ...loaded.registry, "bird.retrieveCli.v1": input => retrieveBirdCli(input, async action => {
+        expect(action).toEqual({ operation: "following", count: 100 });
+        return { tweets: Array.from({ length: 100 }, (_, i) => exact(i)), cursor: null };
+      }) }, input: { request: "Following, 100 please", threadContext }, ownerNpub: "npub1fixture", ownerAlias: null, sessionApiContext: {} as never, callbackOrigin: "http://fixture" });
+    expect(run.status).toBe("ok");
+    expect(run.result?.retrieval).toMatchObject({ count: 100, source: "following", resultCount: 100, interpretation: { selection: { downstream: "summary", downstreamCount: 10 } } });
+    const formatted = formatBirdRetrieval({ state: run.result!.retrieval });
+    expect(formatted.message).toContain("unsupported");
+    expect(formatted.message).toContain("has not been completed");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("contextual fallback accepts exact historical argument evidence and rejects invented history", () => {
+  const input = { request: "Following, 100 please", threadContext: { version: 1, messages: [{ body: "Summarize tweets into 10 points" }] }, decision: decision({}, .5) };
+  const extraction = { status: "ready", operation: "following", intentSpan: "Following", argumentSpans: { count: "100", downstreamCount: "10" }, downstream: "summary" };
+  expect(resolveCliFallback({ state: resolveCliDecision(input), extraction })).toMatchObject({ verdict: "ready", selection: { args: { count: 100 }, downstream: "summary", downstreamCount: 10 } });
+  expect(resolveCliFallback({ state: resolveCliDecision(input), extraction: { ...extraction, argumentSpans: { count: "100", downstreamCount: "11" } } })).toMatchObject({ verdict: "needs_clarification", selection: null });
+});
