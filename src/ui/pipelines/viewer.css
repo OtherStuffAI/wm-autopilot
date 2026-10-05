@@ -79,3 +79,22 @@
 .pipeline-viewer-ports small{flex-shrink:0}
 .pipeline-viewer-layout[data-mode="run"] .pipeline-viewer-ports button{display:block}
 .pipeline-viewer-layout[data-mode="run"] .pipeline-viewer-ports small{max-width:100%;margin-top:.25rem}
+/* ELK owns card positions and routes; dimensions come from rendered HTML. */
+.pipeline-viewer-canvas{padding:0;min-width:0;min-height:300px}
+.pipeline-viewer-steps{position:static;display:block}
+.pipeline-viewer-step{width:235px;border-width:1px!important;box-sizing:border-box}
+.pipeline-viewer-step[data-highlighted=true]{box-shadow:0 0 0 2px #70b9ff}
+.pipeline-viewer-ports button{margin-left:-1rem;width:calc(100% + 2rem);border-radius:0}
+.pipeline-viewer-ports button[data-configured=true]{border-style:dashed}
+.pipeline-viewer-step[data-input-node=true]{border-style:dashed}
+.pipeline-viewer-edges{overflow:hidden}
+.pipeline-viewer-order{font-size:.8rem;color:var(--text-secondary);max-width:100%!important}
+@media(max-width:850px){.pipeline-viewer-step{width:235px}}
+.pipeline-viewer-ports button[data-selected=true]{outline:2px solid #70b9ff;outline-offset:-2px;background:var(--bg-secondary,var(--pv-bg))}
+/* Give the native mobile graph room for its measured cards and ELK lanes. */
+@media(max-width:850px){
+ #app[data-route="pipelines"]:has(.wm-native-pipeline-shell){padding-inline:.5rem}
+ .wm-pipelines-page:has(.wm-native-pipeline-shell){padding-left:0;padding-right:0}
+ .wm-native-pipeline-shell .wm-pipeline-panel{padding-left:0;padding-right:0}
+ .wm-native-pipeline-shell .pipeline-viewer{padding-left:0;padding-right:0}
+}

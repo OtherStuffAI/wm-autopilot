@@ -42,7 +42,8 @@
     "fips:status": "bun clis/fips.ts status",
     "fips:install:macos": "bun clis/fips.ts install",
     "cli:cashu-wallet": "bun clis/cashu-wallet.ts",
-    "typecheck:wallets": "tsc --noEmit -p tsconfig.wallets.json"
+    "typecheck:wallets": "tsc --noEmit -p tsconfig.wallets.json",
+    "build:pipeline-elk": "bun run scripts/build-pipeline-elk.ts"
   },
   "dependencies": {
     "@agentclientprotocol/codex-acp": "1.1.7",
@@ -74,6 +75,7 @@
     "better-sqlite3": "^12.11.1",
     "croner": "^10.0.1",
     "dexie": "^4.4.5",
+    "elkjs": "0.11.0",
     "js-yaml": "^4.3.1",
     "mermaid": "^11.16.1",
     "node-pty": "^1.1.0",

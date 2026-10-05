@@ -1,67 +1,71 @@
 import { renderPipelineConnections } from "./viewer-diagram.js";
-import { wiringEndpoints } from "./viewer-projection.js";
+import { createElkLayout, elkGraph, portId } from "./viewer-elk.js";
 
-// Reviewed measured port layout, including retained carried metadata lanes.
-export function measureViewerConnections(view) {
-  const canvas = view.$el?.querySelector(".pipeline-viewer-canvas");
-  if (!canvas) return;
-  const rect = canvas.getBoundingClientRect(),
-    ports = [...canvas.querySelectorAll("[data-port-node]")];
-  const find = (node, side, path) =>
-    ports.find(
-      (el) =>
-        el.dataset.portNode === node &&
-        el.dataset.portSide === side &&
-        el.dataset.portPath === path,
-    ) || [...canvas.querySelectorAll(".pipeline-viewer-step")].find((el) => el.dataset.testid === "pipeline-step-" + node);
-  view.diagramWidth = canvas.scrollWidth;
-  view.diagramHeight = canvas.scrollHeight;
-  const cardsBottom = Math.max(
-    ...[...canvas.querySelectorAll(".pipeline-viewer-step")].map(
-      (card) => card.getBoundingClientRect().bottom - rect.top,
-    ),
-    0,
-  );
-  view.edges = view.wires.filter((wire) => view.wireSelected(wire)).flatMap((wire, wireIndex) =>
-    wiringEndpoints(wire).flatMap((endpoint, portIndex) => {
-      const index = wireIndex * 100 + portIndex;
-      const source = find(wire.sourceStepKey, "outputs", endpoint.sourcePath),
-        target = find(wire.targetStepKey, "inputs", endpoint.targetPath);
-      if (!target || (!source && wire.sourceStepKey)) return [];
-      const b = target.getBoundingClientRect(),
-        a = source?.getBoundingClientRect() || { right: rect.left, top: b.top - 30, height: b.height },
-        sourceCard = source?.closest(".pipeline-viewer-step")?.getBoundingClientRect(),
-        targetCard = target.closest(".pipeline-viewer-step").getBoundingClientRect(),
-        mobile = globalThis.innerWidth <= 850;
-      const x1 = (!source && mobile ? targetCard.right + 16 : sourceCard?.right ?? a.right) - rect.left,
-        y1 = a.top + a.height / 2 - rect.top,
-        x2 = (mobile ? targetCard.right : targetCard.left) - rect.left,
-        y2 = b.top + b.height / 2 - rect.top;
-      const lane = Math.max(x1, x2) + 12 + portIndex * 8;
-      const bypassY = cardsBottom + 24 + wireIndex * 24;
-      return [
-        {
-          wire,
-          index,
-          path: mobile
-            ? `M ${x1} ${y1} H ${lane} V ${y2} H ${x2}`
-            : `M ${x1} ${y1} H ${x1 + 16} V ${bypassY} H ${x2 - 16} V ${y2} H ${x2}`,
-          verticalLabel: mobile,
-          labelX: mobile ? lane + 8 : (x1 + x2) / 2,
-          labelY: mobile ? (y1 + y2) / 2 : bypassY - 8,
-          label:
-            (source?.querySelector("span")?.textContent || wire.sourcePath).slice(0, 24) +
-            (wire.carriedForward ? " ⇢ carried → " : " → ") +
-            (target.querySelector("span")?.textContent || wire.targetPath).slice(0, 24),
-        },
-      ];
-    }),
-  );
-  renderPipelineConnections(
-    canvas.querySelector("svg"),
-    view.edges,
-    view.diagramWidth,
-    view.diagramHeight,
-    (wire) => view.wireSelected(wire),
-  );
+export function createViewerGeometry() {
+  const layout = createElkLayout();
+  let signature = "", resultSignature = "", result = null, requestGeometry;
+  const observedCards = new Set();
+  const cardObserver = typeof ResizeObserver === "function"
+    ? new ResizeObserver(() => requestGeometry?.()) : null;
+  return {
+    dispose() { layout.dispose(); cardObserver?.disconnect(); observedCards.clear(); requestGeometry = null; result = null; },
+    async measure(view) {
+      const canvas = view.$el?.querySelector(".pipeline-viewer-canvas");
+      if (!canvas) return;
+      const mapping = view.mapping;
+      const mobile = globalThis.innerWidth <= 850;
+      const elements = [...canvas.querySelectorAll(".pipeline-viewer-step")];
+      requestGeometry = () => view.queueGeometry();
+      for (const card of observedCards) if (!elements.includes(card)) {
+        cardObserver?.unobserve(card); observedCards.delete(card);
+      }
+      for (const card of elements) if (!observedCards.has(card)) {
+        cardObserver?.observe(card); observedCards.add(card);
+      }
+      const cards = elements.map(element => {
+        const rect = element.getBoundingClientRect();
+        return {key: element.dataset.nodeKey, width: rect.width, height: rect.height,
+          ports: [...element.querySelectorAll("[data-port-node]")].map(port => {
+            const bounds = port.getBoundingClientRect(), output = port.dataset.portSide === "outputs";
+            return {id: portId(element.dataset.nodeKey, port.dataset.portSide, port.dataset.portPath),
+              x: output || mobile ? rect.width : 0, y: bounds.top - rect.top + bounds.height / 2,
+              width: 0, height: 0, layoutOptions: {"elk.port.side": output || mobile ? "EAST" : "WEST"}};
+          })};
+      });
+      if (!cards.length || cards.length !== mapping.nodes.length) return;
+      try {
+        const graph = elkGraph(cards, mapping.links, mobile ? "DOWN" : "RIGHT");
+        const nextSignature = JSON.stringify(graph);
+        if (nextSignature !== signature) {
+          signature = nextSignature;
+          view.edges = [];
+          renderPipelineConnections(canvas.querySelector("svg"), [], 0, 0, () => false);
+          const next = await layout.layout(graph);
+          if (!next || signature !== nextSignature || !canvas.isConnected) return;
+          result = next; resultSignature = nextSignature;
+        }
+        if (!result || resultSignature !== nextSignature) return;
+        for (const node of result.children) {
+          const element = elements.find(element => element.dataset.nodeKey === node.id);
+          element.style.position = "absolute";
+          element.style.left = node.x + "px"; element.style.top = node.y + "px";
+        }
+        canvas.style.width = result.width + "px"; canvas.style.height = result.height + "px";
+        view.diagramWidth = result.width; view.diagramHeight = result.height;
+        view.edges = result.edges.flatMap(edge => (edge.sections || []).map(section => {
+          const link = mapping.links[Number(edge.id)], label = edge.labels?.[0];
+          const points = [section.startPoint, ...(section.bendPoints || []), section.endPoint];
+          return {wire: link.wire, index: edge.id, path: points.map((p,i) => `${i ? "L" : "M"} ${p.x} ${p.y}`).join(" "),
+            label: label?.text || "", verticalLabel: mobile, labelX: label ? label.x + label.width / 2 : 0,
+            labelY: label ? label.y + (mobile ? label.height / 2 : 13) : 0};
+        }));
+        view.layoutError = "";
+        renderPipelineConnections(canvas.querySelector("svg"), view.edges, result.width, result.height, wire => view.wireSelected(wire));
+      } catch (error) {
+        signature = ""; result = null; view.edges = [];
+        view.layoutError = `Layout unavailable: ${error.message}`;
+        renderPipelineConnections(canvas.querySelector("svg"), [], 0, 0, () => false);
+      }
+    },
+  };
 }

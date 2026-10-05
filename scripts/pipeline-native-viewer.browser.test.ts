@@ -5,15 +5,8 @@ import {
   fixtureOwner,
   exactPrompt,
 } from "./pipeline-native-viewer-fixture";
-
-// Component captures omit the fixed shell header; shell captures retain it.
-async function captureViewer(page: any, path: string) {
-  await page.mouse.move(0, 0);
-  await page.keyboard.press("Escape");
-  const headerStyle = await page.addStyleTag({content:".wm-header { visibility: hidden !important; }"});
-  try { await page.getByTestId("pipeline-viewer").screenshot({path}); }
-  finally { await headerStyle.evaluate((element: Element) => element.remove()); }
-}
+import { assertViewerLayout, assertScopeInputSelection, assertExpandedEvidenceLayout } from "./pipeline-native-viewer-layout-check";
+import { captureViewer, captureTimeline } from "./pipeline-native-viewer-captures";
 
 const browserTest = process.env.PLAYWRIGHT_MODULE ? test : test.skip;
 browserTest(
@@ -69,7 +62,7 @@ browserTest(
           await page
             .getByTestId("pipeline-status")
             .filter({ hasText: "ready" })
-            .waitFor({ timeout: 20000 });
+            .waitFor({ timeout: 20000, state: "attached" });
         } catch (error) {
           console.error(
             "Shell diagnostic",
@@ -83,7 +76,9 @@ browserTest(
         }
         expect(await page.getByTestId("pipeline-step-prepare").count()).toBe(1);
         expect(await page.getByTestId("pipeline-step-child").count()).toBe(1);
-        expect(await page.locator(".pipeline-viewer-edges g").count()).toBe(0);
+        await page.locator(".pipeline-viewer-edges g").first().waitFor();
+        expect(await page.locator(".pipeline-viewer-edges g").count()).toBeGreaterThan(0);
+        await assertExpandedEvidenceLayout(page);
         if (evidenceDir)
           await page.screenshot({
             path: `${evidenceDir}/shell-${viewport.width}.png`,
@@ -261,7 +256,7 @@ browserTest(
           await page
             .getByTestId("pipeline-status")
             .filter({ hasText: "ready" })
-            .waitFor();
+            .waitFor({state: "attached"});
           if (outcome === "clarification")
             expect(
               await page.getByTestId("pipeline-step-clarify").innerText(),
@@ -319,14 +314,14 @@ browserTest(
         await page
           .getByTestId("pipeline-status")
           .filter({ hasText: "ready" })
-          .waitFor();
+          .waitFor({state: "attached"});
         expect(await page.getByTestId("pipeline-step-prepare").count()).toBe(1);
         expect(await page.getByTestId("pipeline-run-status").isVisible()).toBe(
           false,
         );
         await page.goto(`${fixture.server.url}pipelines/definitions/${encodeURIComponent(fixture.bird.id)}`);
         await page.getByTestId("pipeline-step-bounded-retrieval").waitFor();
-        expect(await page.locator(".pipeline-viewer-step").count()).toBe(2);
+        expect(await page.locator('.pipeline-viewer-step[data-input-node="false"]').count()).toBe(2);
         expect(await page.getByTestId("pipeline-step-bounded-retrieval/choose").count()).toBe(0);
         for (const theme of ["light", "dark"]) {
           await page.evaluate((theme: string) => {
@@ -335,16 +330,19 @@ browserTest(
           }, theme);
           if (evidenceDir) await captureViewer(page, `${evidenceDir}/bird-${viewport.width}-${theme}-overview.png`);
           await page.getByTestId("pipeline-drill-bounded-retrieval").click();
-          expect(await page.locator(".pipeline-viewer-step").count()).toBe(4);
+          expect(await page.locator('.pipeline-viewer-step[data-input-node="false"]').count()).toBe(4);
           if (evidenceDir) await captureViewer(page, `${evidenceDir}/bird-${viewport.width}-${theme}-loop.png`);
           await page.getByTestId("pipeline-scope-back").click();
         }
+        await assertViewerLayout(page);
+        await assertScopeInputSelection(page);
         const configuredRequest = page.getByTestId("pipeline-port-prepare-inputs-$.request");
         await configuredRequest.click();
         expect(await page.getByTestId("pipeline-inspector").innerText()).toContain("No execution value exists");
         if (evidenceDir) await page.screenshot({path:`${evidenceDir}/bird-${viewport.width}-drawer.png`});
         expect(await page.locator(".pipeline-viewer-edges g").count()).toBeGreaterThan(0);
         await page.keyboard.press("Escape");
+        await captureTimeline(page, fixture, viewport.width, evidenceDir);
         const partitionCount = await page.evaluate(async () => {
           const { default: Dexie } = await import("/vendor/dexie/dexie.mjs");
           const db = new Dexie("WingmanNativePipelineViewer");

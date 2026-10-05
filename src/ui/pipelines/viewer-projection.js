@@ -70,20 +70,14 @@ export function wiringEndpoints(wire) {
   const sourceBase = wiringPortPath(wire, "outputs"),
     targetBase = wiringPortPath(wire, "inputs");
   const within = (path, base) => path === base || path.startsWith(base + ".");
-  const pairs = (wire.sourcePortPaths || []).flatMap((sourcePath) =>
-    (wire.targetPortPaths || [])
-      .filter(
-        (targetPath) =>
-          within(sourcePath, sourceBase) &&
-          within(targetPath, targetBase) &&
-          sourcePath.slice(sourceBase.length) ===
-            targetPath.slice(targetBase.length),
-      )
-      .map((targetPath) => ({ sourcePath, targetPath })),
-  );
-  return pairs.length
-    ? pairs
-    : [{ sourcePath: sourceBase, targetPath: targetBase }];
+  // Whole-object selectors expand the receiving display contract first. Do not
+  // turn every upstream preview field into another implied receiving field.
+  const targets = (wire.targetPortPaths || []).filter(path => within(path, targetBase));
+  const sources = (wire.sourcePortPaths || []).filter(path => within(path, sourceBase));
+  const suffixes = new Set(targets.length ? targets.map(path => path.slice(targetBase.length))
+    : sources.map(path => path.slice(sourceBase.length)));
+  return suffixes.size ? [...suffixes].map(suffix => ({sourcePath: sourceBase + suffix, targetPath: targetBase + suffix}))
+    : [{sourcePath: sourceBase, targetPath: targetBase}];
 }
 export function diagramPorts(node, side, wiring) {
   const ports = [...(node[side] || [])];
