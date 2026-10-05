@@ -1,0 +1,28 @@
+# Jev-first CLI request interpretation
+
+The reusable interpreter lives in `src/pipelines/cli/`. Trusted adapter code registers a `CliContract`: a read-only operation allowlist, typed argument roles, required/applicable arguments, bounded defaults, explicit source rules, and an argv builder. User input cannot register contracts, supply commands, credentials, or executable paths. Bird registers `bird.read.v1` in `bird-cli.ts`; a separate file-metadata contract in the tests proves the interpreter does not require Bird arguments.
+
+Candidate extraction preserves original spans and excludes canonical Flight Deck routing mentions. It finds digit/basic spelled-out numeric quantities, handles/profile URLs and quoted queries. Numeric candidates are shared across roles: Jev selects retrieval `count` separately from `downstreamCount`. Values in handles, URLs and search queries do not become retrieval counts. Requests are limited to 2,000 characters and eight candidates per role.
+
+`cliQuestions(contract)` produces one bundled decision request for operation, applicable argument roles, downstream capability and unsupported retrieval constraints. There is no preliminary generative model call. Jev selects only typed values; it never formats or summarizes tweets. Decisions remain advisory: code checks response shapes, distributions, selected candidate existence, argument applicability, required fields, ranges, explicit feed consistency and argv before any execution. Uncertainty on unused roles does not veto an applicable selection.
+
+Most applicable Choices require selected probability >=0.8 and confidence >=0.7. Equivalent allowed execution outcomes can share probability: Following/default and retrieval/source-order “top” cannot redirect execution to an unsupported stage. The unsupported-filter Noul rejects at >=0.8, accepts at <=0.2, and uses extraction in between. These are evaluated implementation thresholds, not a promise of model correctness.
+
+If Jev cannot validate the interpretation, the pipeline makes at most one small structured extraction call (`openai/gpt-4.1-mini`, JSON-only, 500 output tokens). Extraction reads the original request and supplies verbatim evidence spans; deterministic code copies candidates, normalizes a supported numeric span such as `a score`, or admits an uncovered bounded verbatim query span. An unquoted complex search therefore need not already be a quoted candidate; rewritten search syntax or exclusions are not invented. Out-of-request spans, unknown arguments, invalid ranges and conflicting sources fail validation. Missing intent and unsupported actions are terminal, separate outcomes; neither triggers rewrite loops. Extraction errors stop the pipeline before execution. `retries: 1` means one total HTTP attempt in this runner; zero selects its default attempts and must not be used for this bound.
+
+Bird defaults unspecified timelines to Following with disclosure and preserves explicit Following/For You. “Top N” without a metric returns N records in source order with an explicit ranking policy. Summary or metric ranking may accompany retrieval, but the response states that the downstream stage is unsupported and has not been completed. A complete verdict means only the requested retrieval count completed. Writes, date ranges and threshold filters stop as `unsupported`; they are not silently removed. There is no pending clarification subsystem or summarizer.
+
+`bird.retrieve.v3` exposes the meaningful Jev decision, interpretation/fallback boundary, optional extraction and retrieval side effect. Candidate preparation is the classifier input function; fallback validation, argv construction, execution and page accumulation stay inside the reusable retrieval function. It uses at most three same-source cursor pages, 60 seconds elapsed budget, 12 seconds per CLI child, and 1,000,000 combined output bytes. CLI failures are terminal, and repeated cursors/no progress stop with partial results. Tweet records remain exact and never enter model control state. Formatting escapes record text and constructs links only from validated IDs/handles.
+
+The v3 chat wrapper supersedes `bird.timeline.chat.v2` and resolves through the latest family catalog. Explicit historical IDs/filenames still select their historical definitions. New versioned JSON definitions must be installed into the active shared definition directory on an already running process; the static loader seed change takes effect at the next normal runtime start. Core runtime function files use the existing fresh helper-graph importer, so these adapters can activate without restarting Autopilot. Already active runs retain their loaded code and pins.
+
+Jev token usage/cost and latency are recorded in `usage`. The current chat-classifier runtime returns only parsed extraction JSON, so extraction usage/cost is unavailable, not zero. `modelCalls` includes that fallback. Router decisions are separate from retrieval accounting. No dollar or decisions-token ceiling is claimed. Server credentials never enter model state; Bird credentials remain solely in its restricted process environment.
+
+Validation:
+
+```sh
+bun test src/pipelines/bird-cli.test.ts src/pipelines/bird-chat.test.ts src/pipelines/bird-retrieval.test.ts src/pipelines/bird-hot-reload.test.ts
+bun run typecheck
+```
+
+Live smoke should invoke the retrieval child through the authenticated pipeline API, preserving run references and installed definition/function hashes. Test chat delivery with a fixture sender unless a real message is authorized. Store actual tweets and operational evidence only in verified ignored `tmp/docs/handoffs/` or the assigned task.

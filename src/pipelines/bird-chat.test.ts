@@ -43,7 +43,7 @@ function configureDelivery() {
 }
 
 for (const version of [1, 2]) for (const verdict of ["complete", "partial", "clarification", "blocked", "noresults"]) test(`v${version} real wrapper composition returns ${verdict} to the exact thread as Piper`, async () => {
-  const definition = (await getPipelineDefinition(`bird.timeline.chat.v${version}`, "owner"))!;
+  const definition = (await getPipelineDefinition(`bird.timeline.chat.v${version}.json`, "owner"))!;
   const loaded = await loadPipelineFunctionRegistry("owner", builtinPipelineFunctions);
   expect(loaded.records.filter(record => record.name.startsWith("bird.")).every(record => record.status === "ok")).toBe(true);
   let models = 0; let cli = 0;
@@ -104,9 +104,9 @@ test("unused argument uncertainty never vetoes a valid applicable judgment; malf
 
 test("existing router discovers the wrapper and routes the unchanged caller and source prompt", async () => {
   const definitions = await listLatestPipelineDefinitions("owner");
-  const wrapper = definitions.find(definition => definition.name === "bird.timeline.chat.v2")!;
+  const wrapper = definitions.find(definition => definition.name === "bird.timeline.chat.v3")!;
   expect(isChatAddressable(wrapper)).toBe(true);
-  expect(isChatAddressable(definitions.find(definition => definition.name === "bird.retrieve.v2")!)).toBe(false);
+  expect(isChatAddressable(definitions.find(definition => definition.name === "bird.retrieve.v3")!)).toBe(false);
   let started: JsonObject | null = null; let catalogue: string[] = [];
   const published: JsonObject[] = [];
   const handler = createPipelineRouterHandler({ store, callbackOrigin: "http://localhost", getSessionApiContext: () => ({}) as never,
@@ -127,7 +127,7 @@ test("format rejects missing state and constructs links only from validated IDs 
 
 
 test("v2 delivery acknowledgment failure retries with one stable thread post identity", async () => {
-  const definition = (await getPipelineDefinition("bird.timeline.chat.v2", "owner"))!;
+  const definition = (await getPipelineDefinition("bird.timeline.chat.v2.json", "owner"))!;
   const loaded = await loadPipelineFunctionRegistry("owner", builtinPipelineFunctions);
   const posts = new Map<string, string>(); let deliveries = 0;
   configureFlightDeckPipelineInvocation({
@@ -147,4 +147,23 @@ test("v2 delivery acknowledgment failure retries with one stable thread post ide
   const recovered = await resumeErroredDeclarativePipeline(runner, run.id);
   expect(recovered!.status).toBe("ok"); expect(deliveries).toBe(2); expect(posts.size).toBe(1);
   expect([...posts.keys()][0]).toBe(`pipeline:${run.id}:thread-reply:reply / return-to-thread`);
+});
+
+test("latest Bird wrapper interprets routed original request and delivers exact records with ranking policy", async () => {
+  const { birdCliQuestions, retrieveBirdCli } = await import("./bird-cli");
+  const definition = (await getPipelineDefinition("bird.timeline.chat.v2", "owner"))!;
+  expect(definition.name).toBe("bird.timeline.chat.v3");
+  const loaded = await loadPipelineFunctionRegistry("owner", builtinPipelineFunctions);
+  let models = 0; let cli = 0;
+  const selected: Record<string, string> = { operation: "following", count: "c0", downstream: "top_unspecified" };
+  const decisions = Object.fromEntries(Object.entries(birdCliQuestions).map(([id, question]) => question.type === "noul" ? [id, { type: "noul", noul: 0 }] : [id, choice(selected[id] ?? "none", Object.keys((question as { criteria: Record<string, unknown> }).criteria))]));
+  globalThis.fetch = (async () => { models++; return Response.json({ answers: decisions, model: "fixture-jev", usage: {} }); }) as typeof fetch;
+  const posts = configureDelivery();
+  const tweets = Array.from({ length: 20 }, (_, i) => ({ ...malicious, id: String(123 + i) }));
+  const run = await runDeclarativePipeline({ store, definition, registry: { ...loaded.registry, "bird.retrieveCli.v1": input => retrieveBirdCli(input, async action => { cli++; expect(action).toEqual({ operation: "following", count: 20 }); return { tweets, cursor: null }; }) }, input: { ...invocation, prompt: "@[Piper](mention:agent:npub1route) can you please send me the top 20 following tweets" }, ownerNpub: "npub1owner", ownerAlias: "owner", sessionApiContext: {} as never, callbackOrigin: "http://localhost", initiatingAgentProfileId: "piper", initiatingAgentNpub: "npub1piper", onRunCreated: created => store.addEvent({ runId: created.id, level: "info", type: "flightdeck_invocation_context", data: { ...invocation, initiatingAgentNpub: "npub1piper" } }) });
+  expect(run.status).toBe("ok"); expect(models).toBe(1); expect(cli).toBe(1); expect(posts).toHaveLength(1);
+  expect(String(posts[0]!.body)).toContain("no separate ranking metric");
+  expect(String(posts[0]!.body)).toContain("Retrieved 20 tweets from Following");
+  expect(String(posts[0]!.body)).not.toContain("@[Rick](mention:agent:");
+  expect(posts[0]).toMatchObject({ threadId: invocation.threadId, channelId: "channel", botIdentity: { botNpub: "npub1piper" } });
 });

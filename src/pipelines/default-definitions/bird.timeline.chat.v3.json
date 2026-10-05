@@ -1,0 +1,141 @@
+{
+  "name": "bird.timeline.chat.v3",
+  "version": 3,
+  "description": "Read-only Bird retrieval via Jev-first CLI interpretation. Unspecified timelines default Following with disclosure. Exact records; summary/metric ranking explicitly unsupported.",
+  "tags": [
+    "bird",
+    "chat",
+    "timeline",
+    "retrieval"
+  ],
+  "steps": [
+    {
+      "name": "thread",
+      "type": "block",
+      "block": "flightdeck.threadInvocation",
+      "assign": "$.invocation",
+      "description": "Validate the source chat invocation.",
+      "display": {
+        "in": [
+          {
+            "label": "Chat Message",
+            "path": "$.prompt",
+            "format": "text"
+          }
+        ],
+        "out": [
+          {
+            "label": "Chat Message",
+            "path": "$.prompt",
+            "format": "text"
+          }
+        ]
+      },
+      "id": "thread",
+      "title": "Validate chat request"
+    },
+    {
+      "name": "retrieve",
+      "type": "pipeline",
+      "pipeline": "bird.retrieve.v3",
+      "version": 3,
+      "input": {
+        "pick": {
+          "request": "$.invocation.prompt"
+        }
+      },
+      "assign": "$.bird",
+      "timeoutMs": 75000,
+      "description": "Interpret registered CLI request then retrieve exact tweets; disclose defaults and unsupported downstream stages.",
+      "display": {
+        "in": [
+          {
+            "label": "Request",
+            "path": "$.request",
+            "format": "text"
+          }
+        ],
+        "out": [
+          {
+            "label": "Verdict",
+            "path": "$.retrieval.verdict",
+            "format": "text"
+          },
+          {
+            "label": "Tweets",
+            "path": "$.retrieval.tweets",
+            "format": "records",
+            "limit": 20
+          }
+        ]
+      },
+      "id": "retrieve",
+      "title": "Retrieve tweets"
+    },
+    {
+      "name": "format",
+      "type": "code",
+      "function": "bird.format",
+      "input": {
+        "pick": {
+          "state": "$.bird.retrieval"
+        }
+      },
+      "assign": "$.response",
+      "description": "Format exact tweet records and safe links without model prose.",
+      "display": {
+        "in": [
+          {
+            "label": "Tweets",
+            "path": "$.state.tweets",
+            "format": "records",
+            "limit": 20
+          }
+        ],
+        "out": [
+          {
+            "label": "Response",
+            "path": "$.message",
+            "format": "text"
+          }
+        ]
+      },
+      "id": "format",
+      "title": "Format exact tweets"
+    },
+    {
+      "name": "reply",
+      "type": "block",
+      "block": "flightdeck.returnToThread",
+      "input": {
+        "pick": {
+          "workspaceId": "$.invocation.workspaceId",
+          "threadId": "$.invocation.threadId",
+          "frmNpub": "$.invocation.frmNpub",
+          "prompt": "$.invocation.prompt",
+          "message": "$.response.message"
+        }
+      },
+      "assign": "$.delivery",
+      "description": "Return to the validated source thread as the addressed managed agent.",
+      "display": {
+        "in": [
+          {
+            "label": "Response",
+            "path": "$.message",
+            "format": "text"
+          }
+        ],
+        "out": [
+          {
+            "label": "Delivered",
+            "path": "$.delivery.delivered"
+          }
+        ]
+      },
+      "id": "reply",
+      "title": "Deliver to chat"
+    }
+  ],
+  "supersedes": "bird.timeline.chat.v2"
+}

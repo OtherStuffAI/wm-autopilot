@@ -8,10 +8,12 @@ function escaped(value: string): string {
 
 export function formatBirdRetrieval(input: JsonObject): JsonObject {
   const state = input.state as JsonObject | undefined;
-  if (!state || !["complete", "partial", "needs_clarification", "blocked"].includes(String(state.verdict))) throw new Error("Missing terminal Bird result");
+  if (!state || !["complete", "partial", "needs_clarification", "unsupported", "blocked"].includes(String(state.verdict))) throw new Error("Missing terminal Bird result");
   if (!Array.isArray(state.tweets)) throw new Error("Missing Bird tweet records");
   let message: string;
-  if (state.verdict === "needs_clarification") {
+  if (state.interpretation && ["needs_clarification", "unsupported"].includes(String(state.verdict))) {
+    message = String(state.reason);
+  } else if (state.verdict === "needs_clarification") {
     message = state.reason === "Would you like your Following feed or your For You feed?" ? String(state.reason)
       : "Please specify a source (Following, For You, mentions, @handle, or a quoted search query) and a count from 1 to 100.";
   } else if (state.verdict === "blocked") {
@@ -35,5 +37,6 @@ export function formatBirdRetrieval(input: JsonObject): JsonObject {
       : `Retrieved ${records.length} tweets from ${source}.`;
     if (records.length) message += `\n\n${records.join("\n\n")}`;
   }
+  if (Array.isArray(state.disclosures) && state.disclosures.length) message = `${state.disclosures.map(String).join("\n")}\n\n${message}`;
   return { message, verdict: state.verdict, resultCount: state.tweets.length };
 }

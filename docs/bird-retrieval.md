@@ -1,5 +1,7 @@
 # Bounded Bird retrieval
 
+The current workflow is `bird.retrieve.v3` / `bird.timeline.chat.v3`, using the reusable [Jev-first CLI interpreter](cli-request-interpretation.md). It defaults unspecified timelines to Following with disclosure, assigns numeric argument roles, and allows one validated extraction fallback. Summary/ranking stages are explicitly disclosed as unsupported. The descriptions below document the retained v1/v2 behavior and compatibility tests.
+
 `bird.retrieve.v1` retrieves exact X tweets through Bird 0.8.0 without launching an agent session. Jev answers closed-set questions through the existing OpenRouter decisions classifier and credential resolver. Deterministic code validates advisory decisions, assembles argv, executes reads, and returns data. There is no shell, generated command, generated JSON argument, or prose generation stage.
 
 ## Inputs and outcomes

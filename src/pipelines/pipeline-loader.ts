@@ -1326,6 +1326,8 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
   const softwareImplementationReviewLoopDefinition = await readBundledDefaultDefinition("software-implementation-review-loop.json");
   const dailyNoteReviewDefinition = await readBundledDefaultDefinition("daily-note-review.json");
   const audioUnderstandingDefinition = await readBundledDefaultDefinition("audio-understanding.v1.json");
+  const birdCliDefinition = await readBundledDefaultDefinition("bird.retrieve.v3.json");
+  const birdCliChatDefinition = await readBundledDefaultDefinition("bird.timeline.chat.v3.json");
   const birdChatV2Definition = await readBundledDefaultDefinition("bird.timeline.chat.v2.json");
   const birdRetrievalV2Definition = await readBundledDefaultDefinition("bird.retrieve.v2.json");
   const birdChatDefinition = await readBundledDefaultDefinition("bird.timeline.chat.v1.json");
@@ -1348,6 +1350,8 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
     ["daily-note-review.json", dailyNoteReviewDefinition],
     ["audio-understanding.v1.json", audioUnderstandingDefinition],
     ["space-research.v1.json", spaceResearchDefinition],
+    ["bird.retrieve.v3.json", birdCliDefinition],
+    ["bird.timeline.chat.v3.json", birdCliChatDefinition],
     ["bird.retrieve.v2.json", birdRetrievalV2Definition],
     ["bird.timeline.chat.v2.json", birdChatV2Definition],
     ["bird.retrieve.v1.json", birdRetrievalDefinition],
