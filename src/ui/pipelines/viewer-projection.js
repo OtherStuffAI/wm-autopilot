@@ -27,17 +27,7 @@ export function pipelineNodes(definition, snapshot) {
       };
     });
   }
-  const projected = project(definition.steps);
-  const known = new Set(
-    flattenPipelineNodes(projected).map((node) => node.logicalKey),
-  );
-  // Captured executions remain visible even when legacy structure is incomplete.
-  return [
-    ...projected,
-    ...pipelineNodes(null, snapshot).filter(
-      (node) => !known.has(node.logicalKey),
-    ),
-  ];
+  return project(definition.steps);
 }
 export function flattenPipelineNodes(nodes, depth = 0) {
   return nodes.flatMap((node) => [
@@ -192,4 +182,15 @@ export function portPreviewSelection(preview, path) {
     truncated: preview.truncated,
     count: preview.counts?.[countPath] ?? (path === "$" ? preview.count : null),
   };
+}
+
+// A scope selects real children; it never invents groups or execution edges.
+export function scopedPipelineNodes(definition, snapshot, trail) {
+  let nodes = pipelineNodes(definition, snapshot);
+  for (const scope of trail) {
+    const parent = nodes.find((node) => node.logicalKey === scope.key);
+    if (!parent) throw new Error("Defined pipeline scope is missing: " + scope.key);
+    nodes = parent.children || [];
+  }
+  return nodes;
 }

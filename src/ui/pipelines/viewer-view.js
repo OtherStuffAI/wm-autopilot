@@ -1,15 +1,15 @@
+import { focusViewerDrawer, trapViewerDrawer } from "./viewer-accessibility.js";
 import { measureViewerConnections } from "./viewer-geometry.js";
 import {
-  pipelineNodes,
-  flattenPipelineNodes,
+  scopedPipelineNodes,
   evidenceText,
   evidencePreview,
   portSelection,
   portPreviewSelection,
   latestPortReference,
   wiringEndpoints,
-  diagramPorts,
   matchingWires,
+  diagramPorts,
 } from "./viewer-projection.js";
 import {
   createNativeViewerSession,
@@ -38,21 +38,19 @@ export function createNativeViewerView({ route, ...deps }) {
     selectedRunId: route.section === "runs" ? route.id : "",
     selectedDefinitionId: route.section === "definitions" ? route.id : "",
     parentTrail: [],
+    scopeTrail: [],
     pinned: false,
     inspector: null,
     inspectLabel: "",
     inspectPath: "",
     inspectSide: "",
-    inspectExecutionId: "",
-    inspectEvidenceId: "",
+    inspectExecutionId: "", inspectEvidenceId: "",
     preview: "",
-    search: "",
-    notice: "",
+    search: "", notice: "",
     previewRevision: 0,
     recordPage: 1,
     edges: [],
-    diagramWidth: 0,
-    diagramHeight: 0,
+    diagramWidth: 0, diagramHeight: 0,
     init() {
       actor = globalThis.wingmanIdentityUI?.getState?.().npub;
       logoutListener = () => this.loseAccess();
@@ -78,7 +76,7 @@ export function createNativeViewerView({ route, ...deps }) {
         this.snapshot = record.snapshot;
         if (["denied", "unavailable"].includes(this.status)) {
           this.closeInspector();
-          this.parentTrail = [];
+          this.parentTrail = []; this.scopeTrail = [];
         }
         this.queueGeometry();
       });
@@ -109,7 +107,7 @@ export function createNativeViewerView({ route, ...deps }) {
       service?.dispose();
       this.closeInspector();
       this.snapshot = null;
-      this.parentTrail = [];
+      this.parentTrail = []; this.scopeTrail = [];
       this.status = "denied";
       void store?.publish({
         status: "denied",
@@ -131,23 +129,21 @@ export function createNativeViewerView({ route, ...deps }) {
       if (this.$nextTick) this.$nextTick(measure);
       else queueMicrotask(measure);
     },
-    measureConnections() {
-      measureViewerConnections(this);
-    },
-    get definition() {
-      return this.snapshot?.definition;
-    },
+    trapDrawer: trapViewerDrawer,
+    measureConnections() { measureViewerConnections(this); },
+    get definition() { return this.snapshot?.definition; },
     get nodes() {
-      return flattenPipelineNodes(
-        pipelineNodes(
-          this.definition,
-          this.mode === "run" ? this.snapshot : null,
-        ),
-      );
+      return scopedPipelineNodes(this.definition, this.mode === "run" ? this.snapshot : null, this.scopeTrail);
     },
-    get wires() {
-      return this.definition?.wiring || [];
+    openScope(node) {
+      this.closeInspector();
+      this.scopeTrail = [...this.scopeTrail, { key: node.logicalKey, title: node.title || node.name }];
     },
+    backScope() {
+      this.closeInspector();
+      this.scopeTrail = this.scopeTrail.slice(0, -1);
+    },
+    get wires() { return this.definition?.wiring || []; },
     get transformedWires() {
       return this.wires.filter((wire) => !wire.carriedForward);
     },
@@ -190,7 +186,7 @@ export function createNativeViewerView({ route, ...deps }) {
             row.logicalKey === (wire.sourceStepKey || wire.targetStepKey),
         ),
         port = node
-          ? this.ports(node, side).find(
+          ? diagramPorts(node, side, [wire]).find(
               (row) =>
                 row.path ===
                 wiringEndpoints(wire)[0][
@@ -201,7 +197,7 @@ export function createNativeViewerView({ route, ...deps }) {
       if (port) await this.inspectPort(node, side, port, event, true);
     },
     ports(node, side) {
-      return diagramPorts(node, side, this.wires);
+      return node[side] || [];
     },
     highlighted(node) {
       return (
@@ -220,6 +216,7 @@ export function createNativeViewerView({ route, ...deps }) {
     },
     async navigateSelection(id, mode, trail = []) {
       this.closeInspector();
+      this.scopeTrail = [];
       this.mode = mode;
       this.parentTrail = trail;
       this.selectedRunId = mode === "run" ? id : "";
@@ -247,10 +244,10 @@ export function createNativeViewerView({ route, ...deps }) {
         .filter((row) => row.kind === "side_effect_confirmation")
         .at(-1);
       const preview = ref ? service?.preview?.(ref.id) : null;
-      return preview
-        ? evidencePreview(preview.value) +
-            (preview.truncated ? " · bounded excerpt" : " · bounded preview")
-        : "";
+      if (!preview) return "";
+      const value = preview.value;
+      return typeof value === "string" ? value.slice(0, 90)
+        : value?.delivery?.status || value?.status || "Captured confirmation · inspect execution evidence";
     },
     deliveryLink(step) {
       void this.previewRevision;
@@ -292,11 +289,12 @@ export function createNativeViewerView({ route, ...deps }) {
       const selected = portPreviewSelection(preview, port.path);
       if (selected.status === "outside") return "Field outside bounded preview";
       if (selected.status === "missing") return "Selected field is missing";
-      return `${selected.count != null ? selected.count + " records · " : ""}${selected.status === "null" ? "Explicit null" : evidenceText(selected.value).slice(0, 180)}${selected.truncated ? " · bounded excerpt" : " · bounded preview"}`;
+      return `${selected.count != null ? selected.count + " records · " : ""}${selected.status === "null" ? "Explicit null" : evidenceText(selected.value).slice(0, 90)}${selected.truncated ? " · bounded excerpt" : " · bounded preview"}`;
     },
     portReference: latestPortReference,
     async inspectPort(node, side, port, event, pin = false, execution = null) {
       if (restoringFocus || (this.pinned && !pin)) return;
+      returnFocus = event?.currentTarget || returnFocus;
       this.inspectPath = port.path;
       this.inspectLabel = node.logicalKey;
       this.inspectSide = side;
@@ -315,9 +313,10 @@ export function createNativeViewerView({ route, ...deps }) {
         selectedRef = null;
         this.preview =
           this.mode === "definition"
-            ? `Configured ${port.format || "value"} · ${port.path}`
+            ? `${port.label} · ${port.format || "auto"} field. Selects ${port.path} from ${side === "inputs" ? "resolved step input" : "returned step output"}. No execution value exists in definition mode.`
             : "Not captured for this attempt.";
         this.pinned = pin;
+        if (pin) focusViewerDrawer(this);
       }
     },
     async inspect(ref, event, pin = true, port = false) {
@@ -337,6 +336,7 @@ export function createNativeViewerView({ route, ...deps }) {
       selectedRef = ref;
       returnFocus = event?.currentTarget || returnFocus;
       this.pinned = pin;
+      focusViewerDrawer(this);
       this.clearRecords();
       this.recordPage = 1;
       this.search = "";
@@ -358,8 +358,7 @@ export function createNativeViewerView({ route, ...deps }) {
       this.inspectPath = "";
       this.inspectLabel = "";
       this.inspectSide = "";
-      this.inspectExecutionId = "";
-      this.inspectEvidenceId = "";
+      this.inspectExecutionId = ""; this.inspectEvidenceId = "";
       service?.clearValues();
       restoringFocus = true;
       returnFocus?.focus?.();

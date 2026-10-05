@@ -6,6 +6,15 @@ import {
   exactPrompt,
 } from "./pipeline-native-viewer-fixture";
 
+// Component captures omit the fixed shell header; shell captures retain it.
+async function captureViewer(page: any, path: string) {
+  await page.mouse.move(0, 0);
+  await page.keyboard.press("Escape");
+  const headerStyle = await page.addStyleTag({content:".wm-header { visibility: hidden !important; }"});
+  try { await page.getByTestId("pipeline-viewer").screenshot({path}); }
+  finally { await headerStyle.evaluate((element: Element) => element.remove()); }
+}
+
 const browserTest = process.env.PLAYWRIGHT_MODULE ? test : test.skip;
 browserTest(
   "production Autopilot shell: retained values, children, bounded records and stale/refused responses",
@@ -74,23 +83,16 @@ browserTest(
         }
         expect(await page.getByTestId("pipeline-step-prepare").count()).toBe(1);
         expect(await page.getByTestId("pipeline-step-child").count()).toBe(1);
-        await page.waitForFunction(
-          () =>
-            document.querySelectorAll(".pipeline-viewer-edges g").length >= 5,
-        );
-        expect(
-          await page.locator(".pipeline-viewer-edges g").count(),
-        ).toBeGreaterThanOrEqual(5);
-        expect(
-          await page
-            .locator(".pipeline-viewer-edges path[stroke-dasharray]")
-            .count(),
-        ).toBeGreaterThan(0);
+        expect(await page.locator(".pipeline-viewer-edges g").count()).toBe(0);
         if (evidenceDir)
           await page.screenshot({
             path: `${evidenceDir}/shell-${viewport.width}.png`,
             fullPage: true,
           });
+        if (evidenceDir) for (const theme of ["light","dark"]) {
+          await page.evaluate((theme: string) => document.body.setAttribute("data-theme",theme), theme);
+          await captureViewer(page, `${evidenceDir}/run-${viewport.width}-${theme}.png`);
+        }
         const promptPort = page.getByTestId(
           "pipeline-port-prepare-inputs-$.prompt",
         );
@@ -106,9 +108,17 @@ browserTest(
           .getByTestId("pipeline-value-completeness")
           .filter({ hasText: "Complete retained value" })
           .waitFor();
+        expect(await page.getByTestId("pipeline-inspector").getAttribute("role")).toBe("dialog");
+        const canvasWidth = await page.locator(".pipeline-viewer-diagram").evaluate((el: Element) => el.getBoundingClientRect().width);
+        expect(await page.getByTestId("pipeline-inspector").evaluate((el: Element) => el.contains(document.activeElement))).toBe(true);
+        await page.getByTestId("pipeline-inspector").focus();
+        await page.keyboard.press("Tab");
+        expect(await page.getByLabel("Close value inspector", {exact:true}).evaluate((el: Element) => el === document.activeElement)).toBe(true);
+        expect(canvasWidth).toBeGreaterThan(viewport.width < 850 ? 200 : 900);
         expect(
           await page.getByTestId("pipeline-exact-value").textContent(),
         ).toBe(exactPrompt);
+        if (evidenceDir) await page.screenshot({path:`${evidenceDir}/run-${viewport.width}-exact-value.png`});
         await page.getByTestId("pipeline-copy-value").click();
         expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
           exactPrompt,
@@ -185,10 +195,14 @@ browserTest(
             exact: true,
           })
           .click();
+        await page.getByTestId("pipeline-step-loop").waitFor();
+        expect(await page.getByTestId("pipeline-step-loop/retrieve").count()).toBe(0);
+        await page.getByTestId("pipeline-drill-loop").click();
         await page.getByTestId("pipeline-step-loop/retrieve").waitFor();
         expect(
           await page.locator('[data-testid^="pipeline-attempt-"]').count(),
-        ).toBe(3);
+        ).toBe(2);
+        if (evidenceDir) await captureViewer(page, `${evidenceDir}/run-${viewport.width}-child-loop.png`);
         await page.getByTestId("pipeline-parent").click();
         await promptPort.waitFor();
         const stored = await page.evaluate(async () => {
@@ -310,6 +324,27 @@ browserTest(
         expect(await page.getByTestId("pipeline-run-status").isVisible()).toBe(
           false,
         );
+        await page.goto(`${fixture.server.url}pipelines/definitions/${encodeURIComponent(fixture.bird.id)}`);
+        await page.getByTestId("pipeline-step-bounded-retrieval").waitFor();
+        expect(await page.locator(".pipeline-viewer-step").count()).toBe(2);
+        expect(await page.getByTestId("pipeline-step-bounded-retrieval/choose").count()).toBe(0);
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((theme: string) => {
+            document.documentElement.setAttribute("data-theme", theme);
+            document.body.setAttribute("data-theme", theme);
+          }, theme);
+          if (evidenceDir) await captureViewer(page, `${evidenceDir}/bird-${viewport.width}-${theme}-overview.png`);
+          await page.getByTestId("pipeline-drill-bounded-retrieval").click();
+          expect(await page.locator(".pipeline-viewer-step").count()).toBe(4);
+          if (evidenceDir) await captureViewer(page, `${evidenceDir}/bird-${viewport.width}-${theme}-loop.png`);
+          await page.getByTestId("pipeline-scope-back").click();
+        }
+        const configuredRequest = page.getByTestId("pipeline-port-prepare-inputs-$.request");
+        await configuredRequest.click();
+        expect(await page.getByTestId("pipeline-inspector").innerText()).toContain("No execution value exists");
+        if (evidenceDir) await page.screenshot({path:`${evidenceDir}/bird-${viewport.width}-drawer.png`});
+        expect(await page.locator(".pipeline-viewer-edges g").count()).toBeGreaterThan(0);
+        await page.keyboard.press("Escape");
         const partitionCount = await page.evaluate(async () => {
           const { default: Dexie } = await import("/vendor/dexie/dexie.mjs");
           const db = new Dexie("WingmanNativePipelineViewer");

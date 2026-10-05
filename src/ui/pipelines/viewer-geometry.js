@@ -13,7 +13,7 @@ export function measureViewerConnections(view) {
         el.dataset.portNode === node &&
         el.dataset.portSide === side &&
         el.dataset.portPath === path,
-    );
+    ) || [...canvas.querySelectorAll(".pipeline-viewer-step")].find((el) => el.dataset.testid === "pipeline-step-" + node);
   view.diagramWidth = canvas.scrollWidth;
   view.diagramHeight = canvas.scrollHeight;
   const cardsBottom = Math.max(
@@ -22,47 +22,37 @@ export function measureViewerConnections(view) {
     ),
     0,
   );
-  view.edges = view.wires.flatMap((wire, wireIndex) =>
+  view.edges = view.wires.filter((wire) => view.wireSelected(wire)).flatMap((wire, wireIndex) =>
     wiringEndpoints(wire).flatMap((endpoint, portIndex) => {
       const index = wireIndex * 100 + portIndex;
       const source = find(wire.sourceStepKey, "outputs", endpoint.sourcePath),
         target = find(wire.targetStepKey, "inputs", endpoint.targetPath);
       if (!target || (!source && wire.sourceStepKey)) return [];
       const b = target.getBoundingClientRect(),
-        a = source?.getBoundingClientRect() || {
-          right: rect.left,
-          top: b.top - 30,
-          height: b.height,
-        },
+        a = source?.getBoundingClientRect() || { right: rect.left, top: b.top - 30, height: b.height },
+        sourceCard = source?.closest(".pipeline-viewer-step")?.getBoundingClientRect(),
+        targetCard = target.closest(".pipeline-viewer-step").getBoundingClientRect(),
         mobile = globalThis.innerWidth <= 850;
-      const x1 = a.right - rect.left,
+      const x1 = (!source && mobile ? targetCard.right + 16 : sourceCard?.right ?? a.right) - rect.left,
         y1 = a.top + a.height / 2 - rect.top,
-        x2 = mobile ? b.right - rect.left : b.left - rect.left,
+        x2 = (mobile ? targetCard.right : targetCard.left) - rect.left,
         y2 = b.top + b.height / 2 - rect.top;
-      const lane = mobile
-        ? Math.max(x1, x2) + 16 + (index % 3) * 10
-        : Math.max(x1 + 20, (x1 + x2) / 2);
-      const bypassY = cardsBottom + 24 + (wireIndex % 4) * 18;
-      const bypass = !mobile && wire.carriedForward;
+      const lane = Math.max(x1, x2) + 12 + portIndex * 8;
+      const bypassY = cardsBottom + 24 + wireIndex * 24;
       return [
         {
           wire,
           index,
           path: mobile
             ? `M ${x1} ${y1} H ${lane} V ${y2} H ${x2}`
-            : bypass
-              ? `M ${x1} ${y1} H ${x1 + 12} V ${bypassY} H ${x2 - 12} V ${y2} H ${x2}`
-              : `M ${x1} ${y1} C ${lane} ${y1}, ${lane} ${y2}, ${x2} ${y2}`,
-          labelX: mobile ? lane - 4 : (x1 + x2) / 2,
-          labelY: mobile
-            ? (y1 + y2) / 2
-            : bypass
-              ? bypassY - 8
-              : Math.min(y1, y2) - 10,
+            : `M ${x1} ${y1} H ${x1 + 16} V ${bypassY} H ${x2 - 16} V ${y2} H ${x2}`,
+          verticalLabel: mobile,
+          labelX: mobile ? lane + 8 : (x1 + x2) / 2,
+          labelY: mobile ? (y1 + y2) / 2 : bypassY - 8,
           label:
-            (source?.querySelector("span")?.textContent || wire.sourcePath) +
+            (source?.querySelector("span")?.textContent || wire.sourcePath).slice(0, 24) +
             (wire.carriedForward ? " ⇢ carried → " : " → ") +
-            (target.querySelector("span")?.textContent || wire.targetPath),
+            (target.querySelector("span")?.textContent || wire.targetPath).slice(0, 24),
         },
       ];
     }),

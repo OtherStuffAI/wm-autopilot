@@ -1,3 +1,4 @@
+import birdSpec from "./pipeline-native-bird-definition.json";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -153,6 +154,8 @@ export async function createNativeViewerFixture() {
       },
     },
   ]);
+  let bird = record(birdSpec.name, birdSpec.steps);
+  bird.spec = birdSpec as unknown as typeof bird.spec;
   const priorRoot = process.env.WINGMEN_PIPELINES_ROOT;
   process.env.WINGMEN_PIPELINES_ROOT = join(directory, "pipelines");
   const definitionsDirectory = join(
@@ -161,7 +164,7 @@ export async function createNativeViewerFixture() {
     "definitions",
   );
   mkdirSync(definitionsDirectory, { recursive: true });
-  for (const definition of [parent, child])
+  for (const definition of [parent, child, bird])
     writeFileSync(
       join(definitionsDirectory, `${definition.name}.json`),
       JSON.stringify(definition.spec),
@@ -169,6 +172,7 @@ export async function createNativeViewerFixture() {
   const loaded = await listLatestPipelineDefinitions(null);
   parent = loaded.find((definition) => definition.name === parent.name)!;
   child = loaded.find((definition) => definition.name === child.name)!;
+  bird = loaded.find((definition) => definition.name === bird.name)!;
   const live = createNativeLiveFixture(store, fixtureOwner);
   const runs: Record<string, string> = {};
   for (const outcome of [
@@ -292,7 +296,7 @@ export async function createNativeViewerFixture() {
       if (path === "/api/pipelines/root")
         return Response.json({ root: "Synthetic fixture" });
       if (path === "/api/pipelines/definitions")
-        return Response.json({ definitions: [{ ...parent, ...parent.spec }] });
+        return Response.json({ definitions: [parent, child, bird].map(definition => ({ ...definition, ...definition.spec })) });
       if (path === "/api/pipelines/runs")
         return Response.json({
           runs: store.listRuns().map((run) => ({
@@ -353,6 +357,7 @@ export async function createNativeViewerFixture() {
     live,
     runs,
     parent,
+    bird,
     store,
     requests,
     deny: () => {

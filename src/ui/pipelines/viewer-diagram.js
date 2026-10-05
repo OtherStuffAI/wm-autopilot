@@ -19,6 +19,7 @@ export function renderPipelineConnections(svg, edges, width, height, selected) {
     label.setAttribute("x", String(edge.labelX));
     label.setAttribute("y", String(edge.labelY));
     label.setAttribute("text-anchor", "middle");
+    if (edge.verticalLabel) label.setAttribute("transform", `rotate(-90 ${edge.labelX} ${edge.labelY})`);
     label.textContent = edge.label;
     group.append(path, label);
     svg.append(group);
