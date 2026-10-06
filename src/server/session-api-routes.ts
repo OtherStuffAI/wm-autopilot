@@ -1,4 +1,5 @@
 import { handleQueueRoutes } from "./session-queue-routes";
+import { whiteNoiseSessionOrigin } from "./white-noise-session-origin";
 import { isCapabilityBoundSelfSessionQueueOperation } from "../auth/session-capability-access";
 /**
  * API route handlers for session and archive endpoints.
@@ -1361,11 +1362,17 @@ export async function handleSessionApi(
           payload?.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
             ? payload.metadata as Record<string, unknown>
             : null;
+        let conversationOrigin: SessionOrigin | null;
+        try {
+          conversationOrigin = whiteNoiseSessionOrigin(payload);
+        } catch (error) {
+          return Response.json({ error: (error as Error).message }, { status: 400 });
+        }
         const session = await ctx.manager.createSession(
           agent,
           workingDirectory,
           sessionName ?? undefined,
-          buildProgrammaticOrigin(authContext),
+          conversationOrigin ?? buildProgrammaticOrigin(authContext),
           targetFile,
           targetOwnerNpub,
           {

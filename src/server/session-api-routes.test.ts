@@ -140,6 +140,44 @@ const buildCtx = (overrides?: Partial<SessionApiContext>): SessionApiContext => 
 });
 
 describe("handleSessionApi", () => {
+  function whiteNoiseCtx(overrides: Partial<SessionApiContext> = {}) {
+    return buildCtx({ workspaceDelegationStore: {
+      findActiveDelegation: (_owner: string, _delegate: string, scope: string) => scope === "sessions:create" ? {
+        id: "wn-delegation", ownerNpub: "npub1owner", delegateNpub: "npub1bot",
+        scopes: ["sessions:create"], resourceFilters: {}, billingMode: "owner",
+      } : null,
+    } as any, ...overrides });
+  }
+  test("owner-space White Noise creation preserves the conversation origin after authorization", async () => {
+    const group = "ab".repeat(16);
+    const url = new URL("http://localhost:3021/api/owners/npub1owner/sessions");
+    const payload = { agent: "codex", origin: { type: "white-noise", id: group }, metadata: { agentTransport: "codex-sdk" } };
+    const request = () => new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+    const response = await handleSessionApi(request(), url, "POST", makeAuth(), whiteNoiseCtx());
+    expect(response?.status).toBe(201);
+    const session = await response!.json();
+    expect(session.npub).toBe("npub1owner");
+    expect(session.origin).toEqual(payload.origin);
+    expect(session.metadata.agentTransport).toBe("codex-sdk");
+    expect(session.metadata.createdByNpub).toBe("npub1bot");
+    const noDelegation = await handleSessionApi(request(), url, "POST", makeAuth(), buildCtx());
+    expect(noDelegation?.status).toBe(403);
+    const denied = await handleSessionApi(request(), url, "POST", makeAuth(), whiteNoiseCtx({
+      ensureApiAccess: async () => Response.json({ error: "denied" }, { status: 403 }),
+    }));
+    expect(denied?.status).toBe(403);
+  });
+  test("owner-space White Noise creation rejects missing native transport and invalid group bindings", async () => {
+    const url = new URL("http://localhost:3021/api/owners/npub1owner/sessions");
+    for (const payload of [
+      { agent: "codex", origin: { type: "white-noise", id: "ab".repeat(16) } },
+      { agent: "codex", origin: { type: "white-noise", id: "unknown-group" }, metadata: { agentTransport: "codex-sdk" } },
+    ]) {
+      const response = await handleSessionApi(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }),
+        url, "POST", makeAuth(), whiteNoiseCtx());
+      expect(response?.status).toBe(400);
+    }
+  });
   const originalFetch = globalThis.fetch;
   const tempPaths: string[] = [];
 

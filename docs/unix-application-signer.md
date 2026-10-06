@@ -94,6 +94,12 @@ hex (not the Nostr routing handle), and session is an existing Autopilot managed
 Codex native SDK session. Create it under Pete's owner identity with origin
 `{type:"white-noise",id:<group>}` and metadata `{agentTransport:"codex-sdk"}`.
 The explicit transport pin is required even if the UI defaults to ACP.
+Rick may also create it through the broker-aware owner-scoped
+`POST /api/owners/:ownerNpub/sessions` route with the existing exact-owner
+`sessions:create` delegation. That route preserves an explicit `white-noise`
+origin only with a valid opaque MLS group hex and `agentTransport: "codex-sdk"`.
+Owner-space authorization and recorded creating actor remain unchanged; this
+mapping requires no human signing step-up. Missing delegation still fails closed.
 The bridge refuses other adapters, owners or
 origins. Keep this session dedicated; concurrent unrelated prompts are unsupported.
 
