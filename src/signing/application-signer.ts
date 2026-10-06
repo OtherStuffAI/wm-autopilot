@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, openSync, closeSync, chmodSync, lstatSync } from "node:fs";
 import { dirname } from "node:path";
@@ -76,6 +77,34 @@ export class ApplicationSigner {
     const credential = `wmapp_v1_${randomBytes(32).toString("base64url")}`;
     this.db.query("INSERT INTO application_grants (id, credential_hash, grant_json) VALUES (?, ?, ?)").run(grant.id, digest(credential), JSON.stringify(grant));
     return { grant, credential };
+  }
+  /** Compare-and-swap one content bound without replacing application authority. */
+  async updateContentBoundVerified(actorNpub: string, expected: Omit<ApplicationGrant, "keyId"> & { keyId?: string },
+    kind: number, maxContentBytes: number): Promise<ApplicationGrant> {
+    const record = this.lookup(expected.botNpub);
+    if (!record || record.userNpub !== actorNpub || expected.ownerNpub !== actorNpub
+      || record.botPubkeyHex !== expected.pubkey
+      || (expected.keyId !== undefined && expected.keyId !== record.id)) throw new SignerError("identity_denied");
+    await this.vault.withKey(record, () => undefined);
+    const current = this.lookup(expected.botNpub);
+    if (!current || current.id !== record.id || current.userNpub !== actorNpub
+      || current.botPubkeyHex !== expected.pubkey) throw new SignerError("identity_denied");
+    const row = this.db.query<{ grant_json: string }, [string]>(
+      "SELECT grant_json FROM application_grants WHERE id=? AND revoked=0").get(expected.id);
+    if (!row) throw new SignerError("grant_denied");
+    if (!isDeepStrictEqual(JSON.parse(row.grant_json), { ...expected, keyId: record.id })) throw new SignerError("stale_grant");
+    const updated: ApplicationGrant = { ...structuredClone(expected), keyId: record.id };
+    const rule = updated.policy.kindRules.find(rule => rule.kind === kind);
+    if (!rule) throw new SignerError("kind_denied");
+    rule.maxContentBytes = maxContentBytes;
+    // Use the same validation as registration, without issuing a new credential.
+    const normalized = normalizeNostrKindRules(updated.policy.kindRules, updated.policy.kindRules.map(rule => rule.kind));
+    if (!isDeepStrictEqual(normalized, updated.policy.kindRules)) throw new SignerError("invalid_policy");
+    const result = this.db.query(
+      "UPDATE application_grants SET grant_json=? WHERE id=? AND revoked=0 AND grant_json=?"
+    ).run(JSON.stringify(updated), expected.id, row.grant_json);
+    if (result.changes !== 1) throw new SignerError("stale_grant");
+    return updated;
   }
   revoke(actorNpub: string, id: string): void {
     const row = this.db.query<{ grant_json: string }, [string]>("SELECT grant_json FROM application_grants WHERE id=?").get(id);

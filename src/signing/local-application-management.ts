@@ -2,7 +2,7 @@ import { constants, closeSync, fstatSync, fsyncSync, lstatSync, openSync, unlink
 import { dirname, isAbsolute, join } from "node:path";
 import { Database } from "bun:sqlite";
 import type { BotKeyRecord } from "../identity/bot-key-store";
-import { ApplicationSigner, type ApplicationGrantPolicy } from "./application-signer";
+import { ApplicationSigner, type ApplicationGrant, type ApplicationGrantPolicy } from "./application-signer";
 import { BrokerKeyVault } from "./broker-key-vault";
 
 function requireOwnedPath(path: string, directory: boolean, privateMode: boolean): void {
@@ -15,7 +15,7 @@ function requireOwnedPath(path: string, directory: boolean, privateMode: boolean
 }
 
 /** Local host administration, not a remote caller or an owner impersonation. */
-export async function registerLocalApplication(input: {
+interface LocalApplicationInput {
   dataDir: string;
   masterKeyPath: string;
   ownerNpub: string;
@@ -23,7 +23,21 @@ export async function registerLocalApplication(input: {
   expectedPubkey: string;
   policy: ApplicationGrantPolicy;
   credentialFile: string;
+}
+
+export async function registerLocalApplication(input: LocalApplicationInput) {
+  return manageLocalApplication(input);
+}
+
+export async function updateLocalApplicationContentBound(input: Omit<LocalApplicationInput, "credentialFile" | "policy"> & {
+  expectedGrant: Omit<ApplicationGrant, "keyId">; kind: number; maxContentBytes: number;
 }) {
+  return manageLocalApplication(input);
+}
+
+async function manageLocalApplication(input: LocalApplicationInput | (Omit<LocalApplicationInput, "credentialFile" | "policy"> & {
+  expectedGrant: Omit<ApplicationGrant, "keyId">; kind: number; maxContentBytes: number;
+})) {
   const botDbPath = join(input.dataDir, "bot-keys.db");
   const grantDbPath = join(input.dataDir, "application-grants.db");
   const envelopesDirectory = join(input.dataDir, "broker-vault", "keys");
@@ -33,8 +47,10 @@ export async function registerLocalApplication(input: {
   requireOwnedPath(dirname(input.masterKeyPath), true, true);
   requireOwnedPath(input.masterKeyPath, false, true);
   requireOwnedPath(envelopesDirectory, true, true);
-  requireOwnedPath(dirname(input.credentialFile), true, true);
-  if (!isAbsolute(input.credentialFile)) throw new Error("local_management_requires_absolute_paths");
+  if ("credentialFile" in input) {
+    requireOwnedPath(dirname(input.credentialFile), true, true);
+    if (!isAbsolute(input.credentialFile)) throw new Error("local_management_requires_absolute_paths");
+  }
 
   const db = new Database(botDbPath, { readonly: true });
   const lookup = (npub: string) => db.query<BotKeyRecord, [string]>(`SELECT
@@ -56,6 +72,12 @@ export async function registerLocalApplication(input: {
     // Preflight forbids the vault constructor's new-master-key path.
     vault = new BrokerKeyVault({ dataDir: input.dataDir, masterKeyPath: input.masterKeyPath, envelopesDirectory });
     signer = new ApplicationSigner(grantDbPath, lookup, vault);
+    if ("expectedGrant" in input) {
+      if (input.expectedGrant.botNpub !== input.botNpub || input.expectedGrant.pubkey !== input.expectedPubkey) {
+        throw new Error("local_management_identity_denied");
+      }
+      return await signer.updateContentBoundVerified(input.ownerNpub, input.expectedGrant, input.kind, input.maxContentBytes);
+    }
     fd = openSync(input.credentialFile, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     const info = fstatSync(fd);
     if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
@@ -68,7 +90,7 @@ export async function registerLocalApplication(input: {
     return result.grant;
   } catch (error) {
     if (grantId) signer?.revoke(input.ownerNpub, grantId);
-    if (fd !== undefined) unlinkSync(input.credentialFile);
+    if (fd !== undefined && "credentialFile" in input) unlinkSync(input.credentialFile);
     throw error;
   } finally {
     if (fd !== undefined) closeSync(fd);

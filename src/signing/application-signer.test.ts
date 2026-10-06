@@ -120,3 +120,55 @@ test("NIP-59 ephemeral peers require an explicit application-only grant", async 
     params: { peer: getPublicKey(ephemeral), text: nip44.v2.encrypt("outer wrap", conversation) } })).toBe("outer wrap");
   await expect(s.signer.execute({ id: "no-sign", credential: issued.credential, method: "sign_event", params: {} })).rejects.toThrow("method_denied");
 });
+
+test("content bound update rejects identity, revocation and concurrent stale grants", async () => {
+  const s = setup();
+  const expected = s.issued.grant;
+  await expect(s.signer.updateContentBoundVerified("other", expected, 450, 49)).rejects.toThrow("identity_denied");
+  await expect(s.signer.updateContentBoundVerified("owner", { ...expected, pubkey: "00".repeat(32) }, 450, 49)).rejects.toThrow("identity_denied");
+  await expect(s.signer.updateContentBoundVerified("owner", { ...expected, id: "missing" }, 450, 49)).rejects.toThrow("grant_denied");
+  await expect(s.signer.updateContentBoundVerified("owner", { ...expected, keyId: "wrong" }, 450, 49)).rejects.toThrow("identity_denied");
+  const staleKey = s.open();
+  cleanups.push(() => staleKey.close());
+  const other = s.open();
+  cleanups.push(() => other.close());
+  const results = await Promise.allSettled([
+    s.signer.updateContentBoundVerified("owner", expected, 450, 49),
+    other.updateContentBoundVerified("owner", expected, 450, 50),
+  ]);
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.filter(result => result.status === "rejected").map(result => (result as PromiseRejectedResult).reason.message)).toEqual(["stale_grant"]);
+  const updated = (results.find(result => result.status === "fulfilled") as PromiseFulfilledResult<typeof expected>).value;
+  const restored = structuredClone(updated);
+  restored.policy.kindRules[0]!.maxContentBytes = expected.policy.kindRules[0]!.maxContentBytes;
+  expect(restored).toEqual(expected);
+  expect(await s.call("get_public_key")).toBe(expected.pubkey);
+  s.signer.revoke("owner", expected.id);
+  await expect(staleKey.updateContentBoundVerified("owner", updated, 450, 51)).rejects.toThrow("grant_denied");
+  s.rotate();
+  await expect(s.signer.updateContentBoundVerified("owner", updated, 450, 51)).rejects.toThrow("identity_denied");
+});
+
+test("active persistent listener reloads a content bound changed by another signer", async () => {
+  const s = setup();
+  const expected = await s.signer.updateContentBoundVerified("owner", s.issued.grant, 450, 47);
+  const path = join(s.dir, "private", "live.sock");
+  const listener = await listenUnixSigner(path, s.signer);
+  cleanups.push(() => listener.close());
+  const client = connect(path);
+  cleanups.push(() => client.destroy());
+  const event = { pubkey: expected.pubkey, kind: 450, created_at: 12, content: "x".repeat(49), tags: [] };
+  const request = () => new Promise<any>((resolve, reject) => {
+    client.once("error", reject);
+    client.once("data", chunk => resolve(JSON.parse(chunk.toString())));
+    client.write(JSON.stringify({ id: "bound", credential: s.issued.credential, method: "sign_event",
+      params: { event: { ...event, id: getEventHash(event) } } }) + "\n");
+  });
+  expect((await request()).error.code).toBe("invalid_event");
+  const operator = s.open();
+  cleanups.push(() => operator.close());
+  await operator.updateContentBoundVerified("owner", expected, 450, 49);
+  const reply = await request();
+  expect(verifyEvent(reply.result)).toBe(true);
+  expect(reply.result.content).toBe(event.content);
+});

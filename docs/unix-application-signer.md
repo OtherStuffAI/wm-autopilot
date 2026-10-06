@@ -127,3 +127,22 @@ Activation requires the operator's approved Autopilot restart, confirmed phone
 relays, the application credential, the external account's allowlist bootstrap,
 one accepted invite, and the dedicated session/config. This source change does not
 activate any relay, create a live grant, restart services or prove a phone round trip.
+
+### Local content bound correction
+
+An explicitly authorized host operator can update one existing per-kind content
+byte bound using `clis/wingman-application.ts update-content-bound`. Supply the
+original registration request with `--expected-request-file`, the proposed request
+with `--request-file`, the captured public grant metadata with `--grant-file`, and
+the existing `--data-dir` and `--master-key-file` paths. All paths must be absolute.
+The proposed request must change exactly one `maxContentBytes`; identity, methods,
+kinds, tags and peers must match the original policy. No credential file is read,
+created or replaced by this command.
+
+The local management path verifies active owner/identity and existing vault
+custody. ApplicationSigner compares the complete original grant and stored key ID,
+then atomically updates only its JSON policy with an unrevoked compare-and-swap.
+A concurrent update or stale expected policy fails closed. The credential hash
+and grant ID remain unchanged. Existing Unix listeners read the durable grant on
+each request and use the new bound on the next request without a host restart.
+Remote management authority is unchanged; this remains same-UID local operation.
