@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, openSync, closeSync, chmodSync } from "node:fs";
+import { mkdirSync, openSync, closeSync, chmodSync, lstatSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import { finalizeEvent, getEventHash, type UnsignedEvent } from "nostr-tools";
@@ -46,6 +46,13 @@ export class ApplicationSigner {
     chmodSync(path, 0o600);
     this.db = new Database(path);
     this.db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS application_grants (id TEXT PRIMARY KEY, credential_hash TEXT UNIQUE NOT NULL, grant_json TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)");
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const info = lstatSync(`${path}${suffix}`, { throwIfNoEntry: false });
+      if (info && (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)) {
+        this.db.close();
+        throw new SignerError("grant_storage_unsafe");
+      }
+    }
   }
   async registerVerified(actorNpub: string, botNpub: string, expectedPubkey: string, policy: ApplicationGrantPolicy) {
     const record = this.lookup(botNpub);
@@ -61,7 +68,8 @@ export class ApplicationSigner {
       || (policy.allowAnyPeer !== undefined && typeof policy.allowAnyPeer !== "boolean")
       || !Array.isArray(policy.peers) || policy.peers.length > 16 || policy.peers.some(p => !hexKey(p))) throw new SignerError("invalid_policy");
     const kinds = policy.kindRules?.map(r => r.kind) ?? [];
-    if (kinds.includes(445) || kinds.includes(27235) || kinds.length > 16 || new Set(kinds).size !== kinds.length) throw new SignerError("invalid_policy");
+    if (kinds.some(kind => !Number.isInteger(kind) || kind < 0 || kind > 65535)
+      || kinds.includes(445) || kinds.includes(27235) || kinds.length > 16 || new Set(kinds).size !== kinds.length) throw new SignerError("invalid_policy");
     const kindRules = normalizeNostrKindRules(policy.kindRules, kinds);
     const grant: ApplicationGrant = { id: randomUUID(), ownerNpub: actorNpub, botNpub, pubkey: expectedPubkey,
       keyId: record.id, policy: { methods: [...policy.methods], peers: [...policy.peers], allowAnyPeer: policy.allowAnyPeer === true, kindRules } };

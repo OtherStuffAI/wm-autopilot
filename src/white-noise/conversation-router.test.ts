@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConversationStore } from "./conversation-store";
 import { ConversationRouter } from "./conversation-router";
-import { recoverCompletionRecords } from "./codex-completion-recovery";
+import { corroborateCompletedText, recoverCompletionRecords } from "./codex-completion-recovery";
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).reverse().forEach(f => f()));
 function setup() {
@@ -66,4 +66,22 @@ test("native recovery ignores commentary and final text until explicit correlate
   expect(await recoverCompletionRecords(source(records), prompt)).toBeNull();
   expect(await recoverCompletionRecords(source([...records, { type: "event_msg", payload: { type: "task_complete", last_agent_message: "Answer" } } as any]), prompt)).toBe("Answer");
   expect(await recoverCompletionRecords(source(records), "other")).toBeNull();
+  await expect(recoverCompletionRecords(source([records[0]!, records[1]!, { type: "event_msg", payload: { type: "task_complete", last_agent_message: "Thinking" } } as any]), prompt)).rejects.toThrow("correlated_final_answer_missing");
+  await expect(recoverCompletionRecords(source([...records, { type: "event_msg", payload: { type: "task_complete", last_agent_message: "Other text" } } as any]), prompt)).rejects.toThrow("correlated_native_output_mismatch");
+});
+
+test("live SDK output must match the correlated native final and completion", async () => {
+  const s = setup(); s.store.receive(s.inbound);
+  let sends = 0;
+  const router = new ConversationRouter(s.store, {
+    completedTurn: prompt => corroborateCompletedText(prompt, "SDK commentary", async () => "Native final"),
+    recoverCompletedTurn: async () => null,
+    sendFinal: async () => { sends++; },
+  });
+  await expect(router.drain()).rejects.toThrow("correlated_native_output_mismatch");
+  expect(sends).toBe(0); expect(s.store.pending()[0]!.state).toBe("accepted");
+  expect(await corroborateCompletedText("prompt", "Native final", async prompt => {
+    expect(prompt).toBe("prompt"); return "Native final";
+  })).toBe("Native final");
+  await expect(corroborateCompletedText("prompt", "SDK output", async () => null)).rejects.toThrow("correlated_native_completion_missing");
 });

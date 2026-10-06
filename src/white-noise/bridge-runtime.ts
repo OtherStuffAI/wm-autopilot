@@ -6,7 +6,7 @@ import { CodexAdapter } from "../agents/codex-adapter";
 import { ConversationStore } from "./conversation-store";
 import { ConversationRouter } from "./conversation-router";
 import { ConnectorClient } from "./connector-client";
-import { recoverCodexCompletion } from "./codex-completion-recovery";
+import { corroborateCompletedText, recoverCodexCompletion } from "./codex-completion-recovery";
 
 const PETE = "npub1jss47s4fvv6usl7tn6yp5zamv2u60923ncgfea0e6thkza5p7c3q0afmzy";
 export function readPrivateFile(path: string, maxBytes: number): string {
@@ -33,6 +33,13 @@ export function startWhiteNoiseBridge(configPath: string, dataDir: string, getMa
   adapter();
   const store = new ConversationStore(join(dataDir, "white-noise-conversation.db"), { account: config.account, group: config.group, session: config.session, sender: decoded.data });
   const connector = new ConnectorClient(config.connectorSocket, config.connectorTokenFile ? readPrivateFile(config.connectorTokenFile, 4096).trim() : undefined);
+  const recoverCompletedTurn = async (prompt: string) => {
+    adapter();
+    const session = getManager().getSession(config.session)!;
+    const native = session.metadata?.nativeAgentSession;
+    if (!native || native.agent !== "codex") throw new Error("native_completion_context_missing");
+    return await recoverCodexCompletion({ sessionId: native.sessionId, workingDirectory: session.workingDirectory }, prompt);
+  };
   let turnActive = false;
   const router = new ConversationRouter(store, {
     beforeTurn: async () => {
@@ -41,15 +48,12 @@ export function startWhiteNoiseBridge(configPath: string, dataDir: string, getMa
     },
     completedTurn: async prompt => {
       turnActive = true;
-      try { return await adapter().sendCompletedMessage(prompt); } finally { turnActive = false; }
+      try {
+        const text = await adapter().sendCompletedMessage(prompt);
+        return await corroborateCompletedText(prompt, text, recoverCompletedTurn);
+      } finally { turnActive = false; }
     },
-    recoverCompletedTurn: async prompt => {
-      adapter();
-      const session = getManager().getSession(config.session)!;
-      const native = session.metadata?.nativeAgentSession;
-      if (!native || native.agent !== "codex") throw new Error("native_completion_context_missing");
-      return await recoverCodexCompletion({ sessionId: native.sessionId, workingDirectory: session.workingDirectory }, prompt);
-    },
+    recoverCompletedTurn,
     sendFinal: async input => {
       const response = await connector.request({ type: "send_final", account_id_hex: config.account, group_id_hex: config.group,
         text: input.text, reply_to_message_id_hex: input.replyTo, idempotency_key: input.id });

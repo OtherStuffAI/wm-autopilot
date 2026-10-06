@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:net";
@@ -85,6 +85,29 @@ test("grant survives a fresh broker without any session lookup", async () => {
   const s = setup(), fresh = s.open();
   cleanups.push(() => fresh.close());
   expect(await fresh.execute({ id: "restart", credential: s.issued.credential, method: "get_public_key", params: {} })).toBe(s.record.botPubkeyHex);
+});
+
+test("kind ranges and private database sidecars are enforced", () => {
+  const s = setup();
+  const rule = { maxContentBytes: 0, maxTags: 0, maxTagBytes: 0, allowedTagNames: [] };
+  for (const kind of [-1, 65536, 1.5, 445, 27235]) {
+    expect(() => s.signer.register("owner", "bot", s.record.botPubkeyHex, {
+      methods: ["sign_event"], peers: [], kindRules: [{ ...rule, kind }],
+    })).toThrow("invalid_policy");
+  }
+  s.signer.register("owner", "bot", s.record.botPubkeyHex, {
+    methods: ["sign_event"], peers: [], kindRules: [0, 65535].map(kind => ({ ...rule, kind })),
+  });
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const file = statSync(join(s.dir, `grants.db${suffix}`));
+    expect(file.isFile()).toBe(true);
+    expect(file.uid).toBe(process.getuid!());
+    expect(file.mode & 0o777).toBe(0o600);
+  }
+  const wal = join(s.dir, "grants.db-wal");
+  chmodSync(wal, 0o644);
+  try { expect(() => s.open()).toThrow("grant_storage_unsafe"); }
+  finally { chmodSync(wal, 0o600); }
 });
 
 test("NIP-59 ephemeral peers require an explicit application-only grant", async () => {

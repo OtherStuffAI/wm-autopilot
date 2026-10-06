@@ -14,6 +14,12 @@ export async function recoverCompletionRecords(records: AsyncIterable<Record<str
   for await (const record of records) recovery.visit(record);
   return recovery.result;
 }
+export async function corroborateCompletedText(prompt: string, streamedText: string, recover: (prompt: string) => Promise<string | null>): Promise<string> {
+  const nativeText = await recover(prompt);
+  if (nativeText === null) throw new Error("correlated_native_completion_missing");
+  if (nativeText !== streamedText) throw new Error("correlated_native_output_mismatch");
+  return nativeText;
+}
 class CompletionRecovery {
   private matched = false;
   private final: string | null = null;
@@ -34,9 +40,9 @@ class CompletionRecovery {
     if (record.type === "event_msg" && payload.type === "agent_message" && payload.phase === "final_answer" && typeof payload.message === "string") this.final = payload.message;
     if (record.type === "event_msg" && payload.type === "task_complete") {
       if (payload.error) throw new Error("correlated_turn_failed");
-      const text = typeof payload.last_agent_message === "string" ? payload.last_agent_message : this.final;
-      if (!text?.trim()) throw new Error("correlated_completed_text_missing");
-      this.result = text;
+      if (!this.final?.trim()) throw new Error("correlated_final_answer_missing");
+      if (typeof payload.last_agent_message === "string" && payload.last_agent_message !== this.final) throw new Error("correlated_native_output_mismatch");
+      this.result = this.final;
     }
   }
 }

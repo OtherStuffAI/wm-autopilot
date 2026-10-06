@@ -10,6 +10,14 @@ Applications use independent durable grants, never session capabilities. The
 existing SystemManage API authorizes `POST /api/admin/signing-policies/applications`
 with `{botNpub, expectedPubkey, policy:{methods, kindRules, peers, allowAnyPeer}}`. Only the bot's
 owner may register it. Verify the live broker identity immediately beforehand.
+Registration requires both the existing Autopilot administrator gate
+(`SystemManage`, effective admin identity) and that same effective caller being
+the bot key's recorded owner. For this bot, Pete must sign in as an administrator
+under his own identity. A broker-signed Rick NIP-98 request preserves Rick as the
+caller; advisory owner/delegation metadata does not become Pete's authority.
+Neither an unrelated administrator nor an ordinary non-admin owner can register.
+Grant DB/WAL/SHM files must be owned by the host UID with private modes; unsafe
+existing sidecars fail startup.
 The response returns `{grant, credential}` once; write the credential to an
 owner-only file without displaying/logging it. Revocation uses
 `DELETE /api/admin/signing-policies/applications/:id`. Revocation and bot-key
@@ -77,9 +85,10 @@ At most 1024 inputs are retained, matching the connector's bounded idempotency
 receipt window; reaching that limit requires deliberate operator maintenance.
 
 Codex submission is a durable intent, not completion. The route requires a native
-successful `turn.completed` and returns only the last completed assistant text.
+successful `turn.completed` and corroborates its text against the exact correlated
+native `final_answer` and successful `task_complete` record before delivery.
 For an interrupted accepted input it reads the exact correlated native transcript
-and requires successful `task_complete`. If none exists, it reports
+and requires matching `final_answer` and successful `task_complete`. If none exists, it reports
 `accepted_input_requires_completion_recovery` and never automatically resubmits.
 This deliberately exposes uncertain dispatch instead of duplicating work. A lost
 completed-output DB write can recover from the native transcript. Pending delivery
