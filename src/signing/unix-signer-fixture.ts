@@ -7,7 +7,9 @@ import { BrokerKeyVault } from "./broker-key-vault";
 import { listenUnixSigner } from "./unix-signer";
 import type { BotKeyRecord } from "../identity/bot-key-store";
 
-const [dir, peer] = Bun.argv.slice(2);
+const [dir, peer, proofBudget] = Bun.argv.slice(2);
+const maxProofContentBytes = proofBudget === undefined ? 49 : Number(proofBudget);
+if (![47, 49].includes(maxProofContentBytes)) throw new Error("fixture_proof_budget_invalid");
 if (!dir || !/^[0-9a-f]{64}$/.test(peer ?? "")) throw new Error("fixture_arguments_required");
 const key = generateSecretKey();
 const record = { id: "fixture", userNpub: "fixture-owner", botNpub: "fixture-bot", botPubkeyHex: getPublicKey(key) } as BotKeyRecord;
@@ -18,7 +20,7 @@ const signer = new ApplicationSigner(join(dir, "grants.db"), () => record, vault
 const issued = signer.register(record.userNpub, record.botNpub, record.botPubkeyHex, {
   methods: ["get_public_key", "sign_event", "nip44_encrypt", "nip44_decrypt"],
   peers: [peer!],
-  kindRules: [0, 450].map(kind => ({ kind, maxContentBytes: 4096, maxTags: 16, maxTagBytes: 4096,
+  kindRules: [0, 450].map(kind => ({ kind, maxContentBytes: kind === 450 ? maxProofContentBytes : 4096, maxTags: 16, maxTagBytes: 4096,
     allowedTagNames: ["d", "extension", "version", "component", "ciphersuite", "signature_scheme", "mls_signature_key", "x", "p"] })),
 });
 const credentialFile = join(dir, "application.credential");
