@@ -39,7 +39,9 @@ async function postMessage(input: SessionAgentMessageInput, agentUrl: string | U
       method: "POST",
       redirect: "manual",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ type: input.type, content: input.content, deliveryId: input.deliveryId }),
+      // AgentAPI's strict message schema accepts only type and content. The
+      // delivery ID belongs to Autopilot's durable claim, not this transport.
+      body: JSON.stringify({ type: input.type, content: input.content }),
       signal: controller.signal,
     });
   } finally {

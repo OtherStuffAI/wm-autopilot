@@ -24,6 +24,37 @@ const baseInput: Omit<SessionAgentMessageInput, "adapter" | "agent"> = {
   type: "user",
 };
 
+test("queued prompts satisfy AgentAPI's strict message schema without losing the send boundary", async () => {
+  const received: unknown[] = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      const body = await request.json() as Record<string, unknown>;
+      received.push(body);
+      if (Object.keys(body).some((key) => key !== "type" && key !== "content")) {
+        return new Response('{"error":"unexpected property"}', { status: 422 });
+      }
+      return new Response('{}');
+    },
+  });
+  const onSending = mock(() => undefined);
+  try {
+    const result = await deliverSessionAgentMessage({
+      ...baseInput,
+      agent: "claude",
+      port: server.port!,
+      deliveryId: "durable-queue-claim",
+      beforeSend: () => true,
+      onSending,
+    });
+    expect(result.certainty).toBe("accepted");
+    expect(received).toEqual([{ type: "user", content: "hello" }]);
+    expect(onSending).toHaveBeenCalledTimes(1);
+  } finally {
+    server.stop(true);
+  }
+});
+
 describe("deliverSessionAgentMessage adapter routing", () => {
   test("routes prompts to the adapter when it delivers prompts directly", async () => {
     const sent: string[] = [];
