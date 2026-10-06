@@ -12,10 +12,31 @@ with `{botNpub, expectedPubkey, policy:{methods, kindRules, peers, allowAnyPeer}
 owner may register it. Verify the live broker identity immediately beforehand.
 Registration requires both the existing Autopilot administrator gate
 (`SystemManage`, effective admin identity) and that same effective caller being
-the bot key's recorded owner. For this bot, Pete must sign in as an administrator
-under his own identity. A broker-signed Rick NIP-98 request preserves Rick as the
-caller; advisory owner/delegation metadata does not become Pete's authority.
+the bot key's recorded owner. For remote registration of this bot, Pete must sign
+in as an administrator under his own identity. A broker-signed Rick NIP-98 request
+preserves Rick as the caller; advisory owner/delegation metadata does not become Pete's authority.
 Neither an unrelated administrator nor an ordinary non-admin owner can register.
+An explicitly authorized host operator can instead use the local management CLI:
+
+```sh
+bun clis/wingman-application.ts register --request-file <private-request.json> \
+  --credential-file <new-private-credential> --data-dir <existing-autopilot-data> \
+  --master-key-file <existing-broker-master>
+```
+
+All paths are absolute. The request adds `ownerNpub` to the remote registration
+payload as an expected ownership assertion. The CLI checks that assertion and
+public identity against the active local bot record, verifies existing vault
+custody, and registers through the same durable application signer. It requires
+the existing grant database (activate Autopilot first), existing private master
+and envelope files, and host-UID ownership. It never provisions a key or signs as
+the owner. This is local host administration under the documented same-UID
+boundary; it confers no remote management authority. Use only for the explicitly
+authorized application. The credential is written directly to an exclusively
+created 0600 file; an existing output is refused. A failed capture revokes the
+new grant. Output contains only grant ID, public identity, methods and kinds,
+never the credential or relay-bearing policy. Store the grant ID privately for
+revocation through the owner/admin API.
 Grant DB/WAL/SHM files must be owned by the host UID with private modes; unsafe
 existing sidecars fail startup.
 The response returns `{grant, credential}` once; write the credential to an

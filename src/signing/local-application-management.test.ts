@@ -1,0 +1,69 @@
+import { afterEach, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
+import { BotKeyStore } from "../identity/bot-key-store";
+import { ApplicationSigner, type ApplicationGrantPolicy } from "./application-signer";
+import { BrokerKeyVault } from "./broker-key-vault";
+import { registerLocalApplication } from "./local-application-management";
+
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+function fixture() {
+  const dataDir = mkdtempSync(join(tmpdir(), "local-app-management-"));
+  roots.push(dataDir);
+  const store = new BotKeyStore(join(dataDir, "bot-keys.db"));
+  const key = generateSecretKey();
+  const pubkey = getPublicKey(key);
+  const record = store.createKey({ userNpub: "owner", botNpub: nip19.npubEncode(pubkey), botPubkeyHex: pubkey,
+    displayName: "test", encryptedToUser: "test", encryptedEscrow: "test", escrowUuid: "test" });
+  const vault = new BrokerKeyVault({ dataDir });
+  vault.provision(record, key);
+  key.fill(0);
+  const signer = new ApplicationSigner(join(dataDir, "application-grants.db"), npub => store.getActiveKeyForBotNpub(npub), vault);
+  signer.close();
+  vault.destroy();
+  mkdirSync(join(dataDir, "private"), { mode: 0o700 });
+  return { dataDir, record, credentialFile: join(dataDir, "private", "credential"),
+    masterKeyPath: join(dataDir, "broker-vault", "master.key"), ownerNpub: record.userNpub,
+    botNpub: record.botNpub, expectedPubkey: record.botPubkeyHex,
+    policy: { methods: ["get_public_key"], kindRules: [], peers: [] } as ApplicationGrantPolicy };
+}
+test("local grant uses existing custody and captures a private credential without replacing output", async () => {
+  const input = fixture();
+  const grant = await registerLocalApplication(input);
+  expect(grant.pubkey).toBe(input.expectedPubkey);
+  expect(statSync(input.credentialFile).mode & 0o777).toBe(0o600);
+  expect(statSync(input.credentialFile).nlink).toBe(1);
+  const credential = readFileSync(input.credentialFile, "utf8").trim();
+  const vault = new BrokerKeyVault({ dataDir: input.dataDir });
+  const signer = new ApplicationSigner(join(input.dataDir, "application-grants.db"), () => input.record, vault);
+  try {
+    expect(await signer.execute({ id: "1", credential, method: "get_public_key", params: {} })).toBe(input.expectedPubkey);
+    await expect(registerLocalApplication(input)).rejects.toThrow();
+    expect(readFileSync(input.credentialFile, "utf8").trim()).toBe(credential);
+    signer.revoke(input.ownerNpub, grant.id);
+    await expect(signer.execute({ id: "2", credential, method: "get_public_key", params: {} })).rejects.toThrow("unauthorized");
+  } finally { signer.close(); vault.destroy(); }
+});
+test("local grant refuses mismatched ownership and never creates missing custody", async () => {
+  const input = fixture();
+  await expect(registerLocalApplication({ ...input, ownerNpub: "another-owner" })).rejects.toThrow("identity_denied");
+  expect(existsSync(input.credentialFile)).toBe(false);
+  unlinkSync(input.masterKeyPath);
+  await expect(registerLocalApplication(input)).rejects.toThrow();
+  expect(existsSync(input.masterKeyPath)).toBe(false);
+  expect(existsSync(input.credentialFile)).toBe(false);
+});
+test("local capture refuses symlink outputs and cleans up a rejected policy", async () => {
+  const input = fixture();
+  symlinkSync(input.masterKeyPath, input.credentialFile);
+  await expect(registerLocalApplication(input)).rejects.toThrow();
+  expect(statSync(input.masterKeyPath).size).toBe(32);
+  unlinkSync(input.credentialFile);
+  await expect(registerLocalApplication({ ...input, policy: { ...input.policy, kindRules: [
+    { kind: 445, maxContentBytes: 0, maxTags: 0, maxTagBytes: 0, allowedTagNames: [] },
+  ] } })).rejects.toThrow("invalid_policy");
+  expect(existsSync(input.credentialFile)).toBe(false);
+});
