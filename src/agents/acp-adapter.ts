@@ -33,11 +33,14 @@ export interface AcpAdapterProfile {
   env: Record<string, string>;
   protocolVersion?: string | number;
   sessionId?: string | null;
+  resumeMethod?: "session/load" | "session/resume";
+  processWorkingDirectory?: string;
   mcpServers?: Array<Record<string, unknown>>;
   cancelIsNotification?: boolean;
   aggregateAutoApprovedPermissions?: boolean;
   rollIntermediateAgentMessages?: boolean;
   configureSession?: (client: AcpProcessClient, sessionId: string, response: AcpResponse) => Promise<AcpResponse | void>;
+  formatError?: (error: Error) => Error;
   formatStartupError?: (error: Error) => Error;
 }
 
@@ -210,7 +213,7 @@ export class AcpAdapter implements AgentAdapter {
     const client = new AcpProcessClient({
       command: this.profile.command,
       args: this.profile.args,
-      workingDirectory,
+      workingDirectory: this.profile.processWorkingDirectory ?? workingDirectory,
       env: this.profile.env,
       label: `${this.profile.agentName} ACP`,
     });
@@ -231,17 +234,21 @@ export class AcpAdapter implements AgentAdapter {
       if (negotiatedVersion !== null && negotiatedVersion !== protocolVersion) {
         throw new Error(`${this.profile.agentName} ACP negotiated unsupported protocol ${negotiatedVersion}`);
       }
-      if (this.sessionId && !supportsSessionLoad(init.result)) {
-        throw new Error(`${this.profile.agentName} ACP does not advertise session/load support`);
+      const resumeMethod = this.profile.resumeMethod ?? "session/load";
+      const supportsResume = resumeMethod === "session/resume"
+        ? supportsSessionResume(init.result)
+        : supportsSessionLoad(init.result);
+      if (this.sessionId && !supportsResume) {
+        throw new Error(`${this.profile.agentName} ACP does not advertise ${resumeMethod} support`);
       }
-      const sessionMethod = this.sessionId ? "session/load" : "session/new";
+      const sessionMethod = this.sessionId ? resumeMethod : "session/new";
       const sessionParams = this.sessionId
         ? { sessionId: this.sessionId, cwd: workingDirectory, mcpServers: this.profile.mcpServers ?? [] }
         : { cwd: workingDirectory, mcpServers: this.profile.mcpServers ?? [] };
       const sessionResponse = await client.request(
         sessionMethod,
         sessionParams,
-        sessionMethod === "session/load" ? { timeoutMs: null } : undefined,
+        sessionMethod !== "session/new" ? { timeoutMs: null } : undefined,
       );
       this.assertSuccess(sessionResponse, sessionMethod);
       const returnedSessionId = readString(sessionResponse.result, "sessionId") ?? this.sessionId;
@@ -373,7 +380,8 @@ export class AcpAdapter implements AgentAdapter {
   }
 
   private fail(error: unknown): void {
-    this.failure = error instanceof Error ? error : new Error(String(error));
+    const failure = error instanceof Error ? error : new Error(String(error));
+    this.failure = this.profile.formatError?.(failure) ?? failure;
     if (this.state !== "disposed") this.state = "failed";
     this.emit({ type: "status", status: null });
   }
@@ -511,4 +519,10 @@ function supportsSessionLoad(value: unknown): boolean {
   if (data.loadSession === true) return true;
   const sessions = data.sessionCapabilities;
   return Boolean(sessions && typeof sessions === "object" && ((sessions as Record<string, unknown>).load === true || (sessions as Record<string, unknown>).resume === true));
+}
+
+function supportsSessionResume(value: unknown): boolean {
+  const capabilities = readRecord(readRecord(value).agentCapabilities);
+  const sessions = readRecord(capabilities.sessionCapabilities);
+  return Boolean(sessions.resume && typeof sessions.resume === "object");
 }

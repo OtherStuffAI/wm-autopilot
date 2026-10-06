@@ -1,0 +1,8 @@
+# Applied last, after DeepSeek's ACP profile and user configuration.
+# Session contents must stay local to Wingman and the selected model provider.
+- id: session-log-deepseek
+  disabled: true
+- id: session-telemetry-otel
+  disabled: true
+- id: product-telemetry-otel
+  disabled: true

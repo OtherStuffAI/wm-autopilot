@@ -284,7 +284,9 @@ export const createSessionDialogController = (options) => {
     if (modelHelp) {
       modelHelp.textContent = agentId === "maple"
         ? "Maple Desktop owns the model choice. Autopilot lists its available models but ACP v1 cannot observe or enforce the selection. Choose the same model in Maple Desktop before launching."
-        : "Optional model override for the selected harness.";
+        : agentId === "deepseek"
+          ? "Uses the installed DeepSeek Harness ACP profile’s default model. Configure the DeepSeek API key and pinned executable in Instance Settings."
+          : "Optional model override for the selected harness.";
     }
   };
 

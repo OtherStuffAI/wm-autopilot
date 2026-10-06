@@ -356,6 +356,9 @@ function createDefaultAgents(
       type: "goose",
       modelOptions: GOOSE_MODEL_OPTIONS,
     }),
+    deepseek: withAgentCommand(agentApiBinary, "DeepSeek Harness", readEnvValue(env, "DEEPSEEK_ACP_CLI") ?? "dsh", {
+      modelOptions: ["default"],
+    }),
     maple: withAgentCommand(
       agentApiBinary,
       "Maple Desktop",

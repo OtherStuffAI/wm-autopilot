@@ -457,3 +457,9 @@ describe("loadConfig", () => {
     expect(config.subdomainProxyEnabled).toBe(true);
   });
 });
+
+test("DeepSeek Harness is advertised with its profile default", () => {
+  const config = loadConfig();
+  expect(config.agents.deepseek.label).toBe("DeepSeek Harness");
+  expect(config.agents.deepseek.modelOptions).toEqual(["default"]);
+});

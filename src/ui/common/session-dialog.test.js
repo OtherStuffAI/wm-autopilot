@@ -92,3 +92,16 @@ describe('session dialog model options', () => {
     expect(controller.collectValues().metadata).toBeNull();
   });
 });
+
+test('DeepSeek selector uses the API catalogue and keeps provider default coherent', () => {
+  expect(getModelOptionsForAgent({ agents: [{ id: 'deepseek', label: 'DeepSeek Harness', modelOptions: ['default'] }] }, 'deepseek')).toEqual(['default']);
+  const controller = createSessionDialogController({
+    agentSelect: { value: 'deepseek', addEventListener: () => {} },
+    directoryInput: { value: '/tmp/project', addEventListener: () => {} },
+    directoryFavoritesSelect: { value: '', addEventListener: () => {} },
+    modelSelect: { value: 'default' }, sessionNameInput: { value: 'Harness' },
+    acpPermissionPolicySelect: { value: 'ask' }, onSubmit: () => {},
+    isAuthenticated: () => true, getConfig: () => null, getFallbackDirectory: () => '/tmp/project',
+  });
+  expect(controller.collectValues()).toMatchObject({ agentId: 'deepseek', metadata: { acpPermissionPolicy: 'ask' } });
+});

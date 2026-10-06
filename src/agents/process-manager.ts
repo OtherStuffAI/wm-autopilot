@@ -43,6 +43,7 @@ import {
   waitForStatus,
 } from "./pm2-wrapper";
 import { injectMcpConfig, cleanupMcpConfig } from "./mcp-injector";
+import { buildDeepSeekAdapterContext } from "./deepseek-session-context";
 import { stopManagedSubprocess } from "./process-stop";
 import { waitForAgentApiLaunchReady } from "./agentapi-launch-readiness";
 import { buildWingmanIdentityEnv, loadWingmanInstanceIdentity } from "../identity/wingman-instance-identity";
@@ -114,19 +115,20 @@ export function buildBunAgentLaunchCommand(
 }
 
 export function transportSkipsAgentApiSpawn(transport: AgentTransport): boolean {
-  return ["codex-acp", "codex-sdk", "goose-acp", "maple-acp", "pi-acp"].includes(transport);
+  return ["codex-acp", "codex-sdk", "goose-acp", "maple-acp", "deepseek-acp", "pi-acp"].includes(transport);
 }
 
 export function transportRequiresEagerReadiness(transport: AgentTransport): boolean {
   return transport === "codex-acp" ||
     transport === "goose-acp" ||
+    transport === "deepseek-acp" ||
     transport === "maple-acp" ||
     transport === "pi-acp" ||
     transport === "opencode-sdk";
 }
 
 export function transportUsesAcpPermissionPolicy(transport: AgentTransport): boolean {
-  return transport === "codex-acp" || transport === "goose-acp" || transport === "maple-acp" || transport === "pi-acp";
+  return transport === "codex-acp" || transport === "goose-acp" || transport === "deepseek-acp" || transport === "maple-acp" || transport === "pi-acp";
 }
 
 export function resolveNewSessionAcpPermissionPolicy(
@@ -1016,6 +1018,7 @@ export class ProcessManager {
         piOpenRouterApiKey: agent === "pi" && agentTransport === "pi-acp"
           ? instanceSettingsService.get("integrations.openrouter_api_key") || undefined
           : undefined,
+        ...buildDeepSeekAdapterContext(session),
         mapleAcpCli: agent === "maple"
           ? instanceSettingsService.get("agents.maple_acp_cli") || resolveWrappedAgentCli(session.command)
           : undefined,
@@ -1100,7 +1103,7 @@ export class ProcessManager {
     let rehydratedMetadata = normaliseSessionMetadata(input.metadata);
     const agentTransport = resolveAgentTransport(input.agent, rehydratedMetadata.agentTransport);
     const rehydratedAcpPermissionPolicy = rehydratedMetadata.acpPermissionPolicy
-      ?? (agentTransport === "maple-acp" ? DEFAULT_ACP_PERMISSION_POLICY : LEGACY_ACP_PERMISSION_POLICY);
+      ?? (["maple-acp", "deepseek-acp"].includes(agentTransport) ? DEFAULT_ACP_PERMISSION_POLICY : LEGACY_ACP_PERMISSION_POLICY);
     rehydratedMetadata = normaliseSessionMetadata({
       ...rehydratedMetadata,
       agentTransport,
@@ -1180,6 +1183,7 @@ export class ProcessManager {
       piOpenRouterApiKey: input.agent === "pi" && agentTransport === "pi-acp"
         ? instanceSettingsService.get("integrations.openrouter_api_key") || undefined
         : undefined,
+      ...buildDeepSeekAdapterContext(session),
       mapleSessionId: session.metadata.nativeAgentSession?.agent === "maple"
         ? session.metadata.nativeAgentSession.sessionId
         : undefined,

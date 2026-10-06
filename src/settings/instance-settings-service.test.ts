@@ -44,6 +44,17 @@ describe("InstanceSettingsService", () => {
     expect(store.get("integrations.gitea_url")).toBe("https://git.example.test");
   });
 
+  test("stores DeepSeek credentials as masked secrets and requires an absolute pinned runtime path", () => {
+    service.set("integrations.deepseek_api_key", "deepseek-test-secret-unique-value");
+    const setting = service.listMaskedSettings({}).find((item) => item.key === "integrations.deepseek_api_key");
+    expect(setting?.secret).toBe(true);
+    expect(setting?.value).toBeNull();
+    expect(setting?.maskedValue).not.toContain("deepseek-test-secret-unique-value");
+    expect(readFileSync(join(tempDir, "settings.sqlite")).includes(Buffer.from("deepseek-test-secret-unique-value"))).toBe(false);
+    expect(() => service.set("agents.deepseek_acp_cli", "dsh")).toThrow("absolute path");
+    expect(service.set("agents.deepseek_acp_cli", "/opt/deepseek/0.2.0-rc.2/bin/dsh").value).toBe("/opt/deepseek/0.2.0-rc.2/bin/dsh");
+  });
+
   test("persists and validates the ACP permission default", () => {
     expect(service.get("agents.acp_permission_policy", {})).toBeNull();
     expect(service.set("agents.acp_permission_policy", " ASK ").value).toBe("ask");

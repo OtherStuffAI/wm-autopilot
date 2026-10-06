@@ -63,6 +63,10 @@ export interface AdapterSessionContext {
   piAcpCli?: string;
   /** OpenRouter credential injected into the Pi ACP subprocess without persisting it in session metadata. */
   piOpenRouterApiKey?: string;
+  /** Absolute pinned DeepSeek Harness executable path. */
+  deepseekAcpCli?: string;
+  deepseekApiKey?: string;
+  deepseekSessionId?: string;
   /** Absolute packaged Maple Desktop executable path. */
   mapleAcpCli?: string;
   /** Maple ACP session ID for native session resume. */
@@ -168,7 +172,7 @@ export const OPENCODE_NATIVE_SDK_FLAG = "opencode-use-native-sdk";
 export const GOOSE_NATIVE_ACP_FLAG = "goose-use-native-acp";
 export const PI_ACP_FLAG = "pi-use-acp";
 
-export type AgentTransport = "agentapi" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
+export type AgentTransport = "agentapi" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "deepseek-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
 
 /** Whether the native `@openai/codex-sdk` adapter is the active Codex transport. */
 export function isCodexNativeSdkEnabled(): boolean {
@@ -198,6 +202,7 @@ export function isPiAcpEnabled(): boolean {
  */
 export function resolveAgentTransport(agent: AgentType, pinned?: string | null): AgentTransport {
   if (isCompatibleTransport(agent, pinned)) return pinned;
+  if (agent === "deepseek") return "deepseek-acp";
   if (agent === "maple") return "maple-acp";
   if (agent === "codex") return resolveCodexTransport(isCodexAcpEnabled(), isCodexNativeSdkEnabled());
   if (agent === "opencode") {
@@ -275,6 +280,13 @@ export function resolveAdapterFactory(agent: AgentType, transport = resolveAgent
     };
   }
 
+  if (transport === "deepseek-acp") {
+    return (context: AdapterSessionContext) => {
+      const { DeepSeekAcpAdapter } = require("./deepseek-acp-adapter") as typeof import("./deepseek-acp-adapter");
+      return new DeepSeekAcpAdapter(context);
+    };
+  }
+
   if (transport === "maple-acp") {
     return (context: AdapterSessionContext) => {
       const { MapleAcpAdapter } = require("./maple-acp-adapter") as typeof import("./maple-acp-adapter");
@@ -290,6 +302,7 @@ export function resolveAdapterFactory(agent: AgentType, transport = resolveAgent
 }
 
 function isCompatibleTransport(agent: AgentType, value: string | null | undefined): value is AgentTransport {
+  if (agent === "deepseek") return value === "deepseek-acp";
   if (value === "agentapi") return true;
   if (agent === "codex") return value === "codex-acp" || value === "codex-sdk";
   if (agent === "goose") return value === "goose-acp";

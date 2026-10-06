@@ -7,7 +7,7 @@ export interface SessionMetadata {
   AGENT: boolean;
   billingMode: "subscription" | "credits";
   /** Transport selected at session creation/rehydration; never changed in place. */
-  agentTransport?: "agentapi" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
+  agentTransport?: "agentapi" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "deepseek-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
   /** Effective ACP runtime permission policy, fixed for the lifetime of this session. */
   acpPermissionPolicy?: AcpPermissionPolicy;
   nativeAgentSession?: NativeAgentSessionMetadata;
@@ -110,6 +110,7 @@ const AGENT_TRANSPORTS = new Set([
   "codex-sdk",
   "goose-acp",
   "maple-acp",
+  "deepseek-acp",
   "opencode-sdk",
   "pi-acp",
   "pi-native",

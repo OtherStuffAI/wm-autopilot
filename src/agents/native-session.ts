@@ -8,7 +8,7 @@ import {
 } from "../sessions/session-metadata";
 import type { AgentAdapter } from "./agent-adapter";
 
-const NATIVE_RESUME_AGENTS = new Set<AgentType>(["claude", "codex", "goose", "maple", "opencode", "pi"]);
+const NATIVE_RESUME_AGENTS = new Set<AgentType>(["claude", "codex", "goose", "maple", "deepseek", "opencode", "pi"]);
 
 export function supportsNativeSessionResume(agent: AgentType): boolean {
   return NATIVE_RESUME_AGENTS.has(agent);
@@ -94,7 +94,7 @@ export function getAdapterNativeSessionId(
     const candidate = adapter as AgentAdapter & { getSessionId?: () => string | null };
     return candidate.getSessionId?.() ?? null;
   }
-  if (agent === "goose" || agent === "maple" || agent === "pi") {
+  if (agent === "deepseek" || agent === "goose" || agent === "maple" || agent === "pi") {
     const candidate = adapter as AgentAdapter & { getSessionId?: () => string | null };
     return candidate.getSessionId?.() ?? null;
   }
