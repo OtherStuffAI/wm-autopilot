@@ -1,3 +1,6 @@
+import { startWhiteNoiseBridge } from "./white-noise/bridge-runtime";
+import { ApplicationSigner } from "./signing/application-signer";
+import { listenUnixSigner } from "./signing/unix-signer";
 import { createDirectChatEnrichmentService } from "./agent-chat/direct-chat-enrichment-service.ts";
 import { createWalletRuntime } from "./wallets/wallet-runtime.ts";
 import { flightDeckSessionTransportBinding } from "./agent-chat/flightdeck-session-transport";
@@ -851,6 +854,10 @@ const capabilityBroker = new CapabilityBroker({
   gitCredential: towerGitCredentialBroker,
   wallet: walletRuntime.adapter,
 });
+const applicationSigner = new ApplicationSigner(join(wingmanDataDir, "application-grants.db"),
+  (npub) => botKeyStore.getActiveKeyForBotNpub(npub), brokerKeyVault);
+const unixSigner = process.env.WINGMAN_SIGNER_SOCKET
+  ? await listenUnixSigner(process.env.WINGMAN_SIGNER_SOCKET, applicationSigner) : null;
 const sessionCapabilityIssuer = new SessionCapabilityIssuer({
   broker: capabilityBroker,
   getWalletPolicy: walletRuntime.getPolicy,
@@ -3048,6 +3055,7 @@ const handleApi = createApiRouteHandler({
     AccessActions,
   },
   signingPolicyRoutesContext: {
+    applicationSigner,
     registry: signingPolicyRegistry,
     listCapabilities: () => capabilityBroker.listActiveCapabilities(),
     buildBaselinePolicy: (ownerNpub) => buildDefaultAgentCapabilityPolicy({
@@ -3377,6 +3385,10 @@ const stopAllSessions = async () => {
   }
 };
 
+const whiteNoiseBridge = process.env.WINGMAN_WHITE_NOISE_CONFIG
+  ? startWhiteNoiseBridge(process.env.WINGMAN_WHITE_NOISE_CONFIG, wingmanDataDir, () => manager,
+    (code) => writeServerLog("WARN", "[white-noise]", { code })) : null;
+
 let shuttingDown = false;
 const initiateShutdown = async (reason: string) => {
   if (shuttingDown) return;
@@ -3389,6 +3401,9 @@ const initiateShutdown = async (reason: string) => {
     console.warn(`[shutdown] failed to stop scheduler engine: ${error instanceof Error ? error.message : String(error)}`);
   }
 
+  await whiteNoiseBridge?.close();
+  await unixSigner?.close();
+  applicationSigner.close();
   agentProfileMetadataCache.stop();
 
   try {

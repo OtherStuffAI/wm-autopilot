@@ -13,9 +13,6 @@ import {
   type ThreadOptions,
   type Thread,
   type ThreadEvent,
-  type ThreadItem,
-  type AgentMessageItem,
-  type Usage,
 } from "@openai/codex-sdk";
 
 import type {
@@ -40,30 +37,8 @@ interface CollectedMessage {
 
 type AdapterState = "initializing" | "ready" | "busy" | "disposed";
 
-/**
- * Codex turn/stream errors arrive as a string that is often a JSON envelope
- * like `{"detail":"..."}`. Unwrap it to the human-readable message.
- */
-export function extractCodexErrorMessage(raw: string | undefined | null): string {
-  const fallback = "Codex turn failed";
-  if (!raw) return fallback;
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(trimmed) as { detail?: unknown; message?: unknown };
-      const detail =
-        typeof parsed.detail === "string"
-          ? parsed.detail
-          : typeof parsed.message === "string"
-            ? parsed.message
-            : null;
-      if (detail) return detail;
-    } catch {
-      // Not JSON after all — fall through to the raw string.
-    }
-  }
-  return trimmed || fallback;
-}
+export { extractCodexErrorMessage } from "./codex-turn-runner";
+import { runCodexTurn } from "./codex-turn-runner";
 
 // ---------------------------------------------------------------------------
 // CodexAdapter
@@ -161,6 +136,16 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   async sendMessage(content: string, _type = "user"): Promise<void> {
+    await this.runMessage(content, false);
+  }
+
+  /** Resolves only after a successful native turn.completed event. */
+  async sendCompletedMessage(content: string): Promise<string> {
+    if (this.state !== "ready") throw new Error("Codex completed-turn adapter is not ready");
+    return await this.runMessage(content, true);
+  }
+
+  private async runMessage(content: string, requireCompletion: boolean): Promise<string> {
     if (this.state === "disposed") {
       throw new Error("CodexAdapter has been disposed");
     }
@@ -185,88 +170,24 @@ export class CodexAdapter implements AgentAdapter {
     const abortController = new AbortController();
     this.currentAbort = abortController;
 
-    // Codex can emit commentary and a final answer as separate agent_message
-    // items. The SDK's run() uses the last completed item as finalResponse.
-    // Keep the current item in the live bubble without joining earlier items.
-    let currentAgentText = "";
-    let finalText = "";
     let assistantCreatedAt: string | null = null;
-    let usage: Usage | null = null;
-    let turnError: string | null = null;
-
-    const emitAssistant = () => {
-      if (!assistantCreatedAt) {
-        assistantCreatedAt = new Date().toISOString();
-      }
-      // Expose the growing bubble to fetchMessages() so polled snapshots and
-      // page refreshes mid-turn include the in-flight assistant text.
-      this.pendingAssistant = { role: "assistant", content: currentAgentText, createdAt: assistantCreatedAt };
-      this.emitStream({
-        type: "message",
-        message: { role: "assistant", content: currentAgentText, createdAt: assistantCreatedAt },
-      });
-    };
-
     try {
-      const { events } = await this.thread.runStreamed(content, {
+      const { finalText, usage } = await runCodexTurn(this.thread, content, {
         signal: abortController.signal,
+        requireCompletion,
+        onThreadId: (id) => { this.threadId = id; this.context.onNativeSessionId?.(id); },
+        onEvent: (event) => {
+          for (const listener of this.eventListeners) {
+            try { listener(event); } catch { /* Subscriber failure cannot interrupt the turn. */ }
+          }
+        },
+        onAssistant: (text) => {
+          assistantCreatedAt ??= new Date().toISOString();
+          const message = { role: "assistant" as const, content: text, createdAt: assistantCreatedAt };
+          this.pendingAssistant = message;
+          this.emitStream({ type: "message", message });
+        },
       });
-
-      // Capture the thread ID after the first turn if not yet stored
-      if (!this.threadId && this.thread.id) {
-        this.threadId = this.thread.id;
-        this.context.onNativeSessionId?.(this.threadId);
-      }
-
-      for await (const event of events) {
-        // Broadcast raw events to any registered onEvent() listeners.
-        for (const listener of this.eventListeners) {
-          try {
-            listener(event);
-          } catch {
-            // Non-fatal: listener errors don't interrupt the stream
-          }
-        }
-
-        // Capture thread ID from thread.started event
-        if (event.type === "thread.started") {
-          this.threadId = event.thread_id;
-          this.context.onNativeSessionId?.(this.threadId);
-          continue;
-        }
-
-        // Stream assistant text as it is produced (started → updated → completed).
-        if (
-          event.type === "item.started" ||
-          event.type === "item.updated" ||
-          event.type === "item.completed"
-        ) {
-          const item = event.item as ThreadItem;
-          if (item.type === "agent_message") {
-            currentAgentText = (item as AgentMessageItem).text;
-            if (currentAgentText) emitAssistant();
-            if (event.type === "item.completed") finalText = currentAgentText;
-          }
-          continue;
-        }
-
-        // Capture usage from turn completion
-        if (event.type === "turn.completed") {
-          usage = event.usage;
-        }
-
-        // Surface a clear turn/stream failure rather than the SDK's generic
-        // "Codex Exec exited with code 1" wrapper.
-        if (event.type === "turn.failed") {
-          turnError = extractCodexErrorMessage(event.error?.message);
-        } else if (event.type === "error") {
-          turnError = extractCodexErrorMessage(event.message);
-        }
-      }
-
-      if (turnError) {
-        throw new Error(turnError);
-      }
 
       // Report usage to billing ledger
       if (usage && this.context.recordUsage) {
@@ -289,6 +210,7 @@ export class CodexAdapter implements AgentAdapter {
           createdAt: assistantCreatedAt ?? new Date().toISOString(),
         });
       }
+      return finalText;
     } catch (error) {
       if (
         abortController.signal.aborted ||
@@ -297,11 +219,6 @@ export class CodexAdapter implements AgentAdapter {
         const interrupted = new Error("Agent turn interrupted.");
         (interrupted as Error & { code?: string }).code = "agent_turn_interrupted";
         throw interrupted;
-      }
-      // Prefer the turn/stream error captured from the event stream over the
-      // SDK's generic "Codex Exec exited with code 1" wrapper.
-      if (turnError) {
-        throw new Error(turnError);
       }
       throw error;
     } finally {

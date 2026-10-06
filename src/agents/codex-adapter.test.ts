@@ -183,3 +183,32 @@ describe("CodexAdapter.fetchMessages in-flight assistant", () => {
     ]);
   });
 });
+
+
+test("completed message rejects final text without native turn completion", async () => {
+  const stream = createControlledStream();
+  const thread = { id: "completion-thread", runStreamed: mock(async () => ({ events: stream.events })) };
+  mock.module("@openai/codex-sdk", () => ({ Codex: class { startThread() { return thread; } } }));
+  const adapter = new CodexAdapter({ id: "completion-session", port: 3700, agent: "codex", host: "127.0.0.1", workingDirectory: "/tmp", env: {} });
+  await adapter.waitForReady({ timeoutMs: 1000, pollIntervalMs: 10 });
+  const turn = adapter.sendCompletedMessage("input");
+  await flush();
+  stream.emit({ type: "item.completed", item: { id: "final", type: "agent_message", text: "Premature text" } });
+  stream.end();
+  await expect(turn).rejects.toThrow("Native completed assistant output missing");
+});
+
+test("completed message returns only final text after native completion", async () => {
+  const stream = createControlledStream();
+  const thread = { id: "completion-thread", runStreamed: mock(async () => ({ events: stream.events })) };
+  mock.module("@openai/codex-sdk", () => ({ Codex: class { startThread() { return thread; } } }));
+  const adapter = new CodexAdapter({ id: "completion-session", port: 3700, agent: "codex", host: "127.0.0.1", workingDirectory: "/tmp", env: {} });
+  await adapter.waitForReady({ timeoutMs: 1000, pollIntervalMs: 10 });
+  const turn = adapter.sendCompletedMessage("input");
+  await flush();
+  stream.emit({ type: "item.completed", item: { id: "commentary", type: "agent_message", text: "Thinking" } });
+  stream.emit({ type: "item.completed", item: { id: "final", type: "agent_message", text: "Completed text" } });
+  stream.emit({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+  stream.end();
+  expect(await turn).toBe("Completed text");
+});

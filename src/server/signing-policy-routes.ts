@@ -1,3 +1,5 @@
+import type { ApplicationSigner } from "../signing/application-signer";
+import { handleApplicationSignerManagement } from "../signing/application-signer-management";
 import type { AccessAction } from "../auth/access-control";
 import type { RequestAuthContext } from "../auth/request-context";
 import type { ActiveSessionCapability, IssuedSessionCapability, SessionCapabilityPolicy } from "../signing/capability-broker";
@@ -13,6 +15,7 @@ import {
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
 export interface SigningPolicyRoutesContext {
+  applicationSigner?: ApplicationSigner;
   registry: SigningPolicyRegistry;
   listCapabilities: () => ActiveSessionCapability[];
   getActiveMode: () => AgentSigningModeSnapshot;
@@ -113,6 +116,10 @@ export async function handleSigningPolicyApi(
 
   const actorNpub = authContext.npub?.trim();
   if (!actorNpub) return Response.json({ error: "admin-only" }, { status: 403 });
+  if (ctx.applicationSigner) {
+    const response = await handleApplicationSignerManagement(request, url, actorNpub, ctx.applicationSigner);
+    if (response) return response;
+  }
   const base = "/api/admin/signing-policies";
   const suffix = url.pathname.slice(base.length).replace(/^\/+|\/+$/g, "");
   const parts = suffix ? suffix.split("/").map(decodeURIComponent) : [];
