@@ -521,6 +521,16 @@ export class FlightDeckPgClient {
     return await this.signedJson(action === 'status' ? 'GET' : action === 'publish' ? 'PUT' : 'DELETE', path, undefined, action === 'publish' ? {} : undefined);
   }
 
+  async attachmentBlossom(workspaceId: string, messageId: string, storageObjectId: string, action: 'status' | 'publish' | 'unpublish') {
+    const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(storageObjectId)}/blossom`;
+    if (action === 'status') return await this.signedJson('GET', path);
+    if (action === 'unpublish') return await this.signedJson('DELETE', path);
+    const status = await this.signedJson('GET', path) as { attachment?: { link_id?: string; sha256_hex?: string; available?: boolean } };
+    if (!status.attachment?.available || !status.attachment.sha256_hex) throw new FlightDeckPgResponseError(409, { code: 'storage_unavailable', error: 'Attachment bytes are incomplete or unavailable' }, 'Attachment publication');
+    return await this.signedJson('PUT', path, undefined, { public: true,
+      expected_link_id: status.attachment.link_id, expected_sha256: status.attachment.sha256_hex });
+  }
+
   async createAudio(workspaceId: string, channelId: string, path: string, contentType?: string | null) {
     const file = Bun.file(path);
     const content = new Uint8Array(await file.arrayBuffer());

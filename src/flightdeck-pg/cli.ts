@@ -170,6 +170,11 @@ async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagM
   if (area === 'doc' && action === 'reply') return await client.replyDoc(workspaceId, requiredArg(id, 'doc id'), requiredFlag(flags, '--body', 'body'), stringFlag(flags, '--comment'));
   if (area === 'files' && action === 'list') return await client.listFiles(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), limit);
   if (area === 'file' && action === 'upload') return await client.uploadFile(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), requiredFlag(flags, '--path', 'path'), stringFlag(flags, '--content-type'));
+  if (area === 'attachment' && ['blossom', 'publish', 'unpublish'].includes(action || '')) {
+    if (action === 'publish' && !flags.has('--public')) throw new Error('--public is required to acknowledge anonymous downloading and copying.');
+    return await client.attachmentBlossom(workspaceId, requiredFlag(flags, '--message', 'source message id'),
+      requiredArg(id, 'storage object id'), action === 'blossom' ? 'status' : action as 'publish' | 'unpublish');
+  }
   if (area === 'file' && ['blossom', 'publish', 'unpublish'].includes(action || '')) {
     if (action === 'publish' && !flags.has('--public')) throw new Error('Publishing makes these bytes anonymously public. Pass --public to confirm this consequence.');
     return await client.fileBlossom(workspaceId, requiredArg(id, 'file id'), action === 'blossom' ? 'status' : action as 'publish' | 'unpublish',
@@ -278,6 +283,9 @@ function commandUsesDispatchContext(args: string[]): boolean {
     'files:list',
     'file:upload',
     'file:show',
+    'attachment:blossom',
+    'attachment:publish',
+    'attachment:unpublish',
     'file:blossom',
     'file:publish',
     'file:unpublish',
@@ -458,6 +466,9 @@ Usage:
   bun clis/wingman.ts flightdeck doc create --workspace <workspace-id> --channel <channel-id> --title "..." --body-file file.md --json
   bun clis/wingman.ts flightdeck doc download <doc-ref> --workspace <workspace-id> --out ./tmp/design.md --json
   bun clis/wingman.ts flightdeck doc move <doc-id> --workspace <workspace-id> --destination-channel <channel-id> [--destination-scope <scope-id>] --json
+  bun clis/wingman.ts flightdeck attachment blossom <storage-id> --message <message-id> --workspace <workspace-id> --json
+  bun clis/wingman.ts flightdeck attachment publish <storage-id> --message <message-id> --public --workspace <workspace-id> --json
+  bun clis/wingman.ts flightdeck attachment unpublish <storage-id> --message <message-id> --workspace <workspace-id> --json
   bun clis/wingman.ts flightdeck file blossom <file-id> --workspace <workspace-id> --json
   bun clis/wingman.ts flightdeck file publish <file-id> --version <version-id> --public --workspace <workspace-id> --json
   bun clis/wingman.ts flightdeck file unpublish <file-id> --version <version-id> --workspace <workspace-id> --json
