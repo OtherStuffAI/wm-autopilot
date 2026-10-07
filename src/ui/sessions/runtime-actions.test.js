@@ -375,6 +375,68 @@ describe("session runtime actions", () => {
     delete globalThis.requestAnimationFrame;
   });
 
+  test("sendMessage never restores an accepted prompt after a refresh failure", async () => {
+    sessions = [{ id: "session-1", status: "running", agentRuntimeStatus: "stable" }];
+    globalThis.document = { querySelector: () => null };
+    globalThis.requestAnimationFrame = (callback) => callback();
+    const originalConsoleError = console.error;
+    console.error = mock(() => {});
+    fetchLogs = mock(async () => { throw new Error("log refresh failed"); });
+    try {
+      const result = await buildActions().sendMessage("session-1", "Already sent");
+      expect(result).toEqual({ sent: true, queued: false });
+      expect(state.messageDrafts.get("session-1")).toBe("");
+      expect(messageStore.removePendingMessage).not.toHaveBeenCalled();
+      expect(showToast).toHaveBeenCalledWith(
+        "Prompt accepted, but the session display could not refresh.", { variant: "error" },
+      );
+    } finally {
+      console.error = originalConsoleError;
+      delete globalThis.document;
+      delete globalThis.requestAnimationFrame;
+    }
+  });
+
+  test("sendMessage preserves a new draft typed while the accepted prompt is syncing", async () => {
+    sessions = [{ id: "session-1", status: "running", agentRuntimeStatus: "stable" }];
+    globalThis.document = { querySelector: () => null };
+    globalThis.requestAnimationFrame = (callback) => callback();
+    messageStore.syncFromServer = mock(async () => {
+      state.messageDrafts.set("session-1", "Next prompt");
+    });
+    try {
+      await expect(buildActions().sendMessage("session-1", "First prompt"))
+        .resolves.toEqual({ sent: true, queued: false });
+      expect(state.messageDrafts.get("session-1")).toBe("Next prompt");
+    } finally {
+      delete globalThis.document;
+      delete globalThis.requestAnimationFrame;
+    }
+  });
+
+  for (const queued of [false, true]) {
+    test(`sendMessage keeps an accepted ${queued ? "queued" : "direct"} prompt sent when local persistence fails`, async () => {
+      sessions = [{ id: "session-1", status: "running", agentRuntimeStatus: "stable" }];
+      postSessionMessageApi = mock(async () => queued
+        ? { queued: true, prompt: { id: "prompt-1", content: "Accepted" } }
+        : { messages: [] });
+      const fail = mock(async () => { throw new Error("local persistence failed"); });
+      if (queued) promptQueueStore.upsert = fail;
+      else messageStore.syncFromServer = fail;
+      const originalConsoleError = console.error;
+      console.error = mock(() => {});
+      try {
+        const result = await buildActions().sendMessage("session-1", "Accepted");
+        expect(result).toEqual(queued
+          ? { sent: false, queued: true, busy: true }
+          : { sent: true, queued: false });
+        expect(state.messageDrafts.get("session-1")).toBe("");
+      } finally {
+        console.error = originalConsoleError;
+      }
+    });
+  }
+
   test("sendMessage removes the pending row and restores the draft on a genuine failure", async () => {
     sessions = [{ id: "session-1", status: "running", agentRuntimeStatus: "stable" }];
     postSessionMessageApi = mock(async () => { throw new Error("transport failed"); });

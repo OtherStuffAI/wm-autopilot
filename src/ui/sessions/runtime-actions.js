@@ -305,6 +305,7 @@ export function createSessionRuntimeActions(deps) {
     }
 
     let pendingMessageId = null;
+    let acceptedResult = null;
     try {
       sessionMessageSendInFlight.add(sessionId);
       pendingMessageId = await MessageStore.addPendingUserMessage(sessionId, finalContent);
@@ -312,18 +313,17 @@ export function createSessionRuntimeActions(deps) {
       clearComposerTextarea(getComposerTextarea(), focusComposerTextarea, "send");
       const payload = await postSessionMessage(sessionId, finalContent, "user");
       if (payload?.queued && payload?.prompt) {
+        acceptedResult = { sent: false, queued: true, busy: true };
         if (pendingMessageId !== null) {
           await MessageStore.removePendingMessage(sessionId, pendingMessageId);
         }
         await PromptQueueStore.upsert(sessionId, payload.prompt);
-        state.messageDrafts.set(sessionId, "");
-        clearComposerTextarea(getComposerTextarea(), focusComposerTextarea, "queue");
         updateAgentStatusIndicators();
         return { sent: false, queued: true, busy: true };
       }
+      acceptedResult = { sent: true, queued: false };
       const messages = Array.isArray(payload?.messages) ? payload.messages : [];
       await MessageStore.syncFromServer(sessionId, messages);
-      state.messageDrafts.set(sessionId, "");
 
       const knightRider = document.querySelector(`.wm-knight-rider[data-session-id="${sessionId}"]`);
       if (knightRider) knightRider.classList.add("active");
@@ -337,6 +337,11 @@ export function createSessionRuntimeActions(deps) {
 
       return { sent: true, queued: false };
     } catch (error) {
+      if (acceptedResult) {
+        console.error("Failed to refresh accepted agent message", error);
+        showToast("Prompt accepted, but the session display could not refresh.", { variant: "error" });
+        return acceptedResult;
+      }
       const message =
         error instanceof Error && error.message ? error.message : "Failed to send message to agent.";
       const status = Number(error?.status ?? 0);
