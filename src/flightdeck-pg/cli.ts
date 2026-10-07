@@ -170,6 +170,11 @@ async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagM
   if (area === 'doc' && action === 'reply') return await client.replyDoc(workspaceId, requiredArg(id, 'doc id'), requiredFlag(flags, '--body', 'body'), stringFlag(flags, '--comment'));
   if (area === 'files' && action === 'list') return await client.listFiles(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), limit);
   if (area === 'file' && action === 'upload') return await client.uploadFile(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), requiredFlag(flags, '--path', 'path'), stringFlag(flags, '--content-type'));
+  if (area === 'file' && ['blossom', 'publish', 'unpublish'].includes(action || '')) {
+    if (action === 'publish' && !flags.has('--public')) throw new Error('Publishing makes these bytes anonymously public. Pass --public to confirm this consequence.');
+    return await client.fileBlossom(workspaceId, requiredArg(id, 'file id'), action === 'blossom' ? 'status' : action as 'publish' | 'unpublish',
+      action === 'blossom' ? undefined : requiredFlag(flags, '--version', 'selected file version id'));
+  }
   if (area === 'file' && action === 'show') return await client.showFile(workspaceId, requiredArg(id, 'file id'), flags.has('--object'));
   if (area === 'audio' && action === 'create') return await client.createAudio(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), requiredFlag(flags, '--file', 'file'), stringFlag(flags, '--content-type'));
   if (area === 'reactions' && action === 'create') return await client.createReaction(workspaceId, requiredFlag(flags, '--target', 'target'), requiredFlag(flags, '--emoji', 'emoji'));
@@ -273,6 +278,9 @@ function commandUsesDispatchContext(args: string[]): boolean {
     'files:list',
     'file:upload',
     'file:show',
+    'file:blossom',
+    'file:publish',
+    'file:unpublish',
     'audio:create',
     'reactions:create',
     'events:poll',
@@ -450,6 +458,9 @@ Usage:
   bun clis/wingman.ts flightdeck doc create --workspace <workspace-id> --channel <channel-id> --title "..." --body-file file.md --json
   bun clis/wingman.ts flightdeck doc download <doc-ref> --workspace <workspace-id> --out ./tmp/design.md --json
   bun clis/wingman.ts flightdeck doc move <doc-id> --workspace <workspace-id> --destination-channel <channel-id> [--destination-scope <scope-id>] --json
+  bun clis/wingman.ts flightdeck file blossom <file-id> --workspace <workspace-id> --json
+  bun clis/wingman.ts flightdeck file publish <file-id> --version <version-id> --public --workspace <workspace-id> --json
+  bun clis/wingman.ts flightdeck file unpublish <file-id> --version <version-id> --workspace <workspace-id> --json
   bun clis/wingman.ts flightdeck file upload --workspace <workspace-id> --channel <channel-id> --path ./artifact.png --json
   bun clis/wingman.ts flightdeck workroom show <workroom-id> --workspace <workspace-id> --json
   bun clis/wingman.ts flightdeck workroom event <workroom-id> --workspace <workspace-id> --type pr_ready --title "PR ready" --json

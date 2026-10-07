@@ -514,6 +514,13 @@ export class FlightDeckPgClient {
     return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/files/${encodeURIComponent(fileId)}${suffix}`);
   }
 
+  async fileBlossom(workspaceId: string, fileId: string, action: 'status' | 'publish' | 'unpublish', versionId?: string) {
+    if (action !== 'status' && !versionId) throw new Error('An explicit --version is required for publication changes.');
+    const base = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/files/${encodeURIComponent(fileId)}`;
+    const path = action === 'status' ? `${base}/blossom` : `${base}/versions/${encodeURIComponent(versionId!)}/blossom`;
+    return await this.signedJson(action === 'status' ? 'GET' : action === 'publish' ? 'PUT' : 'DELETE', path, undefined, action === 'publish' ? {} : undefined);
+  }
+
   async createAudio(workspaceId: string, channelId: string, path: string, contentType?: string | null) {
     const file = Bun.file(path);
     const content = new Uint8Array(await file.arrayBuffer());
