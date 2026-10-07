@@ -4,6 +4,7 @@
  */
 
 import Alpine from "/vendor/alpinejs/module.esm.js";
+import { registerMessageHtmlDirective } from "./message-html.js";
 import Dexie from "/vendor/dexie/dexie.mjs";
 import { sseManager } from "./sse-manager.js";
 import { MessageStore, PermissionStore, PromptQueueStore, SessionStore } from "./db.js";
@@ -141,6 +142,7 @@ export function disableAlpineChat() {
  * Call this once during app initialization.
  */
 export function registerChatComponent() {
+  registerMessageHtmlDirective(Alpine);
   // Register the chat store
   Alpine.store("chat", {
     sessionId: null,
@@ -830,7 +832,7 @@ export function getChatTemplate(sessionId) {
                :data-testid="$store.chat.isErrorMessage(message) ? 'agent-error-message' : null"
                :class="$store.chat.getMessageClass(message)">
         <template x-if="!$store.chat.isEditingQueuedPrompt(message)">
-          <div class="wm-message-body" x-html="$store.chat.renderMessageContent(message)"></div>
+          <div class="wm-message-body" x-message-html="$store.chat.renderMessageContent(message)"></div>
         </template>
         <template x-if="$store.chat.isEditingQueuedPrompt(message)">
           <form class="wm-queued-prompt-editor"
