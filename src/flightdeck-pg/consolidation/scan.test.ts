@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { linkExistingTask } from "./reconcile.ts";
-import { scanTasks, type ScanConfig, type ScanClient, type ScanResult } from "./scan.ts";
+import { scanTasks, assertDispatchWorkspace, type ScanConfig, type ScanClient, type ScanResult } from "./scan.ts";
 
 const config: ScanConfig = { workspace_id: "w", scope_id: "s", channels: ["a", "b"].map(id => ({ id, name: id, scope_id: "s" })) };
 function task(id: string, channel = "a", row_version = 1) {
@@ -67,7 +67,9 @@ test("interrupted page preserves durable cursor and retries it without skipping 
   expect(saved?.progress.a?.cursor).toBe("opaque");
   fail = false;
   const second = await scanTasks(client, config, { resume: saved });
-  expect(second.complete).toBe(true);
+  expect(second.complete).toBe(false);
+  expect(second.continuation_complete).toBe(true);
+  expect(second.gaps[0]?.reason).toBe("resumed_scan_requires_fresh_pass");
   expect(second.tasks.map(t => t.id)).toEqual(["new", "old"]);
   expect(seen).toEqual([null, "opaque", null, "opaque"]);
 });
@@ -124,4 +126,19 @@ test("resume rejects cached cross-workspace evidence even when marked complete",
   const valid = await scanTasks(fixture(async (_w, i) => ({ channel_id: i.channelId, tasks: [], next_cursor: null, has_more: false })), config);
   valid.tasks.push({ ...task("private"), workspace_id: "other" });
   await expect(scanTasks(fixture(async () => ({})), config, { resume: valid })).rejects.toThrow("Invalid resume");
+});
+test("dispatch workspace must match; resumed completed channels require fresh pass to see new tasks", async () => {
+  expect(() => assertDispatchWorkspace(config, { workspace: { workspaceId: "other" } })).toThrow("does not match");
+  expect(() => assertDispatchWorkspace(config, { workspace: {} })).toThrow("does not match");
+  assertDispatchWorkspace(config, { workspace: { workspaceId: "w" } });
+  let added = false;
+  const client = fixture(async (_w, i) => ({ channel_id: i.channelId,
+    tasks: i.channelId === "a" ? [task("old"), ...(added ? [task("new")] : [])] : [], next_cursor: null, has_more: false }));
+  const first = await scanTasks(client, config);
+  added = true;
+  const continued = await scanTasks(client, config, { resume: first });
+  expect(continued.complete).toBe(false);
+  const fresh = await scanTasks(client, config);
+  expect(fresh.complete).toBe(true);
+  expect(fresh.tasks.map(t => t.id)).toEqual(["old", "new"]);
 });

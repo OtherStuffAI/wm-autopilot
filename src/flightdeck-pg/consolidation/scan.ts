@@ -12,6 +12,7 @@ export interface ScanResult {
   config_signature: string;
   started_at: string;
   complete: boolean;
+  continuation_complete?: boolean;
   channels_checked: number;
   pages_read: number;
   requests: number;
@@ -25,6 +26,9 @@ export function signature(value: unknown): string {
 export function record(value: unknown): RecordData {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid record");
   return value as RecordData;
+}
+export function assertDispatchWorkspace(config: ScanConfig, context: RecordData): void {
+  if (record(context.workspace).workspaceId !== config.workspace_id) throw new Error("Configured workspace does not match dispatch workspace");
 }
 function rows(value: unknown): RecordData[] {
   if (!Array.isArray(value)) throw new Error("Invalid record collection");
@@ -62,6 +66,7 @@ export async function scanTasks(client: ScanClient, config: ScanConfig, options:
     channels_checked: 0, pages_read: 0, requests: 0, tasks: [], gaps: [], progress: {},
   };
   result.complete = false;
+  delete result.continuation_complete;
   result.gaps = [];
   result.requests = 0;
   result.channels_checked = 0;
@@ -140,6 +145,13 @@ export async function scanTasks(client: ScanClient, config: ScanConfig, options:
     result.gaps.push({ reason });
   }
   result.complete = result.gaps.length === 0 && config.channels.every(c => result.progress[c.id]?.done);
+  if (options.resume && result.complete) {
+    // Continuation proves traversal of old pages, not current completeness. New or
+    // changed tasks can have moved ahead of a saved cursor or completed channel.
+    result.continuation_complete = true;
+    result.complete = false;
+    result.gaps.push({ reason: "resumed_scan_requires_fresh_pass" });
+  }
   await save();
   return result;
 }

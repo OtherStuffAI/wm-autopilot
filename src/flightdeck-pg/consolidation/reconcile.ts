@@ -22,7 +22,12 @@ export async function linkExistingTask(client: ReconcileClient, input: {
     if (!Array.isArray(page.comments) || page.next_cursor || page.has_more === true || page.comments.length >= 200) throw new Error("Comment reconciliation incomplete");
     return page.comments.map(record);
   };
-  if ((await comments()).some(c => c.body === input.body)) return "unchanged";
+  if ((await comments()).some(c => c.body === input.body)) {
+    intent.task_id = input.task;
+    intent.verified = true;
+    await persist(intent);
+    return "unchanged";
+  }
   if (intent.attempted) return "uncertain";
   // Read again after comments: another investigator may have changed this task.
   const current = record(record(await client.showTask(input.workspace, input.task)).task);
@@ -41,13 +46,25 @@ export async function linkExistingTask(client: ReconcileClient, input: {
 /** Stable description marker survives amended evidence; no server idempotency claim. */
 export async function reconcileProposal(client: ReconcileClient, input: {
   workspace: string; channel: string; title: string; body: string; key: string;
+  sourceIds: string[]; matchingTaskIds?: string[]; distinctTaskReasons?: Record<string, string>;
 }, intent: WriteIntent, readCompleteTasks: () => Promise<RecordData[]>, persist: (intent: WriteIntent) => Promise<void>): Promise<RecordData | null> {
   if (!input.key) throw new Error("Missing stable proposal key");
+  if (!Array.isArray(input.sourceIds) || !input.sourceIds.length || input.sourceIds.some(id => !/^[0-9a-f-]{36}$/i.test(id))) throw new Error("Missing valid proposal source references");
   const marker = `Consolidation reference: ${signature(input.key)}`;
   const description = `${input.body}\n\n${marker}`;
   const find = async () => {
     const tasks = await readCompleteTasks();
-    const matches = tasks.filter(t => t.workspace_id === input.workspace && t.channel_id === input.channel && ((typeof t.description === "string" && t.description.includes(marker)) || t.id === intent.task_id));
+    const sourceTasks = tasks.filter(t => t.workspace_id === input.workspace && input.sourceIds.some(id =>
+      String(t.description ?? "").includes(id) || JSON.stringify(t.metadata ?? {}).includes(id)));
+    const matching = input.matchingTaskIds ?? [];
+    if (matching.some(id => !tasks.some(t => t.workspace_id === input.workspace && t.id === id))) throw new Error("Matching task no longer readable");
+    for (const task of sourceTasks) {
+      const reused = matching.includes(String(task.id)) || task.id === intent.task_id
+        || String(task.description ?? "").includes(marker);
+      if (!reused && !input.distinctTaskReasons?.[String(task.id)]?.trim()) throw new Error("Existing source task requires semantic reconciliation");
+    }
+    const matches = tasks.filter(t => t.workspace_id === input.workspace && (matching.includes(String(t.id))
+      || (typeof t.description === "string" && t.description.includes(marker)) || t.id === intent.task_id));
     if (matches.length > 1) throw new Error("Multiple matching proposals require review");
     return matches[0];
   };

@@ -43,7 +43,12 @@ stops the run; two denied channel paths stop further requests.
 
 For a scheduled scan, add `--persist`. Each complete page is atomically saved in
 `task-scan.json`, with the cursor for the next page. `--resume` continues an
-incomplete scan after revalidating the approved map and channel ACLs. Do not
+incomplete scan after revalidating the approved map and channel ACLs. Completing
+that continuation remains partial until a fresh pass rechecks every channel,
+including new/changed tasks ahead of the saved cursor. The CLI performs that one
+fresh pass within the remaining shared page/request budget; it never loops. If
+that budget is exhausted, completeness stays false. The configured workspace
+must match the broker dispatch workspace before any Tower request. Do not
 resume an old completed scan: start fresh each scheduled pass. A resume is a
 continuation of the original scan start time, not a new snapshot. Tasks can
 change during pagination; reconcile every matching task and its latest comments
@@ -65,7 +70,15 @@ it is not blindly retried. A truncated comment read is a blocker.
 
 Only after semantic reconciliation rules out an existing task, `proposal
 --input proposal.json` accepts `channel_id`, a stable incident/fix-boundary
-`key`, `title` and `body`. The body must contain `Proposed remediation, awaiting
+`key`, `source_ids` (incident/message/thread UUIDs), `title` and `body`. Scan all
+approved channels for existing tasks referencing those sources, including moved
+or human-amended proposals. Provide semantically matching `matching_task_ids`
+for reuse, or `distinct_task_reasons` keyed by task ID for genuinely different
+fix boundaries. An existing source-related task without either decision blocks
+creation; source overlap alone never establishes a shared cause. Matching work
+can be reused across approved channels without changing its destination or
+ownership. Include current and original relevant source IDs, not just the newest
+capture. The body must contain `Proposed remediation, awaiting
 Pete's decision; implementation not authorised.` A stable hashed description
 marker survives subsequent evidence edits. A complete approved scan precedes
 creation and readback. The durable intent prevents duplicate creation after an

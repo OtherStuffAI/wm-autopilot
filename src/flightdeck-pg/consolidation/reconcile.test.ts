@@ -38,7 +38,7 @@ test("uncertain create readback reuses existing task; missing readback never ret
     let creates = 0;
     const tasks: Array<Record<string, unknown>> = [];
     c.createTask = async (_w, _c, input) => { creates++; if (visible) tasks.push({ ...task, description: input.description }); throw new Error("lost response"); };
-    const input = { workspace: "w", channel: "a", title: "bounded proposal", key: "stable-incident-boundary", body: "evidence plus proposal authority" };
+    const input = { workspace: "w", channel: "a", title: "bounded proposal", key: "stable-incident-boundary", sourceIds: ["11111111-1111-4111-8111-111111111111"], body: "evidence plus proposal authority" };
     const intent = { body: input.body, attempted: false };
     const first = await reconcileProposal(c, input, intent, async () => tasks, async () => {});
     const second = await reconcileProposal(c, input, intent, async () => tasks, async () => {});
@@ -52,7 +52,7 @@ test("stable proposal reference reuses an amended proposal and persisted ID surv
   let creates = 0;
   const tasks: Array<Record<string, unknown>> = [];
   c.createTask = async (_w, _c, i) => { creates++; tasks.push({ ...task, description: i.description }); return {}; };
-  const input = { workspace: "w", channel: "a", title: "proposal", key: "same-boundary", body: "initial evidence" };
+  const input = { workspace: "w", channel: "a", title: "proposal", key: "same-boundary", sourceIds: ["11111111-1111-4111-8111-111111111111"], body: "initial evidence" };
   const intent: WriteIntent = { body: input.body, attempted: false };
   await reconcileProposal(c, input, intent, async () => tasks, async () => {});
   tasks[0]!.description += "\nupdated evidence";
@@ -60,4 +60,26 @@ test("stable proposal reference reuses an amended proposal and persisted ID surv
   tasks[0]!.description = "human replaced description";
   await reconcileProposal(c, { ...input, body: "amended proposal" }, intent, async () => tasks, async () => {});
   expect(creates).toBe(1);
+});
+test("amended legacy incident tasks across channels block duplicate proposal until semantic reconciliation", async () => {
+  const c = client();
+  let creates = 0;
+  c.createTask = async () => { creates++; return {}; };
+  const source = "11111111-1111-4111-8111-111111111111";
+  const legacy = { ...task, channel_id: "b", description: `Human-amended existing investigation of incident ${source}` };
+  const input = { workspace: "w", channel: "a", title: "same issue", key: "new-consumer-boundary", sourceIds: [source], body: "new words" };
+  await expect(reconcileProposal(c, input, { body: input.body, attempted: false }, async () => [legacy], async () => {})).rejects.toThrow("semantic reconciliation");
+  const reused = await reconcileProposal(c, { ...input, matchingTaskIds: ["old"] }, { body: input.body, attempted: false }, async () => [legacy], async () => {});
+  expect(reused).toEqual(legacy);
+  expect(creates).toBe(0);
+});
+test("unchanged exact link readback durably verifies an uncertain intent", async () => {
+  const c = client();
+  c.listTaskComments = async () => ({ comments: [{ body: "same link" }], next_cursor: null });
+  let saved: WriteIntent | undefined;
+  const intent = { body: "same link", attempted: true };
+  expect(await linkExistingTask(c, { workspace: "w", channel: "a", task: "old", body: intent.body }, intent,
+    async value => { saved = structuredClone(value); })).toBe("unchanged");
+  expect(saved?.verified).toBe(true);
+  expect(saved?.task_id).toBe("old");
 });
