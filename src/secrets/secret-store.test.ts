@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getPublicKey, nip19, verifyEvent } from "nostr-tools";
+import { generateSecretKey, getPublicKey, nip19, verifyEvent } from "nostr-tools";
 import { SecretStore } from "./secret-store";
 import { deniedPolicy, type SecretConsumer, type SecretPolicy } from "./secret-policy";
 
-const key = new Uint8Array(32).fill(1);
-const otherKey = new Uint8Array(32).fill(2);
+const key = generateSecretKey();
+const otherKey = generateSecretKey();
 const owner = nip19.npubEncode(getPublicKey(key));
 const other = nip19.npubEncode(getPublicKey(otherKey));
 const event = { kind: 1, content: "Synthetic test note", tags: [] };
@@ -110,7 +110,7 @@ describe("imported credential custody", () => {
   test("malformed policy/key and signing requests fail closed", () => {
     expect(() => store.create(owner, "local", { label: "bad", type: "nostr", value: "00".repeat(32) })).toThrow("invalid_signing_key");
     expect(() => create("nostr", { ...policy(), identities: ["invalid"] })).toThrow("invalid_npub");
-    expect(() => create("nostr", { ...policy(), kindRules: [{ ...kindRules[0]!, kind: 27235 }] })).toThrow("invalid_signing_kind");
+    expect(() => create("nostr", { ...policy(), kindRules: [{ ...kindRules[0]!, kind: 65536 }] })).toThrow("invalid_signing_kind");
     const record = create();
     expect(() => store.consume(record.id, consumer, "unknown" as never)).toThrow("invalid_secret_operation");
     for (const invalid of [{ ...event, kind: 7 }, { ...event, content: "x".repeat(129) }, { ...event, tags: [["unknown", "value"]] }, { ...event, created_at: 1 }]) {
@@ -123,4 +123,39 @@ test("missing wrapping key never silently regenerates for an existing database",
   create(); unlinkSync(join(dir, "master.key"));
   expect(() => new SecretStore(join(dir, "secrets.db"), join(dir, "master.key"))).toThrow("secret_custody_key_missing");
   expect(() => statSync(join(dir, "master.key"))).toThrow();
+});
+
+test("all kinds persists explicit opt-in and keeps authorization, export and revocation gates", () => {
+  const record = create("nostr", { ...policy(), kindMode: "all" });
+  store.close(); store = new SecretStore(join(dir, "secrets.db"), join(dir, "master.key"));
+  expect(store.get(owner, "local", record.id).policy.kindMode).toBe("all");
+  for (const kind of [0, 27235, 33358, 65535]) {
+    const request = { kind, content: "", tags: [["u", "https://example.test"], ["method", "POST"], ["custom", "value"]] };
+    expect(verifyEvent(store.consume(record.id, consumer, "sign", request).event as never)).toBe(true);
+    expect(() => store.consume(record.id, { ...consumer, identityNpub: nip19.npubEncode(getPublicKey(generateSecretKey())) }, "sign", request)).toThrow("secret_use_denied");
+  }
+  for (const invalid of [-1, 65536, 1.5, "1", null]) expect(() => store.consume(record.id, consumer, "sign", { ...event, kind: invalid })).toThrow();
+  for (const invalid of [{ content: "x".repeat(8193) }, { tags: Array(65).fill(["x"]) }, { tags: [["x", "x".repeat(16384)]] }, { tags: [["x", 1]] }, { created_at: 1 }]) {
+    expect(() => store.consume(record.id, consumer, "sign", { ...event, ...invalid })).toThrow("event_policy_denied");
+  }
+  for (const overrides of [{ ownerNpub: other }, { workspaceId: "other" }, { contextId: "other" }, { context: "unknown" }, { context: "session", identityNpub: other, contextId: owner }]) {
+    expect(() => store.consume(record.id, { ...consumer, ...overrides } as SecretConsumer, "sign", event)).toThrow();
+  }
+  expect(() => store.consume(record.id, consumer, "return")).toThrow("secret_export_denied");
+  const selected = store.update(owner, "local", record.id, { revision: record.revision, policy: { ...policy(), kindMode: "selected" } });
+  expect(selected.policy.kindRules).toEqual(record.policy.kindRules);
+  expect(() => store.consume(record.id, consumer, "sign", { ...event, kind: 27235 })).toThrow();
+  store.revoke(owner, "local", record.id, selected.revision);
+  expect(() => store.consume(record.id, consumer, "sign", event)).toThrow();
+});
+
+test("legacy/default policies remain selected; custom selected kinds honor tag restrictions", () => {
+  const record = create(); expect(record.policy.kindMode).toBe("selected");
+  const empty = store.create(owner, "local", { label: "Denied", type: "nostr", value: nip19.nsecEncode(generateSecretKey()) });
+  expect(empty.policy.kindMode).toBe("selected");
+  expect(() => store.consume(empty.id, consumer, "sign", event)).toThrow();
+  const custom = create("nostr", { ...policy(), kindRules: [{ ...kindRules[0]!, kind: 27235, allowedTagNames: ["u", "method"] }] });
+  expect(verifyEvent(store.consume(custom.id, consumer, "sign", { kind: 27235, content: "", tags: [["u", "https://example.test"], ["method", "POST"]] }).event as never)).toBe(true);
+  expect(() => store.consume(custom.id, consumer, "sign", { kind: 27235, content: "", tags: [["custom", "value"]] })).toThrow();
+  expect(() => create("nostr", { ...policy(), kindMode: "invalid" } as never)).toThrow("invalid_kind_mode");
 });

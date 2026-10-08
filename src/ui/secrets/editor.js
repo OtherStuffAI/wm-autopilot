@@ -1,28 +1,5 @@
 import { button, choices, contextControl, element, field, input, select } from "./controls.js";
-
-const supportedKinds = [[0, "Profile"], [1, "Text post"], [3, "Contacts"], [5, "Deletion"], [6, "Repost"], [7, "Reaction"], [10002, "Relay list"], [30023, "Article"]];
-function signingControls(record) {
-  const group = element("fieldset"); group.append(element("legend", "Allowed signing event kinds"));
-  const oldRules = record?.policy?.kindRules || [];
-  const chosen = choices("Permit signing", supportedKinds.map(([kind, label]) => ({ id: String(kind), label: `${label} (${kind})` })),
-    oldRules.map(rule => String(rule.kind)), "id", "secret-kind");
-  const advanced = element("details"); const summary = element("summary", "Signing limits and tag restrictions");
-  summary.setAttribute("aria-label", "Signing limits and tag restrictions"); summary.dataset.testid = "secret-signing-limits";
-  advanced.append(summary);
-  const rules = element("textarea"); rules.rows = 8;
-  rules.value = JSON.stringify(oldRules, null, 2);
-  advanced.append(element("p", "Optional JSON rules override the default limits for each checked kind. Existing constraints are preserved. Defaults: 8192 content bytes, 16 tags, 4096 tag bytes; tags e, p, t, r, d, title, summary, image, published_at."),
-    field("Per-kind signing rules (JSON)", rules, "secret-kind-rules"));
-  group.append(chosen.node, advanced);
-  return { node: group, value() {
-    const overrides = JSON.parse(rules.value || "[]");
-    if (!Array.isArray(overrides)) throw new Error("Signing rules must be a JSON array");
-    return chosen.values().map(id => overrides.find(rule => rule.kind === Number(id)) || {
-      kind: Number(id), maxContentBytes: 8192, maxTags: 16, maxTagBytes: 4096,
-      allowedTagNames: ["e", "p", "t", "r", "d", "title", "summary", "image", "published_at"],
-    });
-  } };
-}
+import { signingControls } from "./signing-controls.js";
 
 export function createSecretEditor({ record, inventory, onSave, onCancel }) {
   const form = element("form", "", "wm-card wm-secret-editor");
@@ -66,7 +43,7 @@ export function createSecretEditor({ record, inventory, onSave, onCancel }) {
       submitted = { label: label.value.trim(), type: type.value,
         ...(record ? { revision: record.revision } : {}), ...(value.value ? { value: value.value } : {}),
         policy: { identities: allowed, pipelines: pipelines.value(), agents: agents.value(), allowExport: exportValue.checked,
-          kindRules: type.value === "nostr" ? signing.value() : [] } };
+          ...(type.value === "nostr" ? signing.value() : { kindMode: "selected", kindRules: [] }) } };
       // Clear the sensitive DOM field before any network wait, including rejected submissions.
       value.value = "";
       save.disabled = true; cancel.disabled = true; status.textContent = "Saving…";

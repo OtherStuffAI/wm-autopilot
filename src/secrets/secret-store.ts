@@ -117,7 +117,7 @@ export class SecretStore {
       if (operation === "return" && !record.policy.allowExport) throw new SecretError("secret_export_denied", 403);
       if (operation === "sign" && record.type !== "nostr") throw new SecretError("not_signing_key");
       const result = this.custody.withValue(row.envelope, binding(record), bytes => {
-        if (operation === "sign") return { event: signSecretEvent(bytes, event, record.policy.kindRules), publicNpub: record.publicNpub };
+        if (operation === "sign") return { event: signSecretEvent(bytes, event, record.policy), publicNpub: record.publicNpub };
         const value = record.type === "nostr" ? nip19.nsecEncode(bytes) : new TextDecoder().decode(bytes);
         onReturned?.(value);
         return { value };

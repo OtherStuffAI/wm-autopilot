@@ -7,6 +7,7 @@ export interface SecretPolicy {
   pipelines: ContextSelection;
   agents: ContextSelection;
   allowExport: boolean;
+  kindMode?: "selected" | "all";
   kindRules: NostrKindConstraint[];
 }
 export interface SecretConsumer {
@@ -47,18 +48,18 @@ export function normalizeSecretPolicy(value: unknown): SecretPolicy {
   const identities = input.identities.map(validatedNpub);
   if (new Set(identities).size !== identities.length) throw new SecretError("invalid_policy");
   const kinds = input.kindRules.map(rule => object(rule).kind);
-  // Imported credentials never mint authentication, payment or broker authority.
-  const permittedKinds = [0, 1, 3, 5, 6, 7, 10002, 30023];
-  if (kinds.some(kind => !permittedKinds.includes(kind as number))) throw new SecretError("invalid_signing_kind");
+  const kindMode = input.kindMode === undefined ? "selected" : input.kindMode;
+  if (kindMode !== "selected" && kindMode !== "all") throw new SecretError("invalid_kind_mode");
+  if (kinds.some(kind => !isValidSecretKind(kind))) throw new SecretError("invalid_signing_kind");
   let kindRules: NostrKindConstraint[];
   try { kindRules = normalizeNostrKindRules(input.kindRules, kinds as number[]); }
   catch { throw new SecretError("invalid_kind_rules"); }
   return { identities, pipelines: selection(input.pipelines, false), agents: selection(input.agents, true),
-    allowExport: input.allowExport, kindRules };
+    allowExport: input.allowExport, kindMode, kindRules };
 }
 export function deniedPolicy(): SecretPolicy {
   return { identities: [], pipelines: { enabled: false, mode: "selected", ids: [] },
-    agents: { enabled: false, mode: "selected", ids: [] }, allowExport: false, kindRules: [] };
+    agents: { enabled: false, mode: "selected", ids: [] }, allowExport: false, kindMode: "selected", kindRules: [] };
 }
 export function assertSecretUse(record: { ownerNpub: string; workspaceId: string; revokedAt: string | null; policy: SecretPolicy }, consumer: SecretConsumer): void {
   if (consumer.context !== "pipeline" && consumer.context !== "session") throw new SecretError("invalid_consumer_context", 403);
@@ -68,4 +69,8 @@ export function assertSecretUse(record: { ownerNpub: string; workspaceId: string
     || !policy.identities.includes(consumer.identityNpub) || !context.enabled
     || !consumer.contextId || (context.mode === "selected" && !context.ids.includes(consumer.contextId))
     || (consumer.context === "session" && consumer.contextId !== consumer.identityNpub)) throw new SecretError("secret_use_denied", 403);
+}
+
+export function isValidSecretKind(kind: unknown): kind is number {
+  return typeof kind === "number" && Number.isInteger(kind) && kind >= 0 && kind <= 65535;
 }

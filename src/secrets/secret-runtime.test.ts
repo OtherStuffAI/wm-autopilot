@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getPublicKey, nip19, verifyEvent } from "nostr-tools";
+import { generateSecretKey, getPublicKey, nip19, verifyEvent } from "nostr-tools";
 import { SecretStore } from "./secret-store";
 import { configureSecretRuntime, executeSecretPipelineFunction, pipelineSecretConsumer, secretPipelineFunctions } from "./secret-runtime";
 import { PipelineStore } from "../pipelines/pipeline-store";
@@ -15,8 +15,8 @@ import type { BotKeyRecord } from "../identity/bot-key-store";
 import { deniedPolicy } from "./secret-policy";
 import { handleSecretRoutes } from "./secret-routes";
 
-const key = new Uint8Array(32).fill(1);
-const botKey = new Uint8Array(32).fill(2);
+const key = generateSecretKey();
+const botKey = generateSecretKey();
 const owner = nip19.npubEncode(getPublicKey(key));
 const bot = nip19.npubEncode(getPublicKey(botKey));
 const event = { kind: 1, content: "Unattended synthetic note", tags: [] };
@@ -135,4 +135,22 @@ test("server-pinned authority survives reconstruction and revoked policy remains
   expect((await executeSecretPipelineFunction("secrets.signNostr", { credentialRef: record.id, event }, pipelines, run.id)).event).toBeDefined();
   secrets.revoke(owner, "local", record.id, 1);
   await expect(executeSecretPipelineFunction("secrets.signNostr", { credentialRef: record.id, event }, pipelines, run.id)).rejects.toThrow("secret_use_denied");
+});
+
+test("all-kind imported signing works through bound pipeline and session without changing identity", async () => {
+  const secret = secrets.create(owner, "local", { label: "All kinds synthetic", type: "nostr", value: nip19.nsecEncode(generateSecretKey()), policy: { ...policy, kindMode: "all" } });
+  const request = { kind: 27235, content: "", tags: [["u", "https://example.test"], ["method", "POST"]] };
+  const run = makeRun();
+  const signed = await executeSecretPipelineFunction("secrets.signNostr", { credentialRef: secret.id, event: request }, pipelines, run.id);
+  expect(verifyEvent(signed.event as never)).toBe(true);
+  const { call, live, broker } = brokerFixture();
+  const response = (await call({ credentialRef: secret.id, operation: "sign", event: { ...request, kind: 33358, tags: [["custom", "value"]] } }))!;
+  expect(response.status).toBe(200); expect(verifyEvent((await response.json()).event)).toBe(true);
+  expect(live.metadata!.agentChatBotNpub).toBe(bot);
+  expect((await call({ credentialRef: secret.id, operation: "return" }))!.status).toBe(403);
+  expect((await call({ credentialRef: secret.id, operation: "sign", event: request, agentNpub: owner }))!.status).toBe(403);
+  broker.revokeSession(live.id);
+  expect((await call({ credentialRef: secret.id, operation: "sign", event: request }))!.status).toBe(403);
+  secrets.revoke(owner, "local", secret.id, secret.revision);
+  await expect(executeSecretPipelineFunction("secrets.signNostr", { credentialRef: secret.id, event: request }, pipelines, run.id)).rejects.toThrow("secret_use_denied");
 });

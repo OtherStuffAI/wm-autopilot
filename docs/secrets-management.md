@@ -31,10 +31,24 @@ byte buffers are cleared after the operation. This prevents routine accidental
 disclosure; it does not isolate hostile code running as the same OS user.
 
 Nostr imports accept nsec or 32-byte hex keys and show the derived public npub.
-They default to sign-only. Allowed kinds must be explicitly selected with
-per-kind content-byte, tag-count, tag-byte, tag-name and optional required/exact
-tag constraints. Supported kinds are 0, 1, 3, 5, 6, 7, 10002 and 30023; imported
-credentials cannot sign HTTP authentication or mint control-plane authority.
+They default to sign-only and selected-kind mode. Existing policies without
+`kindMode` remain selected; their per-kind content, tag and required/exact-tag
+constraints are preserved. The editor offers common kinds plus custom numeric
+kinds from 0 through 65535 with the same per-kind constraints.
+
+The owner can explicitly choose **All Nostr kinds** (`policy.kindMode: "all"`).
+This includes HTTP authentication (27235), instruction events and custom tags.
+All mode has fixed limits: 8192 UTF-8 content bytes, 64 tags, 64 strings per tag,
+16384 aggregate UTF-8 tag bytes, and a timestamp within five minutes of signing.
+Kinds must be integers from 0 through 65535. Selected rules are retained but do
+not restrict all mode; switching back reactivates them. Empty selected rules
+permit no signing. Unknown modes and invalid kinds are rejected.
+
+Allowed consumers can authenticate to external services as the imported identity,
+including services that grant it powerful permissions. Choose all mode only for
+consumers trusted with that authority. It does not change the session identity,
+mint internal broker grants or widen stable-bot signing capabilities. Identity,
+owner/workspace, pipeline/session, export and revocation checks still apply.
 The signer returns a verified signed event, not its key. It never publishes.
 
 Changing a public identity or credential type resets consumer grants, export

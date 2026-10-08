@@ -81,7 +81,7 @@ export function createSecretsPage({ ownerNpub } = {}) {
         element("p", `Reference: ${record.id}`), element("p", `Allowed identities: ${record.policy.identities.length} · Pipelines: ${scope(record.policy.pipelines)} · Agent sessions: ${scope(record.policy.agents)} · Raw return: ${record.policy.allowExport ? "enabled" : "disabled"}`),
         element("p", `Updated: ${record.updatedAt} · Last used: ${record.lastUsedAt || "Never"}`));
       if (record.publicNpub) card.append(element("p", `Signing identity: ${record.publicNpub}`),
-        element("p", `Allowed event kinds: ${record.policy.kindRules.map(rule => rule.kind).join(", ") || "None"}`));
+        element("p", `Allowed event kinds: ${record.policy.kindMode === "all" ? "All Nostr kinds" : (record.policy.kindRules.map(rule => rule.kind).join(", ") || "None")}`));
       if (!record.revokedAt) card.append(button(`Edit ${record.label}`, () => showEditor(record, snapshot.inventory), `secret-edit-${record.id}`),
         button(`Revoke / delete ${record.label}`, async () => {
           if (!window.confirm(`Revoke ${record.label} and permanently erase its stored value?`)) return;
