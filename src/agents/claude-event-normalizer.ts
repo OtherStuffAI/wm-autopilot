@@ -65,7 +65,8 @@ export class ClaudeEventNormalizer {
 
   complete(result: SDKResultMessage): string {
     if (result.subtype !== "success" || result.is_error) {
-      const errors = "errors" in result ? result.errors.join("; ") : result.subtype;
+      // Successful-but-errored results (e.g. an unavailable model) carry the reason in `result`.
+      const errors = "errors" in result ? result.errors.join("; ") : this.redact(result.result) || result.subtype;
       throw new Error(`Claude SDK turn failed: ${errors}`);
     }
     const content = this.redact(result.result);

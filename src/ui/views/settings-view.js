@@ -18,6 +18,7 @@ import { createRemoteInstructSection } from './settings/remote-instruct-section.
 import { createInstanceSettingsSection } from './settings/instance-settings-section.js';
 import { createInstanceBrandingSection } from '../branding/instance-branding.js';
 import { createModelsSettingsSection } from './settings/models-settings-section.js';
+import { createHarnessModelsSection } from './settings/harness-models-section.js';
 import { getSettingsNavigationItems } from './settings-navigation.js';
 import { createSettingsCard, createSettingsGrid } from './settings-layout.js';
 import { createTerminalSecuritySection } from './settings/terminal-security-section.js';
@@ -243,9 +244,14 @@ export function initSettingsView(deps) {
   }
 
   function renderModelsPage() {
-    return createPage('models', state.identity.isAdmin
-      ? createModelsSettingsSection({ onSaved: refreshConfig, notify: showToast })
-      : createManagedCard('Managed by administrator', 'Launch model order is an instance setting. Ask an administrator to change the configured models.'));
+    if (state.identity.isAdmin) {
+      return createPage(
+        'models',
+        createHarnessModelsSection({ onSaved: refreshConfig, notify: showToast }),
+        createModelsSettingsSection({ onSaved: refreshConfig, notify: showToast }),
+      );
+    }
+    return createPage('models', createManagedCard('Managed by administrator', 'Launch model order is an instance setting. Ask an administrator to change the configured models.'));
   }
 
   function renderHostingPage() {

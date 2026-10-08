@@ -80,6 +80,11 @@ import {
   resolveRuntimeModel,
 } from "../settings/openrouter-models";
 import {
+  HARNESS_MODELS_SETTING_KEY,
+  resolveHarnessModelOptions,
+  resolveLaunchModelForHarness,
+} from "../settings/harness-models";
+import {
   OPENCODE_CONFIG_CONTENT_ENV,
   withOpenCodeModelConfigEnvironment,
 } from "./opencode-model-config";
@@ -624,7 +629,17 @@ export class ProcessManager {
     const sessionName = this.normaliseSessionName(name, agent, port);
     let command = definition.command({ port, agent, config: this.config });
 
-    const requestedModel = normalizeAgentModelOverride(model);
+    // Claude/Codex models outside the current harness list launch on the default.
+    const harnessLaunchModel = resolveLaunchModelForHarness(
+      agent,
+      normalizeAgentModelOverride(model),
+      resolveHarnessModelOptions(
+        agent,
+        definition.modelOptions ?? [],
+        instanceSettingsService.getAppValue(HARNESS_MODELS_SETTING_KEY),
+      ),
+    );
+    const requestedModel = harnessLaunchModel.model;
     const configuredOpenRouterModels = getConfiguredOpenRouterModels(
       instanceSettingsService.getAppValue(MODEL_PROVIDERS_SETTING_KEY),
     );
@@ -727,6 +742,13 @@ export class ProcessManager {
           Bun.env[OPENCODE_CONFIG_CONTENT_ENV],
         ),
       };
+    }
+
+    if (harnessLaunchModel.fallbackFrom) {
+      this.appendLog(
+        session,
+        `[manager] model ${harnessLaunchModel.fallbackFrom} is not in the ${definition.label} model list; launching with the default model`,
+      );
     }
 
     this.sessions.set(id, session);
@@ -1034,6 +1056,7 @@ export class ProcessManager {
         onNativeSessionId: (nativeSessionId) => {
           this.setNativeAgentSessionMetadata(session, nativeSessionId, { emit: true });
         },
+        onModelFallback: (failedModel, reason) => this.recordModelFallback(session, failedModel, reason),
         recordUsage: this.buildRecordUsageCallback(session),
       });
       if (agentTransport === "agentapi") {
@@ -1199,6 +1222,7 @@ export class ProcessManager {
       onNativeSessionId: (nativeSessionId) => {
         this.setNativeAgentSessionMetadata(session, nativeSessionId, { emit: this.sessions.has(session.id) });
       },
+      onModelFallback: (failedModel, reason) => this.recordModelFallback(session, failedModel, reason),
       recordUsage: this.buildRecordUsageCallback(session),
     });
 
@@ -1874,6 +1898,16 @@ export class ProcessManager {
     const nativeSessionId = getAdapterNativeSessionId(session.agent, session.adapter);
     if (!nativeSessionId) return;
     this.setNativeAgentSessionMetadata(session, nativeSessionId, { emit: false });
+  }
+
+  /** The adapter could not use the selected model and retried on the harness default. */
+  private recordModelFallback(session: AgentSession, failedModel: string, reason: string): void {
+    session.model = undefined;
+    session.runningModel = undefined;
+    this.appendLog(session, `[manager] model ${failedModel} failed (${reason}); retrying with the default model`);
+    if (this.sessions.has(session.id)) {
+      this.emit({ type: "session-updated", session: this.toSnapshot(session) });
+    }
   }
 
   private setNativeAgentSessionMetadata(

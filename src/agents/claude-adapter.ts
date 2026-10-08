@@ -8,6 +8,7 @@ import type { AgentRuntimeStatus } from "../types/agent-status";
 import { ClaudeEventNormalizer } from "./claude-event-normalizer";
 import { buildClaudeSdkOptions, sanitizeClaudeSdkError } from "./claude-sdk-options";
 import { NativeSdkActivity } from "./native-sdk-contract";
+import { isModelUnavailableError } from "../settings/harness-models";
 
 type State = "initializing" | "ready" | "busy" | "failed" | "disposed";
 
@@ -22,6 +23,8 @@ export class ClaudeAdapter implements AgentAdapter {
   private sessionId: string | null;
   private resume: boolean;
   private runningModel: string | null = null;
+  /** Selected model; cleared once if Claude reports it unavailable. */
+  private model: string | undefined;
   private readonly listeners = new Set<(event: AdapterStreamEvent) => void>();
   private readonly unsubscribeApproval: () => void;
   private readonly permissions: ClaudeSdkPermissions;
@@ -38,6 +41,7 @@ export class ClaudeAdapter implements AgentAdapter {
     })));
     this.sessionId = context.claudeSessionId ?? null;
     this.resume = context.claudeResume ?? false;
+    this.model = context.model || undefined;
     void this.waitForReady().catch(() => { /* Readiness exposes the stored startup failure. */ });
   }
 
@@ -66,7 +70,7 @@ export class ClaudeAdapter implements AgentAdapter {
     this.abortController = controller;
     try {
       const options = await buildClaudeSdkOptions({
-        ...this.context, claudeSessionId: this.sessionId ?? undefined, claudeResume: this.resume,
+        ...this.context, model: this.model, claudeSessionId: this.sessionId ?? undefined, claudeResume: this.resume,
       }, controller);
       options.canUseTool = this.permissions.canUseTool;
       const warm = await this.start({ options, initializeTimeoutMs: timeoutMs });
@@ -84,6 +88,24 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 
   async sendMessage(content: string): Promise<void> {
+    try {
+      await this.runTurn(content);
+    } catch (error) {
+      if (!this.model || !isModelUnavailableError(error) || this.state === "disposed") throw error;
+      const failedModel = this.model;
+      this.model = undefined;
+      this.runningModel = null;
+      // The failed turn produced no conversation worth resuming; start clean on the default model.
+      this.sessionId = this.context.claudeSessionId ?? null;
+      this.resume = this.context.claudeResume ?? false;
+      this.context.onModelFallback?.(failedModel, error instanceof Error ? error.message : String(error));
+      this.activity.upsert(`model-fallback:${randomUUID()}`, "agent-tools",
+        `Model ${failedModel} is unavailable; retrying with the default model.`);
+      await this.runTurn(content);
+    }
+  }
+
+  private async runTurn(content: string): Promise<void> {
     if (this.state === "busy") throw new Error("Claude SDK already has an active turn");
     await this.waitForReady();
     // Another caller may have claimed the warm process while readiness awaited.

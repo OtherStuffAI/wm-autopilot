@@ -98,21 +98,30 @@ const DEFAULT_AGENTAPI_RELATIVE_PATH = "../out/agentapi";
 const DEFAULT_AGENT_TMUX_SESSION = "wm-ap-agents";
 const DEFAULT_MODEL_OPTION = "default";
 const OPENROUTER_KIMI_K3_MODEL = "openrouter/moonshotai/kimi-k3";
+// Built-in fallbacks used until a list is refreshed from the CLI or saved in
+// the `models.harnesses` instance setting (see src/settings/harness-models.ts).
 const CODEX_MODEL_OPTIONS = [
   DEFAULT_MODEL_OPTION,
+  "gpt-6.1-sol",
   "gpt-6-astra",
+  "gpt-6-sol",
+  "gpt-6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
-  "gpt-5.5",
-  "gpt-5.3-codex-spark",
-  "gpt-5.4-mini",
 ];
 const CLAUDE_MODEL_OPTIONS = [
   DEFAULT_MODEL_OPTION,
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-fable-5-1",
+  "claude-haiku-5-5",
+  // Claude Code aliases track the latest model in each family and keep
+  // previously saved selections valid.
   "opus",
   "sonnet",
   "sonnet[1m]",
+  "fable",
   "haiku",
 ];
 const GOOSE_MODEL_OPTIONS = [DEFAULT_MODEL_OPTION, OPENROUTER_KIMI_K3_MODEL];

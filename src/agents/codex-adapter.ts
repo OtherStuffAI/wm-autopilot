@@ -41,6 +41,7 @@ type AdapterState = "initializing" | "ready" | "busy" | "disposed";
 
 export { extractCodexErrorMessage } from "./codex-turn-runner";
 import { runCodexTurn } from "./codex-turn-runner";
+import { isModelUnavailableError } from "../settings/harness-models";
 
 // ---------------------------------------------------------------------------
 // CodexAdapter
@@ -50,6 +51,8 @@ export class CodexAdapter implements AgentAdapter {
   private readonly codex: Codex;
   private thread: Thread | null = null;
   private threadId: string | null = null;
+  /** Selected model; cleared once if Codex reports it unavailable. */
+  private model: string | undefined;
   private state: AdapterState = "initializing";
   private readonly messages: CollectedMessage[] = [];
   private readonly activity = new NativeSdkActivity((message) => this.emitStream({ type: "message", message }));
@@ -71,6 +74,7 @@ export class CodexAdapter implements AgentAdapter {
 
   constructor(private readonly context: AdapterSessionContext) {
     this.workingDirectory = context.workingDirectory ?? process.cwd();
+    this.model = context.model || undefined;
 
     // Build SDK options from session env
     const env = buildCodexRuntimeEnv(process.env, context.env);
@@ -139,27 +143,46 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   async sendMessage(content: string, _type = "user"): Promise<void> {
-    await this.runMessage(content, false);
+    await this.runWithModelFallback(content, false);
   }
 
   /** Resolves only after a successful native turn.completed event. */
   async sendCompletedMessage(content: string): Promise<string> {
     if (this.state !== "ready") throw new Error("Codex completed-turn adapter is not ready");
-    return await this.runMessage(content, true);
+    return await this.runWithModelFallback(content, true);
   }
 
-  private async runMessage(content: string, requireCompletion: boolean): Promise<string> {
+  /** Retries once on the harness default when Codex rejects the selected model. */
+  private async runWithModelFallback(content: string, requireCompletion: boolean): Promise<string> {
+    try {
+      return await this.runMessage(content, requireCompletion, true);
+    } catch (error) {
+      if (!this.model || !isModelUnavailableError(error) || this.state === "disposed") throw error;
+      const failedModel = this.model;
+      this.model = undefined;
+      this.context.onModelFallback?.(failedModel, error instanceof Error ? error.message : String(error));
+      // Rebuild the thread without a model override; the rejected turn left nothing to resume.
+      this.thread = null;
+      this.threadId = this.context.codexThreadId ?? null;
+      this.initialise();
+      return await this.runMessage(content, requireCompletion, false);
+    }
+  }
+
+  private async runMessage(content: string, requireCompletion: boolean, recordUserMessage: boolean): Promise<string> {
     if (this.state === "disposed") {
       throw new Error("CodexAdapter has been disposed");
     }
 
     // Record the user message and surface it to the live view immediately.
-    const userCreatedAt = new Date().toISOString();
-    this.messages.push({ role: "user", content, createdAt: userCreatedAt });
-    this.emitStream({
-      type: "message",
-      message: { role: "user", content, createdAt: userCreatedAt },
-    });
+    if (recordUserMessage) {
+      const userCreatedAt = new Date().toISOString();
+      this.messages.push({ role: "user", content, createdAt: userCreatedAt });
+      this.emitStream({
+        type: "message",
+        message: { role: "user", content, createdAt: userCreatedAt },
+      });
+    }
 
     // Ensure thread is ready
     if (!this.thread) {
@@ -357,8 +380,8 @@ export class CodexAdapter implements AgentAdapter {
         approvalPolicy: "never",
         skipGitRepoCheck: true,
       };
-      if (this.context.model) {
-        threadOptions.model = this.context.model;
+      if (this.model) {
+        threadOptions.model = this.model;
       }
 
       // Resume existing thread if we have a stored ID, otherwise start fresh

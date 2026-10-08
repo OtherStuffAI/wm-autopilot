@@ -212,3 +212,37 @@ test("completed message returns only final text after native completion", async 
   stream.end();
   expect(await turn).toBe("Completed text");
 });
+
+test("retries once on the default model when Codex rejects the selected model", async () => {
+  const failing = createControlledStream();
+  const recovering = createControlledStream();
+  const threadOptions: Array<Record<string, unknown>> = [];
+  const threads = [
+    { id: "failed-thread", runStreamed: mock(async () => ({ events: failing.events })) },
+    { id: "default-thread", runStreamed: mock(async () => ({ events: recovering.events })) },
+  ];
+  mock.module("@openai/codex-sdk", () => ({
+    Codex: class {
+      startThread(options: Record<string, unknown>) { threadOptions.push(options); return threads[threadOptions.length - 1]; }
+    },
+  }));
+  const fallbacks: string[] = [];
+  const adapter = new CodexAdapter({
+    id: "fallback-session", port: 3700, agent: "codex", host: "127.0.0.1", workingDirectory: "/tmp", env: {},
+    model: "gpt-bogus-9", onModelFallback: (model) => { fallbacks.push(model); },
+  });
+  await adapter.waitForReady({ timeoutMs: 1000, pollIntervalMs: 10 });
+  const turn = adapter.sendCompletedMessage("input");
+  await flush();
+  failing.emit({ type: "turn.failed", error: { message: "The 'gpt-bogus-9' model is not supported when using Codex with a ChatGPT account." } });
+  failing.end();
+  await flush();
+  recovering.emit({ type: "item.completed", item: { id: "final", type: "agent_message", text: "Recovered" } });
+  recovering.emit({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+  recovering.end();
+  expect(await turn).toBe("Recovered");
+  expect(threadOptions[0]?.model).toBe("gpt-bogus-9");
+  expect(threadOptions[1]?.model).toBeUndefined();
+  expect(fallbacks).toEqual(["gpt-bogus-9"]);
+  expect((await adapter.fetchMessages()).filter((message) => message.role === "user")).toHaveLength(1);
+});

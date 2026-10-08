@@ -38,7 +38,7 @@ test("registers DeepSeek with native ACP readiness and resume", () => {
   expect(isAgentType("deepseek")).toBe(true);
   expect(createSessionSchema.agent.parse("deepseek")).toBe("deepseek");
   expect(sessionDispatchSchema.agent.parse("deepseek")).toBe("deepseek");
-  expect(resolveAgentModelCatalogue({ deepseek: { label: "DeepSeek Harness", modelOptions: ["default"] } }, null)).toEqual([{ id: "deepseek", label: "DeepSeek Harness", modelOptions: ["default"] }]);
+  expect(resolveAgentModelCatalogue({ deepseek: { label: "DeepSeek Harness", modelOptions: ["default"] } }, { modelProviders: null, harnessModels: null })).toEqual([{ id: "deepseek", label: "DeepSeek Harness", modelOptions: ["default"] }]);
   expect(AGENT_TYPE_LABELS.deepseek).toBe("DeepSeek Harness");
   expect(resolveAgentTransport("deepseek", "agentapi")).toBe("deepseek-acp");
   expect(transportSkipsAgentApiSpawn("deepseek-acp")).toBe(true);

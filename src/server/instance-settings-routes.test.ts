@@ -45,6 +45,37 @@ describe("handleInstanceSettingsApi", () => {
     rmSync(dbPath, { force: true });
   });
 
+  test("discovers CLI harness models and validates the harness", async () => {
+    ctx.discoverHarnessModels = async (harness) => ({
+      harness, models: ["gpt-6.1-sol"], source: "/codex/models_cache.json", fetchedAt: null,
+    });
+    const url = new URL("http://localhost/api/instance-settings/harness-models/discover?harness=codex");
+    const response = await handleInstanceSettingsApi(new Request(url.toString()), url, "GET", authContext, ctx);
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({ harness: "codex", models: ["gpt-6.1-sol"] });
+
+    const badUrl = new URL("http://localhost/api/instance-settings/harness-models/discover?harness=goose");
+    const bad = await handleInstanceSettingsApi(new Request(badUrl.toString()), badUrl, "GET", authContext, ctx);
+    expect(bad?.status).toBe(400);
+
+    ctx.discoverHarnessModels = async () => { throw new Error("Codex model cache not found at /x"); };
+    const failed = await handleInstanceSettingsApi(new Request(url.toString()), url, "GET", authContext, ctx);
+    expect(failed?.status).toBe(422);
+    expect(await failed?.json()).toEqual({ error: "Codex model cache not found at /x" });
+  });
+
+  test("saves and normalizes the harness models setting", async () => {
+    const url = new URL("http://localhost/api/instance-settings/models.harnesses");
+    const value = JSON.stringify({ harnesses: { claude: { models: ["default", "claude-opus-5-5", "claude-opus-5-5"], source: "cli", updatedAt: "2026-10-08T00:00:00.000Z" } } });
+    const response = await handleInstanceSettingsApi(new Request(url.toString(), {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value }),
+    }), url, "PUT", authContext, ctx);
+    expect(response?.status).toBe(200);
+    expect(JSON.parse(service.get("models.harnesses") ?? "{}")).toEqual({
+      harnesses: { claude: { models: ["claude-opus-5-5"], source: "cli", updatedAt: "2026-10-08T00:00:00.000Z" } },
+    });
+  });
+
   test("returns null for unrelated routes", async () => {
     const url = new URL("http://localhost/api/config");
     const response = await handleInstanceSettingsApi(new Request(url.toString()), url, "GET", authContext, ctx);

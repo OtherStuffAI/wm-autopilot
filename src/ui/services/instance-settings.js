@@ -56,3 +56,10 @@ export async function cleanupEnvFile(keys) {
   });
   return readJsonResponse(response, 'Failed to clean up env file');
 }
+
+export async function discoverHarnessModels(harness) {
+  const response = await fetch(`/api/instance-settings/harness-models/discover?harness=${encodeURIComponent(harness)}`, {
+    credentials: 'include',
+  });
+  return readJsonResponse(response, 'Failed to read CLI model list');
+}

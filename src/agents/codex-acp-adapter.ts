@@ -70,12 +70,17 @@ async function configureCodexSession(
   const model = context.model?.trim();
   let modelResponse: AcpResponse | undefined;
   if (model) {
-    modelResponse = await client.request("session/set_config_option", {
+    const response = await client.request("session/set_config_option", {
       sessionId,
       configId: "model",
       value: model,
     });
-    assertSuccess(modelResponse, "model selection");
+    if (response.error) {
+      // An unavailable model must not block the session; Codex keeps its default model.
+      context.onModelFallback?.(model, `Codex ACP model selection failed: ${response.error.message ?? "unknown error"}`);
+    } else {
+      modelResponse = response;
+    }
   }
   const reasoningEffort = typeof context.codexConfig?.model_reasoning_effort === "string"
     ? context.codexConfig.model_reasoning_effort.trim()

@@ -58,8 +58,7 @@ import {
 } from "./cloudflare-tunnel-routes";
 import { handleSessionDispatchApi } from "../session-dispatch/session-dispatch-routes";
 import type { SessionDispatchService } from "../session-dispatch/session-dispatch-service";
-import { MODEL_PROVIDERS_SETTING_KEY } from "../settings/openrouter-models";
-import { resolveAgentModelCatalogue } from "./agent-model-catalogue";
+import { readAgentModelSettings, resolveAgentModelCatalogue } from "./agent-model-catalogue";
 import { handleWappTowerDbBrokerRoute } from "./wapp-tower-db-broker-route";
 import type { WappTowerDbRequestBroker } from "../wapps/tower-db-request-broker";
 import {
@@ -686,7 +685,7 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
           ...ctx.agentChatApiContext,
           agentTypes: resolveAgentModelCatalogue(
             ctx.config.agents,
-            ctx.instanceSettingsRoutesContext.service.get(MODEL_PROVIDERS_SETTING_KEY),
+            readAgentModelSettings(ctx.instanceSettingsRoutesContext.service),
           ),
         },
       );
@@ -805,9 +804,8 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
         return Response.json({ error: "Authentication required" }, { status: 401 });
       }
       const instanceSettings = ctx.instanceSettingsRoutesContext.service;
-      const modelProviderSetting = instanceSettings.get(MODEL_PROVIDERS_SETTING_KEY);
       const defaultAgent = resolveViewerDefaultAgent(ctx, viewerNpub);
-      const agents = resolveAgentModelCatalogue(ctx.config.agents, modelProviderSetting);
+      const agents = resolveAgentModelCatalogue(ctx.config.agents, readAgentModelSettings(instanceSettings));
       return Response.json({
         branding: {
           name: instanceSettings.get("branding.name")?.trim() || "Wingman",
@@ -879,7 +877,7 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
                   ...ctx.agentChatApiContext,
                   agentTypes: resolveAgentModelCatalogue(
                     ctx.config.agents,
-                    ctx.instanceSettingsRoutesContext.service.get(MODEL_PROVIDERS_SETTING_KEY),
+                    readAgentModelSettings(ctx.instanceSettingsRoutesContext.service),
                   ),
                 }
               : undefined,

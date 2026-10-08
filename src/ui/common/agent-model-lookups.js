@@ -41,6 +41,8 @@ export function getModelOptionLabel(model) {
       return 'Sonnet (1M Cntx)';
     case 'haiku':
       return 'Haiku';
+    case 'fable':
+      return 'Fable';
     case 'DeepSeek V4 Flash':
       return 'DeepSeek V4 Flash (Maple Desktop default)';
     default:

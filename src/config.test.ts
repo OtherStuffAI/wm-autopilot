@@ -289,7 +289,7 @@ describe("loadConfig", () => {
     expect(openCodeCommand).toContain("--type=opencode");
   });
 
-  test("exposes Claude model aliases for session launch overrides", () => {
+  test("exposes current Claude model IDs and aliases for session launch overrides", () => {
     applyEnv({
       AGENTAPI_BIN: "/tmp/custom-agentapi",
       AGENT_MODE: undefined,
@@ -301,9 +301,14 @@ describe("loadConfig", () => {
 
     expect(config.agents.claude.modelOptions).toEqual([
       "default",
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "claude-fable-5-1",
+      "claude-haiku-5-5",
       "opus",
       "sonnet",
       "sonnet[1m]",
+      "fable",
       "haiku",
     ]);
   });

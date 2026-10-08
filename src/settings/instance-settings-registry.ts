@@ -2,6 +2,10 @@ import {
   parseModelProviderSettings,
   serializeModelProviderSettings,
 } from "./openrouter-models";
+import {
+  parseHarnessModelSettings,
+  serializeHarnessModelSettings,
+} from "./harness-models";
 
 export type InstanceSettingType = "string" | "number" | "boolean" | "json" | "list" | "secret";
 
@@ -515,6 +519,25 @@ export const INSTANCE_SETTING_DEFINITIONS: InstanceSettingDefinition[] = [
       const settings = parseModelProviderSettings(value);
       return serializeModelProviderSettings(settings.providers.openrouter.models);
     },
+  },
+  {
+    key: "models.harnesses",
+    label: "Harness Models",
+    description: "Selectable Claude Code and Codex models, refreshed from each CLI or edited manually.",
+    category: "agents",
+    type: "json",
+    envAliases: [],
+    requiresRestart: false,
+    cleanupAllowed: false,
+    validate: (value) => {
+      try {
+        parseHarnessModelSettings(value);
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    },
+    normalize: (value) => serializeHarnessModelSettings(parseHarnessModelSettings(value)),
   },
   {
     key: "integrations.maple_proxy_url",

@@ -194,3 +194,41 @@ test("explicit session consent overrides bypass launch mode and records resolved
   f.streams[0]!.emit(success()); await turn;
   await f.adapter.dispose();
 });
+
+describe("Claude SDK model fallback", () => {
+  test("retries the turn once on the default model when the selected model is unavailable", async () => {
+    const fallbacks: Array<[string, string]> = [];
+    const f = fixture({ model: "claude-bogus-9-9", onModelFallback: (model, reason) => { fallbacks.push([model, reason]); } });
+    await f.adapter.waitForReady();
+    const turn = f.adapter.sendMessage("Inspect");
+    await flush();
+    f.streams[0]!.emit({ type: "result", subtype: "success", is_error: true, session_id: "failed-native-id",
+      result: "There's an issue with the selected model (claude-bogus-9-9). It may not exist or you may not have access to it." });
+    await flush();
+    await flush();
+    expect(f.calls).toHaveLength(2);
+    expect(f.calls[0]?.model).toBe("claude-bogus-9-9");
+    expect(f.calls[1]?.model).toBeUndefined();
+    expect(f.calls[1]?.sessionId).toBe("preallocated");
+    f.streams[1]!.emit({ type: "system", subtype: "init", session_id: "native-id", model: "claude-opus-5-5", mcp_servers: [{ name: "wingman", status: "connected" }] });
+    f.streams[1]!.emit(success("Recovered"));
+    await turn;
+    expect(f.prompts).toEqual(["Inspect", "Inspect"]);
+    expect(fallbacks).toHaveLength(1);
+    expect(fallbacks[0]![0]).toBe("claude-bogus-9-9");
+    expect(fallbacks[0]![1]).toContain("issue with the selected model");
+    expect(f.adapter.getRunningModel()).toBe("claude-opus-5-5");
+  });
+
+  test("does not retry unrelated failures", async () => {
+    const fallbacks: string[] = [];
+    const f = fixture({ onModelFallback: (model) => { fallbacks.push(model); } });
+    await f.adapter.waitForReady();
+    const turn = f.adapter.sendMessage("Inspect");
+    await flush();
+    f.streams[0]!.emit({ type: "result", subtype: "success", is_error: true, session_id: "native-id", result: "Rate limited" });
+    await expect(turn).rejects.toThrow("Rate limited");
+    expect(fallbacks).toEqual([]);
+    expect(f.calls).toHaveLength(1);
+  });
+});

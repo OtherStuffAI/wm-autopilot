@@ -83,6 +83,8 @@ export interface AdapterSessionContext {
   mapleSessionId?: string;
   /** Called when an adapter discovers or creates the native agent session ID. */
   onNativeSessionId?: (sessionId: string) => void;
+  /** Called when the selected model is unavailable and the adapter falls back to the harness default. */
+  onModelFallback?: (failedModel: string, reason: string) => void;
   /** Optional billing callback for native SDK adapters that bypass the proxy */
   recordUsage?: (data: {
     sessionId: string;

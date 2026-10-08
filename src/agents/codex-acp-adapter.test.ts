@@ -89,6 +89,19 @@ describe("CodexAcpAdapter", () => {
     expect(adapter.getRunningModel()).toBe("gpt-test");
   });
 
+  test("keeps the default model when Codex ACP rejects the selected model", async () => {
+    const fallbacks: string[] = [];
+    const adapter = createAdapter({
+      model: "gpt-unavailable",
+      onModelFallback: (model: string) => fallbacks.push(model),
+    });
+
+    await adapter.waitForReady();
+
+    expect(fallbacks).toEqual(["gpt-unavailable"]);
+    expect(adapter.getRunningModel()).not.toBe("gpt-unavailable");
+  });
+
   test("streams separate thoughts/final output and stable tool updates until prompt completion", async () => {
     const adapter = createAdapter();
     const events: AdapterStreamEvent[] = [];
@@ -281,6 +294,10 @@ lines.on("line", (line) => {
     return;
   }
   if (method === "session/set_config_option") {
+    if (params.configId === "model" && params.value === "gpt-unavailable") {
+      send({ jsonrpc: "2.0", id, error: { code: -32602, message: "model gpt-unavailable is not available" } });
+      return;
+    }
     send({ jsonrpc: "2.0", id, result: { configOptions: params.configId === "model"
       ? [{ id: "model", currentValue: params.value, options: [{ value: params.value, name: params.value }] }]
       : [] } });

@@ -1,6 +1,8 @@
 import type { AccessAction } from "../auth/access-control";
 import type { RequestAuthContext } from "../auth/request-context";
 import type { InstanceSettingsService } from "../settings/instance-settings-service";
+import { discoverHarnessModels } from "../settings/harness-model-discovery";
+import { isCliModelHarness } from "../settings/harness-models";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -13,6 +15,8 @@ export interface InstanceSettingsRoutesContext {
     authContext: RequestAuthContext,
   ) => Promise<Response | null>;
   AccessActions: { SystemManage: AccessAction };
+  /** Test seam; defaults to reading the CLI model caches on this host. */
+  discoverHarnessModels?: typeof discoverHarnessModels;
 }
 
 export async function handleInstanceSettingsApi(
@@ -64,6 +68,19 @@ export async function handleInstanceSettingsApi(
       return Response.json(await ctx.service.cleanupEnvFile(keys, process.env));
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
+  // Read-only: returns the CLI's cached model list; the UI saves it via models.harnesses.
+  if (url.pathname === "/api/instance-settings/harness-models/discover" && method === "GET") {
+    const harness = url.searchParams.get("harness")?.trim() ?? "";
+    if (!isCliModelHarness(harness)) {
+      return Response.json({ error: "harness must be claude or codex" }, { status: 400 });
+    }
+    try {
+      return Response.json(await (ctx.discoverHarnessModels ?? discoverHarnessModels)(harness));
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 422 });
     }
   }
 
