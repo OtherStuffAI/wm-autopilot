@@ -25,7 +25,7 @@ export interface LiveSessionMessageSyncTiming {
   totalMs: number;
 }
 
-const sameMessages = (stored: StoredMessage[], incoming: ReplaceMessageInput[]): boolean => {
+const sameMessages = (stored: StoredMessage[], incoming: Array<ReplaceMessageInput | StoredMessage>): boolean => {
   if (stored.length !== incoming.length) return false;
   return stored.every((message, index) => {
     const next = incoming[index];
@@ -81,14 +81,38 @@ export async function syncLiveSessionMessages(input: SyncLiveSessionMessagesInpu
 
   try {
     const hadMessages = messageStore.hasMessages(sessionId);
+    const storedAtStart = messageStore.listSessionMessages(sessionId);
     const adapter = manager.getAdapter(sessionId);
+    // Attached native transcripts are authoritative for PTY Codex and Claude.
+    // Do not wait for a terminal scrape that would immediately be discarded.
+    const isAgentapiCodex = session.agent === "codex" && !adapter?.deliversPromptsDirectly?.();
+    const hasNativeTranscript = Boolean(session.metadata?.nativeAgentSession?.sessionId);
+    const nativeFirst = hasNativeTranscript && (isAgentapiCodex ||
+      (session.agent === "claude" && session.metadata?.agentTransport !== "claude-sdk"));
+    const nativeStartedAt = Date.now();
+    const nativeMessages = nativeFirst
+      ? await resolveAuthoritativeSessionMessages(session, [], { requireNative: true })
+      : [];
+    authoritativeMs += Date.now() - nativeStartedAt;
     const upstreamStartedAt = Date.now();
     const requestTimeoutMs = input.requestTimeoutMs ?? 3000;
-    const liveMessages = adapter
-      ? await adapter.fetchMessages(requestTimeoutMs)
-      : await fetchAgentMessages(agentHost, session.port, { timeoutMs: requestTimeoutMs });
-    upstreamMs = Date.now() - upstreamStartedAt;
-    const isAgentapiCodex = session.agent === "codex" && !adapter?.deliversPromptsDirectly?.();
+    async function readUpstreamMessages(): Promise<ReplaceMessageInput[]> {
+      try {
+        return nativeMessages.length > 0 ? [] : adapter
+          ? await adapter.fetchMessages(requestTimeoutMs)
+          : await fetchAgentMessages(agentHost, session!.port, { timeoutMs: requestTimeoutMs });
+      } finally {
+        upstreamMs = Date.now() - upstreamStartedAt;
+      }
+    }
+    const liveMessages = await readUpstreamMessages();
+    // A prompt/SSE persistence write can advance the durable timeline while an
+    // upstream snapshot is in flight. Never replace it with that older snapshot.
+    const currentStored = messageStore.listSessionMessages(sessionId);
+    if (!sameMessages(currentStored, storedAtStart)) {
+      reportTiming();
+      return currentStored;
+    }
     const isUnattachedAgentapiCodex = isAgentapiCodex &&
       !session.metadata?.nativeAgentSession?.sessionId;
     if (isUnattachedAgentapiCodex) {
@@ -119,8 +143,10 @@ export async function syncLiveSessionMessages(input: SyncLiveSessionMessagesInpu
       }
     }
     const authoritativeStartedAt = Date.now();
-    const messages = await resolveAuthoritativeSessionMessages(session, liveMessages);
-    authoritativeMs = Date.now() - authoritativeStartedAt;
+    const messages = nativeMessages.length > 0
+      ? nativeMessages
+      : await resolveAuthoritativeSessionMessages(session, liveMessages);
+    authoritativeMs += Date.now() - authoritativeStartedAt;
     const usesNativeTranscript = isAgentapiCodex || session.agent === "claude";
     if (usesNativeTranscript && messages.length === 0) {
       if (!hadMessages) {
@@ -131,13 +157,18 @@ export async function syncLiveSessionMessages(input: SyncLiveSessionMessagesInpu
       return result;
     }
     const storedMessages = messageStore.listSessionMessages(sessionId);
+    if (!sameMessages(storedMessages, storedAtStart)) {
+      reportTiming();
+      return storedMessages;
+    }
     if ((messages.length > 0 || !hadMessages) && !sameMessages(storedMessages, messages)) {
       const persistenceStartedAt = Date.now();
       messageStore.replaceMessages(sessionId, messages);
       persistenceMs = Date.now() - persistenceStartedAt;
     }
   } catch (error) {
-    console.error(`Failed to synchronise messages for session ${sessionId}:`, error);
+    reportTiming();
+    throw error;
   }
 
   const result = messageStore.listSessionMessages(sessionId);

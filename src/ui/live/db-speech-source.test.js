@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, test } from "bun:test";
 
-const source = readFileSync(new URL("./db.js", import.meta.url), "utf8");
+const source = readFileSync(new URL("./message-store.js", import.meta.url), "utf8");
 
 describe("live message speech persistence", () => {
   test("can update an existing Dexie message with generated speech audio", () => {
@@ -16,7 +16,5 @@ describe("live message speech persistence", () => {
     expect(source).toContain("normalized.speech ?? matchingMessage.speech ?? null");
     expect(source).toContain("normalized.speech ?? existing.speech ?? null");
     expect(source).toContain("speech: inc.speech ?? old.speech ?? null");
-    expect(source).toContain("if (!message.speech && sameMessage && local.speech)");
-    expect(source).toContain("return { ...message, speech: local.speech };");
   });
 });

@@ -60,8 +60,19 @@ describe("LiveSessionMessageSync", () => {
       return [{ role: "assistant", content: "recovered", createdAt: "2026-08-24T09:00:01Z" }];
     });
 
-    expect(await harness.sync.sync("session-1", true)).toEqual([]);
+    await expect(harness.sync.sync("session-1", true)).rejects.toThrow("messages request timed out");
     expect(await harness.sync.sync("session-1", true)).toHaveLength(1);
     expect(fetchCount).toBe(2);
   });
+});
+
+test("in-flight upstream snapshot cannot replace a newer durable write", async () => {
+  let release: (messages: any[]) => void = () => {};
+  const harness = createHarness(() => new Promise((resolve) => { release = resolve; }));
+  const request = harness.sync.sync("session-1", true);
+  const newer = { role: "user", content: "new prompt", createdAt: "2026-10-08T00:00:01Z" };
+  harness.messages.push(newer);
+  release([{ role: "assistant", content: "old snapshot", createdAt: "2026-10-08T00:00:00Z" }]);
+  expect(await request).toEqual([newer]);
+  expect(harness.messages).toEqual([newer]);
 });

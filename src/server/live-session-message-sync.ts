@@ -39,8 +39,10 @@ export class LiveSessionMessageSync {
       agentHost: this.options.agentHost,
       requestTimeoutMs: this.options.requestTimeoutMs ?? 3000,
       onTiming: (timing) => this.logSlowSync(timing),
-    }).finally(() => {
+    }).then((messages) => {
       this.lastCompletedAt.set(sessionId, Date.now());
+      return messages;
+    }).finally(() => {
       this.inFlight.delete(sessionId);
     });
     this.inFlight.set(sessionId, promise);

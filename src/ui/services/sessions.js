@@ -57,8 +57,14 @@ export async function fetchSessionLogsApi(sessionId) {
  */
 export async function fetchSessionMessagesApi(sessionId, options = {}) {
   const query = options.refresh ? "?refresh=true" : "";
-  const response = await fetch(`/api/sessions/${sessionId}/messages${query}`);
-  if (!response.ok) return null;
+  const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/messages${query}`, options.signal ? { signal: options.signal } : undefined);
+  if (!response.ok) {
+    if (options.throwOnError) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.error ?? `Session history request failed (${response.status})`);
+    }
+    return null;
+  }
   return response.json();
 }
 

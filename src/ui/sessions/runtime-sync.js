@@ -1,4 +1,5 @@
 import { fetchConfigApi, normaliseConnectRelays } from "../services/config.js";
+import { getSessionHistoryLoader } from "../live/session-history-loader.js";
 import { fetchSessionLogsApi, fetchSessionMessagesApi } from "../services/sessions.js";
 
 export function buildSessionFilterOptions({
@@ -261,10 +262,7 @@ export function initSessionRuntimeSync({
 
   async function fetchConversation(sessionId) {
     try {
-      const data = await fetchSessionMessagesApi(sessionId);
-      if (!data) return;
-      const items = Array.isArray(data?.messages) ? data.messages : [];
-      const { changed } = await MessageStore.syncFromServerIfChanged(sessionId, items);
+      const { changed } = await getSessionHistoryLoader({ store: MessageStore, fetchMessages: fetchSessionMessagesApi }).sync(sessionId);
       if (!changed) {
         return;
       }

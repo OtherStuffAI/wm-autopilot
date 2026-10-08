@@ -1,3 +1,5 @@
+import { handleSessionHistory } from "./session-history-response";
+import { sessionMessageResponse } from "./session-message-response";
 import { handleQueueRoutes } from "./session-queue-routes";
 import { whiteNoiseSessionOrigin } from "./white-noise-session-origin";
 import { isCapabilityBoundSelfSessionQueueOperation } from "../auth/session-capability-access";
@@ -1262,10 +1264,7 @@ export async function handleSessionApi(
 
       if (method === "GET") {
         const refresh = url.searchParams.get("refresh") === "true";
-        const messages = await (
-          refresh ? ctx.syncSessionMessages(resolvedId, true) : ctx.messageStore.listSessionMessages(resolvedId)
-        );
-        return Response.json({ id: resolvedId, messages });
+        return sessionMessageResponse(resolvedId, refresh, ctx);
       }
 
       if (method === "POST") {
@@ -1553,12 +1552,7 @@ export async function handleSessionApi(
     if (subresource === "messages") {
       if (method === "GET") {
         const refresh = url.searchParams.get("refresh") === "true";
-        const messages = await (
-          refresh && liveOwnedSession
-            ? ctx.syncSessionMessages(resolvedId, true)
-            : ctx.messageStore.listSessionMessages(resolvedId)
-        );
-        return Response.json({ id: resolvedId, messages });
+        return sessionMessageResponse(resolvedId, refresh && Boolean(liveOwnedSession), ctx);
       }
       if (method === "POST") {
         if (!liveOwnedSession) return Response.json({ error: "Not found" }, { status: 404 });
@@ -2107,12 +2101,7 @@ export async function handleSessionApi(
 
       if (method === "GET") {
         const refresh = url.searchParams.get("refresh") === "true";
-        const messages = await (
-          refresh && liveOwnedSession
-            ? ctx.syncSessionMessages(resolvedId, true)
-            : ctx.messageStore.listSessionMessages(resolvedId)
-        );
-        return Response.json({ id: resolvedId, messages });
+        return sessionMessageResponse(resolvedId, refresh && Boolean(liveOwnedSession), ctx);
       }
 
       if (method === "POST") {
@@ -2563,81 +2552,6 @@ async function handleDelegatedQueuedMessage(
   return Response.json({ id, queued: true, prompt }, { status: 202 });
 }
 
-async function handleSessionHistory(
-  id: string,
-  ownedSession: SessionSnapshot | null,
-  viewerNormalizedNpub: string | null,
-  viewerIsAdmin: boolean,
-  ctx: SessionApiContext,
-): Promise<Response> {
-  // Check if session is running first
-  if (ownedSession) {
-    const messages = await ctx.syncSessionMessages(id, true);
-    return Response.json({
-      id,
-      status: "live",
-      session: ctx.serializeSession(ownedSession),
-      messages,
-    });
-  }
-
-  // Check wingman.db for abandoned session (server restart, etc.)
-  const storedSession = ctx.messageStore.getSession(id);
-  if (storedSession) {
-    const isOwned = ctx.sessionBelongsToViewer(storedSession.npub, storedSession.metadata, viewerNormalizedNpub, viewerIsAdmin);
-    if (isOwned) {
-      const ownerNpub = resolveSessionOwnerNpub(storedSession.npub, storedSession.metadata);
-      const messages = ctx.messageStore.listSessionMessages(id);
-      return Response.json({
-        id,
-        status: "abandoned",
-        session: {
-          id: storedSession.id,
-          agent: storedSession.agent,
-          name: storedSession.name,
-          npub: storedSession.npub,
-          ownerNpub,
-          identityAlias: generateIdentityAlias(ownerNpub),
-          workingDirectory: storedSession.workingDirectory,
-          startedAt: storedSession.startedAt,
-          origin: storedSession.origin,
-          metadata: storedSession.metadata,
-        },
-        messages,
-      });
-    }
-  }
-
-  // Check archive store
-  const archivedSession = ctx.sessionArchiveStore.getArchivedSession(id);
-  if (archivedSession) {
-    const isOwned = ctx.sessionBelongsToViewer(archivedSession.npub, archivedSession.metadata, viewerNormalizedNpub, viewerIsAdmin);
-    if (isOwned) {
-      const ownerNpub = resolveSessionOwnerNpub(archivedSession.npub, archivedSession.metadata);
-      const messages = ctx.sessionArchiveStore.getArchivedMessages(id);
-      return Response.json({
-        id,
-        status: "archived",
-        session: {
-          id: archivedSession.id,
-          agent: archivedSession.agent,
-          name: archivedSession.name,
-          npub: archivedSession.npub,
-          ownerNpub,
-          identityAlias: generateIdentityAlias(ownerNpub),
-          workingDirectory: archivedSession.workingDirectory,
-          startedAt: archivedSession.startedAt,
-          archivedAt: archivedSession.archivedAt,
-          origin: archivedSession.origin,
-          metadata: archivedSession.metadata,
-        },
-        messages,
-      });
-    }
-  }
-
-  return Response.json({ error: "Session not found" }, { status: 404 });
-}
 
 async function handleQueueNext(
   id: string,

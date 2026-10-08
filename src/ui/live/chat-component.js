@@ -29,7 +29,6 @@ import {
   isWorkingMessageTimestamp,
 } from "./message-timestamp.js";
 import {
-  fetchSessionMessagesApi,
   fetchSessionPermissionsApi,
   fetchSessionQueueApi,
   respondToSessionPermissionApi,
@@ -38,6 +37,7 @@ import {
   shouldFormatAgentMessage, isWorkingNotesMessage, getWorkingNotesLabel,
   isReadableAgentMessage, isErrorMessage,
 } from "./chat-message-roles.js";
+import { createChatHistoryMethods } from "./chat-history.js";
 import { showToast } from "../utils/toast.js";
 import {
   deleteQueuedPrompt,
@@ -121,6 +121,7 @@ export function registerChatComponent() {
   registerMessageHtmlDirective(Alpine);
   // Register the chat store
   Alpine.store("chat", {
+    ...createChatHistoryMethods(),
     sessionId: null,
     messages: [],
     permissions: [],
@@ -185,8 +186,7 @@ export function registerChatComponent() {
           ? sseManager.getStreamMode(sessionId)
           : "unknown";
 
-        this.isLoading = false;
-        console.log("[chat] Loaded session", sessionId);
+        console.log("[chat] Initialized session", sessionId);
       } catch (error) {
         console.error("[chat] Failed to initialize:", error);
         this.error = error.message;
@@ -239,7 +239,7 @@ export function registerChatComponent() {
               return;
             }
             this.replaceMessages(messages);
-            this.isLoading = false;
+            if (messages.length > 0 || this.historyLoaded) this.isLoading = false;
           },
           error: (error) => {
             if (this.sessionId !== sessionId) {
@@ -298,14 +298,6 @@ export function registerChatComponent() {
           },
           error: (error) => console.warn("[chat] Failed to read queued prompts:", error),
         });
-    },
-
-    async _syncMessagesFromServer(sessionId) {
-      const payload = await fetchSessionMessagesApi(sessionId, { refresh: true }).catch(() => null);
-      if (this.sessionId !== sessionId || !Array.isArray(payload?.messages)) {
-        return;
-      }
-      await MessageStore.syncFromServerIfChanged(sessionId, payload.messages);
     },
 
     async _syncPermissionsFromServer(sessionId) {
@@ -462,6 +454,7 @@ export function registerChatComponent() {
      * Clean up subscriptions and connections.
      */
     cleanup() {
+      this._cancelHistory();
       this._messageSubscription?.unsubscribe?.();
       this._messageSubscription = null;
       this._statusSubscription?.unsubscribe?.();
@@ -772,7 +765,7 @@ export function getChatTemplate(sessionId) {
 
   <!-- Loading state -->
   <template x-if="$store.chat.isLoading">
-    <div class="chat-loading">
+    <div class="chat-loading" role="status" aria-live="polite" data-testid="history-loading">
       <span>Loading messages...</span>
     </div>
   </template>
@@ -781,6 +774,17 @@ export function getChatTemplate(sessionId) {
   <template x-if="$store.chat.error">
     <div class="chat-error" role="alert" aria-live="assertive">
       <span x-text="$store.chat.error"></span>
+      <button type="button" aria-label="Retry session history" data-testid="history-retry" @click="$store.chat.retryHistory()">Retry</button>
+    </div>
+  </template>
+
+  <template x-if="$store.chat.isRefreshing">
+    <span role="status" aria-live="polite" data-testid="history-refreshing">Refreshing messages...</span>
+  </template>
+  <template x-if="$store.chat.refreshError">
+    <div role="status" aria-live="polite" data-testid="history-refresh-error">
+      <span x-text="$store.chat.refreshError"></span>
+      <button type="button" aria-label="Retry message refresh" data-testid="history-refresh-retry" @click="$store.chat.retryHistory()">Retry</button>
     </div>
   </template>
 
@@ -926,7 +930,7 @@ export function getChatTemplate(sessionId) {
     </template>
 
     <!-- Empty state -->
-    <template x-if="!$store.chat.isLoading && $store.chat.timelineMessages.length === 0 && $store.chat.emptySessionInformation">
+    <template x-if="!$store.chat.isLoading && $store.chat.historyLoaded && $store.chat.timelineMessages.length === 0 && $store.chat.emptySessionInformation">
       <article class="wm-message system wm-session-information" data-role="system" data-testid="session-information-message">
         <div class="wm-message-body">
           <strong x-text="$store.chat.emptySessionInformation.title"></strong>
@@ -939,7 +943,7 @@ export function getChatTemplate(sessionId) {
       </article>
     </template>
 
-    <template x-if="!$store.chat.isLoading && $store.chat.timelineMessages.length === 0 && !$store.chat.emptySessionInformation">
+    <template x-if="!$store.chat.isLoading && $store.chat.historyLoaded && $store.chat.timelineMessages.length === 0 && !$store.chat.emptySessionInformation">
       <div class="chat-empty">
         <span>Session ready. Send a message to begin.</span>
       </div>

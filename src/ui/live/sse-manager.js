@@ -65,6 +65,7 @@ class SSEManager {
       const source = new EventSource(url, { withCredentials: true });
 
       source.onopen = () => {
+        if (this.connections.get(sessionId) !== source) return;
         console.log(`[sse] Connected to session ${sessionId}`);
         this.reconnectAttempts.set(sessionId, 0);
         this.lastEventTime.set(sessionId, Date.now());
@@ -72,6 +73,7 @@ class SSEManager {
       };
 
       source.onerror = (event) => {
+        if (this.connections.get(sessionId) !== source) return;
         console.warn(`[sse] Connection error for session ${sessionId}`, event);
         this.handleConnectionError(sessionId);
       };
@@ -81,6 +83,7 @@ class SSEManager {
       // listener only: combining onmessage with addEventListener("message")
       // delivers every message twice and races IndexedDB reconciliation.
       source.addEventListener("message", async (event) => {
+        if (this.connections.get(sessionId) !== source) return;
         try {
           this.lastEventTime.set(sessionId, Date.now());
           console.log(`[sse] message event for ${sessionId}:`, event.data?.slice(0, 100));
@@ -96,6 +99,7 @@ class SSEManager {
       });
 
       source.addEventListener("status", async (event) => {
+        if (this.connections.get(sessionId) !== source) return;
         try {
           this.lastEventTime.set(sessionId, Date.now());
           const data = JSON.parse(event.data);
@@ -125,6 +129,7 @@ class SSEManager {
       });
 
       source.addEventListener("permission", async (event) => {
+        if (this.connections.get(sessionId) !== source) return;
         try {
           this.lastEventTime.set(sessionId, Date.now());
           const data = JSON.parse(event.data);
@@ -135,6 +140,7 @@ class SSEManager {
       });
 
       source.addEventListener("transport", (event) => {
+        if (this.connections.get(sessionId) !== source) return;
         try {
           this.lastEventTime.set(sessionId, Date.now());
           const data = JSON.parse(event.data);
@@ -145,10 +151,12 @@ class SSEManager {
       });
 
       source.addEventListener("heartbeat", () => {
+        if (this.connections.get(sessionId) !== source) return;
         this.lastEventTime.set(sessionId, Date.now());
       });
 
       source.addEventListener("refresh", (event) => {
+        if (this.connections.get(sessionId) !== source) return;
         this.lastEventTime.set(sessionId, Date.now());
         let data = {};
         try {
@@ -158,6 +166,7 @@ class SSEManager {
       });
 
       source.addEventListener("error", async (event) => {
+        if (this.connections.get(sessionId) !== source) return;
         try {
           const data = JSON.parse(event.data);
           console.error(`[sse] Error event for session ${sessionId}:`, data);

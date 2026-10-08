@@ -99,7 +99,7 @@ describe("buildSessionFilterOptions", () => {
       syncFeatureFlagsFromConfig: () => {},
       updateIdentityState: () => {},
       scheduleDirectorySuggestions: () => {},
-      MessageStore: { syncFromServerIfChanged: async () => ({ changed: false }) },
+      MessageStore: { getRevision: async () => 0, syncFromServerIfChanged: async () => ({ changed: false }) },
       isAlpineChatEnabled: () => true,
       scrollPillIsNearBottom: () => true,
       scrollPillShow: () => {},
