@@ -1,3 +1,4 @@
+import { snapshotSaturation, type SnapshotSaturation } from "./snapshot-saturation.ts";
 import { callCapabilityBroker, capabilityClientContextFromEnv, readCapabilityIdentity, type CapabilityClientContext } from "../mcp/capability-client";
 
 type JsonRecord = Record<string, unknown>;
@@ -75,8 +76,12 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
   const workspace = record(active.workspace);
   const workspaceId = options.workspaceId?.trim() || String(workspace.workspaceId ?? "").trim();
   if (!workspaceId) throw new Error("Explicit --workspace or active broker Flight Deck workspace is required");
-  const towerUrl = String(workspace.backendBaseUrl ?? "").replace(/\/$/, "");
-  const appNpub = String(workspace.sourceAppNpub ?? "");
+  const hasWorkspaceBinding = Boolean(String(workspace.workspaceId ?? "").trim());
+  const towerUrl = String(hasWorkspaceBinding ? workspace.backendBaseUrl ?? "" : options.towerUrl ?? "").trim().replace(/\/$/, "");
+  const appNpub = String(hasWorkspaceBinding ? workspace.sourceAppNpub ?? "" : options.appNpub ?? "").trim();
+  if (!hasWorkspaceBinding && (!options.workspaceId?.trim() || !towerUrl || !appNpub)) {
+    throw new Error("Unbound broker context requires explicit --workspace, --tower-url and --app-npub");
+  }
   if (!towerUrl || !appNpub) throw new Error("Broker Flight Deck context is missing authoritative Tower/app namespace");
   if ((options.towerUrl && options.towerUrl.replace(/\/$/, "") !== towerUrl) || (options.appNpub && options.appNpub !== appNpub)) {
     throw new Error("Tower/app override does not match authoritative broker context");
@@ -87,6 +92,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
   const sync: JsonRecord = { channels: [], channel_bundles: [] };
   const rawPages: JsonRecord[] = [];
   const errors: string[] = [];
+  const saturation = new Map<string, SnapshotSaturation>();
   const channels = new Set<string>();
   const completedChannels = new Set<string>();
   const bundles = new Map<string, JsonRecord>();
@@ -112,6 +118,9 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
       expectedIdentity = identityKey;
       if (payload.mode !== "snapshot" || payload.full_snapshot !== true || typeof payload.has_more !== "boolean" || typeof payload.snapshot_complete !== "boolean" || payload.has_more === payload.snapshot_complete) {
         throw new Error("Invalid snapshot completion metadata");
+      }
+      for (const finding of snapshotSaturation(payload)) {
+        saturation.set(`${finding.channelId ?? "workspace"}:${finding.collection}`, finding);
       }
       for (const channel of records(payload.channels)) {
         if (typeof channel.id !== "string") throw new Error("Channel is missing id");
@@ -152,6 +161,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
   if (!terminal && !errors.length) errors.push("Snapshot page budget exhausted");
   const missingChannelIds = [...channels].filter(id => !completedChannels.has(id));
   if (terminal && missingChannelIds.length) errors.push("Terminal snapshot omitted visible channel bundles");
+  if (saturation.size) errors.push("Possible Tower collection saturation; full coverage cannot be certified");
   const complete = terminal && !errors.length && !missingChannelIds.length;
   const counts: Record<string, number> = {};
   for (const bundle of bundles.values()) for (const [key, value] of Object.entries(bundle)) {
@@ -160,7 +170,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
   return {
     generatedAt: new Date().toISOString(), since: new Date(start - options.hours * 3_600_000).toISOString(),
     recentTriageHours: options.hours, botNpub: identity.botNpub, brokerRequests, complete, errors,
-    coverage: { pages: rawPages.length, visibleChannels: channels.size, visitedChannels: bundles.size, completedChannels: completedChannels.size, missingChannels: missingChannelIds.length, channelDirectoryKnown: Boolean(expectedIdentity), missingChannelIds, counts },
+    coverage: { pages: rawPages.length, visibleChannels: channels.size, visitedChannels: bundles.size, completedChannels: completedChannels.size, missingChannels: missingChannelIds.length, channelDirectoryKnown: Boolean(expectedIdentity), missingChannelIds, possibleSaturation: [...saturation.values()], counts },
     workspaces: [{ id: workspaceId, label: typeof workspace.label === "string" ? workspace.label : null, sync }], rawPages,
   };
 }

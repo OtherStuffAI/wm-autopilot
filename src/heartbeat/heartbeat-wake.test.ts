@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { snapshotSaturation } from "./snapshot-saturation.ts";
 import { runHeartbeatWake, type HeartbeatWakeOptions } from "./heartbeat-wake";
 
 const cursor = (channelId: string, messageId: string | null = null) => Buffer.from(JSON.stringify({ version: 2, kind: "workspace_snapshot", channelId, messageId })).toString("base64url");
@@ -102,9 +103,37 @@ describe("heartbeat full workspace snapshot", () => {
   });
   test("requires workspace and namespace and rejects conflicting overrides", async () => {
     await expect(fixture([], {}, { backendBaseUrl: "https://tower.test", sourceAppNpub: "app" }).run()).rejects.toThrow("--workspace");
-    await expect(fixture([], { workspaceId: "home" }, {}).run()).rejects.toThrow("namespace");
+    await expect(fixture([], { workspaceId: "home" }, {}).run()).rejects.toThrow("explicit --workspace");
     await expect(fixture([], { towerUrl: "http://localhost" }).run()).rejects.toThrow("override");
     await expect(fixture([], { maxPages: Infinity }).run()).rejects.toThrow("finite");
+  });
+  test("unbound scheduler context accepts only a complete explicit target", async () => {
+    const p = page("a", false, "terminal"); p.channels = [{ id: "a" }];
+    const options = { workspaceId: "home", towerUrl: "https://tower.test", appNpub: "app" };
+    expect((await fixture([p], options, {}).run()).complete).toBe(true);
+    for (const partial of [{ workspaceId: "home" }, { towerUrl: "https://tower.test", appNpub: "app" }]) {
+      await expect(fixture([], partial, {}).run()).rejects.toThrow();
+    }
+    const bad = { ...p, identity: { ...p.identity, app_npub: "wrong" } };
+    expect((await fixture([bad], options, {}).run()).errors[0]).toContain("identity mismatch");
+  });
+  test("explicit target does not hide broker context authorization failures", async () => {
+    const f = fixture([], { workspaceId: "home", towerUrl: "https://tower.test", appNpub: "app",
+      fetchImpl: (async () => Response.json({ error: "Capability denied" }, { status: 403 })) as typeof fetch });
+    await expect(f.run()).rejects.toThrow("Capability denied");
+    expect(f.calls).toHaveLength(0);
+  });
+  test("possible collection saturation keeps evidence but prevents complete coverage", async () => {
+    const p = page("a", false, "terminal"); p.channels = [{ id: "a" }];
+    const tasks = Array.from({ length: 10000 }, (_, i) => ({ id: `task-${i}` }));
+    const saturated = { ...p, channel_bundles: [{ ...p.channel_bundles[0], tasks }] };
+    const result = await fixture([saturated]).run();
+    expect(result.complete).toBe(false);
+    expect(result.coverage.counts.tasks).toBe(10000);
+    expect(result.coverage.possibleSaturation).toEqual([{ collection: "tasks", channelId: "a", observedCount: 10000, possibleLimit: 10000 }]);
+    expect(result.rawPages).toHaveLength(1);
+    expect(snapshotSaturation({ scopes: tasks, channels: tasks, channel_bundles: [{ channel_id: "a", messages: tasks, task_comments: tasks }] }).map(row => row.collection)).toEqual(["scopes", "channels", "task_comments"]);
+    expect(snapshotSaturation({ tasks: tasks.slice(0, 9999), channel_bundles: [{ channel_id: "a", tasks: tasks.slice(0, 9999) }] })).toEqual([]);
   });
   test("explicit workspace selects only that workspace", async () => {
     const p = page("a", false, "terminal"); p.identity.workspace_id = "chosen"; p.channels = [{ id: "a" }];
@@ -121,10 +150,10 @@ describe("heartbeat full workspace snapshot", () => {
         const path = new URL(String(input)).pathname;
         if (path.includes("/identity")) return Response.json({identityType:"agent",botNpub:"bot"});
         if (path.includes("/nip98")) return Response.json({token:"Nostr signed"});
-        if (path === "/api/mcp/wingman/flightdeck") return Response.json({workspace:{workspaceId:"home",backendBaseUrl:"https://tower.test",sourceAppNpub:"app"}});
+        if (path === "/api/mcp/wingman/flightdeck") return Response.json({workspace:null});
         return Response.json(${JSON.stringify(page("a", true, cursor("b")))});
       };`);
-      const result = spawnSync("bun", ["--preload", preload, "clis/heartbeat-wake.ts", "--workspace", "home", "--json", "--max-pages", "1", "--output", output], {
+      const result = spawnSync("bun", ["--preload", preload, "clis/heartbeat-wake.ts", "--workspace", "home", "--tower-url", "https://tower.test", "--app-npub", "app", "--json", "--max-pages", "1", "--output", output], {
         cwd: fileURLToPath(new URL("../..", import.meta.url)), encoding: "utf8",
         env: { ...process.env, WINGMAN_BROKER_URL: "https://broker.test", SESSION_ID: "cli-test", WINGMAN_CAPABILITY: "cap" },
       });
