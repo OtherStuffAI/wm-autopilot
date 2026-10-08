@@ -1,3 +1,5 @@
+import { createSecretsNavigation } from "./secrets-navigation.js";
+
 /**
  * Navigation module.
  *
@@ -305,6 +307,8 @@ export function createNavigation(deps) {
     render();
   }
 
+  const { navigateToSecrets } = createSecretsNavigation(deps);
+
   function setupNavListeners() {
     navLinks.forEach((link) => {
       link.addEventListener("click", (event) => {
@@ -356,6 +360,9 @@ export function createNavigation(deps) {
           return;
         } else if (targetRoute === "settings") {
           navigateToSettings({ skipMenuClose: true });
+          return;
+        } else if (targetRoute === "secrets") {
+          navigateToSecrets({ skipMenuClose: true });
           return;
         } else {
           navigateToHome({ skipMenuClose: true });
@@ -432,6 +439,7 @@ export function createNavigation(deps) {
     navigateToTerminal,
     navigateToFiles,
     navigateToSettings,
+    navigateToSecrets,
     setupNavListeners,
   };
 }

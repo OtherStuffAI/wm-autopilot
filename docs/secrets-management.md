@@ -121,3 +121,21 @@ wrapping key must be custodied and restored independently, like the bot-vault
 wrapping key; database ciphertext alone is insufficient. Preserve the pair across
 container/native restarts, and never replace a missing wrapping key for an
 existing credential database. Do not commit runtime state or keys.
+
+## Navigation regression checks
+
+The avatar uses SPA click dispatch to `/secrets`. Authentication restoration keeps
+that requested route; anonymous viewers still return to Home after auth resolves.
+
+Run `bun test ./src/ui/secrets/navigation.test.js` for click dispatch and guest
+checks. Run the full browser regression with:
+
+```sh
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs bun test scripts/secrets-navigation.browser.test.ts
+```
+
+This covers the full HTML/app entrypoint,
+avatar selection, history back/forward, reload with delayed authentication and
+anonymous denial. Set `BROWSER_EXECUTABLE` if a system Chrome is required.
+The browser test uses synthetic services and an async auth adapter through the
+normal identity UI API; it does not validate production login or owner CRUD.

@@ -738,13 +738,6 @@ export function initIdentityStateManager(deps) {
         window.dispatchEvent(new CustomEvent("wingman:identity-ui-state", { detail: { ...next } }));
         if (becameAuthenticated) {
           closeIdentityLoginDialog();
-          const currentRoute = getCurrentRoute();
-          if (currentRoute !== "home") {
-            setCurrentRoute("home");
-            if (window.location.pathname !== HOME_ROUTE) {
-              window.history.pushState({ route: "home" }, "", HOME_ROUTE);
-            }
-          }
           render();
         }
       } catch {

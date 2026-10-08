@@ -15,3 +15,50 @@ test("Secrets stays protected and session updates preserve an unfinished credent
   expect(resolveRouteForAuth("secrets", { authenticated: false, authResolved: true })).toBe("home");
   expect(shouldFullRenderOnSessionUpdate("secrets")).toBe(false);
 });
+
+test("avatar click dispatches Secrets through SPA navigation and denies guests", async () => {
+  const { createNavigation } = await import("../navigation/navigation.js");
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  let click;
+  let route = "home";
+  let loginRequests = 0;
+  let renders = 0;
+  const transitions = [];
+  const state = { identity: { authenticated: true } };
+  try {
+    globalThis.window = {
+      location: { pathname: "/home" },
+      history: { pushState: (entry, _title, path) => transitions.push({ entry, path }) },
+      addEventListener() {},
+    };
+    globalThis.document = { querySelectorAll: () => [], addEventListener() {} };
+    createNavigation({
+      state,
+      navLinks: [{ dataset: { route: "secrets" }, addEventListener: (_event, handler) => { click = handler; } }],
+      getCurrentRoute: () => route,
+      setCurrentRoute: (next) => { route = next; },
+      openIdentityLoginDialog: () => { loginRequests++; },
+      closeIdentityLoginDialog() {},
+      closeMenu() {},
+      deactivateLiveSessionRefresh() {},
+      setLastLoggedSessionId() {},
+      render: () => { renders++; },
+    }).setupNavListeners();
+    let prevented = false;
+    click({ preventDefault: () => { prevented = true; } });
+    expect(prevented).toBe(true);
+    expect(route).toBe("secrets");
+    expect(transitions).toEqual([{ entry: { route: "secrets" }, path: "/secrets" }]);
+    expect(renders).toBe(1);
+    route = "home";
+    state.identity.authenticated = false;
+    click({ preventDefault() {} });
+    expect(loginRequests).toBe(1);
+    expect(route).toBe("home");
+    expect(transitions).toHaveLength(1);
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+  }
+});
