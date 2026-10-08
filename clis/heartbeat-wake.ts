@@ -6,7 +6,10 @@ import { runHeartbeatWake } from "../src/heartbeat/heartbeat-wake";
 
 function value(flag: string): string | undefined {
   const index = process.argv.indexOf(flag);
-  return index >= 0 ? process.argv[index + 1] : undefined;
+  if (index < 0) return undefined;
+  const result = process.argv[index + 1];
+  if (!result || result.startsWith("--")) throw new Error(`${flag} requires a value`);
+  return result;
 }
 async function main(): Promise<void> {
   if (process.argv.includes("--smoke")) {
@@ -15,14 +18,17 @@ async function main(): Promise<void> {
   }
   const hours = Number(value("--hours") ?? "12");
   if (!Number.isFinite(hours) || hours <= 0 || hours > 168) throw new Error("--hours must be between 1 and 168");
-  const towerUrl = (value("--tower-url") ?? process.env.FLIGHTDECK_TOWER_URL ?? process.env.TOWER_URL ?? "http://127.0.0.1:3100").trim();
-  const appNpub = (value("--app-npub") ?? process.env.FLIGHTDECK_APP_NPUB ?? "").trim();
-  if (!appNpub) throw new Error("FLIGHTDECK_APP_NPUB or --app-npub is required");
-  const result = await runHeartbeatWake({ hours, towerUrl, appNpub });
+  const result = await runHeartbeatWake({
+    hours, workspaceId: value("--workspace"), towerUrl: value("--tower-url"), appNpub: value("--app-npub"),
+    maxPages: Number(value("--max-pages") ?? 100),
+    maxTimeMs: Number(value("--max-time-ms") ?? 120000),
+    requestTimeoutMs: Number(value("--request-timeout-ms") ?? 15000),
+  });
   const output = JSON.stringify(result, null, 2);
   const outputPath = value("--output");
   if (outputPath) await writeFile(outputPath, `${output}\n`, "utf8");
-  process.stdout.write(`${output}\n`);
+  process.stdout.write(`${outputPath ? JSON.stringify({ complete: result.complete, coverage: result.coverage, errors: result.errors, output: outputPath }) : output}\n`);
+  if (!result.complete) process.exitCode = 2;
 }
 
 if (!process.execArgv.includes("--check")) {
