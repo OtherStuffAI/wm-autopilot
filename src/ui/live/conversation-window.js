@@ -1,87 +1,12 @@
-import { attachCopyButton } from "../utils/clipboard.js";
-import {
-  getChatMessageHtmlCacheOptions,
-  renderChatMessageHtml,
-  renderWorkingNotesHtml,
-} from "../rendering/chat-message-content.js";
-import { attachMessageSpeechButton } from "./message-speech.js";
-import { getWorkingNotesPanelKey, isWorkingNotesPanelOpen } from "./working-notes-toggle.js";
-import { shouldDefaultWorkingNotesOpen } from "./working-notes-display.js";
+import { createMessageBubble } from "./chat-message-bubble.js";
 import { buildEmptySessionInformation, createSessionInformationBubble } from "./session-information.js";
-import { attachMessageTimestamp } from "./message-timestamp.js";
 
-export const LIVE_MESSAGE_WINDOW_DEFAULT = 80;
-export const LIVE_MESSAGE_PAGE_SIZE = 80;
-
-function clampVisibleCount(totalCount, visibleCount) {
-  const safeTotal = Math.max(0, totalCount);
-  const safeVisible = Math.max(0, Math.trunc(visibleCount));
-  return Math.min(safeTotal, safeVisible);
-}
-
-export function createWindowRecord(totalCount, visibleCount = LIVE_MESSAGE_WINDOW_DEFAULT) {
-  return {
-    visibleCount: clampVisibleCount(totalCount, visibleCount),
-    lastTotal: Math.max(0, totalCount),
-  };
-}
-
-export function syncConversationWindow(windowStore, sessionId, totalCount) {
-  const safeTotal = Math.max(0, totalCount);
-  const current = windowStore.get(sessionId);
-  if (!current) {
-    const initial = createWindowRecord(safeTotal, LIVE_MESSAGE_WINDOW_DEFAULT);
-    windowStore.set(sessionId, initial);
-    return initial;
-  }
-
-  const previousTotal = Math.max(0, current.lastTotal ?? 0);
-  const next = {
-    visibleCount: clampVisibleCount(safeTotal, current.visibleCount ?? LIVE_MESSAGE_WINDOW_DEFAULT),
-    lastTotal: safeTotal,
-  };
-
-  if (safeTotal <= LIVE_MESSAGE_WINDOW_DEFAULT) {
-    next.visibleCount = safeTotal;
-  } else if (next.visibleCount === 0) {
-    next.visibleCount = Math.min(safeTotal, LIVE_MESSAGE_WINDOW_DEFAULT);
-  } else if (next.visibleCount >= previousTotal) {
-    next.visibleCount = safeTotal;
-  }
-
-  windowStore.set(sessionId, next);
-  return next;
-}
-
-export function expandConversationWindow(windowStore, sessionId, totalCount, step = LIVE_MESSAGE_PAGE_SIZE) {
-  const current = syncConversationWindow(windowStore, sessionId, totalCount);
-  const next = {
-    visibleCount: clampVisibleCount(totalCount, current.visibleCount + Math.max(1, Math.trunc(step))),
-    lastTotal: Math.max(0, totalCount),
-  };
-  windowStore.set(sessionId, next);
-  return next;
-}
-
-export function resetConversationWindow(windowStore, sessionId) {
-  windowStore.delete(sessionId);
-}
-
-export function getConversationWindowSnapshot(windowStore, sessionId, conversation) {
-  const items = Array.isArray(conversation) ? conversation : [];
-  const totalCount = items.length;
-  const windowRecord = syncConversationWindow(windowStore, sessionId, totalCount);
-  const visibleCount = clampVisibleCount(totalCount, windowRecord.visibleCount);
-  const hiddenCount = Math.max(0, totalCount - visibleCount);
-  const visibleMessages = hiddenCount > 0 ? items.slice(-visibleCount) : items;
-
-  return {
-    totalCount,
-    visibleCount,
-    hiddenCount,
-    visibleMessages,
-  };
-}
+export {
+  LIVE_MESSAGE_WINDOW_DEFAULT, LIVE_MESSAGE_PAGE_SIZE, createWindowRecord,
+  syncConversationWindow, expandConversationWindow, resetConversationWindow,
+  getConversationWindowSnapshot,
+} from "./conversation-window-state.js";
+import { LIVE_MESSAGE_PAGE_SIZE, getConversationWindowSnapshot } from "./conversation-window-state.js";
 
 export function capturePrependedScrollState(scrollElement) {
   if (!(scrollElement instanceof HTMLElement)) {
@@ -124,91 +49,6 @@ function buildWindowSummary(hiddenCount, totalCount, visibleCount) {
   return `Showing the latest ${visibleCount} of ${totalCount} messages to keep long sessions responsive on mobile.`;
 }
 
-function shouldFormatAgentMessage(message) {
-  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-  return role === "assistant" || role === "agent";
-}
-
-function isWorkingNotesMessage(message) {
-  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-  return role === "agent-working" || role === "agent-thinking" || role === "agent-tools" || role === "agent-context";
-}
-
-function isErrorMessage(message) {
-  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-  return role === "agent-error";
-}
-
-function getWorkingNotesLabel(message) {
-  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-  if (role === "agent-tools") return "Tools";
-  if (role === "agent-context") return "Context";
-  return "Thinking";
-}
-
-function getSpeechSummary(message) {
-  const summary = typeof message?.speech?.summary === "string" ? message.speech.summary.trim() : "";
-  return summary;
-}
-
-function createSpeechSummaryElement(summary) {
-  const element = document.createElement("p");
-  element.className = "wm-message-speech-summary";
-  element.dataset.testid = "message-speech-summary";
-  element.textContent = summary;
-  return element;
-}
-
-function createMessageBubble(message, options = {}) {
-  const role = String(message?.role ?? message?.type ?? "assistant").toLowerCase();
-  const bubble = document.createElement("article");
-  const styleRole = isWorkingNotesMessage(message) || role.startsWith("agent-") ? "assistant" : role;
-  bubble.className = `wm-message ${styleRole}`;
-  bubble.dataset.role = role;
-  if (isErrorMessage(message)) {
-    bubble.setAttribute("role", "alert");
-    bubble.setAttribute("aria-live", "assertive");
-    bubble.dataset.testid = "agent-error-message";
-  }
-  const body = document.createElement("div");
-  body.className = "wm-message-body";
-  const workingNotesKey = isWorkingNotesMessage(message)
-    ? getWorkingNotesPanelKey(options.sessionId, message)
-    : null;
-  const workingNotesLabel = isWorkingNotesMessage(message) ? getWorkingNotesLabel(message) : null;
-  const cacheOptions = getChatMessageHtmlCacheOptions(message, { sessionId: options.sessionId });
-  body.innerHTML = isWorkingNotesMessage(message)
-    ? renderWorkingNotesHtml(message.content ?? message.message ?? "", {
-        cleanAgentText: Boolean(options.agentOutputFormattingEnabled),
-        workingNotesKey,
-        workingNotesOpen: isWorkingNotesPanelOpen(
-          workingNotesKey,
-          shouldDefaultWorkingNotesOpen(message, options.isFirstMessage),
-        ),
-        workingNotesLabel,
-        config: options.config,
-        ...cacheOptions,
-      })
-    : renderChatMessageHtml(message.content ?? message.message ?? "", {
-        cleanAgentText: Boolean(options.agentOutputFormattingEnabled && shouldFormatAgentMessage(message)),
-        config: options.config,
-        ...cacheOptions,
-      });
-  bubble.append(body);
-  const speechSummary = getSpeechSummary(message);
-  if (speechSummary) {
-    bubble.append(createSpeechSummaryElement(speechSummary));
-  }
-  attachCopyButton(bubble);
-  attachMessageSpeechButton(bubble, {
-    sessionId: options.sessionId,
-    message,
-    showToast: options.showToast,
-  });
-  attachMessageTimestamp(bubble, message);
-  return bubble;
-}
-
 function createWindowNotice(snapshot, onRevealOlder) {
   const notice = document.createElement("div");
   notice.className = "wm-conversation-window-notice";
@@ -221,7 +61,7 @@ function createWindowNotice(snapshot, onRevealOlder) {
   button.dataset.testid = "conversation-show-older";
   button.addEventListener("click", () => {
     const scrollElement = button.closest(".wm-live-conversation");
-    onRevealOlder?.(scrollElement);
+    onRevealOlder?.(scrollElement, snapshot.totalCount);
   });
 
   const summary = document.createElement("p");

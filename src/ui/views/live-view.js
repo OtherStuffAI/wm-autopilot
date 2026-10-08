@@ -7,15 +7,10 @@
 
 import { escapeHtml, getSessionDisplayName, setIconButton } from "../core/icons.js";
 import { openTextPromptDialog } from "../common/dialog-prompts.js";
-import { attachCopyButton, copyConversationToClipboard, copyTextToClipboard } from "../utils/clipboard.js";
-import { attachMessageTimestamp } from "../live/message-timestamp.js";
+import { copyConversationToClipboard, copyTextToClipboard } from "../utils/clipboard.js";
+import { createArchivedConversation } from "../live/archived-conversation.js";
 import { showToast } from "../utils/toast.js";
 import { AGENT_OUTPUT_FORMATTING_FLAG_KEY } from "../rendering/agent-output-format.js";
-import {
-  getChatMessageHtmlCacheOptions,
-  renderChatMessageHtml,
-  renderWorkingNotesHtml,
-} from "../rendering/chat-message-content.js";
 import {
   fetchSessionHistoryApi,
   branchConversationApi,
@@ -31,7 +26,6 @@ import {
   configureLiveChatFeatures,
 } from "../live/index.js";
 import { attachPathMentionAutocomplete } from "../live/path-mention-autocomplete.js";
-import { shouldDefaultWorkingNotesOpen } from "../live/working-notes-display.js";
 import { findAppForSession, findWebAppForSession, createWebviewPanel, createLayoutToolbar } from "../live/webview-panel.js";
 import { createWriterToolbar } from "../writer/writer-panel.js";
 import { createFileEditingPanel } from "../writer/file-editing-panel.js";
@@ -158,28 +152,6 @@ export function initLiveView(deps) {
   const agentOutputFormattingEnabled = () => Boolean(
     isFeatureEnabledForViewer(AGENT_OUTPUT_FORMATTING_FLAG_KEY),
   );
-
-  const shouldFormatAgentMessage = (message) => {
-    const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-    return role === "assistant" || role === "agent";
-  };
-
-  const isWorkingNotesMessage = (message) => {
-    const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-    return role === "agent-working" || role === "agent-thinking" || role === "agent-tools" || role === "agent-context";
-  };
-
-  const getWorkingNotesLabel = (message) => {
-    const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-    if (role === "agent-tools") return "Tools";
-    if (role === "agent-context") return "Context";
-    return "Thinking";
-  };
-
-  const getMessageStyleRole = (message) => {
-    const role = String(message?.type ?? message?.role ?? "assistant").toLowerCase();
-    return isWorkingNotesMessage(message) ? "assistant" : role;
-  };
 
   function updateSessionPinnedFile(sessionId, filePath) {
     const session = sessionsStore().items.find((item) => item.id === sessionId);
@@ -659,44 +631,12 @@ export function initLiveView(deps) {
     render();
   };
 
-  const renderArchivedConversation = (messages) => {
-    const wrapper = document.createElement("div");
-    wrapper.className = "wm-conversation wm-conversation-archived";
-
-    if (!messages || messages.length === 0) {
-      const empty = document.createElement("p");
-      empty.textContent = "This session has no messages.";
-      wrapper.append(empty);
-    } else {
-      messages.forEach((message, messageIndex) => {
-        const bubble = document.createElement("article");
-        bubble.className = `wm-message ${getMessageStyleRole(message)}`;
-        bubble.dataset.role = String(message.type ?? message.role ?? "assistant").toLowerCase();
-        const body = document.createElement("div");
-        body.className = "wm-message-body";
-        const cacheOptions = getChatMessageHtmlCacheOptions(message, { sessionId: state.archivedSession?.sessionId });
-        body.innerHTML = isWorkingNotesMessage(message)
-          ? renderWorkingNotesHtml(message.content ?? message.message ?? "", {
-              cleanAgentText: Boolean(agentOutputFormattingEnabled()),
-              workingNotesOpen: shouldDefaultWorkingNotesOpen(message, messageIndex === 0),
-              workingNotesLabel: getWorkingNotesLabel(message),
-              config: state.config,
-              ...cacheOptions,
-            })
-          : renderChatMessageHtml(message.content ?? message.message ?? "", {
-              cleanAgentText: Boolean(agentOutputFormattingEnabled() && shouldFormatAgentMessage(message)),
-              config: state.config,
-              ...cacheOptions,
-            });
-        bubble.append(body);
-        attachCopyButton(bubble);
-        attachMessageTimestamp(bubble, message);
-        wrapper.append(bubble);
-      });
-    }
-
-    return wrapper;
-  };
+  const renderArchivedConversation = (messages) => createArchivedConversation({
+    conversation: messages,
+    sessionId: state.archivedSession?.sessionId,
+    config: state.config,
+    agentOutputFormattingEnabled: agentOutputFormattingEnabled(),
+  });
 
   const renderArchivedComposer = () => {
     const composerShell = document.createElement("div");
@@ -730,9 +670,9 @@ export function initLiveView(deps) {
       agentOutputFormattingEnabled: agentOutputFormattingEnabled(),
       config: state.config,
       showToast,
-      onRevealOlder: (scrollElement) => {
+      onRevealOlder: (scrollElement, totalCount) => {
         const snapshot = capturePrependedScrollState(scrollElement);
-        expandConversationWindow(state.liveMessageWindows, sessionId, conversation.length);
+        expandConversationWindow(state.liveMessageWindows, sessionId, totalCount);
         void rerenderConversation(sessionId, { prependedScrollState: snapshot });
       },
     });

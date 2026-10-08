@@ -8,6 +8,7 @@ import { registerMessageHtmlDirective } from "./message-html.js";
 import Dexie from "/vendor/dexie/dexie.mjs";
 import { sseManager } from "./sse-manager.js";
 import { MessageStore, PermissionStore, PromptQueueStore, SessionStore } from "./db.js";
+import { deriveConversationPresentation, getTurnWindowStart } from "./conversation-presentation.js";
 import { mergeConversationWithQueuedPrompts } from "./conversation-queue.js";
 import { buildPermissionActions } from "./permission-actions.js";
 import { show as scrollPillShow, isNearBottom as scrollPillIsNearBottom } from "./scroll-pill.js";
@@ -489,6 +490,7 @@ export function registerChatComponent() {
         return renderWorkingNotesHtml(message?.content ?? "", {
           cleanAgentText: Boolean(isAgentOutputFormattingEnabled()),
           workingNotesKey,
+          workingNotesMembers: message.members,
           workingNotesOpen: isWorkingNotesPanelOpen(
             workingNotesKey,
             shouldDefaultWorkingNotesOpen(message, this.messages[0] === message),
@@ -646,7 +648,7 @@ export function registerChatComponent() {
     },
 
     get timelineMessages() {
-      return mergeConversationWithQueuedPrompts(this.messages, this.queuedPrompts);
+      return deriveConversationPresentation(mergeConversationWithQueuedPrompts(this.messages, this.queuedPrompts));
     },
 
     getPermissionActions(permission) {
@@ -659,13 +661,13 @@ export function registerChatComponent() {
       if (visibleCount <= 0 || visibleCount >= timeline.length) {
         return timeline;
       }
-      return timeline.slice(-visibleCount);
+      return timeline.slice(getTurnWindowStart(timeline, visibleCount));
     },
 
     get hiddenMessageCount() {
       const timelineLength = this.timelineMessages.length;
       const visibleCount = Math.min(timelineLength, this.messageWindow?.visibleCount ?? LIVE_MESSAGE_WINDOW_DEFAULT);
-      return Math.max(0, timelineLength - visibleCount);
+      return getTurnWindowStart(this.timelineMessages, visibleCount);
     },
 
     get revealOlderLabel() {
@@ -678,7 +680,7 @@ export function registerChatComponent() {
         return "";
       }
       const timelineLength = this.timelineMessages.length;
-      const visibleCount = Math.min(timelineLength, this.messageWindow?.visibleCount ?? LIVE_MESSAGE_WINDOW_DEFAULT);
+      const visibleCount = timelineLength - this.hiddenMessageCount;
       return `Showing the latest ${visibleCount} of ${timelineLength} messages to keep long sessions responsive on mobile.`;
     },
 

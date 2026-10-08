@@ -98,7 +98,7 @@ export function getChatMessageHtmlCacheOptions(message, context = {}) {
     typeof context.sessionId === "string" && context.sessionId.length > 0
       ? context.sessionId
       : "session";
-  const updatedAt =
+  const updatedAt = message.displayGroup ? "" :
     typeof message.updatedAt === "string" && message.updatedAt.length > 0
       ? message.updatedAt
       : typeof message.createdAt === "string" && message.createdAt.length > 0
@@ -136,8 +136,20 @@ function formatWorkingNotesLabels(label) {
 }
 
 export function renderWorkingNotesHtml(content, options = {}) {
-  const body = renderChatMessageHtml(content, options);
-  const label = options.workingNotesLabel === "Tools" ? "Tools" : "Thinking";
+  const body = Array.isArray(options.workingNotesMembers)
+    ? options.workingNotesMembers.map((message) => {
+      const id = message.messageId ?? message.message_id ?? message.id ?? "";
+      const role = message.role ?? message.type ?? "";
+      const html = renderChatMessageHtml(message.content ?? message.message ?? "", {
+        ...options,
+        cleanAgentText: false,
+        cacheKey: undefined,
+        cacheUpdatedAt: undefined,
+      });
+      return `<section data-message-id="${escapeHtml(String(id))}" data-member-role="${escapeHtml(role)}">${html}</section>`;
+    }).join("")
+    : renderChatMessageHtml(content, options);
+  const label = ["Tools", "Context"].includes(options.workingNotesLabel) ? options.workingNotesLabel : "Thinking";
   const labels = formatWorkingNotesLabels(label);
   const kind = label.toLowerCase();
   const panelKey =

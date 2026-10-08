@@ -127,13 +127,9 @@ describe("live-view composition", () => {
     expect(source).toContain("if (isSessionReadyForSpeech(session))");
   });
 
-  test("renders Codex working notes in archived conversations", () => {
-    expect(source).toContain("renderWorkingNotesHtml");
-    expect(source).toContain('role === "agent-context"');
-    expect(source).toContain('if (role === "agent-context") return "Context";');
-    expect(source).toContain("return isWorkingNotesMessage(message) ? \"assistant\" : role;");
-    expect(source).toContain("workingNotesLabel: getWorkingNotesLabel(message)");
-    expect(source).toContain("isWorkingNotesMessage(message)");
+  test("uses the shared archived conversation renderer", () => {
+    expect(source).toContain("createArchivedConversation({");
+    expect(source).toContain("conversation: messages");
   });
 
   test("unpinned artifacts preserve the remaining ordered page list", () => {

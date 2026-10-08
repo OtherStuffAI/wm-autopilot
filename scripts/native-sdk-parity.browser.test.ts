@@ -58,7 +58,7 @@ suite("native SDK conversation browser parity", () => {
     await page.getByText("Streaming Claude", { exact: true }).waitFor();
     expect(await page.locator('[data-role="agent-streaming"] strong').textContent()).toBe("Streaming Claude");
     expect(await page.locator('[data-role="agent-tools"] details').count()).toBeGreaterThan(0);
-    expect(await page.locator('[data-role="agent-thinking"]').count()).toBe(2);
+    expect(await page.locator('[data-role="agent-thinking"]').count()).toBe(1);
     const toolPanel = page.locator('[data-role="agent-tools"] details').first();
     await toolPanel.locator("summary").click();
     expect(await toolPanel.getAttribute("open")).not.toBeNull();

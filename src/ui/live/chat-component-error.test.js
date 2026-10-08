@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 const source = readFileSync(new URL("./chat-component.js", import.meta.url), "utf8");
 const roles = readFileSync(new URL("./chat-message-roles.js", import.meta.url), "utf8");
-const legacySource = readFileSync(new URL("./conversation-window.js", import.meta.url), "utf8");
+const legacySource = readFileSync(new URL("./chat-message-bubble.js", import.meta.url), "utf8");
 
 describe("agent error presentation", () => {
   test("renders provider failures as accessible live alerts", () => {
