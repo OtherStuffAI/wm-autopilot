@@ -349,11 +349,12 @@ export class FlightDeckPgClient {
     return await createFlightDeckPgChannelMessage({ ...this.base({ workspaceId }), channelId, threadId, body });
   }
 
-  async listTasks(workspaceId: string, input: { channelId?: string | null; scopeId?: string | null; limit?: number }) {
+  async listTasks(workspaceId: string, input: { channelId?: string | null; scopeId?: string | null; limit?: number; cursor?: string | null }) {
     if (input.channelId) {
-      return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(input.channelId)}/tasks`, { limit: input.limit });
+      return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(input.channelId)}/tasks`, { limit: input.limit, cursor: input.cursor });
     }
     if (input.scopeId) {
+      if (input.cursor) throw new Error("Scope task listing does not support cursor pagination; use a channel.");
       return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/scopes/${encodeURIComponent(input.scopeId)}/tasks`, { limit: input.limit });
     }
     throw new MissingFlightDeckPgRouteError({

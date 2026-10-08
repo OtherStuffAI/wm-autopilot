@@ -137,6 +137,7 @@ async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagM
   if (area === 'tasks' && action === 'list') return await client.listTasks(workspaceId, {
     channelId: valueFromFlagOrDefault(flags, defaults, '--channel'),
     scopeId: valueFromFlagOrDefault(flags, defaults, '--scope'),
+    cursor: stringFlag(flags, "--cursor"),
     limit,
   });
   if (area === 'task' && action === 'show') return await client.showTask(workspaceId, requiredArg(id ?? defaults.taskId, 'task id'));
@@ -455,7 +456,7 @@ Usage:
   bun clis/wingman.ts flightdeck context --json
   bun clis/wingman.ts flightdeck status --json
   bun clis/wingman.ts flightdeck workspaces list --json
-  bun clis/wingman.ts flightdeck tasks list --workspace <workspace-id> --channel <channel-id> --json
+  bun clis/wingman.ts flightdeck tasks list --workspace <workspace-id> --channel <channel-id> [--cursor <opaque-cursor>] [--limit 100] --json
   bun clis/wingman.ts flightdeck task show <task-id> --workspace <workspace-id> --json
   bun clis/wingman.ts flightdeck task comment <task-id> --workspace <workspace-id> --body "..." --json
   bun clis/wingman.ts flightdeck task state <task-id> --workspace <workspace-id> --state in_progress --json
