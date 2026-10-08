@@ -71,3 +71,22 @@ test("Claude crash recovery rejects persisted nonterminal text after readiness",
   expect(inspection.runtimeStable).toBe(true);
   expect(inspection.reply).toBeNull();
 });
+
+test("Agent Direct records acceptance when the native turn fails before polling", async () => {
+  const session = { id: "claude-failed", agent: "claude", status: "running",
+    metadata: { agentTransport: "claude-sdk" } } as SessionSnapshot;
+  let sent = false;
+  let receipts = 0;
+  const adapter = {
+    deliversPromptsDirectly: () => true,
+    getPromptReadiness: async () => ({ state: "ready", reason: "ready", retryAfterMs: 1, observedAt: Date.now() }),
+    async sendMessage() { sent = true; throw new Error("Turn failed after acceptance"); },
+    fetchStatus: async () => "stable",
+    fetchMessages: async () => sent ? [{ role: "user", content: "Work", createdAt: "2026-10-08T00:00:00Z" }] : [],
+  } as unknown as AgentAdapter;
+  const manager = { getSession: () => session, getAdapter: () => adapter } as unknown as ProcessManager;
+  await expect(sendPromptAndAwaitFinalResponse(manager, session.id, "Work", {
+    timeoutMs: 100, pollIntervalMs: 5, onAccepted: () => { receipts += 1; },
+  })).rejects.toThrow("Turn failed after acceptance");
+  expect(receipts).toBe(1);
+});

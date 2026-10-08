@@ -45,7 +45,7 @@ export async function normalizeBusySessionMessageFailure(
   result: SessionAgentMessageResult,
   adapter: AgentAdapter | null,
 ): Promise<SessionAgentMessageResult> {
-  if (!isGenericBusyCompatibleFailure(result)) {
+  if (result.certainty === "uncertain" || !isGenericBusyCompatibleFailure(result)) {
     return result;
   }
 

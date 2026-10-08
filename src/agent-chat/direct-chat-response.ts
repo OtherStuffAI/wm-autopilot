@@ -96,7 +96,6 @@ export async function sendPromptAndAwaitFinalResponse(
   let observedActiveRuntime = false;
   let accepted = false;
   while (Date.now() < deadline) {
-    if (sendFailed) throw sendError;
     let session = manager.getSession(sessionId);
     const currentAdapter = manager.getAdapter(sessionId);
     if (!currentAdapter) throw new Error(`Session ${sessionId} no longer has an adapter.`);
@@ -132,7 +131,6 @@ export async function sendPromptAndAwaitFinalResponse(
         : []
       : messages;
     await waitOptions?.onPoll?.();
-    if (sendFailed) throw sendError;
     const currentNativeSessionId = session?.metadata?.nativeAgentSession?.agent === 'codex'
       ? session.metadata.nativeAgentSession.sessionId
       : null;
@@ -153,6 +151,8 @@ export async function sendPromptAndAwaitFinalResponse(
       accepted = true;
       await waitOptions?.onAccepted?.();
     }
+    // Preserve an observed receipt even when the native turn failed before the first poll.
+    if (sendFailed) throw sendError;
     const nextPromptOffset = promptIndex >= 0
       ? authoritativeMessages.slice(promptIndex + 1).findIndex((message) => message.role === 'user')
       : -1;

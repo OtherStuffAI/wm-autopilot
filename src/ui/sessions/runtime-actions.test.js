@@ -437,9 +437,31 @@ describe("session runtime actions", () => {
     });
   }
 
+  for (const status of [0, 409, 502]) {
+    test(`uncertain delivery with status ${status} is not restored or queued`, async () => {
+      sessions = [{ id: "session-1", status: "running", agentRuntimeStatus: "stable" }];
+      postSessionMessageApi = mock(async () => {
+        const error = new Error("Agent working");
+        error.status = status;
+        if (status) error.deliveryCertainty = "uncertain";
+        throw error;
+      });
+      const result = await buildActions().sendMessage("session-1", "Already delivered");
+      expect(result.uncertain).toBe(true);
+      expect(state.messageDrafts.get("session-1")).toBe("");
+      expect(addToPromptQueue).not.toHaveBeenCalled();
+      expect(messageStore.removePendingMessage).not.toHaveBeenCalled();
+    });
+  }
+
   test("sendMessage removes the pending row and restores the draft on a genuine failure", async () => {
     sessions = [{ id: "session-1", status: "running", agentRuntimeStatus: "stable" }];
-    postSessionMessageApi = mock(async () => { throw new Error("transport failed"); });
+    postSessionMessageApi = mock(async () => {
+      const error = new Error("transport rejected");
+      error.status = 400;
+      error.deliveryCertainty = "rejected";
+      throw error;
+    });
     const originalConsoleError = console.error;
     const consoleError = mock(() => {});
     console.error = consoleError;

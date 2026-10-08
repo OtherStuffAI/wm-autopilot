@@ -1,3 +1,4 @@
+import { submitAdapterPrompt } from "../agents/prompt-submission";
 import type { AgentAdapter } from "../agents/agent-adapter";
 import type { AgentType } from "../config";
 
@@ -87,7 +88,7 @@ export async function deliverSessionAgentMessage(
       if (input.beforeSend && !input.beforeSend()) return { ok: false, status: 409, message: "Delivery claim is no longer current", certainty: "unsent" };
       input.onSending?.();
       sending = true;
-      await input.adapter.sendMessage(input.content, input.type);
+      await submitAdapterPrompt(input.adapter, input.content, input.type);
       return { ok: true, status: 200, message: "", certainty: "accepted" };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

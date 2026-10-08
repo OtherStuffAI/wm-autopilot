@@ -2225,7 +2225,7 @@ async function handlePostMessage(
     });
     if (!result.ok) {
       const normalizedResult = await normalizeBusySessionMessageFailure(ownedSession, result, adapter);
-      if (normalizedResult.status === 409 && adapter?.deliversPromptsDirectly?.()) {
+      if (normalizedResult.status === 409 && normalizedResult.certainty !== "uncertain" && adapter?.deliversPromptsDirectly?.()) {
         try {
           const retained = retainDirectAdapterPrompt({
             session: liveSession,
@@ -2246,7 +2246,7 @@ async function handlePostMessage(
         }
       }
       return Response.json(
-        { error: normalizedResult.message },
+        { error: normalizedResult.message, deliveryCertainty: normalizedResult.certainty },
         { status: normalizedResult.status },
       );
     }

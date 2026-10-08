@@ -281,6 +281,7 @@ export async function postSessionMessageApi(sessionId, content, type = "user") {
         : response.statusText || "Agent request failed"
     );
     error.status = response.status;
+    error.deliveryCertainty = body?.deliveryCertainty ?? (response.status >= 500 || response.status === 408 ? "uncertain" : "rejected");
     throw error;
   }
 

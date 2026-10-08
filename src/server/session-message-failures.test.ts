@@ -26,11 +26,12 @@ describe("normalizeBusySessionMessageFailure", () => {
   test("maps generic 5xx delivery failures to busy while the adapter still reports running", async () => {
     const result = await normalizeBusySessionMessageFailure(
       baseSession,
-      { ok: false, status: 500, message: "Internal Server Error" },
+      { certainty: "rejected", ok: false, status: 500, message: "Internal Server Error" },
       { fetchStatus: async () => "running" } as any,
     );
 
     expect(result).toEqual({
+      certainty: "rejected",
       ok: false,
       status: 409,
       message: "Agent working",
@@ -40,14 +41,20 @@ describe("normalizeBusySessionMessageFailure", () => {
   test("preserves generic 5xx delivery failures once the runtime is stable", async () => {
     const result = await normalizeBusySessionMessageFailure(
       baseSession,
-      { ok: false, status: 500, message: "Internal Server Error" },
+      { certainty: "rejected", ok: false, status: 500, message: "Internal Server Error" },
       { fetchStatus: async () => "stable" } as any,
     );
 
     expect(result).toEqual({
+      certainty: "rejected",
       ok: false,
       status: 500,
       message: "Internal Server Error",
     });
   });
+});
+
+test("uncertain delivery is never converted into a retryable busy rejection", async () => {
+  const failure = { certainty: "uncertain" as const, ok: false, status: 502, message: "Failed to contact agent" };
+  expect(await normalizeBusySessionMessageFailure(baseSession, failure, { fetchStatus: async () => "running" } as any)).toEqual(failure);
 });

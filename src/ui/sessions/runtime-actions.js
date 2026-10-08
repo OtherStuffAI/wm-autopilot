@@ -341,6 +341,10 @@ export function createSessionRuntimeActions(deps) {
       const message =
         error instanceof Error && error.message ? error.message : "Failed to send message to agent.";
       const status = Number(error?.status ?? 0);
+      if (error?.deliveryCertainty === "uncertain" || (!status && !error?.deliveryCertainty)) {
+        showToast("Delivery could not be confirmed. Check the conversation before resending.", { variant: "error" });
+        return { sent: false, queued: false, uncertain: true, error };
+      }
       const normalized = message.toLowerCase();
       const isWorkingState =
         status === 409 ||
