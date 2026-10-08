@@ -80,6 +80,29 @@ describe("Direct chat enrichment", () => {
     expect((await execute(noMatch)).context).toEqual([]);
   });
 
+  test("memory dedupe follows source revisions and authority scope across different searches", async () => {
+    const recall = async (manifest: JsonObject[], overrides: JsonObject = {}) => {
+      const funcs = createEnrichmentFunctions({ config: { ...config, memory: { ownerNpub: "owner", sourceAppNpub: "app", groupId: "group" } },
+        manifest, signal: new AbortController().signal,
+        conversation: async () => ({ newMessages: [{ body: String(overrides.entity ?? "Twitter") }], conversationSource: { workspaceId: "workspace" } }),
+        graph: async () => ({ matches: [{ id: "same-memory", title: "Bird", excerpt: "Use Bird for tweets", source: "notes",
+          labels: ["graph", "note"], updatedAt: "2026-10-05", entity: "Twitter", entityType: "topic", score: .8, ...overrides }],
+          searchedAt: String(overrides.retrievedAt ?? "2026-10-05") }),
+        catalogue: async () => [], decide: async (_state, questions) => answer(questions),
+      });
+      await funcs["agentContext.loadConversation"]!({});
+      await funcs["agentContext.recallMemory"]!({});
+      return ((await funcs["agentContext.returnContext"]!({})).enrichment as JsonObject).context as JsonObject[];
+    };
+    const first = await recall([]);
+    expect(first).toHaveLength(1);
+    expect(await recall(first, { entity: "Twitter again", entityType: "conversation", score: .99, retrievedAt: "2026-10-08", labels: ["note", "graph"] })).toEqual([]);
+    for (const revision of [{ excerpt: "Changed content" }, { updatedAt: "2026-10-08" }, { ownerNpub: "other-owner" },
+      { workspaceOwnerNpub: "other-workspace" }, { sourceAppNpub: "other-app" }, { groupId: "other-group" }]) {
+      expect(await recall(first, revision)).toHaveLength(1);
+    }
+  });
+
   test("durably captures modes, fences late results and commits manifest only on acceptance", () => {
     const path = dbPath(); const store = new DirectChatEnrichmentStore(path);
     store.capture("turn", "pipeline_enrichment", config);

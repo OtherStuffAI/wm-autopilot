@@ -44,7 +44,19 @@ export function createEnrichmentFunctions(deps: {
     const existing = new Set(deps.manifest.map(c => c.key));
     const distinct = [...new Map(candidates.map(candidate => {
       const { retrievedAt: _retrievedAt, ...content } = candidate;
-      const key = `${candidate.key}:${createHash("sha256").update(JSON.stringify(content)).digest("hex").slice(0, 16)}`;
+      // Recall scores and query entities describe the search, not a memory revision.
+      // Fingerprint the source and its authority scope so later queries dedupe it.
+      const fingerprint = candidate.kind === "memory" ? {
+        id: candidate.id, title: candidate.title ?? null, excerpt: candidate.excerpt ?? null,
+        source: candidate.source ?? null, labels: [...((candidate.labels ?? []) as string[])].sort(),
+        freshness: candidate.freshness ?? null,
+        workspaceId: (conversation.conversationSource as JsonObject | undefined)?.workspaceId ?? null,
+        workspaceOwnerNpub: candidate.workspaceOwnerNpub ?? null,
+        ownerNpub: candidate.ownerNpub ?? deps.config.memory?.ownerNpub ?? null,
+        sourceAppNpub: candidate.sourceAppNpub ?? deps.config.memory?.sourceAppNpub ?? null,
+        groupId: candidate.groupId ?? deps.config.memory?.groupId ?? null,
+      } : content;
+      const key = `${candidate.key}:${createHash("sha256").update(JSON.stringify(fingerprint)).digest("hex").slice(0, 16)}`;
       return [key, { ...candidate, key }];
     })).values()].filter(c => !existing.has(c.key)).slice(0, 40);
     if (!distinct.length) return { selected: [], candidates: [], decisions: null };
