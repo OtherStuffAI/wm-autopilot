@@ -1,3 +1,4 @@
+import { subscribeSessionApprovalChanges, UNATTENDED_QUESTION_GUIDANCE } from "./session-approval-policy";
 import { randomUUID } from "node:crypto";
 import type { CanUseTool, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentPermission } from "./agent-adapter";
@@ -10,14 +11,23 @@ export class ClaudeSdkPermissions {
     tool: string;
     resolve: (result: PermissionResult) => void;
   }>();
+  private wasAutoApprove = false;
+  private readonly unsubscribePolicy: () => void;
   private readonly alwaysAllowed = new Set<string>();
 
   constructor(private readonly sessionId: string, private readonly emit: (permission: AgentPermission) => void,
-    private readonly redact: (text: string) => string = (text) => text) {}
+    private readonly redact: (text: string) => string = (text) => text,
+    private readonly autoApprove: () => boolean = () => false,
+    private readonly record: (text: string) => void = () => {},
+    private readonly settled: (id: string) => void = () => {}) {
+    this.wasAutoApprove = this.autoApprove();
+    this.unsubscribePolicy = subscribeSessionApprovalChanges(() => this.reconcilePolicy());
+  }
 
   readonly canUseTool: CanUseTool = async (tool, input, options) => {
-    if (this.alwaysAllowed.has(tool)) return { behavior: "allow", updatedInput: input };
     if (options.signal.aborted) return { behavior: "deny", message: "Turn interrupted" };
+    if (this.autoApprove()) return this.automaticResult(tool, input);
+    if (this.alwaysAllowed.has(tool)) return { behavior: "allow", updatedInput: input };
     const id = randomUUID();
     const permission: AgentPermission = {
       id, sessionId: this.sessionId, type: "tool", title: this.redact(`Allow ${tool}?`),
@@ -46,11 +56,37 @@ export class ClaudeSdkPermissions {
     const request = this.pending.get(id);
     if (!request) return false;
     this.pending.delete(id);
+    this.settled(id);
     if (response === "always") this.alwaysAllowed.add(request.tool);
     request.resolve(response === "reject" ? { behavior: "deny", message: "Operator rejected tool request" }
       : { behavior: "allow", updatedInput: request.input });
     return true;
   }
+
+  reconcilePolicy(): void {
+    const enabled = this.autoApprove();
+    if (this.wasAutoApprove && !enabled) this.resetToolConsent();
+    this.wasAutoApprove = enabled;
+    if (!enabled) return;
+    for (const [id, request] of this.pending) {
+      this.pending.delete(id);
+      this.settled(id);
+      request.resolve(this.automaticResult(request.tool, request.input));
+    }
+  }
+
+  resetToolConsent(): void { this.alwaysAllowed.clear(); }
+
+  private automaticResult(tool: string, input: Record<string, unknown>): PermissionResult {
+    if (tool === "AskUserQuestion") {
+      this.record("Unattended question returned to agent judgment: " + this.redact(JSON.stringify(input)) + "\n" + UNATTENDED_QUESTION_GUIDANCE);
+      return { behavior: "deny", message: UNATTENDED_QUESTION_GUIDANCE };
+    }
+    this.record(`Session policy auto-approved provider tool: ${this.redact(tool)}.`);
+    return { behavior: "allow", updatedInput: input };
+  }
+
+  dispose(): void { this.cancel(); this.unsubscribePolicy(); }
 
   cancel(): void { for (const id of this.pending.keys()) this.respond(id, "reject"); }
 }

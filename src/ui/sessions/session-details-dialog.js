@@ -1,3 +1,4 @@
+import { createProviderApprovalControl } from "./provider-approval-control.js";
 import { getSessionPosition, sortSessionsForTabs } from "./session-order.js";
 import { getSessionModelDisplay } from "./session-model-display.js";
 
@@ -86,6 +87,8 @@ export async function openSessionDetailsDialog({
   session,
   sessions,
   getSessionDisplayName,
+  approvalFlags,
+  isAdmin,
 } = {}) {
   const currentName =
     typeof session?.name === "string" && session.name.trim().length > 0
@@ -130,6 +133,8 @@ export async function openSessionDetailsDialog({
     nameInput.autocomplete = "off";
     nameInput.dataset.testid = "session-details-name";
 
+    const approval = createProviderApprovalControl({ flags: approvalFlags, isAdmin,
+      transport: session?.metadata?.agentTransport, policy: session?.metadata?.providerApprovalPolicy });
     const positionSelect = createPositionSelect(session, sessions);
     const model = getSessionModelDisplay(session);
     const generateAudioInput = document.createElement("input");
@@ -162,6 +167,7 @@ export async function openSessionDetailsDialog({
         description: "Automatically play generated audio when a new assistant response is ready.",
         control: alwaysReadInput,
       }),
+      approval.field,
       status,
     );
 
@@ -201,6 +207,7 @@ export async function openSessionDetailsDialog({
       () => {
         const result = dialog.returnValue === "confirm"
           ? {
+              providerApprovalPolicy: approval.input.checked ? "always" : "manual",
               name: nameInput.value.trim(),
               position: Number(positionSelect.value),
               speechGenerateAudio: generateAudioInput.checked,

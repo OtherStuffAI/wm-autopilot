@@ -1,3 +1,4 @@
+import { notifySessionApprovalChanges } from "../agents/session-approval-policy";
 /**
  * API route handlers for feature-flag endpoints.
  * Extracted from server.ts to reduce file size.
@@ -131,6 +132,7 @@ export async function handleFeatureFlagsApi(
         state,
         updatedBy: normaliseNpub(authContext.npub ?? null),
       });
+      notifySessionApprovalChanges();
       const flags = serialiseFeatureFlagsForViewer(ctx.featureFlagStore, ctx.viewerIsAdmin);
       return Response.json({ flag: serialiseFeatureFlag(created, ctx.viewerIsAdmin), flags }, { status: 201 });
     } catch (error) {
@@ -207,6 +209,7 @@ export async function handleFeatureFlagsApi(
         state: updates.state as FeatureFlagState | undefined,
         updatedBy: normaliseNpub(authContext.npub ?? null),
       });
+      notifySessionApprovalChanges();
       const flags = serialiseFeatureFlagsForViewer(ctx.featureFlagStore, ctx.viewerIsAdmin);
       return Response.json({ flag: serialiseFeatureFlag(updated, ctx.viewerIsAdmin), flags });
     } catch (error) {

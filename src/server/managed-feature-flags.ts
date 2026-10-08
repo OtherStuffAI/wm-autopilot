@@ -1,3 +1,4 @@
+import { SESSION_APPROVAL_POLICY_FLAG } from "../agents/session-approval-policy";
 import {
   CLAUDE_NATIVE_SDK_FLAG,
   CODEX_ACP_FLAG,
@@ -13,6 +14,12 @@ export const PROJECTS_FLAG_KEY = "projects_visibility";
 export const PIPELINE_AGENT_OUTPUT_FORMATTING_FLAG_KEY = "pipeline_agent_output_formatting";
 
 export const MANAGED_FEATURE_FLAG_DEFAULTS: Array<CreateFeatureFlagInput & { state: FeatureFlagState }> = [
+  {
+    key: SESSION_APPROVAL_POLICY_FLAG,
+    label: "Session provider auto-approval",
+    description: "Expose Always approve for this session for Claude SDK and Codex ACP. Off suspends opted-in sessions; consent is retained for re-enabling. Does not grant broker or Tower authority.",
+    state: "off",
+  },
   {
     key: PROJECTS_FLAG_KEY,
     label: "Projects visibility",

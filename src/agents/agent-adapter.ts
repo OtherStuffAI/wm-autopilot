@@ -35,6 +35,9 @@ export interface AdapterSessionContext {
   model?: string;
   /** ACP runtime permission behavior snapshotted when the session was created. */
   acpPermissionPolicy?: AcpPermissionPolicy;
+  /** Reads current session consent and effective managed flag, including revocation. */
+  providerAutoApprove?: () => boolean;
+  providerApprovalConfigured?: () => boolean;
   /** Claude native session identity and launch configuration (server-only). */
   nativeSdkHistory?: AgentMessage[];
   claudeSessionId?: string;
@@ -148,6 +151,10 @@ export type AdapterStreamEvent =
   | {
       type: "status";
       status: AgentRuntimeStatus | null;
+    }
+  | {
+      type: "permission-resolved";
+      permissionId: string;
     }
   | {
       type: "permission";

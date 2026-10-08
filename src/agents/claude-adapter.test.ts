@@ -1,10 +1,11 @@
+import { notifySessionApprovalChanges } from "./session-approval-policy";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, Query, SDKMessage, WarmQuery, startup } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeAdapter } from "./claude-adapter";
-import type { AdapterSessionContext } from "./agent-adapter";
+import type { AdapterSessionContext, AdapterStreamEvent } from "./agent-adapter";
 import { findNativeTurnFinal } from "./native-sdk-contract";
 
 const roots: string[] = [];
@@ -12,6 +13,7 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 function controlledQuery() {
   const queued: SDKMessage[] = [];
+  const permissionModes: string[] = [];
   let closed = false;
   let wake: (() => void) | null = null;
   const query = {
@@ -21,9 +23,10 @@ function controlledQuery() {
         else await new Promise<void>((resolve) => { wake = resolve; });
       }
     },
+    async setPermissionMode(mode: string) { permissionModes.push(mode); },
     close() { closed = true; wake?.(); },
   } as unknown as Query;
-  return { query, emit(message: unknown) { queued.push(message as SDKMessage); wake?.(); } };
+  return { query, permissionModes, emit(message: unknown) { queued.push(message as SDKMessage); wake?.(); } };
 }
 
 function fixture(overrides: Partial<AdapterSessionContext> = {}) {
@@ -169,4 +172,25 @@ describe("Claude SDK lifecycle and conversation", () => {
     expect(findNativeTurnFinal(await f.adapter.fetchMessages())).toBeUndefined();
     expect(await f.adapter.interruptCurrentTurn()).toBe(false);
   });
+});
+
+
+test("explicit session consent overrides bypass launch mode and records resolved pending tools", async () => {
+  let enabled = false;
+  const f = fixture({ claudeSkipPermissions: true, providerApprovalConfigured: () => true, providerAutoApprove: () => enabled });
+  const events: AdapterStreamEvent[] = [];
+  f.adapter.subscribeToEvents((event) => events.push(event));
+  const turn = f.adapter.sendMessage("Inspect");
+  await flush();
+  expect(f.calls[0]?.permissionMode).toBe("default");
+  expect(f.streams[0]?.permissionModes).toEqual(["default"]);
+  const controller = new AbortController();
+  const pending = f.calls[0]!.canUseTool!("Bash", { command: "echo test" }, { signal: controller.signal, toolUseID: "tool" });
+  expect(f.adapter.getPendingPermissions()).toHaveLength(1);
+  enabled = true; notifySessionApprovalChanges();
+  expect(await pending).toMatchObject({ behavior: "allow" });
+  expect(events.some((event) => event.type === "permission-resolved")).toBe(true);
+  expect((await f.adapter.fetchMessages()).some((message) => message.content.includes("auto-approved provider tool"))).toBe(true);
+  f.streams[0]!.emit(success()); await turn;
+  await f.adapter.dispose();
 });

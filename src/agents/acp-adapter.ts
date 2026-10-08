@@ -1,3 +1,4 @@
+import { subscribeSessionApprovalChanges } from "./session-approval-policy";
 import type { AgentRuntimeStatus } from "../types/agent-status";
 import { writeServerLog } from "../logging/server-logger";
 import type { AgentMessage, AgentReadyOptions } from "./agent-client";
@@ -57,11 +58,13 @@ export class AcpAdapter implements AgentAdapter {
   private readonly eventNormalizer: AcpEventNormalizer;
   private activePromptContent: string | null = null;
   private runningModel: string | null = null;
+  private readonly unsubscribeApproval: () => void;
 
   constructor(
     private readonly context: AdapterSessionContext,
     private readonly profile: AcpAdapterProfile,
   ) {
+    this.unsubscribeApproval = subscribeSessionApprovalChanges(() => this.reconcileProviderApprovals());
     this.sessionId = profile.sessionId ?? null;
     this.eventNormalizer = new AcpEventNormalizer(undefined, {
       rollIntermediateAgentMessages: profile.rollIntermediateAgentMessages,
@@ -146,6 +149,8 @@ export class AcpAdapter implements AgentAdapter {
     }
     this.client.respond(request.id, { outcome: { outcome: "selected", optionId: selected.optionId } });
     this.pendingPermissions.delete(permissionId);
+    this.emit({ type: "permission-resolved", permissionId });
+    this.releasePermissionWait();
     return true;
   }
 
@@ -184,7 +189,8 @@ export class AcpAdapter implements AgentAdapter {
 
   async dispose(): Promise<void> {
     this.state = "disposed";
-    this.pendingPermissions.clear();
+    if (this.pendingPermissions.size > 0) this.cancelPendingPermissions();
+    this.unsubscribeApproval();
     const client = this.client;
     this.client = null;
     this.startPromise = null;
@@ -294,8 +300,10 @@ export class AcpAdapter implements AgentAdapter {
       return;
     }
     const id = String(request.id);
-    if (this.context.acpPermissionPolicy === "auto_approve") {
-      const selected = selectAutoApprovalOption(request);
+    if (this.context.providerAutoApprove?.() || (!this.context.providerApprovalConfigured?.() && this.context.acpPermissionPolicy === "auto_approve")) {
+      const selected = this.context.providerApprovalConfigured?.()
+        ? readPermissionOptions(request).find((option) => option.response === "once")
+        : selectAutoApprovalOption(request);
       if (selected) {
         this.requireClient().respond(request.id, {
           outcome: { outcome: "selected", optionId: selected.optionId },
@@ -306,6 +314,23 @@ export class AcpAdapter implements AgentAdapter {
     }
     this.pendingPermissions.set(id, request);
     this.emit({ type: "permission", permission: this.toPermission(id, request) });
+  }
+
+  private reconcileProviderApprovals(): void {
+    if (!this.client || !this.context.providerAutoApprove?.()) return;
+    for (const [id, request] of this.pendingPermissions) {
+      const selected = readPermissionOptions(request).find((option) => option.response === "once");
+      if (!selected) continue; // Unsupported choices stay visible, never guess an option.
+      this.client.respond(request.id, { outcome: { outcome: "selected", optionId: selected.optionId } });
+      this.pendingPermissions.delete(id);
+      this.emit({ type: "permission-resolved", permissionId: id });
+      this.materializeAutoApproval(id, selected);
+    }
+    this.releasePermissionWait();
+  }
+
+  private releasePermissionWait(): void {
+    if (this.state === "busy" && this.activePromptContent === null && this.pendingPermissions.size === 0) this.setState("ready");
   }
 
   private materializeAutoApproval(
@@ -349,10 +374,12 @@ export class AcpAdapter implements AgentAdapter {
 
   private cancelPendingPermissions(): void {
     const client = this.requireClient();
-    for (const request of this.pendingPermissions.values()) {
+    for (const [permissionId, request] of this.pendingPermissions) {
       client.respond(request.id, { outcome: { outcome: "cancelled" } });
+      this.emit({ type: "permission-resolved", permissionId });
     }
     this.pendingPermissions.clear();
+    this.releasePermissionWait();
   }
 
   private assertSuccess(response: AcpResponse, method: string): void {

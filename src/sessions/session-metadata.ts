@@ -10,6 +10,8 @@ export interface SessionMetadata {
   agentTransport?: "agentapi" | "claude-sdk" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "deepseek-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
   /** Effective ACP runtime permission policy, fixed for the lifetime of this session. */
   acpPermissionPolicy?: AcpPermissionPolicy;
+  /** Session consent; the managed flag must also be effective at runtime. */
+  providerApprovalPolicy?: "manual" | "always";
   nativeAgentSession?: NativeAgentSessionMetadata;
   resumedFromWingmanSessionId?: string;
   branchedFromWingmanSessionId?: string;
@@ -237,6 +239,8 @@ export const normaliseSessionMetadata = (
       ? metadata.agentTransport as SessionMetadata["agentTransport"]
       : undefined,
     acpPermissionPolicy: parseAcpPermissionPolicy(metadata?.acpPermissionPolicy) ?? undefined,
+    providerApprovalPolicy: metadata?.providerApprovalPolicy === "always" || metadata?.providerApprovalPolicy === "manual"
+      ? metadata.providerApprovalPolicy : undefined,
     nativeAgentSession,
     resumedFromWingmanSessionId: resumedFromWingmanSessionId || undefined,
     branchedFromWingmanSessionId: branchedFromWingmanSessionId || undefined,

@@ -104,6 +104,7 @@ describe("createSessionEventsHandler", () => {
               type: "status",
               status: "running",
             });
+            listener({ type: "permission-resolved", permissionId: "settled-1" });
             listener({
               type: "permission",
               permission: {
@@ -124,12 +125,14 @@ describe("createSessionEventsHandler", () => {
     });
 
     const response = await handler("session-1", new Request("http://localhost/api/sessions/session-1/events"));
-    const chunk = await readUntil(response, '"status":"running"');
+    const chunk = await readUntil(response, '"permissionId":"settled-1"');
 
     expect(chunk).toContain("event: transport");
     expect(chunk).toContain('"mode":"event-stream"');
     expect(chunk).toContain("event: message");
     expect(chunk).toContain('"content":"partial"');
+    expect(chunk).toContain("event: permission-resolved");
+    expect(chunk).toContain('"permissionId":"settled-1"');
     expect(chunk).toContain("event: status");
     expect(chunk).toContain('"status":"running"');
   });

@@ -128,6 +128,17 @@ class SSEManager {
         }
       });
 
+      source.addEventListener("permission-resolved", async (event) => {
+        if (this.connections.get(sessionId) !== source) return;
+        try {
+          const data = JSON.parse(event.data);
+          if (typeof data.permissionId !== "string") throw new Error("Resolved permission id is missing");
+          await PermissionStore.remove(sessionId, data.permissionId);
+        } catch (err) {
+          console.warn("[sse] Failed to process resolved permission event:", err);
+        }
+      });
+
       source.addEventListener("permission", async (event) => {
         if (this.connections.get(sessionId) !== source) return;
         try {

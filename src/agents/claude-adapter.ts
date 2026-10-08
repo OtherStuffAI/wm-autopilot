@@ -1,3 +1,4 @@
+import { subscribeSessionApprovalChanges } from "./session-approval-policy";
 import { ClaudeSdkPermissions } from "./claude-sdk-permissions";
 import { randomUUID } from "node:crypto";
 import { startup, type Query, type WarmQuery } from "@anthropic-ai/claude-agent-sdk";
@@ -22,12 +23,16 @@ export class ClaudeAdapter implements AgentAdapter {
   private resume: boolean;
   private runningModel: string | null = null;
   private readonly listeners = new Set<(event: AdapterStreamEvent) => void>();
+  private readonly unsubscribeApproval: () => void;
   private readonly permissions: ClaudeSdkPermissions;
   private readonly activity = new NativeSdkActivity((message) => this.emit({ type: "message", message }));
 
   constructor(private readonly context: AdapterSessionContext, private readonly start: typeof startup = startup) {
     this.permissions = new ClaudeSdkPermissions(context.id, (permission) => this.emit({ type: "permission", permission }),
-      (text) => sanitizeClaudeSdkError(new Error(text), context.env).message);
+      (text) => sanitizeClaudeSdkError(new Error(text), context.env).message,
+      context.providerAutoApprove, (text) => this.activity.upsert(`consent:${randomUUID()}`, "agent-tools", text),
+      (permissionId) => this.emit({ type: "permission-resolved", permissionId }));
+    this.unsubscribeApproval = subscribeSessionApprovalChanges(() => this.reconcilePermissionMode());
     this.activity.hydrate((context.nativeSdkHistory ?? []).map((message) => ({
       ...message, content: sanitizeClaudeSdkError(new Error(message.content), context.env).message,
     })));
@@ -93,6 +98,9 @@ export class ClaudeAdapter implements AgentAdapter {
     this.activity.upsert(`${turnId}:user`, "user", redact(content));
     try {
       this.query = warm.query(content);
+      if (this.context.claudeSkipPermissions && this.context.providerApprovalConfigured?.()) {
+        await this.query.setPermissionMode("default");
+      }
       let completed = false;
       for await (const message of this.query) {
         if (controller.signal.aborted) throw new Error("Agent turn interrupted.");
@@ -120,6 +128,7 @@ export class ClaudeAdapter implements AgentAdapter {
       this.activity.upsert(`${turnId}:error`, "agent-error", failure.message);
       throw failure;
     } finally {
+      this.permissions.cancel();
       this.query?.close();
       this.query = null;
       warm.close();
@@ -153,12 +162,27 @@ export class ClaudeAdapter implements AgentAdapter {
 
   async dispose(): Promise<void> {
     this.setState("disposed");
-    this.permissions.cancel();
+    this.unsubscribeApproval();
+    this.permissions.dispose();
     this.abortController?.abort();
     this.query?.close();
     this.warm?.close();
     this.warm = null;
     this.listeners.clear();
+  }
+
+  private reconcilePermissionMode(): void {
+    if (!this.context.claudeSkipPermissions || !this.context.providerApprovalConfigured?.()) return;
+    if (this.query) {
+      void this.query.setPermissionMode("default").catch((error) => {
+        this.activity.upsert(`consent-error:${randomUUID()}`, "agent-error",
+          "Failed to apply manual provider permission mode: " + sanitizeClaudeSdkError(error, this.context.env).message);
+        void this.interruptCurrentTurn();
+      });
+    } else if (this.warm) {
+      this.warm.close();
+      this.warm = null;
+    }
   }
 
   private captureSession(id: string): void {

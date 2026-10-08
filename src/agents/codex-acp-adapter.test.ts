@@ -1,3 +1,4 @@
+import { notifySessionApprovalChanges } from "./session-approval-policy";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -130,6 +131,31 @@ describe("CodexAcpAdapter", () => {
     });
     expect((await adapter.fetchMessages()).filter((message) => message.messageId === "acp-permission-700-auto-approved"))
       .toHaveLength(1);
+  });
+
+  test("session consent resolves pending with once, auto-approves future and returns to manual", async () => {
+    let enabled = false;
+    const adapter = createAdapter({ acpPermissionPolicy: "auto_approve",
+      providerApprovalConfigured: () => true, providerAutoApprove: () => enabled });
+    const events: AdapterStreamEvent[] = [];
+    adapter.subscribeToEvents((event) => events.push(event));
+    await adapter.sendMessage("permission");
+    await waitUntil(() => adapter.getPendingPermissions().length === 1);
+    enabled = true; notifySessionApprovalChanges();
+    await waitUntil(() => readRpcLog().some((entry) => entry.id === 700 && entry.result));
+    expect(adapter.getPendingPermissions()).toHaveLength(0);
+    expect(readRpcLog().find((entry) => entry.id === 700 && entry.result)?.result).toEqual({
+      outcome: { outcome: "selected", optionId: "allow_once" },
+    });
+    expect(events.some((event) => event.type === "permission-resolved")).toBe(true);
+    await adapter.sendMessage("permission");
+    await waitUntil(() => readRpcLog().filter((entry) => entry.id === 700 && entry.result).length === 2);
+    enabled = false; notifySessionApprovalChanges();
+    await adapter.sendMessage("permission");
+    await waitUntil(() => adapter.getPendingPermissions().length === 1);
+    await adapter.interruptCurrentTurn();
+    await waitUntil(() => readRpcLog().filter((entry) => entry.id === 700 && entry.result).length === 3);
+    expect(readRpcLog().filter((entry) => entry.id === 700 && entry.result).at(-1)?.result).toEqual({ outcome: { outcome: "cancelled" } });
   });
 
   test("cancels with an ACP notification and releases the next queued prompt", async () => {

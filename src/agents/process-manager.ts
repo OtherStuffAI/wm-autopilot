@@ -1,3 +1,4 @@
+import { sessionApprovalEnabled, sessionApprovalConfigured, notifySessionApprovalChanges } from "./session-approval-policy";
 import { buildClaudeAdapterContext } from "./claude-adapter-context";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -557,6 +558,7 @@ export class ProcessManager {
       ...session.metadata,
       ...(metadata ?? {}),
     });
+    notifySessionApprovalChanges();
     const snapshot = this.toSnapshot(session);
     this.emit({ type: "session-updated", session: snapshot });
     return snapshot;
@@ -988,6 +990,8 @@ export class ProcessManager {
         workingDirectory: session.workingDirectory,
         env: session.definition.env as Record<string, string> | undefined,
         model: session.model,
+        providerAutoApprove: () => sessionApprovalEnabled(session.metadata, this.isAdminUser(session.npub)),
+        providerApprovalConfigured: () => sessionApprovalConfigured(session.metadata),
         acpPermissionPolicy: session.metadata.acpPermissionPolicy,
         codexThreadId: session.metadata.nativeAgentSession?.agent === "codex"
           ? session.metadata.nativeAgentSession.sessionId
@@ -1151,6 +1155,8 @@ export class ProcessManager {
       workingDirectory: session.workingDirectory,
       env: session.definition.env as Record<string, string> | undefined,
       model: normalizeAgentModelOverride(session.model),
+      providerAutoApprove: () => sessionApprovalEnabled(session.metadata, this.isAdminUser(session.npub)),
+      providerApprovalConfigured: () => sessionApprovalConfigured(session.metadata),
       acpPermissionPolicy: session.metadata.acpPermissionPolicy,
       codexThreadId: session.metadata.nativeAgentSession?.agent === "codex"
         ? session.metadata.nativeAgentSession.sessionId

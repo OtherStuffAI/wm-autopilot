@@ -1,3 +1,5 @@
+import { buildSessionLaunchMetadata } from "./session-launch-metadata.js";
+import { createLaunchProviderApprovalController } from "../sessions/provider-approval-control.js";
 import { showDialogElement } from "./dialog-element.js";
 import {
   DEFAULT_MODEL_OPTION,
@@ -216,6 +218,10 @@ export const createSessionDialogController = (options) => {
     }
   };
 
+  const providerApprovals = createLaunchProviderApprovalController({
+    panel: advancedPanel, getConfig, agentSelect, transportSelect: codexTransportSelect,
+  });
+
   const collectValues = () => {
     const agentId = agentSelect?.value ?? "";
     const workingDirectory = directoryInput?.value ?? "";
@@ -230,22 +236,10 @@ export const createSessionDialogController = (options) => {
     const acpPermissionPolicy = acpPermissionPolicySelect?.value?.trim() || "";
     const nextAction = nextActionSelect?.value?.trim() || "";
     const nextActionTemplate = nextActionTemplateInput?.value?.trim() || "";
-    const metadata = {};
-    if (goal) {
-      metadata.goal = goal;
-    }
-    if (acpPermissionPolicy) {
-      metadata.acpPermissionPolicy = acpPermissionPolicy;
-    }
-    if (agentId === "codex" && codexTransportSelect?.value) {
-      metadata.agentTransport = codexTransportSelect.value;
-    }
-    if (nextAction) {
-      metadata.nextAction = nextAction;
-    }
-    if (nextActionTemplate) {
-      metadata.nextActionTemplate = nextActionTemplate;
-    }
+    const metadata = buildSessionLaunchMetadata({
+      goal, acpPermissionPolicy, agentId, transport: codexTransportSelect?.value,
+      nextAction, nextActionTemplate, providerApprovalPolicy: providerApprovals.getPolicy(),
+    });
     const writerMode = writerModeCheckbox?.checked ?? false;
     const targetFile = writerMode ? (targetFileInput?.value?.trim() || null) : null;
     return {
@@ -255,11 +249,12 @@ export const createSessionDialogController = (options) => {
       workspace,
       model: modelOverride.length > 0 ? modelOverride : null,
       targetFile,
-      metadata: Object.keys(metadata).length > 0 ? metadata : null,
+      metadata,
     };
   };
 
   const updateModelOptions = () => {
+    providerApprovals.sync();
     if (codexTransportField) codexTransportField.hidden = agentSelect?.value !== "codex";
     if (!modelSelect) return;
     const agentId = (agentSelect?.value ?? "").trim().toLowerCase();
@@ -308,6 +303,7 @@ export const createSessionDialogController = (options) => {
   };
 
   const open = () => {
+    providerApprovals.reset();
     if (!isAuthenticated()) {
       onRequireAuth();
       return;

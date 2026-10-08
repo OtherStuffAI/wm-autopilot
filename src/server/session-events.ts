@@ -189,6 +189,10 @@ function createNativeAdapterStream(
             writeEvent("message", event.message as unknown as Record<string, unknown>);
             return;
           }
+          if (event.type === "permission-resolved") {
+            writeEvent("permission-resolved", { permissionId: event.permissionId });
+            return;
+          }
           if (event.type === "permission") {
             writeEvent("permission", event.permission as unknown as Record<string, unknown>);
             return;

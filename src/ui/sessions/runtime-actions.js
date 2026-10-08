@@ -122,10 +122,14 @@ export function createSessionRuntimeActions(deps) {
       session,
       sessions: sessionsStore().items,
       getSessionDisplayName,
+      approvalFlags: state.featureFlags?.items,
+      isAdmin: state.identity?.isAdmin === true,
     });
     if (details === null) return;
     const trimmed = details.name;
     const position = details.position;
+    const providerApprovalPolicy = details.providerApprovalPolicy ?? session.metadata?.providerApprovalPolicy ?? "manual";
+    const existingApprovalPolicy = session.metadata?.providerApprovalPolicy ?? "manual";
     const speechGenerateAudio = Boolean(details.speechGenerateAudio);
     const speechAlwaysRead = Boolean(details.speechAlwaysRead);
     const existing = typeof session.name === "string" ? session.name.trim() : "";
@@ -136,7 +140,8 @@ export function createSessionRuntimeActions(deps) {
       existing === trimmed &&
       existingPosition === position &&
       existingSpeechGenerateAudio === speechGenerateAudio &&
-      existingSpeechAlwaysRead === speechAlwaysRead
+      existingSpeechAlwaysRead === speechAlwaysRead &&
+      existingApprovalPolicy === providerApprovalPolicy
     ) {
       return;
     }
@@ -146,12 +151,12 @@ export function createSessionRuntimeActions(deps) {
         updates.push(updateSessionName(session.id, trimmed, position));
       }
       if (
-        (existingSpeechGenerateAudio !== speechGenerateAudio || existingSpeechAlwaysRead !== speechAlwaysRead) &&
+        (existingApprovalPolicy !== providerApprovalPolicy || existingSpeechGenerateAudio !== speechGenerateAudio || existingSpeechAlwaysRead !== speechAlwaysRead) &&
         typeof updateSessionMetadataAction === "function"
       ) {
         updates.push(updateSessionMetadataAction(session.id, {
           metadata: {
-            ...(session.metadata ?? {}),
+            ...(existingApprovalPolicy !== providerApprovalPolicy ? { providerApprovalPolicy } : {}),
             speechGenerateAudio,
             speechAlwaysRead,
           },

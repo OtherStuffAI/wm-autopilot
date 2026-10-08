@@ -38,7 +38,8 @@ export async function buildClaudeSdkOptions(context: AdapterSessionContext, abor
     settingSources: ["user", "project", "local"],
     strictMcpConfig: true,
     mcpServers: { wingman: { ...server, alwaysLoad: true } },
-    ...(context.claudeSkipPermissions ? { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true } : {}),
+    ...(context.providerApprovalConfigured?.() ? { permissionMode: "default" as const }
+      : context.claudeSkipPermissions ? { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true } : {}),
   };
 }
 
