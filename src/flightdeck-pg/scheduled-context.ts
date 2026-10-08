@@ -15,6 +15,17 @@ export const scheduledContextSchema = z.object({
 export type ScheduledContext = z.infer<typeof scheduledContextSchema>;
 type RecordValue = Record<string, any>;
 type RequestJson = (method: string, path: string, body?: unknown) => Promise<RecordValue>;
+const subscriptionTransportSchema = z.object({
+  subscriptionId: id,
+  workspaceId: id,
+  managedByNpub: z.string().min(1),
+  botNpub: z.string().min(1),
+  lifecycleStatus: z.literal("active"),
+  towerServiceNpub: z.string().min(1),
+  backendConnectionId: z.string().min(1),
+  backendBaseUrl: z.string().url(),
+  sourceAppNpub: z.string().min(1),
+});
 
 /** Bind only the calling scheduled session through existing authenticated APIs. */
 export async function bindScheduledFlightDeckContext(input: {
@@ -45,6 +56,10 @@ export async function bindScheduledFlightDeckContext(input: {
     || subscription.workspaceId !== config.workspaceId || subscription.managedByNpub !== config.ownerNpub
     || subscription.botNpub !== botNpub || subscription.lifecycleStatus !== "active") {
     throw new Error("Scheduled Flight Deck subscription is missing, inactive or belongs to another owner, bot or workspace.");
+  }
+  const transport = subscriptionTransportSchema.safeParse(subscription);
+  if (!transport.success) {
+    throw new Error("Scheduled Flight Deck subscription requires Tower service identity, backend connection, URL and app identity.");
   }
   const metadata = {
     ...buildFlightDeckSessionMetadata(subscription as WorkspaceSubscriptionRecord, botNpub, config),

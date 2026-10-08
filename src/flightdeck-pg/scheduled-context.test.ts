@@ -61,11 +61,13 @@ describe("scheduled Flight Deck binding", () => {
       expect(f.writes).toHaveLength(0);
     },
   );
-  test("surfaces missing required Tower identity before mutation", async () => {
-    const f = fixture(); f.subscription.towerServiceNpub = "";
-    await expect(bindScheduledFlightDeckContext(f.input)).rejects.toThrow("Tower service identity");
-    expect(f.writes).toHaveLength(0);
-  });
+  test.each(["towerServiceNpub", "backendConnectionId", "backendBaseUrl", "sourceAppNpub"] as const)(
+    "surfaces missing required %s before mutation", async (field) => {
+      const f = fixture(); f.subscription[field] = "";
+      await expect(bindScheduledFlightDeckContext(f.input)).rejects.toThrow("Tower service identity");
+      expect(f.writes).toHaveLength(0);
+    },
+  );
   test("does not report success when live transport or metadata readback disagrees", async () => {
     const f = fixture(); f.context.workspace.backendBaseUrl = "https://wrong.test";
     await expect(bindScheduledFlightDeckContext(f.input)).rejects.toThrow("Live broker");
