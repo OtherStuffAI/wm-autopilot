@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readFileSync } from "node:fs";
 import { requestJsonBotCrypto, resolveBaseUrl } from "./lib/auth.ts";
-import { fetchFlightDeckDispatchContext } from "../src/flightdeck-pg/cli.ts";
+import { callCapabilityBroker } from "../src/mcp/capability-client.ts";
 import { bindScheduledFlightDeckContext, scheduledContextSchema } from "../src/flightdeck-pg/scheduled-context.ts";
 
 async function main(): Promise<void> {
@@ -18,7 +18,7 @@ async function main(): Promise<void> {
     sessionId,
     config: scheduledContextSchema.parse(JSON.parse(readFileSync(path, "utf8"))),
     request: (method, route, body) => requestJsonBotCrypto(wingmanUrl, method, route, body),
-    context: () => fetchFlightDeckDispatchContext({ wingmanUrl, sessionId }),
+    context: () => callCapabilityBroker("/api/mcp/wingman/flightdeck", { action: "context" }),
   });
   console.log(JSON.stringify({ ok: true, sessionId, context }, null, 2));
 }
