@@ -1,3 +1,5 @@
+import type { PipelineSecretAuthority } from "../secrets/secret-authority";
+import { executeSecretPipelineFunction, secretPipelineFunctions } from "../secrets/secret-runtime";
 import { blockMissingPipelineHistory } from "./pipeline-history-resume";
 import { buildAgentPrompt } from "./agent-invocation-prompt";
 import { runClassifierStep } from "./classifier-executor";
@@ -38,6 +40,7 @@ const DEFAULT_CLASSIFIER_ATTEMPTS = 3;
 const activeRunExecutions = new Set<string>();
 
 export interface PipelineRunnerInput {
+  secretAuthority?: PipelineSecretAuthority;
   resolveChildDefinition?: (target: string, version: string | number | undefined, ownerAlias: string | null) => Promise<PipelineDefinitionRecord>;
   store: PipelineStore;
   sessionApiContext: SessionApiContext;
@@ -119,7 +122,7 @@ function createPipelineRun(input: PipelineRunnerInput) {
       scope: definition.scope,
       input: input.input,
     });
-    store.composition.pin(run.id, definition, { initiatingAgentProfileId: input.initiatingAgentProfileId ?? null, initiatingAgentNpub: input.initiatingAgentNpub ?? null, functionHashes: pipelineFunctionHashes(definition, input.registry) });
+    store.composition.pin(run.id, definition, { secretAuthority: input.secretAuthority, initiatingAgentProfileId: input.initiatingAgentProfileId ?? null, initiatingAgentNpub: input.initiatingAgentNpub ?? null, functionHashes: pipelineFunctionHashes(definition, input.registry) });
     input.onRunCreated?.(run);
     return run;
   });
@@ -278,7 +281,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       metadata: buildPipelineStepMetadata(step),
     });
     setActiveStep(input, stepRecord.id);
-    const fn = registry[step.function];
+    const fn = secretPipelineFunctions[step.function] ?? registry[step.function];
     if (!fn) {
       throw new Error(`Unknown pipeline function: ${step.function}`);
     }
@@ -287,7 +290,9 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       idempotencyKey: `pipeline:${input.runId}:thread-reply:${stepName}` } : selected;
     store.evidence.capture({ runId: input.runId, stepId: stepRecord.id, kind: "executor_request",
       scope: "code_function_arguments", value: { function: step.function, arguments: request } });
-    const result = await fn(request);
+    const result = secretPipelineFunctions[step.function]
+      ? await executeSecretPipelineFunction(step.function, request, store, input.runId)
+      : await fn(request);
     if (step.function === "flightdeck.returnToThread" || step.function === "flightdeck.sendDirectMessage") {
       store.evidence.capture({ runId: input.runId, stepId: stepRecord.id, kind: "side_effect_confirmation",
         scope: "delivery_adapter_confirmation", value: result });

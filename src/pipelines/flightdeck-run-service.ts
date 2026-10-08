@@ -9,6 +9,7 @@ import { PipelineStore, type JsonObject } from "./pipeline-store";
 export async function startFlightDeckPipelineRun(input: {
   store: PipelineStore; sessionApiContext: SessionApiContext; definition: PipelineDefinitionRecord;
   invocation: FlightDeckPipelineInvocation; ownerNpub: string; ownerAlias: string; callbackOrigin: string;
+  secretPrincipalNpub?: string | null;
   initiatingAgentProfileId?: string | null; initiatingAgentNpub?: string | null; sourceMessageId?: string | null;
   threadContext?: JsonObject;
   trustedLearningContext?: { towerUrl: string; workspaceId: string; goal: string; concept: string; idempotencyKey: string };
@@ -21,6 +22,7 @@ export async function startFlightDeckPipelineRun(input: {
     definition: input.definition, registry: functions.registry,
     input: { ...(input.definition.spec.input ?? {}), ...resolved.input, ...(input.threadContext ? { threadContext: input.threadContext } : {}), ...(input.trustedLearningContext ?? {}) }, ownerNpub: input.ownerNpub,
     ownerAlias: input.ownerAlias, callbackOrigin: input.callbackOrigin,
+    secretAuthority: input.secretPrincipalNpub === null ? undefined : { principalNpub: input.secretPrincipalNpub ?? input.initiatingAgentNpub ?? input.ownerNpub, workspaceId: resolved.resolution.workspaceId },
     initiatingAgentProfileId: input.initiatingAgentProfileId,
     initiatingAgentNpub: input.initiatingAgentNpub,
     onRunCreated: (created) => {

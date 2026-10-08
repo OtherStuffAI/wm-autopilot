@@ -1,3 +1,6 @@
+import { consumeSessionSecret } from "../secrets/secret-session";
+import { SecretError } from "../secrets/secret-policy";
+import type { SecretStore } from "../secrets/secret-store";
 import { permitsSessionQueueSigning, containsSessionQueueAuthTarget } from "./session-queue-policy";
 import type { WalletConstraint, WalletBrokerAdapter } from "./wallet-types.ts";
 export type { WalletConstraint, WalletBrokerAdapter } from "./wallet-types.ts";
@@ -217,6 +220,7 @@ interface CapabilityRecord {
 }
 
 export interface CapabilityBrokerDependencies {
+  importedSecrets?: SecretStore;
   hasWappLoginAuthority?: (input: WappLoginRequest) => boolean;
   fetchWappLogin?: typeof fetch;
   botKeyStore: Pick<BotKeyStore, "getActiveKeyForUser"> & Partial<Pick<BotKeyStore, "getActiveKeyForBotNpub">>;
@@ -571,6 +575,7 @@ export class CapabilityBroker {
     if (url.pathname === "/api/mcp/capabilities/git-discovery") return await this.handleGitDiscovery(request);
     if (url.pathname === "/api/mcp/capabilities/git-bootstrap") return Response.json({ error: "Retired: use native Forgejo account and repository APIs." }, { status: 410 });
     if (url.pathname === "/api/mcp/capabilities/git-credential") return await this.handleGitCredential(request);
+    if (url.pathname === "/api/mcp/capabilities/secrets") return await this.handleImportedSecret(request);
     if (url.pathname === "/api/mcp/capabilities/nostr-event") return await this.handleNostrEvent(request);
     if (url.pathname === "/api/mcp/capabilities/nip44/encrypt") return await this.handleNip44Encrypt(request);
     if (url.pathname === "/api/mcp/capabilities/nip44/decrypt") return await this.handleNip44Decrypt(request);
@@ -667,6 +672,27 @@ export class CapabilityBroker {
     capability.callTimestamps.push(now);
     this.persist();
     return { capability, botRecord: capability.keySource === "instance" ? null : botRecord };
+  }
+
+  private async handleImportedSecret(request: Request): Promise<Response> {
+    try {
+      const text = await request.text();
+      if (Buffer.byteLength(text) > 100_000) throw new SecretError("request_too_large", 413);
+      const body = JSON.parse(text);
+      const authorized = await this.authorize(request, "identity.read", body.sessionId);
+      if (authorized instanceof Response) return authorized;
+      if (!this.deps.importedSecrets) throw new SecretError("secrets_runtime_unavailable", 503);
+      const { capability } = authorized;
+      const live = this.deps.getSession(capability.sessionId);
+      if (!live || live.metadata?.agentChatBotNpub !== capability.botNpub
+        || live.metadata?.agentChatAgentId !== capability.profileId) throw new SecretError("stale_session_binding", 403);
+      const result = consumeSessionSecret(this.deps.importedSecrets, capability,
+        live.metadata?.flightdeckWorkspaceId, body);
+      return Response.json(result, { headers: { "cache-control": "no-store" } });
+    } catch (error) {
+      return Response.json({ error: error instanceof SecretError ? error.code : "secret_request_failed" },
+        { status: error instanceof SecretError ? error.status : 400, headers: { "cache-control": "no-store" } });
+    }
   }
 
   private async handleIdentity(request: Request): Promise<Response> {

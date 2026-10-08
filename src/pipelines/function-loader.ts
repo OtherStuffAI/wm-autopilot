@@ -1,3 +1,4 @@
+import { secretPipelineFunctions } from "../secrets/secret-runtime";
 import { runtimeFunctionHash } from "./pipeline-function-pins";
 import { readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -41,6 +42,7 @@ export async function loadPipelineFunctionRegistry(
   options: { coreFunctionsDirectory?: string } = {},
 ): Promise<{ registry: FunctionRegistry; records: PipelineFunctionRecord[] }> {
   await ensurePipelineDirectories(ownerAlias);
+  builtinRegistry = { ...builtinRegistry, ...secretPipelineFunctions };
   const registry: FunctionRegistry = { ...builtinRegistry };
   const records: PipelineFunctionRecord[] = Object.keys(builtinRegistry)
     .sort()

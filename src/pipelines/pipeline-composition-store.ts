@@ -1,3 +1,4 @@
+import type { PipelineSecretAuthority } from "../secrets/secret-authority";
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import type { PipelineDefinitionRecord } from "./pipeline-loader";
@@ -6,6 +7,7 @@ import { snapshotPipelineBlocks, type PipelineBlockSnapshots } from "./pipeline-
 import { captureViewerPin } from "./pipeline-viewer-capture-redaction";
 
 export interface PipelineRunContext {
+  secretAuthority?: PipelineSecretAuthority;
   blockExpansions?: PipelineBlockSnapshots;
   viewerRedacted?: boolean;
   viewerEvidenceUnsafe?: boolean;

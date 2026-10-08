@@ -1,3 +1,4 @@
+import { createSecretsPage } from "./secrets/page.js";
 import "./identity/index.js";
 import { fetchIdentityProfile, fetchAdminUserProfile } from "./identity/profile.js";
 import { createProjectFeature } from "./projects/index.js";
@@ -519,6 +520,7 @@ const getRouteFromPath = (pathname) => {
   ) {
     return "files";
   }
+  if (pathname === "/secrets") return "secrets";
   if (pathname === SETTINGS_ROUTE || pathname.startsWith(`${SETTINGS_ROUTE}/`)) {
     return "settings";
   }
@@ -655,7 +657,6 @@ const taskDispatchTabsToggle = document.getElementById("task-dispatch-tabs-toggl
 const rawTerminalOutputToggle = document.getElementById("raw-terminal-output-toggle");
 const menuToggle = document.getElementById("menu-toggle");
 const menuPanel = document.querySelector(".wm-menu-panel");
-const menuTabsContainer = document.getElementById("menu-tabs");
 const headerLoginButton = document.getElementById("header-login");
 const brandCommandPaletteButton = document.getElementById("brand-command-palette");
 performAuthUiSync = () => {
@@ -1315,6 +1316,8 @@ const updateDocumentTitle = () => {
     title = getFilesSurfaceFromPath(window.location.pathname) === "docs"
       ? `Docs - ${instanceName}`
       : `Files - ${instanceName}`;
+  } else if (currentRoute === "secrets") {
+    title = `Secrets - ${instanceName}`;
   } else if (currentRoute === "settings") {
     title = `Settings - ${instanceName}`;
   } else if (currentRoute === "projects") {
@@ -1374,56 +1377,6 @@ function syncTerminalNavigationVisibility() {
   return enabled;
 }
 
-const syncMenuTabs = () => {
-  if (!menuTabsContainer) return;
-  menuTabsContainer.innerHTML = "";
-  menuTabsContainer.dataset.state = "ready";
-
-  if (!state.identity.authenticated) {
-    menuTabsContainer.dataset.state = "guest";
-    return;
-  }
-
-  const heading = document.createElement("p");
-  heading.className = "wm-menu-heading";
-  heading.textContent = "Agents";
-  menuTabsContainer.append(heading);
-
-  const sessionsContainer = document.createElement("div");
-  sessionsContainer.className = "wm-menu-sessions-container";
-
-  const activeSessions = getActiveSessions();
-  if (activeSessions.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "wm-menu-empty";
-    empty.textContent = "No live sessions yet.";
-    sessionsContainer.append(empty);
-  } else {
-    const sessionsList = document.createElement("div");
-    sessionsList.className = "wm-menu-sessions-list";
-    const sessionTabs = renderSessionTabs({ onSelect: closeMenu });
-    sessionsList.append(sessionTabs);
-    sessionsContainer.append(sessionsList);
-  }
-
-  if (state.identity.authenticated) {
-    const addButton = document.createElement("div");
-    addButton.className = "wm-tab new wm-menu-add-session";
-    addButton.textContent = "+";
-    addButton.title = "Start new session";
-    addButton.addEventListener("click", () => {
-      if (typeof commandPaletteController?.openSessionLaunch === "function") {
-        commandPaletteController.openSessionLaunch();
-      } else {
-        openDialog();
-      }
-      closeMenu();
-    });
-    sessionsContainer.append(addButton);
-  }
-
-  menuTabsContainer.append(sessionsContainer);
-};
 
 const PULL_THRESHOLD = 90;
 const PULL_MAX = 150;
@@ -1486,7 +1439,6 @@ const pollSessions = async () => {
     const previousSessionIds = allSessions.map(s => s.id).join(',');
 
     await fetchSessions();
-    syncMenuTabs();
 
     const updatedSessions = sessionsStore().items;
     const currentSessionCount = updatedSessions.length;
@@ -1512,9 +1464,7 @@ const pollSessions = async () => {
       render();
     } else {
       // On live route with active session:
-      // - Update menu tabs to reflect current sessions
-      syncMenuTabs();
-      // - Only replace tabs bar if sessions changed (to preserve event listeners)
+      // Only replace the live tabs bar if sessions changed (preserve listeners)
       if (sessionsChanged && tabsVisible) {
         refreshLiveTabsBar();
       }
@@ -1704,7 +1654,6 @@ const sessionRuntimeActions = createSessionRuntimeActions({
   fetchLogs: (...args) => fetchLogs(...args),
   render: () => render(),
   refreshLiveTabsBar: () => refreshLiveTabsBar(),
-  syncMenuTabs: () => syncMenuTabs(),
   setCurrentRoute: (route) => {
     currentRoute = route;
   },
@@ -1855,6 +1804,10 @@ const appRenderer = createAppRenderer({
       disconnectTerminal();
       return renderFiles();
     }
+    if (route === "secrets") {
+      disconnectTerminal();
+      return createSecretsPage({ ownerNpub: state.identity.npub });
+    }
     if (route === "settings") {
       disconnectTerminal();
       return renderSettings();
@@ -1874,7 +1827,6 @@ const appRenderer = createAppRenderer({
   renderWorktreeModal: (...args) => renderWorktreeModal(...args),
   focusComposerTextarea,
   setActiveNav,
-  syncMenuTabs,
   updateAgentStatusIndicators: (...args) => updateAgentStatusIndicators(...args),
   reconcileLiveSessionUi: (...args) => reconcileLiveSessionUi(...args),
   updateDocumentTitle,
@@ -2166,7 +2118,6 @@ const homeViewModule = initHomeView({
   fetchSessions,
   bulkCloseStaleAutoSessions: bulkCloseStaleAutoSessionsApi,
   openConfirmDialog,
-  syncMenuTabs,
   showToast,
   escapeHtml,
   PRIVACY_ROUTE,

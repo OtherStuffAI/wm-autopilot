@@ -387,6 +387,7 @@ export class DispatchPipelineRuntime {
         input: envelope,
         ownerNpub,
         ownerAlias,
+        secretAuthority: agent ? { principalNpub: agent.botNpub, workspaceId: input.subscription.workspaceId || "local" } : undefined,
         callbackOrigin: this.callbackOrigin,
       };
       const run = this.runPipeline
@@ -628,6 +629,7 @@ export class DispatchPipelineRuntime {
             },
           },
           ownerNpub: input.ownerNpub,
+          secretAuthority: input.agent ? { principalNpub: input.agent.botNpub, workspaceId: input.eventInput.subscription.workspaceId || "local" } : undefined,
           ownerAlias: input.ownerAlias,
           callbackOrigin: this.callbackOrigin,
         });

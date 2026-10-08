@@ -12,6 +12,7 @@ describe("auth route guard", () => {
     expect(isProtectedRoute("apps")).toBe(true);
     expect(isProtectedRoute("files")).toBe(true);
     expect(isProtectedRoute("pipelines")).toBe(true);
+    expect(isProtectedRoute("secrets")).toBe(true);
   });
 
   test("leaves public routes available while logged out", () => {
@@ -28,6 +29,7 @@ describe("auth route guard", () => {
   test("redirects protected routes after auth resolves logged out", () => {
     expect(resolveRouteForAuth("live", { authenticated: false, authResolved: true })).toBe("home");
     expect(resolveRouteForAuth("pipelines", { authenticated: false, authResolved: true })).toBe("home");
+    expect(resolveRouteForAuth("secrets", { authenticated: false, authResolved: true })).toBe("home");
   });
 
   test("keeps protected routes when authenticated", () => {

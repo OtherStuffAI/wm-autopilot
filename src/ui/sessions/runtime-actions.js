@@ -47,7 +47,6 @@ export function createSessionRuntimeActions(deps) {
     fetchLogs,
     render,
     refreshLiveTabsBar,
-    syncMenuTabs,
     openSessionDetailsDialog = defaultOpenSessionDetailsDialog,
     setCurrentRoute,
     setActiveSession,
@@ -113,9 +112,6 @@ export function createSessionRuntimeActions(deps) {
   }
 
   function refreshSessionTabs() {
-    if (typeof syncMenuTabs === "function") {
-      syncMenuTabs();
-    }
     if (typeof refreshLiveTabsBar === "function") {
       refreshLiveTabsBar();
     }

@@ -1,3 +1,4 @@
+import { handleSecretRoutes, type SecretRoutesContext } from "../secrets/secret-routes";
 /**
  * API route handlers for /api/* endpoints.
  * Extracted from server.ts to reduce file size.
@@ -148,6 +149,7 @@ export interface ApiRoutesContext {
   userSettingsRoutesContext: UserSettingsRoutesContext;
   instanceSettingsRoutesContext: InstanceSettingsRoutesContext;
   signingPolicyRoutesContext?: SigningPolicyRoutesContext;
+  secretRoutesContext?: SecretRoutesContext;
   skillApiContext?: SkillApiContext;
   controlPlaneRoutesContext: ControlPlaneRoutesContext;
   liveThreadActivityRoutesContext: LiveThreadActivityRoutesContext;
@@ -415,6 +417,11 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     );
     if (instanceSettingsResponse) {
       return instanceSettingsResponse;
+    }
+
+    if (ctx.secretRoutesContext) {
+      const response = await handleSecretRoutes(request, url, authContext, ctx.secretRoutesContext);
+      if (response) return response;
     }
 
     if (ctx.signingPolicyRoutesContext) {

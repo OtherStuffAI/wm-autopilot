@@ -112,6 +112,7 @@ export function createDirectChatEnrichmentService(deps: {
         startDeclarativePipeline({ store: deps.store, sessionApiContext: ctx, definition, registry,
           input: { turnId: request.turnId, workspaceId: subscription.workspaceId, sourceMessageIds: request.sourceMessageIds,
             sessionId: request.sessionId, config: request.config }, ownerNpub: subscription.managedByNpub, ownerAlias,
+          secretAuthority: { principalNpub: request.agent.botNpub, workspaceId: subscription.workspaceId || "local" },
           callbackOrigin: deps.callbackOrigin, initiatingAgentProfileId: request.agent.agentId, initiatingAgentNpub: request.agent.botNpub,
           onRunCreated: run => { runId = run.id; request.onRunStarted(run.id); },
           onRunCompleted: run => {

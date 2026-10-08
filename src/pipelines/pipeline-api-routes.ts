@@ -1,3 +1,4 @@
+import { secretAuthorityFromAuth } from "../secrets/secret-authority";
 import { MISSING_PIPELINE_HISTORY_REASON } from "./pipeline-history-resume";
 import { handleNativePipelineViewerApi } from "./pipeline-native-viewer-routes";
 import { cancelPipelineTree } from "./child-pipeline";
@@ -177,6 +178,7 @@ export async function handlePipelineApi(
     try {
       const { input, resolution, run } = await startFlightDeckPipelineRun({ store: ctx.store,
         sessionApiContext: ctx.sessionApiContext, definition, invocation: body as never, ownerNpub, ownerAlias,
+        secretPrincipalNpub: secretAuthorityFromAuth(authContext)?.principalNpub ?? null,
         callbackOrigin: ctx.callbackOrigin ?? url.origin });
       return Response.json({
         ok: true,

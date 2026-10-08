@@ -215,7 +215,6 @@ export function createLiveAgentsSection(deps) {
     fetchSessions,
     bulkCloseStaleAutoSessions,
     openConfirmDialog,
-    syncMenuTabs,
     sessionSort,
     onSessionSortChange,
     sessionGroup,
@@ -318,7 +317,6 @@ export function createLiveAgentsSection(deps) {
       store.filters.npub = value;
       store.filters.initialized = true;
       void fetchSessions().then(() => {
-        syncMenuTabs();
         const route = getCurrentRoute();
         if (route === "home" || route === "live") {
           render();

@@ -1,4 +1,7 @@
 import { createNightWatchRuntimeDeps } from "./server/nightwatch-runtime-deps";
+import { SecretStore } from "./secrets/secret-store";
+import { configureSecretRuntime } from "./secrets/secret-runtime";
+import { createSecretInventory } from "./secrets/secret-inventory";
 import { startWhiteNoiseBridge } from "./white-noise/bridge-runtime";
 import { ApplicationSigner } from "./signing/application-signer";
 import { listenUnixSigner } from "./signing/unix-signer";
@@ -584,6 +587,7 @@ const schedulerEngine = new SchedulerEngine({
       input: mergeScheduledPipelineInput(definition.spec.input ?? {}, input),
       defaultAgent,
       ownerNpub: job.userNpub,
+      secretAuthority: { principalNpub: job.userNpub, workspaceId: "local" },
       ownerAlias,
       callbackOrigin: `http://127.0.0.1:${config.port}`,
       onRunCreated: (run) => onRunCreated?.(run.id),
@@ -662,6 +666,8 @@ const botCryptoApiHandler = createBotCryptoApiHandler({
   getInstanceIdentity: () => wingmanInstanceIdentity,
 });
 const wingmanDataDir = new URL("../data", import.meta.url).pathname;
+const importedSecretStore = new SecretStore(join(wingmanDataDir, "imported-secrets.sqlite"), join(wingmanDataDir, "imported-secrets", "master.key"));
+configureSecretRuntime(importedSecretStore);
 const giteaApiHandler = createGiteaApiHandler({
   getSession: (sid: string) => manager.getSession(sid),
   config,
@@ -842,6 +848,7 @@ const towerGitCredentialBroker = new TowerGitCredentialBroker({
 });
 const walletRuntime = createWalletRuntime(wingmanDataDir);
 const capabilityBroker = new CapabilityBroker({
+  importedSecrets: importedSecretStore,
   botKeyStore,
   keyVault: brokerKeyVault,
   getInstanceIdentity: () => wingmanInstanceIdentity,
@@ -2798,6 +2805,15 @@ const handleApi = createApiRouteHandler({
   nip98ApiHandler,
   botCryptoApiHandler,
   capabilityBrokerApiHandler: (request, url, method) => capabilityBroker.handle(request, url, method),
+  secretRoutesContext: {
+    store: importedSecretStore,
+    inventory: createSecretInventory({
+      workspaces: (owner) => workspaceSubscriptionStore.listForManagerNpub(owner),
+      users: () => identityUserStore.listUsers(),
+      bots: (owner) => botKeyStore.listActiveKeysForUser(owner),
+      pipelines: (owner) => listLatestPipelineDefinitions(generateIdentityAlias(owner)),
+    }),
+  },
   wappTowerDbRequestBroker,
   legacyWappCustodyMigration,
   botKeyApiHandler,

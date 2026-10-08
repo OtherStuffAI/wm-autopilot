@@ -7,6 +7,7 @@ const PROTECTED_ROUTES = new Set([
   "pipelines",
   "projects",
   "scheduler",
+  "secrets",
   "terminal",
 ]);
 

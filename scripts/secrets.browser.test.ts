@@ -1,0 +1,144 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
+import { createProjectStaticAssetService } from "../src/server/static-assets";
+import { handleSecretRoutes } from "../src/secrets/secret-routes";
+import { SecretStore } from "../src/secrets/secret-store";
+
+const playwrightModule = process.env.PLAYWRIGHT_MODULE;
+const suite = playwrightModule ? describe : describe.skip;
+suite("Secrets browser policy and metadata flow", () => {
+  let browser: any;
+  let server: ReturnType<typeof Bun.serve>;
+  let store: SecretStore;
+  let root: string;
+  afterAll(async () => { server?.stop(true); await browser?.close(); store?.close(); if (root) rmSync(root, { recursive: true, force: true }); });
+  test("creates private secrets, grants scoped access, replaces and revokes without browser value persistence", async () => {
+    root = mkdtempSync(join(tmpdir(), "wm-secret-browser-"));
+    const owner = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    const bot = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    store = new SecretStore(join(root, "secrets.sqlite"), join(root, "custody.key"));
+    const assets = createProjectStaticAssetService(resolve(import.meta.dir, ".."));
+    const ctx = { store, inventory: async () => ({ workspaces: [{ id: "local", label: "Local" }],
+      identities: [{ npub: owner, label: "Synthetic owner", type: "user" as const }, { npub: bot, label: "Synthetic bot", type: "bot" as const }],
+      pipelines: [{ id: "synthetic-pipeline", label: "Synthetic publisher" }] }) };
+    const { chromium } = await import(playwrightModule!);
+    browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
+    let hold = false; let release: (() => void) | undefined;
+    server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      const url = new URL(request.url);
+      if (url.pathname === "/" || url.pathname === "/secrets") return new Response(`<!doctype html><html><head><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/secrets/page.css"></head><body><nav aria-label="Account"><a href="/secrets" aria-label="Manage secrets" data-testid="nav-secrets">Secrets</a></nav><main id="fixture"></main>
+        <script type="module">
+          import Alpine from '/vendor/alpinejs/module.esm.js';
+          import { createSecretsPage } from '/secrets/page.js';
+          import { secretsDb } from '/secrets/db.js';
+          window.fixtureDb=secretsDb;
+          document.querySelector('#fixture').append(createSecretsPage({ ownerNpub: '${owner}' }));
+          Alpine.start();
+        </script></body></html>`, { headers: { "content-type": "text/html" } });
+      if (hold && request.method === "POST") await new Promise<void>(resolve => { release = resolve; });
+      const response = await handleSecretRoutes(request, url, { npub: owner, actorNpub: owner, session: null }, ctx);
+      return response ?? assets.resolveUiAsset(url.pathname) ?? await assets.serveVendorModule(url.pathname)
+        ?? assets.servePublicAsset(url.pathname) ?? new Response("Not found", { status: 404 });
+    } });
+    const page = await browser.newPage(); const errors: string[] = [];
+    page.on("pageerror", (error: Error) => errors.push(error.message));
+    await page.goto(server.url.href, { waitUntil: "domcontentloaded", timeout: 8000 });
+    try { await page.getByText("No secrets in this workspace.", { exact: false }).waitFor({ timeout: 8000 }); }
+    catch (error) { console.error("Fixture diagnostic", errors, await page.locator("body").innerText()); throw error; }
+    await page.getByTestId("secret-add").click();
+    await page.getByTestId("secret-label").fill("Synthetic token");
+    expect(await page.getByTestId("secret-value").getAttribute("type")).toBe("password");
+    await page.getByTestId("secret-value").fill("synthetic-browser-token");
+    hold = true; await page.getByTestId("secret-save").click();
+    expect(await page.getByTestId("secret-value").inputValue()).toBe("");
+    await page.waitForFunction(() => document.querySelector('[data-testid="secret-save"]')?.hasAttribute("disabled"));
+    while (!release) await Bun.sleep(10); hold = false; release();
+    await page.getByRole("heading", { name: "Synthetic token", exact: true }).waitFor({ timeout: 8000 });
+    let record = store.list(owner, "local")[0]!;
+    expect(record.policy.identities).toEqual([]); expect(record.policy.allowExport).toBe(false);
+    await page.getByTestId(`secret-edit-${record.id}`).click();
+    expect(await page.getByTestId("secret-value").inputValue()).toBe("");
+    await page.getByTestId(`secret-identity-${owner}`).check();
+    await page.getByTestId("secret-pipelines-enabled").check();
+    await page.getByTestId("secret-pipelines-mode").selectOption("all");
+    expect(await page.getByTestId("secret-pipelines-synthetic-pipeline").isVisible()).toBe(false);
+    await page.getByTestId("secret-pipelines-mode").selectOption("selected");
+    await page.getByTestId("secret-pipelines-synthetic-pipeline").check();
+    await page.getByTestId("secret-agents-enabled").check();
+    await page.getByTestId(`secret-agents-${bot}`).check();
+    await page.getByTestId(`secret-identity-${bot}`).check();
+    await page.getByTestId("secret-export").check();
+    await page.getByTestId("secret-value").fill("synthetic-replacement-token");
+    await page.getByTestId("secret-save").click();
+    await page.getByTestId("secret-editor").waitFor({ state: "detached", timeout: 8000 });
+    record = store.get(owner, "local", record.id);
+    expect(record.policy.pipelines.ids).toEqual(["synthetic-pipeline"]); expect(record.policy.agents.ids).toEqual([bot]);
+    expect(record.policy.identities).toEqual([owner, bot]);
+    const cached = await page.evaluate(async () => JSON.stringify(await (window as any).fixtureDb.snapshots.toArray()));
+    expect(cached).not.toContain("synthetic-browser-token"); expect(cached).not.toContain("synthetic-replacement-token");
+    expect(await page.locator("body").textContent()).not.toContain("synthetic-replacement-token");
+    await page.getByTestId(`secret-audit-${record.id}`).click();
+    await page.getByTestId("secret-audit").getByRole("heading", { name: "Access audit" }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (process.env.SECRETS_SCREENSHOT_DIR) { mkdirSync(process.env.SECRETS_SCREENSHOT_DIR, { recursive: true });
+      await page.screenshot({ path: join(process.env.SECRETS_SCREENSHOT_DIR, "secrets-mobile.png"), fullPage: true }); }
+    page.once("dialog", (dialog: any) => dialog.accept());
+    await page.getByTestId(`secret-revoke-${record.id}`).click();
+    await page.getByText("Revoked; value erased", { exact: false }).waitFor();
+    expect(store.get(owner, "local", record.id).revokedAt).not.toBeNull();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    if (process.env.SECRETS_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.SECRETS_SCREENSHOT_DIR, "secrets-desktop.png"), fullPage: true });
+    await page.getByTestId("secret-add").click();
+    await page.getByTestId("secret-label").fill("Synthetic signer");
+    await page.getByTestId("secret-type").selectOption("nostr");
+    expect(await page.getByTestId("secret-export").isChecked()).toBe(false);
+    const signingValue = nip19.nsecEncode(generateSecretKey());
+    await page.getByTestId("secret-value").fill(signingValue);
+    await page.getByTestId(`secret-identity-${owner}`).check();
+    await page.getByTestId("secret-pipelines-enabled").check();
+    await page.getByTestId("secret-pipelines-mode").selectOption("all");
+    await page.getByTestId("secret-kind-1").check();
+    await page.getByTestId("secret-save").click();
+    await page.getByTestId("secret-editor").waitFor({ state: "detached", timeout: 8000 });
+    const signer = store.list(owner, "local").find(row => row.label === "Synthetic signer")!;
+    expect(signer.policy.allowExport).toBe(false); expect(signer.policy.kindRules.map(rule => rule.kind)).toEqual([1]);
+    expect(() => store.consume(signer.id, { ownerNpub: owner, workspaceId: "local", identityNpub: owner,
+      context: "pipeline", contextId: "synthetic-pipeline" }, "return")).toThrow("secret_export_denied");
+    const signerCache = await page.evaluate(async () => JSON.stringify(await (window as any).fixtureDb.snapshots.toArray()));
+    expect(signerCache).not.toContain(signingValue); expect(await page.locator("body").textContent()).not.toContain(signingValue);
+    await page.getByTestId(`secret-edit-${signer.id}`).click();
+    await page.getByTestId("secret-value").fill(nip19.nsecEncode(generateSecretKey()));
+    await page.getByTestId("secret-save").click();
+    await page.getByTestId("secret-editor").waitFor({ state: "detached", timeout: 8000 });
+    const rotated = store.get(owner, "local", signer.id);
+    expect(rotated.publicNpub).not.toBe(signer.publicNpub); expect(rotated.policy.identities).toEqual([]);
+    await page.getByTestId(`secret-edit-${signer.id}`).click();
+    await page.getByTestId("secret-type").selectOption("secret");
+    expect(await page.getByTestId("secret-value").getAttribute("required")).not.toBeNull();
+    await page.getByTestId("secret-value").fill("synthetic-converted-token");
+    await page.getByTestId("secret-save").click();
+    await page.getByTestId("secret-editor").waitFor({ state: "detached", timeout: 8000 });
+    expect(store.get(owner, "local", signer.id).type).toBe("secret");
+    expect(store.get(owner, "local", signer.id).publicNpub).toBeNull();
+    await page.getByTestId(`secret-edit-${signer.id}`).click();
+    await page.getByTestId("secret-value").fill("synthetic-invalid-entry");
+    await page.getByTestId("secret-additional-identities").fill("invalid-npub");
+    await page.getByTestId("secret-save").click();
+    await page.getByTestId("secret-editor").getByRole("status").filter({ hasText: "invalid_npub" }).waitFor();
+    expect(await page.getByTestId("secret-value").inputValue()).toBe("");
+    await page.getByTestId("secret-additional-identities").fill("");
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (process.env.SECRETS_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.SECRETS_SCREENSHOT_DIR, "secrets-editor-mobile.png"), fullPage: true });
+    await page.getByTestId("secret-value").fill("synthetic-pending-entry");
+    await page.getByTestId("nav-secrets").click();
+    await page.getByTestId("secrets-page").waitFor();
+    expect(await page.locator('input[type="password"]').count()).toBe(0);
+    const module = await fetch(new URL("/secrets/page.js", server.url)); expect(module.headers.get("content-type")).toContain("application/javascript");
+    expect(errors).toEqual([]);
+  }, 30_000);
+});

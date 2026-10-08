@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/live/phone-layout.css" />
     <link rel="stylesheet" href="/phone-layout.css" />
     <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css" />
+    <link rel="stylesheet" href="/secrets/page.css" />
   </head>
   <body data-authenticated="false" data-admin="false">
     <header class="wm-header">
@@ -45,6 +46,7 @@
       <div class="wm-menu-panel requires-auth" aria-hidden="true">
         <nav class="wm-menu-nav requires-auth">
           <a href="/live" data-route="live">Agents</a>
+          <a href="/secrets" data-route="secrets" aria-label="Manage secrets" data-testid="nav-secrets">Secrets</a>
           <a href="/nightwatch" data-route="nightwatch" hidden>Night Watchman</a>
           <a href="/triggers" data-route="scheduler" class="requires-admin">Triggers</a>
           <a href="/pipelines" data-route="pipelines">Pipelines</a>
@@ -71,7 +73,6 @@
             <span class="raw-output-icon" aria-hidden="true">&gt;_</span>
           </button>
         </div>
-        <div id="menu-tabs" class="wm-menu-tabs requires-auth"></div>
         <div class="wm-menu-footer">
           <a href="/privacy" data-route="privacy">Privacy Policy</a>
         </div>

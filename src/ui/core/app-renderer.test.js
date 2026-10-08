@@ -9,6 +9,7 @@ describe("shouldFullRenderOnSessionUpdate", () => {
     expect(shouldFullRenderOnSessionUpdate("live")).toBe(false);
     expect(shouldFullRenderOnSessionUpdate("pipelines")).toBe(false);
     expect(shouldFullRenderOnSessionUpdate("settings")).toBe(false);
+    expect(shouldFullRenderOnSessionUpdate("secrets")).toBe(false);
     expect(shouldFullRenderOnSessionUpdate("terminal")).toBe(false);
   });
 

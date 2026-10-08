@@ -179,14 +179,14 @@ describe("session runtime actions", () => {
     expect(openSessionDetailsDialog).toHaveBeenCalled();
     expect(renameSessionAction).toHaveBeenCalledWith("session-1", "Renamed", 2);
     expect(updateSessionMetadataAction).not.toHaveBeenCalled();
-    expect(syncMenuTabs).toHaveBeenCalledTimes(1);
+    expect(syncMenuTabs).not.toHaveBeenCalled();
     expect(refreshLiveTabsBar).toHaveBeenCalledTimes(1);
     expect(fetchSessions).toHaveBeenCalledTimes(1);
     expect(render).toHaveBeenCalledTimes(1);
 
     releaseFetch?.();
     await Promise.resolve();
-    expect(syncMenuTabs).toHaveBeenCalledTimes(2);
+    expect(syncMenuTabs).not.toHaveBeenCalled();
     expect(refreshLiveTabsBar).toHaveBeenCalledTimes(2);
     expect(render).toHaveBeenCalledTimes(2);
   });

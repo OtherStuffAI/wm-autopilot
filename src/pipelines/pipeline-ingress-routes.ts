@@ -1,3 +1,4 @@
+import { secretAuthorityFromAuth } from "../secrets/secret-authority";
 import type { RequestAuthContext } from "../auth/request-context";
 import { getEffectiveOwnerNpub } from "../auth/effective-owner";
 import { generateIdentityAlias } from "../identity/identity-alias";
@@ -65,6 +66,8 @@ export async function handlePipelineIngress(request: Request, url: URL, method: 
       registry: functions.registry,
       input,
       ownerNpub,
+      // The legacy shared trigger token authenticates no owner or agent principal.
+      secretAuthority: triggerTokenAuthorized ? undefined : secretAuthorityFromAuth(authContext),
       ownerAlias,
       callbackOrigin: ctx.callbackOrigin ?? url.origin,
     });

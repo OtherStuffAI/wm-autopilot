@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+
+import { useSecretSchema, useSecretDescription, handleUseSecret } from "./tools/use-secret";
 import { registerContextTreeTools } from "./tools/flightdeck.ts";
 /**
  * Wingman MCP Server — stdio transport
@@ -571,6 +573,9 @@ registerWingmanTool(server,
   nostrGetFeedSchema,
   (params) => handleNostrGetFeed(params),
 );
+
+registerWingmanTool(server, "use_secret", useSecretDescription, useSecretSchema,
+  (params) => handleUseSecret(params, wingmanUrl, sessionId));
 
 // ---- nostr_sign_event ----
 registerWingmanTool(server,

@@ -5,7 +5,7 @@ import {
 } from "./auth-route-guard.js";
 
 export function shouldFullRenderOnSessionUpdate(route) {
-  return route !== "home" && route !== "files" && route !== "live" && route !== "settings" && route !== "pipelines" && route !== "terminal";
+  return route !== "home" && route !== "files" && route !== "live" && route !== "settings" && route !== "secrets" && route !== "pipelines" && route !== "terminal";
 }
 
 export function renderRouteErrorView(route, error) {
@@ -48,7 +48,6 @@ export function createAppRenderer({
   renderAuthPendingView = defaultRenderAuthPendingView,
   focusComposerTextarea,
   setActiveNav,
-  syncMenuTabs,
   updateAgentStatusIndicators,
   reconcileLiveSessionUi = () => false,
   updateDocumentTitle,
@@ -59,7 +58,7 @@ export function createAppRenderer({
   let isRendering = false;
   let previousRenderRoute = null;
   let previousRenderPath = null;
-  const stablePages = new Set(["scheduler", "jobs", "pipelines", "terminal"]);
+  const stablePages = new Set(["scheduler", "jobs", "pipelines", "terminal", "secrets"]);
 
   function render() {
     if (isRendering) {
@@ -130,7 +129,6 @@ export function createAppRenderer({
         const focusSnapshot = captureFocusSnapshot();
         if (!routeChanged && !pathChanged && stablePages.has(resolvedRoute)) {
           setActiveNav();
-          syncMenuTabs();
           updateAgentStatusIndicators();
           updateDocumentTitle();
           return;
@@ -158,7 +156,6 @@ export function createAppRenderer({
         }
 
         setActiveNav();
-        syncMenuTabs();
         updateAgentStatusIndicators();
         if (authPending) {
           document.title = "Wingman";
@@ -173,7 +170,6 @@ export function createAppRenderer({
   }
 
   function handleSessionsStoreItemsChanged() {
-    syncMenuTabs();
     const currentRoute = getCurrentRoute();
     if (currentRoute === "live") {
       reconcileLiveSessionUi();

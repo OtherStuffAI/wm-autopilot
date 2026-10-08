@@ -56,7 +56,6 @@ export function initHomeView(deps) {
     fetchSessions,
     bulkCloseStaleAutoSessions,
     openConfirmDialog,
-    syncMenuTabs,
     showToast,
     // Utilities
     escapeHtml,
@@ -264,7 +263,6 @@ export function initHomeView(deps) {
         fetchSessions,
         bulkCloseStaleAutoSessions,
         openConfirmDialog,
-        syncMenuTabs,
         showToast,
         escapeHtml,
         getSessionPendingAction,
