@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { linkExistingTask } from "./reconcile.ts";
 import { scanTasks, type ScanConfig, type ScanClient, type ScanResult } from "./scan.ts";
 
 const config: ScanConfig = { workspace_id: "w", scope_id: "s", channels: ["a", "b"].map(id => ({ id, name: id, scope_id: "s" })) };
@@ -32,6 +33,24 @@ test("sequential opaque tied-timestamp pages find older matches beyond 200 witho
   expect(result.pages_read).toBe(4);
   expect(result.tasks.some(t => t.id === "a-249")).toBe(true);
   expect(cursors).toEqual([null, "opaque/100/timestamp-tie", "opaque/200/timestamp-tie", null]);
+  const older = { ...result.tasks.find(t => t.id === "a-249")!, state: "review", assigned_to_npub: "human" };
+  const comments: Array<{ body: string }> = [];
+  let commentWrites = 0;
+  let proposalCreates = 0;
+  const reconcileClient = {
+    showTask: async () => ({ task: older }),
+    listTaskComments: async () => ({ comments, next_cursor: null }),
+    commentTask: async (_w: string, _t: string, body: string) => { commentWrites++; comments.push({ body }); return {}; },
+    createTask: async () => { proposalCreates++; return {}; },
+  };
+  const input = { workspace: "w", channel: "a", task: String(older.id), body: "Specific batch already routed" };
+  const intent = { body: input.body, attempted: false };
+  expect(await linkExistingTask(reconcileClient, input, intent, async () => {})).toBe("linked");
+  expect(await linkExistingTask(reconcileClient, input, intent, async () => {})).toBe("unchanged");
+  expect(commentWrites).toBe(1);
+  expect(proposalCreates).toBe(0);
+  expect(older.state).toBe("review");
+  expect(older.assigned_to_npub).toBe("human");
 });
 test("interrupted page preserves durable cursor and retries it without skipping or duplicating", async () => {
   let fail = true;
