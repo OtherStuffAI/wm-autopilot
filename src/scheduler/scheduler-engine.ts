@@ -304,6 +304,7 @@ class SchedulerEngine {
         return { cleanup };
       }
 
+      if (!job.botNpub) throw new Error("Scheduled trigger has no Run as identity selected");
       const instanceIdentity = this.deps.getInstanceIdentity?.() ?? null;
       if (!instanceIdentity) {
         throw new Error("WINGMAN_PRIV is required to execute scheduled jobs");

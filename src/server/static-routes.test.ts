@@ -112,6 +112,7 @@ describe("createStaticRouteHandler", () => {
       "/views/settings/workspace-settings-db.js",
       "/views/settings/settings-purpose.js",
       "/skills/page-components.js",
+      "/scheduler/run-identity.js",
     ]) {
       const moduleResponse = await handler.serveBeforeApi(new Request(`http://localhost${pathname}`), pathname);
       expect(moduleResponse?.status).toBe(200);

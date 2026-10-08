@@ -29,6 +29,7 @@ export function createSchedulerFormSupport({ getConfig, getDefaultAgent, openDir
     const agent = getDefaultAgent();
     return {
       name: "",
+      botNpub: "",
       agent,
       model: defaultModel(agent),
       workingDirectory: "",

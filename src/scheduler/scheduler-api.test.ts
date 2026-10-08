@@ -44,7 +44,8 @@ function createHandler(store: SchedulerStore, executeJob?: (jobId: string) => Pr
     engine,
     getNpub: () => "npub-user",
     getInstanceIdentity: () => null,
-    getActiveBotOwnerNpub: (botNpub) => botNpub === "npub-current-bot" ? "npub-user" : null,
+    getActiveBotOwnerNpub: (botNpub) => botNpub === "npub-current-bot" ? "npub-user" : botNpub === "npub-foreign" ? "npub-other" : null,
+    listRunIdentities: (owner) => owner === "npub-user" ? [{ botNpub: "npub-current-bot", name: "Rick" }] : [],
   });
 }
 
@@ -195,5 +196,44 @@ describe("scheduler API relay trigger removal", () => {
     expect(triggerResponse.status).toBe(409);
     expect(await triggerResponse.json()).toEqual({ error: RELAY_TRIGGER_UNSUPPORTED_REASON });
     expect(executeCalls).toBe(0);
+  });
+});
+
+
+describe("explicit Run as API contract", () => {
+  test("lists owner identities and saves/readbacks selected identity", async () => {
+    const store = new SchedulerStore(join(tempDir, "wingman.db"));
+    const handler = createHandler(store);
+    const listing = new Request("http://wingman.test/api/scheduler/identities");
+    expect(await (await handler(listing, new URL(listing.url), "GET")).json()).toEqual({ identities: [{ botNpub: "npub-current-bot", name: "Rick" }] });
+    const body = { name: "Research", actionType: "pipeline", pipelineDefinitionId: "research", cronExpression: "0 9 * * *", botNpub: "npub-current-bot" };
+    for (const botNpub of [undefined, "", "npub-foreign", "npub-retired"]) {
+      const request = new Request("http://wingman.test/api/scheduler/jobs", { method: "POST", body: JSON.stringify({ ...body, botNpub }) });
+      expect((await handler(request, new URL(request.url), "POST")).status).toBe(400);
+    }
+    const request = new Request("http://wingman.test/api/scheduler/jobs", { method: "POST", body: JSON.stringify(body) });
+    const response = await handler(request, new URL(request.url), "POST");
+    expect(response.status).toBe(201);
+    const { job } = await response.json();
+    expect(job.botNpub).toBe("npub-current-bot");
+    const edit = new Request(`http://wingman.test/api/scheduler/jobs/${job.id}`, { method: "PATCH", body: JSON.stringify({ name: "Edited", botNpub: job.botNpub }) });
+    expect((await handler(edit, new URL(edit.url), "PATCH")).status).toBe(200);
+    const read = new Request("http://wingman.test/api/scheduler/jobs");
+    expect((await (await handler(read, new URL(read.url), "GET")).json()).jobs[0].botNpub).toBe(job.botNpub);
+    for (const botNpub of ["npub-foreign", "npub-retired", "", null]) {
+      const invalid = new Request(edit.url, { method: "PATCH", body: JSON.stringify({ botNpub }) });
+      expect((await handler(invalid, new URL(invalid.url), "PATCH")).status).toBe(400);
+      expect(store.getJob(job.id)?.botNpub).toBe(job.botNpub);
+    }
+  });
+  test("preserves historical signers on unrelated edits and keeps cleanup identity-free", async () => {
+    const store = new SchedulerStore(join(tempDir, "wingman.db"));
+    const handler = createHandler(store);
+    const job = createJob(store);
+    const edit = new Request(`http://wingman.test/api/scheduler/jobs/${job.id}`, { method: "PATCH", body: JSON.stringify({ name: "Historical" }) });
+    expect((await handler(edit, new URL(edit.url), "PATCH")).status).toBe(200);
+    expect(store.getJob(job.id)?.botNpub).toBe("npub-bot");
+    const cleanup = new Request("http://wingman.test/api/scheduler/jobs", { method: "POST", body: JSON.stringify({ name: "Cleanup", actionType: "cleanup", cronExpression: "*/15 * * * *" }) });
+    expect((await (await handler(cleanup, new URL(cleanup.url), "POST")).json()).job.botNpub).toBe("");
   });
 });

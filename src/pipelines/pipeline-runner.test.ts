@@ -710,7 +710,7 @@ describe("runDeclarativePipeline", () => {
       },
     } as unknown as SessionApiContext;
 
-    const run = async (id: string, pipelineInput: Record<string, unknown>, initiatingAgent?: { profileId: string; botNpub: string }) => {
+    const run = async (id: string, pipelineInput: Record<string, unknown>, initiatingAgent?: { profileId?: string; botNpub: string }) => {
       const definition: PipelineDefinitionRecord = {
         id,
         slug: id,
@@ -763,6 +763,14 @@ describe("runDeclarativePipeline", () => {
     expect(capturedMetadata[1]?.agentChatBotNpub).toBeUndefined();
     expect(capturedAgents).toEqual(["goose", "codex"]);
     expect(capturedModels).toEqual(["brick-model", undefined]);
+    await run("scheduled-signer", {
+      agent: { profileId: "stale-input-profile", defaultAgent: "codex" },
+    }, { profileId: "rick", botNpub: "npub-rick" });
+    expect(capturedMetadata[2]).toMatchObject({ agentProfileId: "rick", agentChatBotNpub: "npub-rick" });
+    await run("scheduled-exact-npub", { agent: { profileId: "stale-input-profile" } }, { botNpub: "npub-rick" });
+    expect(capturedMetadata[3]?.agentChatBotNpub).toBe("npub-rick");
+    expect(capturedMetadata[3]?.agentProfileId).toBeUndefined();
+
   });
 
   test("delivers agent steps through the session adapter when the active transport is native", async () => {

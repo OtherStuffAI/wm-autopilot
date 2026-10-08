@@ -1,3 +1,4 @@
+import { identityIssue, identityName, runIdentityField } from "./run-identity.js";
 /**
  * Scheduler Page
  *
@@ -133,6 +134,16 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
 
   Alpine.data("schedulerPage", () => ({
     ...formSupport,
+
+    identityIssue(action, npub) {
+      const store = this.$store.scheduler;
+      return identityIssue(action, npub, store.identities, store.identityStatus);
+    },
+
+    identityName(npub) {
+      const store = this.$store.scheduler;
+      return identityName(npub, store.identities, store.identityStatus);
+    },
 
     // Autocomplete cleanup handles
     _acCleanups: [],
@@ -329,6 +340,7 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
       this.editTriggerType = job.triggerType || "cron";
       this.editForm = {
         name: job.name,
+        botNpub: job.botNpub || "",
         agent: normalizeAgentValue(job.agent || getConfiguredDefaultAgent()),
         model: job.model || formSupport.defaultModel(job.agent),
         workingDirectory: job.workingDirectory,
@@ -355,9 +367,11 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
 
     async saveEdit() {
       if (this.editSubmitting) return;
+      if (this.identityIssue(this.editActionType, this.editForm.botNpub)) return;
       this.editSubmitting = true;
       try {
         const payload = {
+          botNpub: this.editActionType === "cleanup" ? undefined : this.editForm.botNpub,
           name: this.editForm.name,
           actionType: this.editActionType,
           triggerType: this.editTriggerType,
@@ -426,9 +440,11 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
 
     async submitJob() {
       if (this.submitting) return;
+      if (this.identityIssue(this.actionType, this.form.botNpub)) return;
       this.submitting = true;
       try {
         const payload = {
+          botNpub: this.actionType === "cleanup" ? undefined : this.form.botNpub,
           name: this.form.name,
           actionType: this.actionType,
           triggerType: this.triggerType,
@@ -669,6 +685,7 @@ function getPageTemplate() {
           @click="actionType = 'cleanup'; triggerType = 'cron'">Cleanup</button>
       </div>
 
+      ${runIdentityField()}
       <!-- Row 1: Name + Agent/Pipeline -->
       <div class="wm-scheduler-grid-fields">
         <div class="wm-form-group">
@@ -676,9 +693,9 @@ function getPageTemplate() {
           <input type="text" class="wm-input" x-model="form.name" placeholder="e.g. Daily code review">
         </div>
         <div class="wm-form-group" x-show="isSessionAction">
-          <label>Agent</label>
+          <label>Engine</label>
           <select class="wm-select" x-model="form.agent" @change="syncModel(form)"
-            aria-label="Agent" data-testid="scheduler-create-agent">
+            aria-label="Engine" data-testid="scheduler-create-agent">
             ${renderAgentOptions()}
           </select>
         </div>
@@ -701,8 +718,8 @@ function getPageTemplate() {
           </select>
         </div>
         <div class="wm-form-group" x-show="isPipelineAction">
-          <label>Pipeline Agent (optional)</label>
-          <select class="wm-select" x-model="form.pipelineAgent">
+          <label>Pipeline engine (optional)</label>
+          <select class="wm-select" x-model="form.pipelineAgent" aria-label="Pipeline engine" data-testid="scheduler-create-pipeline-engine">
             <option value="">Use pipeline default</option>
             ${renderAgentOptions()}
           </select>
@@ -847,7 +864,7 @@ function getPageTemplate() {
       <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; border-top: 1px solid var(--border-primary); padding-top: 0.75rem;">
         <button type="button" class="wm-btn wm-btn--sm" @click="showForm = false; resetForm()">Cancel</button>
         <button type="button" class="wm-btn wm-btn--sm wm-btn--primary" @click="submitJob()"
-          :disabled="submitting || !form.name || (actionType === 'session' && (!form.workingDirectory || !form.initialPrompt)) || (actionType === 'pipeline' && !form.pipelineDefinitionId) || (triggerType === 'file_watcher' && !form.watchDirectory)">
+          :disabled="submitting || !!identityIssue(actionType, form.botNpub) || !form.name || (actionType === 'session' && (!form.workingDirectory || !form.initialPrompt)) || (actionType === 'pipeline' && !form.pipelineDefinitionId) || (triggerType === 'file_watcher' && !form.watchDirectory)">
           <span x-text="submitting ? 'Creating\u2026' : 'Create Trigger'"></span>
         </button>
       </div>
@@ -884,6 +901,10 @@ function getPageTemplate() {
           <div class="wm-scheduler-job-info">
             <div style="display: flex; align-items: baseline; gap: 0.5rem;">
               <strong x-text="job.name" style="font-size: 0.95rem;"></strong>
+              <span x-show="job.actionType !== 'cleanup'" data-testid="scheduler-saved-identity" style="overflow-wrap:anywhere">
+                Run as: <span x-text="identityName(job.botNpub)"></span>
+                <details><summary aria-label="Inspect saved Run as npub">npub</summary><code x-text="job.botNpub || 'Identity missing'" style="user-select:text"></code></details>
+              </span>
               <span x-text="describeJobAction(job)" style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;"></span>
               <span x-text="describeTrigger(job)" style="font-size: 0.75rem; color: var(--accent-primary);"></span>
             </div>
@@ -973,6 +994,7 @@ function getPageTemplate() {
                 @click="editActionType = 'cleanup'; editTriggerType = 'cron'">Cleanup</button>
             </div>
 
+            ${runIdentityField(true)}
             <!-- Row 1: Name + Agent/Pipeline -->
             <div class="wm-scheduler-grid-fields">
               <div class="wm-form-group">
@@ -980,9 +1002,9 @@ function getPageTemplate() {
                 <input type="text" class="wm-input" x-model="editForm.name">
               </div>
               <div class="wm-form-group" x-show="editIsSessionAction">
-                <label>Agent</label>
+                <label>Engine</label>
                 <select class="wm-select" x-model="editForm.agent" @change="syncModel(editForm)"
-                  aria-label="Agent" data-testid="scheduler-edit-agent">
+                  aria-label="Engine" data-testid="scheduler-edit-agent">
                   ${renderAgentOptions()}
                 </select>
               </div>
@@ -1005,8 +1027,8 @@ function getPageTemplate() {
                 </select>
               </div>
               <div class="wm-form-group" x-show="editIsPipelineAction">
-                <label>Pipeline Agent (optional)</label>
-                <select class="wm-select" x-model="editForm.pipelineAgent">
+                <label>Pipeline engine (optional)</label>
+                <select class="wm-select" x-model="editForm.pipelineAgent" aria-label="Pipeline engine" data-testid="scheduler-edit-pipeline-engine">
                   <option value="">Use pipeline default</option>
                   ${renderAgentOptions()}
                 </select>
@@ -1151,7 +1173,7 @@ function getPageTemplate() {
             <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; border-top: 1px solid var(--border-primary); padding-top: 0.75rem;">
               <button type="button" class="wm-btn wm-btn--sm" @click="cancelEdit()">Cancel</button>
               <button type="button" class="wm-btn wm-btn--sm wm-btn--primary" @click="saveEdit()"
-                :disabled="editSubmitting || !editForm.name || (editActionType === 'session' && (!editForm.workingDirectory || !editForm.initialPrompt)) || (editActionType === 'pipeline' && !editForm.pipelineDefinitionId) || (editTriggerType === 'file_watcher' && !editForm.watchDirectory)">
+                :disabled="editSubmitting || !!identityIssue(editActionType, editForm.botNpub) || !editForm.name || (editActionType === 'session' && (!editForm.workingDirectory || !editForm.initialPrompt)) || (editActionType === 'pipeline' && !editForm.pipelineDefinitionId) || (editTriggerType === 'file_watcher' && !editForm.watchDirectory)">
                 <span x-text="editSubmitting ? 'Saving\u2026' : 'Save Changes'"></span>
               </button>
             </div>

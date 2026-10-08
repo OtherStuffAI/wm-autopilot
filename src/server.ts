@@ -1,3 +1,5 @@
+import { listSchedulerRunIdentities } from "./scheduler/run-identities";
+import { scheduledPipelineLaunchOptions } from "./scheduler/pipeline-launch-options";
 import { createNightWatchRuntimeDeps } from "./server/nightwatch-runtime-deps";
 import { SecretStore } from "./secrets/secret-store";
 import { configureSecretRuntime } from "./secrets/secret-runtime";
@@ -584,7 +586,7 @@ const schedulerEngine = new SchedulerEngine({
       sessionApiContext,
       definition,
       registry: functions.registry,
-      input: mergeScheduledPipelineInput(definition.spec.input ?? {}, input),
+      ...scheduledPipelineLaunchOptions(job, definition.spec.input ?? {}, input),
       defaultAgent,
       ownerNpub: job.userNpub,
       secretAuthority: { principalNpub: job.userNpub, workspaceId: "local" },
@@ -608,17 +610,10 @@ const schedulerEngine = new SchedulerEngine({
   getInstanceIdentity: () => wingmanInstanceIdentity,
 });
 
-function mergeScheduledPipelineInput(defaultInput: JsonObject, scheduledInput: JsonObject): JsonObject {
-  const merged: JsonObject = { ...defaultInput };
-  for (const [key, value] of Object.entries(scheduledInput)) {
-    if (value === null || value === undefined) continue;
-    merged[key] = value;
-  }
-  return merged;
-}
 const schedulerApiHandler = createSchedulerApiHandler({
   store: schedulerStore,
   engine: schedulerEngine,
+  listRunIdentities: (ownerNpub) => listSchedulerRunIdentities(ownerNpub, botKeyStore, agentDefinitionStore.listForManagerNpub(ownerNpub)),
   getInstanceIdentity: () => wingmanInstanceIdentity,
   getActiveBotOwnerNpub: (botNpub) => botKeyStore.getActiveKeyForBotNpub(botNpub)?.userNpub ?? null,
   getAgentIdForBotNpub: (botNpub, ownerNpub) =>

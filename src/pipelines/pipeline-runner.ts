@@ -910,7 +910,7 @@ async function runAgentStep(input: PipelineRunnerInput & {
   let lastError: unknown = null;
   const maxAttempts = resolveAgentStepMaxAttempts();
   const attemptBase = input.store.evidence.nextExecutorAttempt(input.stepId) - 1;
-  const profileBinding = resolvePipelineAgentProfileBinding(pipelineAuthorityInput(input.store, input.runId));
+  const profileBinding = input.initiatingAgentNpub ? {} : resolvePipelineAgentProfileBinding(pipelineAuthorityInput(input.store, input.runId));
   const initiatingAgentBinding = input.initiatingAgentNpub
     ? {
         ...(input.initiatingAgentProfileId ? { agentProfileId: input.initiatingAgentProfileId } : {}),

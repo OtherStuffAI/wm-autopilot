@@ -24,6 +24,8 @@ export function initSchedulerStore({ showToast, syncOnInit = true }) {
   Alpine.store("scheduler", {
     // ----- State -----
     jobs: [],
+    identities: [],
+    identityStatus: "loading",
     loading: false,
     initialized: false,
     _liveQuerySub: null,
@@ -33,6 +35,7 @@ export function initSchedulerStore({ showToast, syncOnInit = true }) {
     async init() {
       if (this.initialized) return;
       this.loading = true;
+      void this.syncIdentities();
 
       try {
         const cached = await JobStore.getAll();
@@ -53,10 +56,11 @@ export function initSchedulerStore({ showToast, syncOnInit = true }) {
       if (this._liveQuerySub) {
         this._liveQuerySub.unsubscribe();
       }
-      const observable = Dexie.liveQuery(() => JobStore.getAll());
+      const observable = Dexie.liveQuery(async () => ({ jobs: await JobStore.getAll(), identities: await schedulerDb.identities.toArray() }));
       this._liveQuerySub = observable.subscribe({
-        next: (jobs) => {
+        next: ({ jobs, identities }) => {
           this.jobs = jobs;
+          this.identities = identities;
         },
         error: (err) => {
           console.error("[scheduler-store] liveQuery error:", err);
@@ -65,6 +69,23 @@ export function initSchedulerStore({ showToast, syncOnInit = true }) {
     },
 
     // ----- Server sync -----
+
+    async syncIdentities() {
+      this.identityStatus = "loading";
+      try {
+        const response = await fetch("/api/scheduler/identities", { credentials: "include" });
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data.identities)) throw new Error(data.error || "Invalid identity listing");
+        await schedulerDb.transaction("rw", schedulerDb.identities, async () => {
+          await schedulerDb.identities.clear();
+          await schedulerDb.identities.bulkPut(data.identities);
+        });
+        this.identityStatus = "ready";
+      } catch (error) {
+        this.identityStatus = "error";
+        showToast(`Failed to load Run as identities: ${error.message}`, { type: "error" });
+      }
+    },
 
     async sync() {
       try {

@@ -18,6 +18,7 @@ import type { WingmanInstanceIdentity } from "../identity/wingman-instance-ident
 // ============================================================
 
 export interface SchedulerApiDependencies {
+  listRunIdentities?: (ownerNpub: string) => Array<{ botNpub: string; name: string }>;
   store: SchedulerStore;
   engine: SchedulerEngine;
   getNpub: (request: Request) => string | null;
@@ -168,15 +169,14 @@ async function handleCreateJob(
       return Response.json({ error: watchResult.error.issues[0]?.message ?? "Invalid watchDirectory" }, { status: 400 });
     }
   }
-  const instanceIdentity = deps.getInstanceIdentity?.() ?? null;
-  const botNpub = requestedBotNpub || instanceIdentity?.npub || "";
+  const botNpub = requestedBotNpub;
   if (!botNpub && actionType !== "cleanup") {
     return Response.json(
-      { error: "botNpub is required when no Wingman instance identity is configured." },
+      { error: "Choose a Run as identity (botNpub is required)." },
       { status: 400 },
     );
   }
-  if (requestedBotNpub && deps.getActiveBotOwnerNpub?.(requestedBotNpub) !== userNpub) {
+  if (actionType !== "cleanup" && requestedBotNpub && deps.getActiveBotOwnerNpub?.(requestedBotNpub) !== userNpub) {
     return Response.json({ error: "botNpub must be an active bot identity owned by the scheduler owner" }, { status: 400 });
   }
 
@@ -233,7 +233,8 @@ async function handleUpdateJob(
   const update: Record<string, unknown> = {};
 
   if (typeof body.name === "string") update.name = body.name.trim();
-  if (typeof body.botNpub === "string") {
+  if ((body.actionType ?? existing.actionType) !== "cleanup" && body.botNpub !== undefined) {
+    if (typeof body.botNpub !== "string") return Response.json({ error: "botNpub must be a string" }, { status: 400 });
     const botNpub = body.botNpub.trim();
     if (!botNpub) return Response.json({ error: "botNpub cannot be empty" }, { status: 400 });
     if (deps.getActiveBotOwnerNpub?.(botNpub) !== userNpub) {
@@ -341,6 +342,13 @@ async function handleUpdateJob(
     return Response.json({ error: "cleanup actions only support schedule triggers" }, { status: 400 });
   }
 
+  if (nextActionType === "cleanup") {
+    update.botNpub = "";
+    update.agentId = null;
+  } else if (!existing.botNpub && !update.botNpub) {
+    return Response.json({ error: "Choose a Run as identity (botNpub is required)." }, { status: 400 });
+  }
+
   const job = deps.store.updateJob(jobId, update);
   if (!job) {
     return Response.json({ error: "Job not found" }, { status: 404 });
@@ -433,6 +441,11 @@ export function createSchedulerApiHandler(deps: SchedulerApiDependencies) {
 
     const segments = url.pathname.split("/").filter(Boolean);
     // segments[0] = "api", segments[1] = "scheduler"
+
+    if (url.pathname === "/api/scheduler/identities" && method === "GET") {
+      if (!deps.listRunIdentities) return Response.json({ error: "Run as identity listing is unavailable" }, { status: 503 });
+      return Response.json({ identities: deps.listRunIdentities(userNpub) });
+    }
 
     // /api/scheduler/jobs
     if (segments.length === 3 && segments[2] === "jobs") {
