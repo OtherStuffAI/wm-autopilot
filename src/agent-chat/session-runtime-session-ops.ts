@@ -1,3 +1,4 @@
+import { findNativeTurnFinal } from "../agents/native-sdk-contract";
 import type { AgentType } from '../config';
 import { isDirectChatFinalReady } from './direct-chat-final-readiness';
 import { resolveAuthoritativeSessionMessages } from '../agents/authoritative-session-messages';
@@ -175,9 +176,7 @@ export async function awaitAcceptedFinalResponse(
       if (matchesCodexPrompt(message.content, prompt)) return true;
       return sourceMessageIds.some((id) => message.content.includes(id));
     });
-    const finalMessage = (boundaryIndex >= 0 ? authoritativeMessages.slice(boundaryIndex + 1) : [])
-      .filter((message) => (message.role === 'assistant' || message.role === 'agent') && message.content.trim().length > 0)
-      .at(-1);
+    const finalMessage = findNativeTurnFinal(boundaryIndex >= 0 ? authoritativeMessages.slice(boundaryIndex + 1) : []);
     if (finalMessage && isDirectChatFinalReady({
       nativeCodexReady: Boolean(nativeCodexReady), agentTransport: session.metadata?.agentTransport, runtimeStatus,
     })) {

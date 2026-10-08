@@ -1,3 +1,4 @@
+import { findNativeTurnFinal, isNativeSdkTransport, isNativeFinalReady } from "../agents/native-sdk-contract";
 import { createHash } from "node:crypto";
 import { inheritWorkerContext } from "./worker-context";
 import type { AgentType } from "../agent-types";
@@ -209,14 +210,18 @@ export class SessionDispatchService {
     let messages: Array<{ role: string; content: string; createdAt: string }>;
     try { [status, messages] = await Promise.all([adapter.fetchStatus(), adapter.fetchMessages()]); } catch { return; }
     const nativeCodex = session.agent === "codex" && Boolean(session.metadata?.nativeAgentSession?.sessionId);
-    const authoritative = nativeCodex
+    const authoritative = nativeCodex && !isNativeSdkTransport(session.metadata?.agentTransport)
       ? await resolveAuthoritativeSessionMessages(session, messages, { requireNative: true }).catch(() => [])
       : adapter.deliversPromptsDirectly?.() ? messages : [];
     const boundary = authoritative.findLastIndex((message) => message.role === "user" && message.content === record.prompt);
-    const final = (boundary >= 0 ? authoritative.slice(boundary + 1) : [])
-      .filter((message) => (message.role === "assistant" || message.role === "agent") && message.content.trim()).at(-1);
-    if (final && (nativeCodex || status === "stable")) await this.capture(record, "completed", final.content, final.createdAt);
-    else if (session.status === "error") await this.capture(record, "failed", null, null);
+    const turnMessages = boundary >= 0 ? authoritative.slice(boundary + 1) : [];
+    const final = findNativeTurnFinal(turnMessages);
+    const error = turnMessages.findLast((message) => message.role === "agent-error");
+    if (final && isNativeFinalReady({ nativeTranscriptReady: nativeCodex, agentTransport: session.metadata?.agentTransport, runtimeStatus: status })) {
+      await this.capture(record, "completed", final.content, final.createdAt);
+    } else if (error && status === "stable" && isNativeSdkTransport(session.metadata?.agentTransport)) {
+      await this.capture(record, "failed", error.content, error.createdAt);
+    } else if (session.status === "error") await this.capture(record, "failed", null, null);
     else if (session.status === "stopped") await this.capture(record, "stopped", null, null);
   }
 

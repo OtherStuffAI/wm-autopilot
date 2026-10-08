@@ -1,3 +1,4 @@
+import { buildClaudeAdapterContext } from "./claude-adapter-context";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, normalize, resolve } from "node:path";
@@ -115,11 +116,11 @@ export function buildBunAgentLaunchCommand(
 }
 
 export function transportSkipsAgentApiSpawn(transport: AgentTransport): boolean {
-  return ["codex-acp", "codex-sdk", "goose-acp", "maple-acp", "deepseek-acp", "pi-acp"].includes(transport);
+  return ["claude-sdk", "codex-acp", "codex-sdk", "goose-acp", "maple-acp", "deepseek-acp", "pi-acp"].includes(transport);
 }
 
 export function transportRequiresEagerReadiness(transport: AgentTransport): boolean {
-  return transport === "codex-acp" ||
+  return transport === "claude-sdk" || transport === "codex-acp" ||
     transport === "goose-acp" ||
     transport === "deepseek-acp" ||
     transport === "maple-acp" ||
@@ -995,6 +996,7 @@ export class ProcessManager {
         codexAcpCli: agent === "codex"
           ? instanceSettingsService.get("agents.codex_acp_cli") || undefined
           : undefined,
+        ...buildClaudeAdapterContext(session, instanceSettingsService.get("agents.claude_oauth_token")),
         codexConfig: session.agent === "codex" ? session.codexConfig : undefined,
         opencodeSdkSessionId: session.metadata.nativeAgentSession?.agent === "opencode"
           ? session.metadata.nativeAgentSession.sessionId
@@ -1037,7 +1039,7 @@ export class ProcessManager {
         await session.adapter.waitForReady({ timeoutMs: 30_000 });
         this.appendLog(
           session,
-          agentTransport === "opencode-sdk"
+          (agentTransport === "opencode-sdk" || agentTransport === "claude-sdk")
             ? `[manager] ${session.definition.label} SDK readiness probe completed`
             : `[manager] ${session.definition.label} ACP initialization and session negotiation completed`,
         );
@@ -1156,6 +1158,7 @@ export class ProcessManager {
       codexCli: input.agent === "codex"
         ? resolveWrappedAgentCli(definition.command({ port: input.port, agent: input.agent, config: this.config }))
         : undefined,
+      ...buildClaudeAdapterContext(session, instanceSettingsService.get("agents.claude_oauth_token")),
       codexAcpCli: input.agent === "codex"
         ? instanceSettingsService.get("agents.codex_acp_cli") || undefined
         : undefined,

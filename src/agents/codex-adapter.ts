@@ -1,3 +1,5 @@
+import { recordCodexSdkActivity } from "./codex-sdk-activity";
+import { NativeSdkActivity } from "./native-sdk-contract";
 /**
  * CodexAdapter — communicates with Codex directly via @openai/codex-sdk.
  *
@@ -50,6 +52,7 @@ export class CodexAdapter implements AgentAdapter {
   private threadId: string | null = null;
   private state: AdapterState = "initializing";
   private readonly messages: CollectedMessage[] = [];
+  private readonly activity = new NativeSdkActivity((message) => this.emitStream({ type: "message", message }));
   /**
    * The assistant message for the turn currently streaming. It is not yet in
    * `messages` (that only happens once the turn completes), but it must be part
@@ -170,6 +173,7 @@ export class CodexAdapter implements AgentAdapter {
     const abortController = new AbortController();
     this.currentAbort = abortController;
 
+    const turnId = crypto.randomUUID();
     let assistantCreatedAt: string | null = null;
     try {
       const { finalText, usage } = await runCodexTurn(this.thread, content, {
@@ -177,6 +181,7 @@ export class CodexAdapter implements AgentAdapter {
         requireCompletion,
         onThreadId: (id) => { this.threadId = id; this.context.onNativeSessionId?.(id); },
         onEvent: (event) => {
+          recordCodexSdkActivity(event, this.activity, turnId);
           for (const listener of this.eventListeners) {
             try { listener(event); } catch { /* Subscriber failure cannot interrupt the turn. */ }
           }
@@ -238,17 +243,13 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   async fetchMessages(): Promise<AgentMessage[]> {
-    const history = [...this.messages];
+    const history = [...this.messages, ...this.activity.snapshot()];
     // Include the currently-streaming assistant turn so snapshot consumers
     // (refresh polling, page reload) never drop the in-flight bubble.
     if (this.pendingAssistant && this.pendingAssistant.content) {
       history.push(this.pendingAssistant);
     }
-    return history.map((m) => ({
-      role: m.role,
-      content: m.content,
-      createdAt: m.createdAt,
-    }));
+    return history.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((m) => ({ ...m }));
   }
 
   async interruptCurrentTurn(): Promise<boolean> {

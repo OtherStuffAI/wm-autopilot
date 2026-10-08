@@ -71,3 +71,12 @@ describe("Pi transport resolution", () => {
     expect(resolveAgentTransport("pi", "pi-native")).toBe("pi-native");
   });
 });
+
+
+describe("Claude transport pinning", () => {
+  test("preserves the chosen session transport across flag changes", () => {
+    expect(resolveAgentTransport("claude", "claude-sdk")).toBe("claude-sdk");
+    expect(resolveAgentTransport("claude", "agentapi")).toBe("agentapi");
+    expect(resolveAgentTransport("codex", "claude-sdk")).not.toBe("claude-sdk");
+  });
+});

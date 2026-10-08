@@ -1,3 +1,4 @@
+import type { AgentAdapter } from "../agents/agent-adapter";
 /**
  * Night Watch Engine
  *
@@ -46,6 +47,7 @@ export interface NightWatchDeps {
   featureFlagStore: FeatureFlagStore;
   agentHost: string;
   getSession: (sessionId: string) => SessionSnapshot | null;
+  getAdapter?: (sessionId: string) => AgentAdapter | null;
   updateSessionMetadata?: (
     sessionId: string,
     metadata: SessionMetadataInput,
@@ -160,6 +162,7 @@ async function sendNightWatchPrompt(
     content: prompt,
     type: "user",
     pm2Name: session.pm2Name,
+    adapter: deps.getAdapter?.(session.id),
   });
 }
 

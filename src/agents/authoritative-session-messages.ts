@@ -8,6 +8,10 @@ export async function resolveAuthoritativeSessionMessages(
   liveMessages: ReplaceMessageInput[],
   options: { requireNative?: boolean; minimumRefreshIntervalMs?: number } = {},
 ): Promise<ReplaceMessageInput[]> {
+  // Claude SDK snapshots reserve assistant/agent for successful terminal results.
+  // Native JSONL may contain partial text from interrupted turns; it must not
+  // replace these completion-aware snapshots during live sync or recovery.
+  if (session.metadata?.agentTransport === 'claude-sdk') return liveMessages;
   const nativeSession = session.metadata?.nativeAgentSession;
   if (!nativeSession?.sessionId || !nativeSession.workingDirectory) {
     return session.agent === 'claude' ? [] : liveMessages;

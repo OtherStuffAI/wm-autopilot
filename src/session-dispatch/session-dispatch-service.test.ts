@@ -234,3 +234,40 @@ test("service handling clears obsolete wakes while closing an older callback pre
   expect(f.service.getInbox("supervisor").callbacks.map((record) => record.dispatchId)).toEqual([late.dispatchId]);
   expect(f.inbox.claimForStableSession("supervisor")).not.toBeNull();
 });
+
+
+describe("native SDK terminal callbacks", () => {
+  test.each(["claude", "codex"])("%s waits for stable success and captures exactly one callback", async (agent) => {
+    const f = fixture();
+    const record = await f.service.create({ agent: agent as "claude" | "codex", prompt: "Work 1", callbackEnabled: true, callbackSessionId: "supervisor" });
+    const worker = f.sessions.get(record.workerSessionId)!;
+    worker.agent = agent;
+    Object.assign(worker.metadata, { agentTransport: `${agent}-sdk`, nativeAgentSession: { agent, sessionId: "captured", workingDirectory: "/missing-native-transcript" } });
+    let stable = false;
+    f.adapters.set(worker.id, { deliversPromptsDirectly: () => true, fetchStatus: async () => stable ? "stable" : "running",
+      fetchMessages: async () => [{ role: "user", content: "Work 1", createdAt: "2026-01-01T00:00:00Z" },
+        { role: "assistant", content: stable ? "Final" : "Partial", createdAt: "2026-01-01T00:00:01Z" }] });
+    await f.service.checkRunning();
+    expect(f.service.getInbox("supervisor").callbacks).toHaveLength(0);
+    stable = true;
+    await f.service.checkRunning(); await f.service.checkRunning();
+    expect(f.service.getInbox("supervisor").callbacks).toHaveLength(1);
+    expect(f.service.get(record.dispatchId, "supervisor")).toMatchObject({ terminalStatus: "completed", terminalMessage: "Final" });
+    expect(f.requested).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(["Agent turn interrupted.", "Claude SDK turn failed"])("%s yields one failed callback instead of partial success", async (error) => {
+    const f = fixture();
+    const record = await f.service.create({ agent: "claude", prompt: "Work 1", callbackEnabled: true, callbackSessionId: "supervisor" });
+    const worker = f.sessions.get(record.workerSessionId)!;
+    worker.agent = "claude";
+    Object.assign(worker.metadata, { agentTransport: "claude-sdk" });
+    f.adapters.set(worker.id, { deliversPromptsDirectly: () => true, fetchStatus: async () => "stable",
+      fetchMessages: async () => [{ role: "user", content: "Work 1", createdAt: "2026-01-01T00:00:00Z" },
+        { role: "assistant", content: "Partial", createdAt: "2026-01-01T00:00:01Z" },
+        { role: "agent-error", content: error, createdAt: "2026-01-01T00:00:02Z" }] });
+    await f.service.checkRunning(); await f.service.checkRunning();
+    expect(f.service.getInbox("supervisor").callbacks).toHaveLength(1);
+    expect(f.service.get(record.dispatchId, "supervisor")).toMatchObject({ terminalStatus: "failed", terminalMessage: error });
+  });
+});

@@ -34,6 +34,10 @@ import {
   fetchSessionQueueApi,
   respondToSessionPermissionApi,
 } from "../services/sessions.js";
+import {
+  shouldFormatAgentMessage, isWorkingNotesMessage, getWorkingNotesLabel,
+  isReadableAgentMessage, isErrorMessage,
+} from "./chat-message-roles.js";
 import { showToast } from "../utils/toast.js";
 import {
   deleteQueuedPrompt,
@@ -67,34 +71,6 @@ export function configureLiveChatFeatures({ isFeatureEnabled } = {}) {
 
 function isAgentOutputFormattingEnabled() {
   return Boolean(featureEnabledResolver(AGENT_OUTPUT_FORMATTING_FLAG_KEY));
-}
-
-function shouldFormatAgentMessage(message) {
-  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-  return role === "assistant" || role === "agent";
-}
-
-function isWorkingNotesMessage(message) {
-  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-  return role === "agent-working" || role === "agent-thinking" || role === "agent-tools" || role === "agent-context";
-}
-
-function getWorkingNotesLabel(message) {
-  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-  if (role === "agent-tools") return "Tools";
-  if (role === "agent-context") return "Context";
-  return "Thinking";
-}
-
-function isReadableAgentMessage(message) {
-  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-  const content = String(message?.content ?? message?.message ?? "").trim();
-  return (role === "assistant" || role === "agent") && Boolean(content);
-}
-
-function isErrorMessage(message) {
-  const role = String(message?.role ?? message?.type ?? "").toLowerCase();
-  return role === "agent-error";
 }
 
 function getQueuedPromptEditorId(promptId) {

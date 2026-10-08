@@ -1,3 +1,4 @@
+import { createNightWatchRuntimeDeps } from "./server/nightwatch-runtime-deps";
 import { startWhiteNoiseBridge } from "./white-noise/bridge-runtime";
 import { ApplicationSigner } from "./signing/application-signer";
 import { listenUnixSigner } from "./signing/unix-signer";
@@ -1016,39 +1017,11 @@ try {
 } catch (error) {
   console.warn(`[apps-bootstrap] app reconciliation or autostart failed: ${(error as Error).message}`);
 }
-const nightWatchDeps = {
+const nightWatchDeps = createNightWatchRuntimeDeps(manager, {
   store: nightWatchStore,
   featureFlagStore,
   agentHost,
-  messageStore,
-  promptQueueStore,
-  openRouterApiKey: instanceSettingsService.get("integrations.openrouter_api_key"),
-  openRouterBaseUrl: "https://openrouter.ai/api",
-  wingmanBaseUrl: config.baseUrl,
-  getSession: (sid: string) => manager.getSession(sid) ?? null,
-  updateSessionMetadata: (sid: string, metadata: SessionMetadataInput) =>
-    manager.updateSessionMetadata(sid, metadata),
-  dispatchPrompt: (session: SessionSnapshot) => {
-    void maybeAutoDispatchQueuedPrompt(session);
-  },
-  sendRawInput: async (session: SessionSnapshot, content: string): Promise<boolean> => {
-    try {
-      const agentUrl = buildAgentUrl(agentHost, session.port, "/message");
-      const resp = await fetch(agentUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ type: "raw", content }),
-      });
-      return resp.ok;
-    } catch (err) {
-      console.error(`[nightwatch] sendRawInput failed for session ${session.id}:`, err);
-      return false;
-    }
-  },
-  markDispatchCooldown: (sessionId: string) => {
-    markQueueDispatchCooldown(sessionId);
-  },
-};
+});
 
 const wingmenRoot = join(projectRoot, ".wingmen");
 await mkdir(wingmenRoot, { recursive: true }).catch(() => undefined);

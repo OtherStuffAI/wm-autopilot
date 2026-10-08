@@ -225,6 +225,22 @@ export class AgentActivityPublisher {
 
   async publishLatestCommentary(manager: ProcessManager): Promise<void> {
     const session = manager.getSession(this.runtimeSessionId);
+    if (session?.metadata?.agentTransport === 'claude-sdk') {
+      const messages = await manager.getAdapter(this.runtimeSessionId)?.fetchMessages() ?? [];
+      const boundary = messages.findLastIndex((message) => message.role === 'user');
+      await this.enqueuePublish(async () => {
+        for (const message of messages.slice(boundary + 1)) {
+          // Public assistant commentary only. Never publish exposed reasoning or tool payloads.
+          if (message.role !== 'agent-working') continue;
+          const startedAt = Date.parse(this.context.startedAt ?? '');
+          if (Number.isFinite(startedAt) && Date.parse(message.createdAt) < startedAt) continue;
+          const hash = createHash('sha256').update(message.content).digest('hex').slice(0, 16);
+          await this.publishNow('working', message.content,
+            `commentary:${this.runtimeSessionId}:${message.messageId ?? message.createdAt}:${hash}`);
+        }
+      });
+      return;
+    }
     const native = session?.metadata?.nativeAgentSession;
     if (session?.agent !== 'codex' || native?.agent !== 'codex' || !native.sessionId || !native.workingDirectory) return;
     await this.publishCommentaryFromSource({ sessionId: native.sessionId,

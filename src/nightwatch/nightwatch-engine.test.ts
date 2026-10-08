@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { maybeTriggerNightWatch } from "./nightwatch-engine";
 import type { NightWatchSessionState } from "./nightwatch-store";
 import type { SessionSnapshot } from "../agents/process-manager";
+import type { AgentAdapter } from "../agents/agent-adapter";
 
 const baseMetadata = {
   AGENT: false,
@@ -42,6 +43,25 @@ describe("maybeTriggerNightWatch", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  test("Claude SDK reflection hooks deliver through the adapter without AgentAPI", async () => {
+    const prompts: string[] = [];
+    const reports: unknown[] = [];
+    globalThis.fetch = (async () => { throw new Error("AgentAPI must not be called"); }) as typeof fetch;
+    const session = { ...baseSession, agent: "claude" as const,
+      metadata: { ...baseMetadata, agentTransport: "claude-sdk" as const, goal: "Complete parity", nextAction: "reflect" as const } };
+    await maybeTriggerNightWatch(session, {
+      store: { getSessionState: () => baseState, recordPromptSent: () => 1,
+        addReport: (report: unknown) => { reports.push(report); }, postponePrompt: () => { throw new Error("Delivery failed"); } } as never,
+      featureFlagStore: { getFlag: () => ({ state: "on" }) } as never,
+      agentHost: "127.0.0.1", getSession: () => session,
+      getAdapter: () => ({ deliversPromptsDirectly: () => true, waitForReady: async () => {},
+        sendMessage: async (prompt: string) => { prompts.push(prompt); } } as unknown as AgentAdapter),
+    });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("Current goal: Complete parity");
+    expect(reports).toHaveLength(1);
   });
 
   test("sends a generated reflection prompt without consuming the hook", async () => {

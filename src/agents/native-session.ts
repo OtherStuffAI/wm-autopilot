@@ -90,7 +90,7 @@ export function getAdapterNativeSessionId(
     const candidate = adapter as AgentAdapter & { getThreadId?: () => string | null };
     return candidate.getThreadId?.() ?? null;
   }
-  if (agent === "opencode") {
+  if (agent === "opencode" || agent === "claude") {
     const candidate = adapter as AgentAdapter & { getSessionId?: () => string | null };
     return candidate.getSessionId?.() ?? null;
   }

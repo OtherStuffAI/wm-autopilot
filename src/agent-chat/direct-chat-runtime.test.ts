@@ -25,6 +25,8 @@ import {
 const ATHENA_BOT_NPUB = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzqunz0d4';
 
 function fixture(options: {
+  sdkTransport?: "claude-sdk";
+  sendError?: Error;
   publish?: (input: any, attempt: number) => Promise<any>;
   directChat?: AgentDefinitionRecord['directChat'] | null;
   enrichDirectChat?: EnrichDirectChat;
@@ -79,6 +81,7 @@ function fixture(options: {
       sendMessage: async (prompt: string) => {
         prompts.push(prompt);
         sessions.get(id).messages.push({ role: 'user', content: prompt, createdAt: new Date().toISOString() });
+        if (options.sendError) throw options.sendError;
         if (options.includeWorkingMessage) sessions.get(id).messages.push({ role: 'agent-working', content: 'Thinking and tool progress', createdAt: new Date().toISOString() });
         sessions.get(id).messages.push({ role: options.replyRole ?? 'assistant', content: options.finalContent ?? '## Answer\n\nFinal **Markdown**.', createdAt: options.finalCreatedAt ?? new Date().toISOString() });
       },
@@ -94,7 +97,7 @@ function fixture(options: {
         throw error;
       }
       if (options.failNativeResume && args[3]?.type === 'native-resume') throw new Error('native session no longer resumable');
-      const metadata = { ...(args[6] ?? {}), nativeAgentSession: args[6]?.nativeAgentSession ?? { agent: args[0], sessionId: `native-${creates.length}`, workingDirectory: args[1], capturedAt: new Date().toISOString(), source: 'manual' } };
+      const metadata = { ...(args[6] ?? {}), ...(options.sdkTransport ? { agentTransport: options.sdkTransport } : {}), nativeAgentSession: args[6]?.nativeAgentSession ?? { agent: args[0], sessionId: `native-${creates.length}`, workingDirectory: args[1], capturedAt: new Date().toISOString(), source: 'manual' } };
       const messages = args[3]?.type === 'native-resume' && options.nativeResumeFinal
         ? [{ role: 'user', content: 'accepted source message m2', createdAt: new Date().toISOString() },
             { role: 'assistant', content: options.nativeResumeFinal, createdAt: new Date().toISOString() }]
@@ -1455,4 +1458,26 @@ describe("Agent Direct enrichment integration", () => {
     expect(f.enrichmentStore.manifest("session-2")).toHaveLength(1);
   });
 
+});
+
+
+describe("Claude SDK Flight Deck publication", () => {
+  const directChat = { enabled: true, sessionAgent: "claude" as const, directory: "/tmp/claude-project", model: null, idleRetentionMinutes: 60 };
+  test("replayed intake publishes the successful final exactly once", async () => {
+    const f = fixture({ directChat, sdkTransport: "claude-sdk", includeWorkingMessage: true });
+    const message = f.message("m1", "@Example Agent inspect", true);
+    await f.handle([message], "m1"); await f.runtime.waitForIdle();
+    await f.handle([message], "m1"); await f.runtime.waitForIdle();
+    expect(f.published).toHaveLength(1);
+    expect(f.published[0].body).toContain("Final **Markdown**");
+    expect(f.prompts).toHaveLength(1);
+    expect(f.creates[0][0]).toBe("claude");
+  });
+  test.each(["Agent turn interrupted.", "Claude SDK turn failed"])("%s produces no final publication", async (message) => {
+    const f = fixture({ directChat, sdkTransport: "claude-sdk", sendError: new Error(message) });
+    const source = f.message("m1", "@Example Agent inspect", true);
+    await f.handle([source], "m1"); await f.runtime.waitForIdle();
+    expect(f.published).toHaveLength(0);
+    expect(f.activities.some((activity) => activity.state === "failed" || activity.state === "cancelled")).toBe(true);
+  });
 });

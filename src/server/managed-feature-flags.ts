@@ -1,4 +1,5 @@
 import {
+  CLAUDE_NATIVE_SDK_FLAG,
   CODEX_ACP_FLAG,
   CODEX_NATIVE_SDK_FLAG,
   GOOSE_NATIVE_ACP_FLAG,
@@ -34,6 +35,12 @@ export const MANAGED_FEATURE_FLAG_DEFAULTS: Array<CreateFeatureFlagInput & { sta
     key: PIPELINE_AGENT_OUTPUT_FORMATTING_FLAG_KEY,
     label: "Agent output formatting",
     description: "Formats agent output in session and pipeline views to reduce terminal capture wrapping artifacts.",
+    state: "off",
+  },
+  {
+    key: CLAUDE_NATIVE_SDK_FLAG,
+    label: "Claude Native SDK",
+    description: "Use the official Claude Agent SDK for new Claude sessions with shared native conversation rendering and completion delivery.",
     state: "off",
   },
   {
@@ -75,6 +82,7 @@ interface ManagedFeatureFlagStore {
 
 export function ensureManagedFeatureFlags(store: ManagedFeatureFlagStore): void {
   store.ensureDefaults(MANAGED_FEATURE_FLAG_DEFAULTS);
+  store.ensureDefaultState(CLAUDE_NATIVE_SDK_FLAG, "off");
   store.ensureDefaultState(CODEX_NATIVE_SDK_FLAG, "off");
   store.ensureDefaultState(CODEX_ACP_FLAG, "off");
   store.ensureDefaultState(OPENCODE_NATIVE_SDK_FLAG, "on");

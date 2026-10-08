@@ -35,6 +35,13 @@ export interface AdapterSessionContext {
   model?: string;
   /** ACP runtime permission behavior snapshotted when the session was created. */
   acpPermissionPolicy?: AcpPermissionPolicy;
+  /** Claude native session identity and launch configuration (server-only). */
+  nativeSdkHistory?: AgentMessage[];
+  claudeSessionId?: string;
+  claudeResume?: boolean;
+  claudeCli?: string;
+  claudeMcpConfigPath?: string;
+  claudeSkipPermissions?: boolean;
   /** Codex thread ID for session resume (used by CodexAdapter) */
   codexThreadId?: string;
   /** Configured Codex CLI passed through to the Codex ACP adapter. */
@@ -166,13 +173,15 @@ export interface AgentPermissionOption {
 
 export type AgentAdapterFactory = (context: AdapterSessionContext) => AgentAdapter;
 
+export const CLAUDE_NATIVE_SDK_FLAG = "claude-use-native-sdk";
+
 export const CODEX_NATIVE_SDK_FLAG = "codex-use-native-sdk";
 export const CODEX_ACP_FLAG = "codex-use-acp";
 export const OPENCODE_NATIVE_SDK_FLAG = "opencode-use-native-sdk";
 export const GOOSE_NATIVE_ACP_FLAG = "goose-use-native-acp";
 export const PI_ACP_FLAG = "pi-use-acp";
 
-export type AgentTransport = "agentapi" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "deepseek-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
+export type AgentTransport = "agentapi" | "claude-sdk" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "deepseek-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
 
 /** Whether the native `@openai/codex-sdk` adapter is the active Codex transport. */
 export function isCodexNativeSdkEnabled(): boolean {
@@ -204,6 +213,10 @@ export function resolveAgentTransport(agent: AgentType, pinned?: string | null):
   if (isCompatibleTransport(agent, pinned)) return pinned;
   if (agent === "deepseek") return "deepseek-acp";
   if (agent === "maple") return "maple-acp";
+  if (agent === "claude") {
+    const flag = featureFlagStore.getFlag(CLAUDE_NATIVE_SDK_FLAG);
+    if (flag && resolveFeatureFlagEffectiveState(flag.state, true) === "on") return "claude-sdk";
+  }
   if (agent === "codex") return resolveCodexTransport(isCodexAcpEnabled(), isCodexNativeSdkEnabled());
   if (agent === "opencode") {
     const flag = featureFlagStore.getFlag(OPENCODE_NATIVE_SDK_FLAG);
@@ -238,6 +251,13 @@ export function resolvePiTransport(acpEnabled: boolean): AgentTransport {
 }
 
 export function resolveAdapterFactory(agent: AgentType, transport = resolveAgentTransport(agent)): AgentAdapterFactory {
+  if (transport === "claude-sdk") {
+    return (context: AdapterSessionContext) => {
+      const { ClaudeAdapter } = require("./claude-adapter") as typeof import("./claude-adapter");
+      return new ClaudeAdapter(context);
+    };
+  }
+
   if (transport === "pi-native") {
     return (context: AdapterSessionContext) => {
       const { PiAdapter } = require("./pi-adapter") as typeof import("./pi-adapter");
@@ -304,6 +324,7 @@ export function resolveAdapterFactory(agent: AgentType, transport = resolveAgent
 function isCompatibleTransport(agent: AgentType, value: string | null | undefined): value is AgentTransport {
   if (agent === "deepseek") return value === "deepseek-acp";
   if (value === "agentapi") return true;
+  if (agent === "claude") return value === "claude-sdk";
   if (agent === "codex") return value === "codex-acp" || value === "codex-sdk";
   if (agent === "goose") return value === "goose-acp";
   if (agent === "maple") return value === "maple-acp";

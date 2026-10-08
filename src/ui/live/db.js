@@ -160,6 +160,7 @@ export const MessageStore = {
       const speech = normalized.speech ?? matchingMessage.speech ?? null;
       await db.messages.update(matchingMessage.id, {
         content,
+        role,
         createdAt,
         messageId: messageId ?? matchingMessage.messageId ?? null,
         turnId: turnId ?? matchingMessage.turnId ?? null,

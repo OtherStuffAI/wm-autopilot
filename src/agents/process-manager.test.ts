@@ -29,6 +29,7 @@ describe("transportSkipsAgentApiSpawn", () => {
   test("uses AgentAPI for Pi by default and skips it for Pi ACP", () => {
     expect(transportSkipsAgentApiSpawn("agentapi")).toBe(false);
     expect(transportSkipsAgentApiSpawn("pi-acp")).toBe(true);
+    expect(transportSkipsAgentApiSpawn("claude-sdk")).toBe(true);
     expect(transportSkipsAgentApiSpawn("maple-acp")).toBe(true);
   });
 });
@@ -40,6 +41,7 @@ describe("transportRequiresEagerReadiness", () => {
     expect(transportRequiresEagerReadiness("pi-acp")).toBe(true);
     expect(transportRequiresEagerReadiness("maple-acp")).toBe(true);
     expect(transportRequiresEagerReadiness("opencode-sdk")).toBe(true);
+    expect(transportRequiresEagerReadiness("claude-sdk")).toBe(true);
     expect(transportRequiresEagerReadiness("agentapi")).toBe(false);
   });
 

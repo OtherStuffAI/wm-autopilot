@@ -36,3 +36,13 @@ describe("resolveAuthoritativeSessionMessages", () => {
     await expect(resolveAuthoritativeSessionMessages(session, liveMessages)).resolves.toEqual([]);
   });
 });
+
+
+test("Claude SDK sync keeps completion-aware live snapshots instead of partial JSONL", async () => {
+  const session = { agent: "claude", metadata: { agentTransport: "claude-sdk", nativeAgentSession: {
+    agent: "claude", sessionId: "missing-test-session", workingDirectory: "/repo",
+  } } } as SessionSnapshot;
+  const messages = [{ role: "user", content: "Question", createdAt: "2026-10-08T00:00:00Z" },
+    { role: "agent-error", content: "Interrupted", createdAt: "2026-10-08T00:00:01Z" }];
+  expect(await resolveAuthoritativeSessionMessages(session, messages)).toEqual(messages);
+});

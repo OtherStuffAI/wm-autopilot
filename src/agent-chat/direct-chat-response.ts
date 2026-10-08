@@ -1,3 +1,4 @@
+import { findNativeTurnFinal, isNativeSdkTransport } from "../agents/native-sdk-contract";
 import type { ProcessManager } from '../agents/process-manager';
 import { resolveAuthoritativeSessionMessages } from '../agents/authoritative-session-messages';
 import { matchesCodexPrompt } from '../agents/codex-session-discovery';
@@ -68,10 +69,10 @@ export async function sendPromptAndAwaitFinalResponse(
     ? await resolveAuthoritativeSessionMessages(initialSession, initialMessages, { requireNative: true }).catch(() => [])
     : initialMessages;
   const sentAtMs = Date.now();
-  // The native Codex SDK resolves sendMessage only after the entire turn. Poll
+  // Native SDK transports resolve sendMessage only after the entire turn. Poll
   // while it runs so commentary reaches Flight Deck as thinking activity now,
   // rather than being replayed in a burst immediately before the final reply.
-  const sdkTurn = initialSession?.metadata?.agentTransport === 'codex-sdk';
+  const sdkTurn = isNativeSdkTransport(initialSession?.metadata?.agentTransport);
   let sendError: unknown = null;
   let sendFailed = false;
   let sendCompleted = false;
@@ -160,9 +161,7 @@ export async function sendPromptAndAwaitFinalResponse(
       : nextPromptOffset >= 0
         ? authoritativeMessages.slice(promptIndex + 1, promptIndex + 1 + nextPromptOffset)
         : authoritativeMessages.slice(promptIndex + 1);
-    const finalMessage = turnMessages
-      .filter((message) => (message.role === 'assistant' || message.role === 'agent') && message.content.trim().length > 0)
-      .at(-1);
+    const finalMessage = findNativeTurnFinal(turnMessages);
     if (finalMessage && (!sdkTurn || sendCompleted) && isDirectChatFinalReady({
       nativeCodexReady: Boolean(nativeCodexReady), agentTransport: session?.metadata?.agentTransport, runtimeStatus,
     })) {
@@ -228,9 +227,7 @@ export async function inspectAcceptedFinalResponse(
   // the next user card leaves a completed turn awaiting_reply forever after the
   // live observation window expires.
   const turnMessages = boundaryIndex < 0 ? [] : authoritativeMessages.slice(boundaryIndex + 1);
-  const finalMessage = turnMessages
-    .filter((message) => (message.role === 'assistant' || message.role === 'agent') && message.content.trim().length > 0)
-    .at(-1);
+  const finalMessage = findNativeTurnFinal(turnMessages);
   if (finalMessage && isDirectChatFinalReady({
     nativeCodexReady: Boolean(nativeCodexReady), agentTransport: session.metadata?.agentTransport, runtimeStatus,
   })) {

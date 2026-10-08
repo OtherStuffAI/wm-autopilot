@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { CODEX_ACP_FLAG, PI_ACP_FLAG } from "../agents/agent-adapter";
+import { CLAUDE_NATIVE_SDK_FLAG, CODEX_ACP_FLAG, PI_ACP_FLAG } from "../agents/agent-adapter";
 import { MANAGED_FEATURE_FLAG_DEFAULTS, ensureManagedFeatureFlags } from "./managed-feature-flags";
 
 describe("managed feature flags", () => {
@@ -22,6 +22,7 @@ describe("managed feature flags", () => {
     });
     expect(states.get(CODEX_ACP_FLAG)).toBe("off");
     expect(states.get(PI_ACP_FLAG)).toBe("off");
+    expect(states.get(CLAUDE_NATIVE_SDK_FLAG)).toBe("off");
   });
 
   test("ships Pi ACP off by default", () => {
@@ -34,4 +35,9 @@ describe("managed feature flags", () => {
   test("does not expose the removed relay task listener as an operative feature", () => {
     expect(MANAGED_FEATURE_FLAG_DEFAULTS.some((flag) => flag.key === "task_listener_enabled")).toBe(false);
   });
+});
+
+
+test("ships Claude SDK off by default", () => {
+  expect(MANAGED_FEATURE_FLAG_DEFAULTS.find((flag) => flag.key === CLAUDE_NATIVE_SDK_FLAG)).toMatchObject({ state: "off" });
 });

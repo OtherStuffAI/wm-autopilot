@@ -52,7 +52,7 @@ describe("Alpine chat speech controls", () => {
 
   test("renders Codex working notes as collapsible assistant-side messages", () => {
     expect(source).toContain("renderWorkingNotesHtml");
-    expect(source).toContain('role === "agent-working"');
+    expect(source).toContain('from "./chat-message-roles.js"');
     expect(source).toContain('if (role === "assistant" || role === "agent" || role.startsWith("agent-")) return "assistant";');
     expect(source).toContain(':class="$store.chat.getMessageClass(message)"');
   });
