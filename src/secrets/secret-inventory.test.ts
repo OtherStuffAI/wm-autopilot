@@ -14,8 +14,10 @@ test("inventory exposes owner-managed workspaces and authoritative identity labe
     users: () => [{ npub: owner, profileName: "Owner profile" }],
     bots: () => [{ botNpub: bot, displayName: "Authorized bot" }],
     pipelines: async requestedOwner => { expect(requestedOwner).toBe(owner); return [{ id: "stable-id", name: "Pipeline" }]; },
+    apps: async () => [{ id: "owned-app", label: "Owned", root: "/owned", ownerNpub: owner }, { id: "foreign-app", label: "Foreign", root: "/foreign", ownerNpub: bot }],
   })(owner);
   expect(inventory.workspaces.map(row => row.id)).toEqual(["local", "owned"]);
   expect(inventory.identities).toEqual([{ npub: owner, label: "Owner profile", type: "user" }, { npub: bot, label: "Authorized bot", type: "bot" }]);
   expect(inventory.pipelines).toEqual([{ id: "stable-id", label: "Pipeline" }]);
+  expect(inventory.apps).toEqual([{ id: "owned-app", label: "Owned", root: "/owned" }]);
 });

@@ -1,13 +1,17 @@
 import type { RequestAuthContext } from "../auth/request-context";
 import { object, SecretError } from "./secret-policy";
 import type { SecretStore } from "./secret-store";
+import type { HostedSiteSigner } from "../signing/hosted-site-signer";
+import { handleHostedSiteManagement } from "../signing/hosted-site-routes";
 
 export interface SecretInventory {
+  apps?: Array<{ id: string; label: string; root: string }>;
   workspaces: Array<{ id: string; label: string }>;
   identities: Array<{ npub: string; label: string; type: "user" | "bot" }>;
   pipelines: Array<{ id: string; label: string }>;
 }
 export interface SecretRoutesContext {
+  hostedSiteSigner?: HostedSiteSigner;
   store: SecretStore;
   inventory: (owner: string) => Promise<SecretInventory>;
 }
@@ -16,6 +20,10 @@ function response(value: unknown, status = 200): Response {
 }
 export async function handleSecretRoutes(request: Request, url: URL, auth: RequestAuthContext, ctx: SecretRoutesContext): Promise<Response | null> {
   if (url.pathname !== "/api/secrets" && !url.pathname.startsWith("/api/secrets/")) return null;
+  if (ctx.hostedSiteSigner) {
+    const response = await handleHostedSiteManagement(request, url, auth, ctx.hostedSiteSigner);
+    if (response) return response;
+  }
   // Management requires the real authenticated owner, never delegated/broker agent identity.
   const owner = auth.npub;
   if (!owner || auth.delegatedByBot || auth.delegatedOwnerNpub || auth.capabilitySessionId

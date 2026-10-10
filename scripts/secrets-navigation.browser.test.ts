@@ -37,6 +37,7 @@ suite("Secrets full SPA navigation", () => {
         workspaces: [{ id: "local", label: "Local" }], identities: [], pipelines: [],
       });
       if (url.pathname === "/api/secrets") return Response.json({ secrets: [] });
+      if (url.pathname === "/api/secrets/hosted-site-grants") return Response.json({ grants: [] });
       if (url.pathname.endsWith("/events")) return new Response(": connected\n\n", { headers: { "content-type": "text/event-stream" } });
       if (url.pathname.startsWith("/api/")) return Response.json({ sessions: [], apps: [], projects: [], flags: [], items: [], delegations: [] });
       return assets.resolveUiAsset(url.pathname) ?? await assets.serveVendorModule(url.pathname)

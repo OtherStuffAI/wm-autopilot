@@ -582,6 +582,10 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     // Internal signing API — called by external runner scripts through the
     // wingman-sign CLI. Requires localhost plus a scoped bearer capability.
     if (pathname.startsWith("/api/internal/signing")) {
+      if (pathname.startsWith("/api/internal/signing/hosted-site/")
+        && (!ctx.getRequestIP || !isLocalhostBrokerRequest(request, url, ctx))) {
+        return Response.json({ error: "Forbidden" }, { status: 403 });
+      }
       if (!isLocalhostRequest(request, ctx)) {
         return Response.json({ error: "Forbidden" }, { status: 403 });
       }

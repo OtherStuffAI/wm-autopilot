@@ -26,6 +26,7 @@ const RESERVED_APP_ENV_KEYS = new Set([
  * local signing broker and must not be hydrated from, or serialized into, the
  * registry. */
 export const FORBIDDEN_APP_SIGNING_ENV_KEYS = new Set([
+  "FLIGHT_DECK_SITE_NSEC",
   "AGENT_NSEC",
   "WAPP_TOWER_DB_CAPABILITY",
   "WAPP_NSEC",

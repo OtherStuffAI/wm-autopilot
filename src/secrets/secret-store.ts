@@ -1,7 +1,9 @@
 import { statSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { getPublicKey, nip19 } from "nostr-tools";
+import { finalizeEvent, getPublicKey, nip19, type EventTemplate } from "nostr-tools";
+import type { HostedSiteGrant } from "../signing/hosted-site-signer";
+import { HOSTED_WORKSPACE_PATH } from "../signing/hosted-site-proof";
 import { assertPrivateFile, privateDatabaseFile, SecretCustody } from "./secret-custody";
 import { assertSecretUse, boundedText, deniedPolicy, normalizeSecretPolicy, object, SecretError, validatedNpub, type SecretConsumer, type SecretPolicy } from "./secret-policy";
 import { signSecretEvent } from "./secret-events";
@@ -135,6 +137,33 @@ export class SecretStore {
   history(owner: string, workspace: string, id: string) {
     this.get(owner, workspace, id);
     return this.db.query("SELECT at, operation, identity, context, context_id AS contextId, outcome FROM imported_secret_audit WHERE secret_id=? AND owner=? AND workspace=? ORDER BY id DESC LIMIT 100").all(id, owner, workspace);
+  }
+  /** Internal dedicated grant consumer; no key/value return or generic event API. */
+  checkHostedSiteCustody(grant: HostedSiteGrant): void {
+    const row = this.row(grant.ownerNpub, grant.workspaceId, grant.secretId);
+    const record: SecretRecord = JSON.parse(row.metadata);
+    if (record.revokedAt || record.type !== "nostr" || record.revision !== grant.secretRevision
+      || record.publicNpub !== grant.siteNpub) throw new SecretError("site_custody_denied", 403);
+    this.custody.withValue(row.envelope, binding(record), bytes => {
+      if (nip19.npubEncode(getPublicKey(bytes)) !== grant.siteNpub) throw new SecretError("site_identity_mismatch", 503);
+    });
+  }
+  signHostedSite(grant: HostedSiteGrant, event: EventTemplate) {
+    this.checkHostedSiteCustody(grant);
+    const target = new URL(grant.url);
+    if (target.protocol !== "https:" || target.pathname !== HOSTED_WORKSPACE_PATH || target.search || target.hash
+      || event.kind !== 27235 || event.tags.length !== 4 || event.tags[0]?.[0] !== "u" || event.tags[0]?.[1] !== grant.url
+      || event.tags[1]?.join(":") !== "method:POST" || event.tags[2]?.[0] !== "payload"
+      || event.tags[3]?.[0] !== "user_event_id" || !event.tags.slice(2).every(tag => tag.length === 2 && /^[0-9a-f]{64}$/.test(tag[1] ?? ""))) {
+      throw new SecretError("site_event_denied", 403);
+    }
+    const row = this.row(grant.ownerNpub, grant.workspaceId, grant.secretId);
+    const record: SecretRecord = JSON.parse(row.metadata);
+    const result = this.custody.withValue(row.envelope, binding(record), bytes => finalizeEvent(event, bytes));
+    record.lastUsedAt = new Date().toISOString();
+    this.db.query("UPDATE imported_secrets SET metadata=? WHERE id=?").run(JSON.stringify(record), record.id);
+    this.audit(record, "hosted_site_attest", grant.siteNpub, "app", grant.appId, "allowed");
+    return result;
   }
   private row(owner: string, workspace: string, id: string): SecretRow {
     const row = this.db.query("SELECT metadata, envelope FROM imported_secrets WHERE id=? AND owner=? AND workspace=?").get(id, owner, workspace) as SecretRow | null;

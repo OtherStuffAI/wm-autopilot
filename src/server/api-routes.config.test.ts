@@ -16,6 +16,18 @@ const anonymousAuth: RequestAuthContext = {
   delegatedByBot: false,
 };
 
+test("hosted-site ingress requires resolved actual loopback peer and loopback hostname", async () => {
+  for (const [hostname, requestIp, expected] of [
+    ["127.0.0.1", undefined, 403], ["127.0.0.1", "203.0.113.10", 403],
+    ["public.example", "127.0.0.1", 403], ["127.0.0.1", "127.0.0.1", 503],
+  ] as const) {
+    const handler = createHandler({ requestIp });
+    const url = new URL(`http://${hostname}/api/internal/signing/hosted-site/attest`);
+    const request = new Request(url, { method: "POST", headers: { "x-forwarded-for": "127.0.0.1" }, body: "{}" });
+    expect((await handler(request, url, "POST", anonymousAuth)).status).toBe(expected);
+  }
+});
+
 function createHandler(options: {
   authContext?: RequestAuthContext;
   settings?: Record<string, string>;

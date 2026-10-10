@@ -1,6 +1,7 @@
 import Alpine from "/vendor/alpinejs/module.esm.js";
 import { Dexie, secretsDb } from "./db.js";
-import { saveSecret, snapshotId, syncSecrets, revokeSecret, syncSecretAudit } from "./service.js";
+import { saveSecret, snapshotId, syncSecrets, revokeSecret, syncSecretAudit, registerHostedSiteGrant, revokeHostedSiteGrant, syncHostedSiteGrantAudit } from "./service.js";
+import { createHostedSiteGrantEditor } from "./hosted-site-grant.js";
 import { button, element, field, select } from "./controls.js";
 import { createSecretEditor } from "./editor.js";
 
@@ -63,6 +64,15 @@ export function createSecretsPage({ ownerNpub } = {}) {
     } }));
     editor.querySelector("input")?.focus();
   }
+  function showHostedSiteEditor(record, inventory) {
+    if (editing) return;
+    editing = true; newButton.disabled = true;
+    const picker = toolbar.querySelector("select"); if (picker) picker.disabled = true;
+    const selectedWorkspace = workspace;
+    editor.replaceChildren(createHostedSiteGrantEditor({ record, inventory, workspaceId: selectedWorkspace, onCancel: closeEditor,
+      onSave: async payload => { await registerHostedSiteGrant(ownerNpub, selectedWorkspace, payload); closeEditor(); status.textContent = "Hosted signup grant installed. Configure the managed app with the displayed credential file path."; } }));
+    editor.querySelector("select")?.focus();
+  }
   host.renderSecretSnapshot = snapshot => {
     listing.replaceChildren();
     const oldSelector = toolbar.querySelector("label"); oldSelector?.remove();
@@ -74,6 +84,7 @@ export function createSecretsPage({ ownerNpub } = {}) {
       Alpine.$data(host).watchWorkspace(workspace); void host.secretSync();
     });
     toolbar.prepend(field("Workspace", picker, "secrets-workspace"));
+    if (!snapshot.hostedSiteGrantAvailable) listing.append(element("p", "Hosted signup grant management is unavailable until Autopilot server activation."));
     if (!snapshot.secrets.length) listing.append(element("p", "No secrets in this workspace. Add a secret to get started."));
     for (const record of snapshot.secrets) {
       const card = element("article", "", "wm-card"); card.dataset.testid = `secret-${record.id}`;
@@ -88,9 +99,28 @@ export function createSecretsPage({ ownerNpub } = {}) {
           try { await revokeSecret(workspace, record.id, record.revision); await host.secretSync(); status.textContent = "Secret revoked; stored value erased."; }
           catch (error) { host.secretError(error); }
         }, `secret-revoke-${record.id}`));
+      if (!record.revokedAt && record.type === "nostr") {
+        const authorize = button(`Authorize hosted signup with ${record.label}`,
+          () => showHostedSiteEditor(record, snapshot.inventory), `secret-hosted-site-${record.id}`);
+        authorize.disabled = !snapshot.hostedSiteGrantAvailable;
+        card.append(authorize);
+      }
       card.append(button(`Access audit for ${record.label}`, async () => {
         try { await syncSecretAudit(ownerNpub, workspace, record.id); } catch (error) { host.secretError(error); }
       }, `secret-audit-${record.id}`));
+      listing.append(card);
+    }
+    for (const grant of snapshot.hostedSiteGrants || []) {
+      const card = element("article", "", "wm-card"); card.setAttribute("aria-label", "Hosted signup grant"); card.dataset.testid = `hosted-site-grant-${grant.id}`;
+      card.append(element("h2", "Hosted signup grant"), element("p", `Grant: ${grant.id} · App: ${grant.appId}`),
+        element("p", `Endpoint: ${grant.url}`), element("p", `Credential file: ${grant.credentialFile}`),
+        element("p", `Expires: ${new Date(grant.expiresAt * 1000).toISOString()} · ${grant.revoked ? "Revoked" : "Installed; app activation required"}`));
+      if (!grant.revoked) card.append(button("Revoke hosted signup grant", async () => {
+        try { await revokeHostedSiteGrant(ownerNpub, workspace, grant.id); status.textContent = "Hosted signup grant revoked."; } catch (error) { host.secretError(error); }
+      }, `hosted-site-grant-revoke-${grant.id}`));
+      card.append(button("Hosted signup grant audit", async () => {
+        try { await syncHostedSiteGrantAudit(ownerNpub, workspace, grant.id); } catch (error) { host.secretError(error); }
+      }, `hosted-site-grant-audit-${grant.id}`));
       listing.append(card);
     }
     audit.replaceChildren();
@@ -99,6 +129,7 @@ export function createSecretsPage({ ownerNpub } = {}) {
       if (!snapshot.audit.length) audit.append(element("p", "No recorded operations."));
       for (const entry of snapshot.audit) audit.append(element("p", `${entry.at} · ${entry.operation} · ${entry.outcome} · ${entry.identity} · ${entry.context}: ${entry.contextId}`));
     }
+    for (const entry of snapshot.hostedSiteGrantAudit || []) audit.append(element("p", `Hosted signup · ${new Date(entry.at * 1000).toISOString()} · ${entry.operation} · ${entry.outcome}`));
   };
   host.secretTimer = setInterval(() => { if (!editing && document.visibilityState === "visible") void host.secretSync(); }, 15_000);
   return host;

@@ -2,6 +2,7 @@ import { listSchedulerRunIdentities } from "./scheduler/run-identities";
 import { scheduledPipelineLaunchOptions } from "./scheduler/pipeline-launch-options";
 import { createNightWatchRuntimeDeps } from "./server/nightwatch-runtime-deps";
 import { SecretStore } from "./secrets/secret-store";
+import { HostedSiteSigner } from "./signing/hosted-site-signer";
 import { configureSecretRuntime } from "./secrets/secret-runtime";
 import { createSecretInventory } from "./secrets/secret-inventory";
 import { startWhiteNoiseBridge } from "./white-noise/bridge-runtime";
@@ -662,6 +663,8 @@ const botCryptoApiHandler = createBotCryptoApiHandler({
 });
 const wingmanDataDir = new URL("../data", import.meta.url).pathname;
 const importedSecretStore = new SecretStore(join(wingmanDataDir, "imported-secrets.sqlite"), join(wingmanDataDir, "imported-secrets", "master.key"));
+const hostedSiteSigner = new HostedSiteSigner(join(wingmanDataDir, "hosted-site-grants.sqlite"), importedSecretStore,
+  (appId) => appRegistry.getApp(appId));
 configureSecretRuntime(importedSecretStore);
 const giteaApiHandler = createGiteaApiHandler({
   getSession: (sid: string) => manager.getSession(sid),
@@ -2801,8 +2804,10 @@ const handleApi = createApiRouteHandler({
   botCryptoApiHandler,
   capabilityBrokerApiHandler: (request, url, method) => capabilityBroker.handle(request, url, method),
   secretRoutesContext: {
+    hostedSiteSigner,
     store: importedSecretStore,
     inventory: createSecretInventory({
+      apps: () => appRegistry.listApps(),
       workspaces: (owner) => workspaceSubscriptionStore.listForManagerNpub(owner),
       users: () => identityUserStore.listUsers(),
       bots: (owner) => botKeyStore.listActiveKeysForUser(owner),
@@ -3014,6 +3019,7 @@ const handleApi = createApiRouteHandler({
     AccessActions,
   },
   signingApiContext: {
+    hostedSiteSigner,
     signingSecret: instanceSettingsService.get("internal.signing_secret"),
     getSession: (sid: string) => manager.getSession(sid),
     getInstanceIdentity: () => loadWingmanInstanceIdentity(),
@@ -3388,6 +3394,7 @@ const initiateShutdown = async (reason: string) => {
   await whiteNoiseBridge?.close();
   await unixSigner?.close();
   applicationSigner.close();
+  hostedSiteSigner.close();
   agentProfileMetadataCache.stop();
 
   try {

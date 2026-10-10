@@ -11,10 +11,13 @@ import {
   verifySigningCapabilityToken,
 } from "./capability-token";
 import { signWithWingmanIdentity } from "../mcp/wingman-signer";
+import type { HostedSiteSigner } from "./hosted-site-signer";
+import { handleHostedSiteRuntime } from "./hosted-site-routes";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
 export interface SigningApiContext {
+  hostedSiteSigner?: HostedSiteSigner;
   signingSecret: string | null;
   getSession: (sessionId: string) => SessionSnapshot | null | undefined;
   getInstanceIdentity: () => WingmanInstanceIdentity | null;
@@ -208,6 +211,10 @@ export async function handleSigningApi(
 ): Promise<Response | null> {
   if (!url.pathname.startsWith("/api/internal/signing")) {
     return null;
+  }
+  if (url.pathname.startsWith("/api/internal/signing/hosted-site/")) {
+    if (!ctx.hostedSiteSigner) return Response.json({ error: "site_signer_unavailable" }, { status: 503 });
+    return handleHostedSiteRuntime(request, url, ctx.hostedSiteSigner);
   }
   if (method === "POST" && url.pathname === "/api/internal/signing/nip98") {
     return await handleNip98Sign(request, ctx);

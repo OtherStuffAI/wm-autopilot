@@ -3,6 +3,7 @@ import type { AppCommand } from "./app-command";
 
 const RUNTIME_HOST_KEYS = ["PATH", "LANG", "LC_ALL", "TZ", "TMPDIR", "TMP", "TEMP"] as const;
 const FORBIDDEN_RAW_CAPABILITY_KEYS = new Set([
+  "FLIGHT_DECK_SITE_NSEC",
   "AGENT_NSEC",
   "WINGMAN_NSEC",
   "WINGMAN_PRIV",

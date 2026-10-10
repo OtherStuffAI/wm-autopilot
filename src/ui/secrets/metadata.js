@@ -1,5 +1,9 @@
 function pick(record, keys) { return Object.fromEntries(keys.map(key => [key, record[key]])); }
 
+export function hostedSiteGrantMetadata(record) {
+  return pick(record, ["id", "ownerNpub", "workspaceId", "appId", "appRoot", "secretId", "secretRevision", "siteNpub", "url", "expiresAt", "revoked", "credentialFile"]);
+}
+
 // Explicit nested projection prevents later API additions from caching credentials.
 export function secretMetadata(record) {
   const metadata = pick(record, ["id", "label", "type", "ownerNpub", "workspaceId", "publicNpub", "revision",

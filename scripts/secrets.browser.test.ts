@@ -1,11 +1,12 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
 import { createProjectStaticAssetService } from "../src/server/static-assets";
 import { handleSecretRoutes } from "../src/secrets/secret-routes";
 import { SecretStore } from "../src/secrets/secret-store";
+import { HostedSiteSigner } from "../src/signing/hosted-site-signer";
 
 const playwrightModule = process.env.PLAYWRIGHT_MODULE;
 const suite = playwrightModule ? describe : describe.skip;
@@ -13,15 +14,21 @@ suite("Secrets browser policy and metadata flow", () => {
   let browser: any;
   let server: ReturnType<typeof Bun.serve>;
   let store: SecretStore;
+  let hostedSiteSigner: HostedSiteSigner;
   let root: string;
-  afterAll(async () => { server?.stop(true); await browser?.close(); store?.close(); if (root) rmSync(root, { recursive: true, force: true }); });
+  afterAll(async () => { server?.stop(true); await browser?.close(); hostedSiteSigner?.close(); store?.close(); if (root) rmSync(root, { recursive: true, force: true }); });
   test("creates private secrets, grants scoped access, replaces and revokes without browser value persistence", async () => {
     root = mkdtempSync(join(tmpdir(), "wm-secret-browser-"));
     const owner = nip19.npubEncode(getPublicKey(generateSecretKey()));
     const bot = nip19.npubEncode(getPublicKey(generateSecretKey()));
     store = new SecretStore(join(root, "secrets.sqlite"), join(root, "custody.key"));
+    hostedSiteSigner = new HostedSiteSigner(join(root, "hosted-grants.sqlite"), store,
+      async id => id === "synthetic-app" ? { ownerNpub: owner, root: "/synthetic/app" } : undefined);
     const assets = createProjectStaticAssetService(resolve(import.meta.dir, ".."));
-    const ctx = { store, inventory: async () => ({ workspaces: [{ id: "local", label: "Local" }],
+    let hostedEnabled = false;
+    let denyHosted = false;
+    const ctx = { store, get hostedSiteSigner() { return hostedEnabled ? hostedSiteSigner : undefined; }, inventory: async () => ({ workspaces: [{ id: "local", label: "Local" }],
+      apps: [{ id: "synthetic-app", label: "Synthetic app", root: "/synthetic/app" }],
       identities: [{ npub: owner, label: "Synthetic owner", type: "user" as const }, { npub: bot, label: "Synthetic bot", type: "bot" as const }],
       pipelines: [{ id: "synthetic-pipeline", label: "Synthetic publisher" }] }) };
     const { chromium } = await import(playwrightModule!);
@@ -39,6 +46,8 @@ suite("Secrets browser policy and metadata flow", () => {
           Alpine.start();
         </script></body></html>`, { headers: { "content-type": "text/html" } });
       if (hold && request.method === "POST") await new Promise<void>(resolve => { release = resolve; });
+      if (!hostedEnabled && url.pathname === "/api/secrets/hosted-site-grants") return new Response("Not found", { status: 404 });
+      if (denyHosted && url.pathname === "/api/secrets/hosted-site-grants") return Response.json({ error: "secret_management_denied" }, { status: 403 });
       const response = await handleSecretRoutes(request, url, { npub: owner, actorNpub: owner, session: null }, ctx);
       return response ?? assets.resolveUiAsset(url.pathname) ?? await assets.serveVendorModule(url.pathname)
         ?? assets.servePublicAsset(url.pathname) ?? new Response("Not found", { status: 404 });
@@ -48,6 +57,12 @@ suite("Secrets browser policy and metadata flow", () => {
     await page.goto(server.url.href, { waitUntil: "domcontentloaded", timeout: 8000 });
     try { await page.getByText("No secrets in this workspace.", { exact: false }).waitFor({ timeout: 8000 }); }
     catch (error) { console.error("Fixture diagnostic", errors, await page.locator("body").innerText()); throw error; }
+    await page.getByText("Hosted signup grant management is unavailable until Autopilot server activation.", { exact: true }).waitFor();
+    hostedEnabled = true; denyHosted = true;
+    await page.getByTestId("secrets-refresh").click();
+    await page.getByTestId("secrets-status").getByText("secret_management_denied", { exact: true }).waitFor();
+    denyHosted = false; await page.getByTestId("secrets-refresh").click();
+    await page.getByTestId("secrets-status").getByText("Metadata refreshed.", { exact: true }).waitFor();
     await page.getByTestId("secret-add").click();
     await page.getByTestId("secret-label").fill("Synthetic token");
     expect(await page.getByTestId("secret-value").getAttribute("type")).toBe("password");
@@ -110,6 +125,32 @@ suite("Secrets browser policy and metadata flow", () => {
       context: "pipeline", contextId: "synthetic-pipeline" }, "return")).toThrow("secret_export_denied");
     const signerCache = await page.evaluate(async () => JSON.stringify(await (window as any).fixtureDb.snapshots.toArray()));
     expect(signerCache).not.toContain(signingValue); expect(await page.locator("body").textContent()).not.toContain(signingValue);
+    await page.getByTestId(`secret-hosted-site-${signer.id}`).click();
+    await page.getByTestId("hosted-site-grant-app").selectOption("synthetic-app");
+    await page.getByTestId("hosted-site-grant-url").fill("https://hosted.example/other");
+    await page.getByTestId("hosted-site-grant-consent").check();
+    await page.getByTestId("hosted-site-grant-save").click();
+    await page.getByTestId("hosted-site-grant-status").getByText("Enter the exact HTTPS hosted signup endpoint.").waitFor();
+    expect(hostedSiteSigner.list(owner, "local")).toHaveLength(0);
+    await page.getByTestId("hosted-site-grant-url").fill("https://hosted.example/api/v4/flightdeck-pg/hosted/workspaces");
+    await page.getByTestId("hosted-site-grant-save").click();
+    await page.getByTestId("hosted-site-grant-form").waitFor({ state: "detached" });
+    await page.getByRole("heading", { name: "Hosted signup grant", exact: true }).waitFor();
+    const hostedGrant = hostedSiteSigner.list(owner, "local")[0]!;
+    const syntheticCredential = readFileSync(hostedGrant.credentialFile, "utf8").trim();
+    expect(await page.evaluate(async () => JSON.stringify(await (window as any).fixtureDb.snapshots.toArray()))).not.toContain(syntheticCredential);
+    expect(await page.locator("body").textContent()).not.toContain(syntheticCredential);
+    expect((await fetch(new URL(hostedGrant.credentialFile, server.url))).status).toBe(404);
+    await page.evaluate(async () => (window as any).fixtureDb.snapshots.clear());
+    await page.reload();
+    await page.getByRole("heading", { name: "Hosted signup grant", exact: true }).waitFor();
+    await page.getByTestId(`hosted-site-grant-audit-${hostedGrant.id}`).click();
+    await page.getByText("Hosted signup ·", { exact: false }).waitFor();
+    await page.getByTestId(`hosted-site-grant-revoke-${hostedGrant.id}`).click();
+    await page.getByText("Hosted signup grant revoked.", { exact: true }).waitFor();
+    expect(hostedSiteSigner.list(owner, "local")[0]?.revoked).toBe(true);
+    const hostedModule = await fetch(new URL("/secrets/hosted-site-grant.js", server.url));
+    expect(hostedModule.headers.get("content-type")).toContain("application/javascript");
     await page.getByTestId(`secret-edit-${signer.id}`).click();
     expect(await page.getByTestId("secret-kind-mode").inputValue()).toBe("selected");
     await page.getByTestId("secret-kind-mode").selectOption("all");

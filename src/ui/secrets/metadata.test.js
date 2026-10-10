@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { secretMetadata } from "./metadata.js";
+import { secretMetadata, hostedSiteGrantMetadata } from "./metadata.js";
 
 test("browser metadata projection drops unexpected credential fields at every policy boundary", () => {
   const hidden = "synthetic-metadata-leak";
@@ -12,6 +12,14 @@ test("browser metadata projection drops unexpected credential fields at every po
   expect(JSON.stringify(projected)).not.toContain(hidden);
   expect(projected.policy.pipelines).toEqual({ enabled: true, mode: "all", ids: [] });
   expect(projected.policy.kindRules[0].kind).toBe(1);
+});
+
+test("hosted-site metadata never caches credentials or future private fields", () => {
+  const hidden = "synthetic-hosted-credential";
+  const projected = hostedSiteGrantMetadata({ id: "grant", appId: "app", credentialFile: "/private/grant.cap", credential: hidden, value: hidden, envelope: hidden });
+  expect(projected.id).toBe("grant");
+  expect(projected.credentialFile).toBe("/private/grant.cap");
+  expect(JSON.stringify(projected)).not.toContain(hidden);
 });
 
 test("metadata defaults legacy policies to selected without widening", () => {
