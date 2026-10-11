@@ -134,6 +134,29 @@ export class SecretStore {
       throw new SecretError("secret_operation_failed", 503);
     }
   }
+  /** Trusted service adapter only: no credential return to a caller or model. */
+  async withServiceCredential<T>(id: string, consumer: SecretConsumer, operation: (value: string) => Promise<T>): Promise<T> {
+    const row=this.row(consumer.ownerNpub,consumer.workspaceId,id);
+    const record:SecretRecord=JSON.parse(row.metadata);
+    try {
+      assertSecretUse(record,consumer);
+      if(record.type!=="secret")throw new SecretError("service_credential_required",403);
+      const result=await this.custody.withValue(row.envelope,binding(record),bytes=>operation(new TextDecoder().decode(bytes)));
+      // The network operation can yield while policy is revoked or changed.
+      // Revalidate current custody and update current metadata, never the stale snapshot.
+      const current:SecretRecord=JSON.parse(this.row(consumer.ownerNpub,consumer.workspaceId,id).metadata);
+      assertSecretUse(current,consumer);
+      if(current.type!=="secret" || current.revision!==record.revision)throw new SecretError("service_credential_changed",403);
+      current.lastUsedAt=new Date().toISOString();
+      this.db.query("UPDATE imported_secrets SET metadata=? WHERE id=?").run(JSON.stringify(current),id);
+      this.audit(current,"typed_service",consumer.identityNpub,consumer.context,consumer.contextId,"allowed");
+      return result;
+    } catch {
+      this.audit(record,"typed_service",consumer.identityNpub,consumer.context,consumer.contextId,"denied");
+      throw new SecretError("typed_service_denied",403);
+    }
+  }
+
   history(owner: string, workspace: string, id: string) {
     this.get(owner, workspace, id);
     return this.db.query("SELECT at, operation, identity, context, context_id AS contextId, outcome FROM imported_secret_audit WHERE secret_id=? AND owner=? AND workspace=? ORDER BY id DESC LIMIT 100").all(id, owner, workspace);

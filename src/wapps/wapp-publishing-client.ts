@@ -125,6 +125,7 @@ export function createWappNip98Authorization(input: {
   nsec: string;
   serializedBody?: string;
   createdAt?: number;
+  nonce?: string;
 }): string {
   const decoded = nip19.decode(input.nsec.trim());
   if (decoded.type !== "nsec" || !(decoded.data instanceof Uint8Array)) {
@@ -137,6 +138,7 @@ export function createWappNip98Authorization(input: {
   if (input.serializedBody !== undefined) {
     tags.push(["payload", sha256Payload(input.serializedBody)]);
   }
+  if (input.nonce) tags.push(["nonce", input.nonce]);
   const event = finalizeEvent({
     kind: 27235,
     created_at: input.createdAt ?? Math.floor(Date.now() / 1000),

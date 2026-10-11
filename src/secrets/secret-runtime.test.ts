@@ -56,6 +56,22 @@ test("missing authority cannot inherit an asserted owner or workspace from input
   pipelines.composition.pin(run.id, definition, {});
   expect(() => pipelineSecretConsumer(pipelines, run.id)).toThrow("pipeline_secret_authority_missing");
 });
+
+test("managed app run consumes only its explicit service grant under pinned credential owner", async () => {
+  const secret=secrets.create(owner,"local",{label:"synthetic service",type:"secret",value:"synthetic-service-token",
+    policy:{...policy,identities:[bot],allowExport:false}});
+  const run=pipelines.createRun({definitionId:definition.id,name:"app run",ownerNpub:bot,ownerAlias:"synthetic",scope:"user",input:{ownerNpub:owner}});
+  pipelines.composition.pin(run.id,definition,{secretAuthority:{principalNpub:bot,workspaceId:"local",credentialOwnerNpub:owner}});
+  expect(pipelineSecretConsumer(pipelines,run.id)).toEqual({ownerNpub:owner,identityNpub:bot,workspaceId:"local",context:"pipeline",contextId:definition.id});
+  let calls=0;
+  const result=await executeSecretPipelineFunction("secrets.typesafeNoul",{credentialRef:secret.id,model:"jev-latest",state:"edit",
+    questions:{safe:{type:"noul",instructions:"Safe?"}}},pipelines,run.id,secrets,(async()=>{
+      calls++;return Response.json({model:"jev-test",answers:{safe:{type:"noul",noul:0.1}}});
+    }) as unknown as typeof fetch);
+  expect(result).toEqual({model:"jev-test",answers:{safe:{type:"noul",noul:0.1}}});expect(calls).toBe(1);
+  pipelines.completeRun(run.id,"cancelled",null);
+  expect(await executeSecretPipelineFunction("secrets.typesafeNoul",{credentialRef:secret.id},pipelines,run.id,secrets)).toMatchObject({classifierError:{retryable:true}});
+});
 test("bot-initiated pipelines use the pinned bot principal, never owner fallback", () => {
   const run = pipelines.createRun({ definitionId: definition.id, name: "test", ownerNpub: owner, ownerAlias: "synthetic", scope: "user", input: { identityNpub: owner } });
   pipelines.composition.pin(run.id, definition, { secretAuthority: { principalNpub: bot, workspaceId: "workspace-from-server" } });

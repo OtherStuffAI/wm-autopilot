@@ -60,6 +60,8 @@ import { handleSessionDispatchApi } from "../session-dispatch/session-dispatch-r
 import type { SessionDispatchService } from "../session-dispatch/session-dispatch-service";
 import { readAgentModelSettings, resolveAgentModelCatalogue } from "./agent-model-catalogue";
 import { handleWappTowerDbBrokerRoute } from "./wapp-tower-db-broker-route";
+import { handleWappPipelineBrokerRoute } from "./wapp-pipeline-broker-route";
+import { getWappPipelineBroker } from "../wapps/pipeline-broker-runtime";
 import type { WappTowerDbRequestBroker } from "../wapps/tower-db-request-broker";
 import {
   WAPP_LEGACY_CUSTODY_MIGRATION_PATH,
@@ -337,6 +339,12 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
       if (denied) return denied;
       const response = await handleSkillApi(request, url, method, authContext, ctx.skillApiContext);
       if (response) return response;
+    }
+
+    if (pathname === "/api/internal/wapps/pipelines") {
+      if (!ctx.pipelineApiContext) return Response.json({ error: "pipeline-runtime-unavailable" }, { status: 503 });
+      return await handleWappPipelineBrokerRoute({ request, url, isLoopback: isLocalhostBrokerRequest(request, url, ctx),
+        broker: getWappPipelineBroker(), pipelines: ctx.pipelineApiContext }) ?? Response.json({error:"not_found"},{status:404});
     }
 
     if (pathname === "/api/internal/wapps/tower-db") {

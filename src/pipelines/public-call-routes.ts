@@ -1,4 +1,6 @@
 import { secretAuthorityFromAuth } from "../secrets/secret-authority";
+import type { PipelineSecretAuthority } from "../secrets/secret-authority";
+import type { FunctionRegistry } from "./declarative";
 import { classifierOpenRouterSecrets } from "./classifier-openrouter-credentials";
 import { pipelineFunctionHashes } from "./pipeline-function-pins";
 import { PublicCallReplay } from "./public-call-store";
@@ -14,7 +16,9 @@ import { validateWebhookUrl } from "./result-webhook-http";
 import { callError, callFingerprint, callResponse, MAX_PIPELINE_WAIT_MS, PUBLIC_CALL_MODES, waitForPublicRun, type PublicCallMode } from "./public-call-contract";
 
 export async function handlePublicPipelineCall(request: Request, url: URL, authContext: RequestAuthContext,
-  ctx: PipelineApiContext, definition: PipelineDefinitionRecord, ownerNpub: string, ownerAlias: string): Promise<Response> {
+  ctx: PipelineApiContext, definition: PipelineDefinitionRecord, ownerNpub: string, ownerAlias: string,
+  trustedAppSecretAuthority?: PipelineSecretAuthority,
+  trustedAppExecution?: {registry:FunctionRegistry; beforeAccept:()=>Promise<void>; assertActive:()=>void}): Promise<Response> {
   const startedAt = performance.now();
   let body: Record<string, unknown>;
   try {
@@ -73,7 +77,9 @@ export async function handlePublicPipelineCall(request: Request, url: URL, authC
   const towerContext = isLearning ? ctx.resolveLearningTowerContext?.({ authContext, ownerNpub }) : null;
   if (isLearning && !towerContext) return callError("An authorized Flight Deck Tower binding is required", "learning_tower_binding_required", 403);
   const input = { ...(definition.spec.input ?? {}), ...submittedInput, ...(towerContext ?? {}) };
-  const functions = await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions);
+  const functions = trustedAppExecution ? {registry:trustedAppExecution.registry}
+    : await loadPipelineFunctionRegistry(ownerAlias, builtinPipelineFunctions);
+  if (trustedAppExecution) await trustedAppExecution.beforeAccept();
   // No await between checking a key and atomically persisting the run and delivery.
   const concurrentReplay = key ? ctx.store.publicCalls.find(ownerNpub, definition.id, key as string) : null;
   if (concurrentReplay) {
@@ -93,11 +99,12 @@ export async function handlePublicPipelineCall(request: Request, url: URL, authC
   }
   let run;
   try {
+    trustedAppExecution?.assertActive();
     for (const secret of classifierOpenRouterSecrets({ ownerNpub, sessionApiContext: ctx.sessionApiContext })) ctx.store.evidence.registerSecret(secret);
     run = ctx.store.publicCalls.create({ owner: ownerNpub, definitionId: definition.id, key: key as string | null, fingerprint, webhookUrl }, () => {
       const created = ctx.store.createRun({ definitionId: definition.id, definitionPath: definition.path,
         name: definition.spec.name, ownerNpub, ownerAlias, scope: definition.scope, input });
-      ctx.store.composition.pin(created.id, definition, { secretAuthority: secretAuthorityFromAuth(authContext), functionHashes: pipelineFunctionHashes(definition, functions.registry) });
+      ctx.store.composition.pin(created.id, definition, { secretAuthority: trustedAppSecretAuthority ?? secretAuthorityFromAuth(authContext), functionHashes: pipelineFunctionHashes(definition, functions.registry) });
       if (learningKey) ctx.store.bindLearningRun(ownerNpub, definition.spec.name, learningKey, created.id);
       return created;
     });

@@ -3,6 +3,7 @@ import type { JsonObject, PipelineStore } from "../pipelines/pipeline-store";
 import { assertPipelineAncestorsRunning, rootPipelineRunId } from "../pipelines/pipeline-run-authority";
 import { boundedText, object, SecretError, validatedNpub, type SecretConsumer } from "./secret-policy";
 import type { SecretStore } from "./secret-store";
+import { callTypeSafeNoul, typedInferenceError } from "./typesafe-noul-service";
 
 let store: SecretStore | null = null;
 export function configureSecretRuntime(secretStore: SecretStore): void { store = secretStore; }
@@ -10,6 +11,7 @@ function runnerOnly(): never { throw new SecretError("trusted_pipeline_runner_re
 export const secretPipelineFunctions: FunctionRegistry = {
   "secrets.signNostr": runnerOnly,
   "secrets.http": runnerOnly,
+  "secrets.typesafeNoul": runnerOnly,
 };
 export function pipelineSecretConsumer(pipelines: PipelineStore, runId: string): SecretConsumer {
   assertPipelineAncestorsRunning(pipelines, runId);
@@ -24,10 +26,17 @@ export function pipelineSecretConsumer(pipelines: PipelineStore, runId: string):
   if (!authority) throw new SecretError("pipeline_secret_authority_missing", 403);
   const workspaceId = boundedText(authority.workspaceId, 128);
   const identityNpub = validatedNpub(authority.principalNpub);
-  return { ownerNpub: run.ownerNpub, workspaceId, identityNpub, context: "pipeline", contextId: run.definitionId };
+  const ownerNpub = authority.credentialOwnerNpub ? validatedNpub(authority.credentialOwnerNpub) : run.ownerNpub;
+  return { ownerNpub, workspaceId, identityNpub, context: "pipeline", contextId: run.definitionId };
 }
 export async function executeSecretPipelineFunction(name: string, input: JsonObject, pipelines: PipelineStore, runId: string,
   secretStore: SecretStore | null = store, fetchImpl: typeof fetch = fetch): Promise<JsonObject> {
+  if (name === "secrets.typesafeNoul") {
+    if (!secretStore) return typedInferenceError("configuration");
+    try { return await callTypeSafeNoul(input,secretStore,pipelineSecretConsumer(pipelines,runId),fetchImpl,
+      value=>pipelines.evidence.registerSecret(value)); }
+    catch { return typedInferenceError("configuration"); }
+  }
   if (!secretStore) throw new SecretError("secrets_runtime_unavailable", 503);
   const consumer = pipelineSecretConsumer(pipelines, runId);
   // No asserted run/pipeline/owner/agent bindings are accepted from function arguments.

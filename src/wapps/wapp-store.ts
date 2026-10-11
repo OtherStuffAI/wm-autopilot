@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -332,6 +333,25 @@ export class WappStore {
     const wapp = this.get(id);
     const npub = pending ? wapp?.pendingPublisherNpub : wapp?.appNpub;
     return Boolean(wapp && npub && this.signingBroker.has({ id, ownerNpub: wapp.ownerNpub, npub, pending }));
+  }
+
+  /** Provision a fresh broker-held identity for a local managed WApp. */
+  ensureLocalAppSigningIdentity(id: string, ownerNpub: string): WappRecord {
+    const wapp = this.get(id);
+    if (!wapp || wapp.ownerNpub !== ownerNpub || wapp.recordState !== "active" || wapp.status !== "active") throw new Error("wapp_identity_denied");
+    if (wapp.appNpub) {
+      if (!this.hasAppSigningKey(id)) throw new Error("wapp_identity_custody_missing");
+      return wapp;
+    }
+    const secret = generateSecretKey();
+    try {
+      const npub = nip19.npubEncode(getPublicKey(secret));
+      this.signingBroker.provision({ id, ownerNpub, npub, nsec: nip19.nsecEncode(secret) });
+      const changed = this.db.query("UPDATE wapp_records SET app_npub=?, updated_at=? WHERE id=? AND app_npub IS NULL")
+        .run(npub, new Date().toISOString(), id);
+      if (changed.changes !== 1) throw new Error("wapp_identity_conflict");
+      return this.get(id)!;
+    } finally { secret.fill(0); }
   }
 
   async withAppSigningKey<T>(id: string, operation: (nsec: string) => T | Promise<T>, pending = false): Promise<T> {
