@@ -43,11 +43,13 @@ nativeTest("durable completed turns use actual isolated CLI native resume and ex
   }
   try {
     const first = await run(0);
+    if (first.status !== "completed") throw new Error(`Native fixture first turn ${first.status}: ${first.error}`);
     expect(first.status).toBe("completed");
     const retry = await run(0);
     expect(retry).toEqual(first);
     expect(calls).toHaveLength(1);
     const second = await run(1);
+    if (second.status !== "completed") throw new Error(`Native fixture resumed turn ${second.status}: ${second.error}`);
     expect(second).toMatchObject({ status: "completed", executionId: first.executionId, sessionId: null,
       nativeSessionId: first.nativeSessionId, requestId: "request-1", runId: "run-1", sequence: 2 });
     expect(calls).toHaveLength(2);
