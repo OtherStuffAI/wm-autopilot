@@ -105,6 +105,9 @@ export interface AgentAdapter {
   /** Send a message to the agent. Throws on failure after retries. */
   sendMessage(content: string, type?: string): Promise<void>;
 
+  /** Resolves only with native successful turn completion, never prompt acceptance. */
+  sendCompletedMessage?(content: string): Promise<string>;
+
   /** Whether prompts must bypass AgentAPI and use this adapter directly. */
   deliversPromptsDirectly?(): boolean;
 

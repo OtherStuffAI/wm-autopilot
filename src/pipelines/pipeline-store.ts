@@ -4,6 +4,8 @@ import { PipelineEvidenceStore } from "./pipeline-evidence-store";
 import { preparePreviewMetadata } from "./pipeline-preview-metadata";
 import { PipelineCompositionStore } from "./pipeline-composition-store";
 import { PublicCallStore } from "./public-call-store";
+import { CompletedTurnStore } from "../sessions/completed-turn-store.ts";
+import { IsolatedTurnStore } from "../sessions/isolated-turn-store.ts";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
@@ -139,6 +141,8 @@ function tryDecodeJsonObject(value: unknown): JsonObject {
 export class PipelineStore {
   readonly path: string;
   readonly publicCalls: PublicCallStore;
+  readonly completedTurns: CompletedTurnStore;
+  readonly isolatedTurns: IsolatedTurnStore;
   readonly composition: PipelineCompositionStore;
   readonly evidence: PipelineEvidenceStore;
   private readonly db: Database;
@@ -151,6 +155,8 @@ export class PipelineStore {
     this.db.run("PRAGMA foreign_keys = ON");
     this.migrate();
     this.publicCalls = new PublicCallStore(this.db);
+    this.completedTurns = new CompletedTurnStore(this.db);
+    this.isolatedTurns = new IsolatedTurnStore(this.db);
     this.evidence = new PipelineEvidenceStore(this.db);
     this.composition = new PipelineCompositionStore(this.db, this.evidence.sanitize.bind(this.evidence));
   }

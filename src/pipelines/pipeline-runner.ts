@@ -1,6 +1,7 @@
 import type { PipelineSecretAuthority } from "../secrets/secret-authority";
 import { executeSecretPipelineFunction, secretPipelineFunctions } from "../secrets/secret-runtime";
 import { blockMissingPipelineHistory } from "./pipeline-history-resume";
+import { completedTurnFunctionName, executeCompletedTurnFunction } from "./completed-turn-function.ts";
 import { buildAgentPrompt } from "./agent-invocation-prompt";
 import { runClassifierStep } from "./classifier-executor";
 import { prepareClassifierInput } from "./classifier-input";
@@ -282,7 +283,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     });
     setActiveStep(input, stepRecord.id);
     const fn = secretPipelineFunctions[step.function] ?? registry[step.function];
-    if (!fn) {
+    if (!fn && step.function !== completedTurnFunctionName) {
       throw new Error(`Unknown pipeline function: ${step.function}`);
     }
     if (step.function === "flightdeck.returnToThread") assertPipelineReplyContext(store, input.runId, selected);
@@ -290,9 +291,12 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       idempotencyKey: `pipeline:${input.runId}:thread-reply:${stepName}` } : selected;
     store.evidence.capture({ runId: input.runId, stepId: stepRecord.id, kind: "executor_request",
       scope: "code_function_arguments", value: { function: step.function, arguments: request } });
-    const result = secretPipelineFunctions[step.function]
+    const result = step.function === completedTurnFunctionName
+      ? await executeCompletedTurnFunction({ store, sessionApiContext: input.sessionApiContext, runId: input.runId,
+        stepId: stepRecord.id, ownerNpub: input.ownerNpub, request })
+      : secretPipelineFunctions[step.function]
       ? await executeSecretPipelineFunction(step.function, request, store, input.runId)
-      : await fn(request);
+      : await fn!(request);
     if (step.function === "flightdeck.returnToThread" || step.function === "flightdeck.sendDirectMessage") {
       store.evidence.capture({ runId: input.runId, stepId: stepRecord.id, kind: "side_effect_confirmation",
         scope: "delivery_adapter_confirmation", value: result });
@@ -301,6 +305,11 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     throwIfRunCancelled(store, input.runId);
     assertObject(result, `step ${stepName} result`);
     const current = assignOutput(input.current, result, step.assign);
+    if (step.function === completedTurnFunctionName && result.status !== "completed") {
+      const message = typeof result.error === "string" ? result.error : "Completed native turn is pending or blocked; inspect receipt before recovery";
+      store.completeStep({ id: stepRecord.id, status: "error", result: current, output: result, error: message });
+      throw new PipelineHalt("error", current, message);
+    }
     store.completeStep({ id: stepRecord.id, status: "ok", result: current, output: result });
     return { current };
   }

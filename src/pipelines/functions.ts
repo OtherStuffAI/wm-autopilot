@@ -1,4 +1,5 @@
 import { searchTowerGraph, type TowerGraphSearchTransport } from "./tower-graph-search.ts";
+import { completedTurnRegistration } from "./completed-turn-registration.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -1207,6 +1208,7 @@ function latestThreadText(chatContext: Record<string, unknown>, fallback: unknow
 }
 
 export const builtinPipelineFunctions: FunctionRegistry = {
+  "session.completedTurn": completedTurnRegistration,
   "spaceResearch.selectTopics": selectSpaceResearchTopics,
   "spaceResearch.validateSourcePlan": validateSpaceSourcePlan,
   "spaceResearch.retrievePrimarySources": retrieveSpacePrimarySources,
