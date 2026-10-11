@@ -1,0 +1,4 @@
+ARG PROJECT_PROFILE_IMAGE=wm-project-isolation:v1
+FROM ${PROJECT_PROFILE_IMAGE}
+# Supply a verified public Linux arm64 Codex binary using --build-context codex-runtime=...
+COPY --from=codex-runtime /codex /opt/codex/codex
