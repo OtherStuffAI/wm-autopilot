@@ -3,9 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lookup } from "node:dns/promises";
-import { request as httpsRequest } from "node:https";
-import { createServer } from "node:net";
-import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
+import { pinnedWebhookTransport, webhookCurlConfig } from "./pinned-webhook-transport";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools";
 import { createHash } from "node:crypto";
 import { PipelineStore } from "./pipeline-store";
@@ -146,49 +145,79 @@ describe("public result webhooks", () => {
     await expect(validateWebhookUrl("https://receiver.example", none)).rejects.toThrow();
   });
 
-  test("Bun HTTPS runtime honors the custom DNS lookup connection target", async () => {
-    let connected = false;
-    let lookedUp = false;
-    const listener = createServer(socket => { connected = true; socket.destroy(); });
-    await new Promise<void>(resolve => listener.listen(0, "127.0.0.1", resolve));
-    const port = (listener.address() as { port: number }).port;
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const req = httpsRequest(`https://pinning-test.invalid:${port}`, {
-          agent: false, rejectUnauthorized: true,
-          lookup: (_hostname, options, callback) => {
-            lookedUp = true;
-            if (typeof options === "object" && options.all) callback(null, [{ address: "127.0.0.1", family: 4 }]);
-            else callback(null, "127.0.0.1", 4);
-          },
-        });
-        const timer = setTimeout(() => { req.destroy(); reject(new Error("Pinned connection was not attempted")); }, 1000);
-        req.on("error", () => { clearTimeout(timer); resolve(); });
-        req.end();
-      });
-      expect(lookedUp).toBe(true);
-      expect(connected).toBe(true);
-    } finally { await new Promise<void>(resolve => listener.close(() => resolve())); }
-  });
-
-  test("HTTPS transport pins validated DNS, retains TLS host and does not follow redirects", async () => {
+  test("HTTPS transport pins validated DNS and revalidates before each attempt", async () => {
     let resolutions = 0;
     const resolver = (async () => { resolutions++; return resolutions === 1 ? [{ address: "8.8.8.8", family: 4 }] : [{ address: "127.0.0.1", family: 4 }]; }) as unknown as typeof lookup;
     let calls = 0;
-    const request = ((url: URL, options: any, callback: any) => {
+    const transport = async (url: URL, address: string) => {
       calls++;
       expect(url.hostname).toBe("receiver.example");
-      expect(options.agent).toBe(false);
-      expect(options.rejectUnauthorized).not.toBe(false);
-      options.lookup("receiver.example", {}, (error: unknown, address: string, family: number) => { expect(error).toBeNull(); expect(address).toBe("8.8.8.8"); expect(family).toBe(4); });
-      const req = new EventEmitter() as any;
-      req.end = () => queueMicrotask(() => { callback({ statusCode: 302, headers: { location: "http://127.0.0.1" }, destroy() {} }); req.emit("close"); });
-      req.destroy = (error: Error) => req.emit("error", error);
-      return req;
-    }) as unknown as typeof httpsRequest;
-    expect(await postResultWebhook("https://receiver.example/result", "{}", {}, { resolve: resolver, request })).toBe(302);
+      expect(address).toBe("8.8.8.8");
+      return 302;
+    };
+    expect(await postResultWebhook("https://receiver.example/result", "{}", {}, { resolve: resolver, transport })).toBe(302);
     expect(calls).toBe(1); expect(resolutions).toBe(1);
-    await expect(postResultWebhook("https://receiver.example/result", "{}", {}, { resolve: resolver, request })).rejects.toThrow();
+    await expect(postResultWebhook("https://receiver.example/result", "{}", {}, { resolve: resolver, transport })).rejects.toThrow();
     expect(calls).toBe(1);
   });
+
+  test("curl config bounds input, rejects header injection and preserves exact JSON", () => {
+    const body = JSON.stringify({ text: 'quote " and slash \\ and newline\n', instruction: 'url = "https://evil.example"' });
+    const config = webhookCurlConfig(new URL("https://receiver.example/result"), "2606:4700:4700::1111", body, { Authorization: "Nostr fixture" });
+    expect(config).toContain('resolve = "receiver.example:443:[2606:4700:4700::1111]"');
+    expect(config).toContain('max-time = 10');
+    expect(config).toContain('proto = "=https"');
+    expect(config).not.toContain("insecure");
+    expect(config).not.toContain("location");
+    expect(() => webhookCurlConfig(new URL("https://receiver.example"), "8.8.8.8", "x".repeat(1024 * 1024 + 1), {})).toThrow("payload");
+    for (const headers of [{ Authorization: "value\r\nurl=evil" }, { Host: "evil.example" }, { "bad\nname": "value" }]) {
+      expect(() => webhookCurlConfig(new URL("https://receiver.example"), "8.8.8.8", "{}", headers)).toThrow("header");
+    }
+  });
+
+  test("real pinned HTTPS verifies signed body, rejects bad TLS and never follows redirects", async () => {
+    const key = join(directory, "key.pem");
+    const cert = join(directory, "cert.pem");
+    const generated = spawnSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert, "-days", "1", "-subj", "/CN=receiver.test", "-addext", "subjectAltName=DNS:receiver.test"], { stdio: "ignore" });
+    expect(generated.status).toBe(0);
+    let calls = 0;
+    let receivedBody = "";
+    let receivedAuth = "";
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { key: Bun.file(key), cert: Bun.file(cert) }, async fetch(request) {
+      calls++;
+      receivedBody = await request.text();
+      receivedAuth = request.headers.get("authorization") ?? "";
+      if (new URL(request.url).pathname === "/stall") return await new Promise<Response>(() => {});
+      if (new URL(request.url).pathname === "/large") return new Response("x".repeat(65537));
+      return new Response(null, { status: 302, headers: { location: `https://receiver.test:${server.port}/redirected` } });
+    } });
+    const url = new URL(`https://receiver.test:${server.port}/result`);
+    const previousCa = process.env.CURL_CA_BUNDLE;
+    try {
+      // The test CA is trusted only by this test's curl child, never by the platform.
+      process.env.CURL_CA_BUNDLE = cert;
+      const body = JSON.stringify({ text: 'quote " slash \\ newline\n', deliveryId: "fixture" });
+      const event = finalizeEvent({ kind: 27235, created_at: Math.floor(Date.now() / 1000), tags: [["u", url.href], ["method", "POST"], ["payload", createHash("sha256").update(body).digest("hex")]], content: "" }, secret);
+      expect(await pinnedWebhookTransport(url, "127.0.0.1", body, { Authorization: `Nostr ${Buffer.from(JSON.stringify(event)).toString("base64")}` })).toBe(302);
+      expect(calls).toBe(1);
+      expect(receivedBody).toBe(body);
+      const receiptEvent = JSON.parse(Buffer.from(receivedAuth.slice(6), "base64").toString());
+      expect(verifyEvent(receiptEvent)).toBe(true);
+      expect(receiptEvent.tags).toContainEqual(["payload", createHash("sha256").update(receivedBody).digest("hex")]);
+      await expect(pinnedWebhookTransport(new URL(`https://mismatch.test:${server.port}/result`), "127.0.0.1", body, {})).rejects.toThrow("curl exit 60");
+      expect(calls).toBe(1);
+      delete process.env.CURL_CA_BUNDLE;
+      await expect(pinnedWebhookTransport(url, "127.0.0.1", body, {})).rejects.toThrow("curl exit 60");
+      expect(calls).toBe(1);
+      process.env.CURL_CA_BUNDLE = cert;
+      await expect(pinnedWebhookTransport(new URL(`https://receiver.test:${server.port}/large`), "127.0.0.1", body, {})).rejects.toThrow("curl exit 63");
+      const started = Date.now();
+      await expect(pinnedWebhookTransport(new URL(`https://receiver.test:${server.port}/stall`), "127.0.0.1", body, {})).rejects.toThrow("curl exit 28");
+      expect(Date.now() - started).toBeLessThan(11_500);
+    } finally {
+      if (previousCa === undefined) delete process.env.CURL_CA_BUNDLE;
+      else process.env.CURL_CA_BUNDLE = previousCa;
+      server.stop(true);
+    }
+  }, 15_000);
 });

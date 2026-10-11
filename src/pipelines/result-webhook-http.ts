@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
-import { request as httpsRequest } from "node:https";
+import { pinnedWebhookTransport } from "./pinned-webhook-transport";
 
 const blocked = new BlockList();
 for (const [address, prefix] of [
@@ -34,27 +34,8 @@ export async function validateWebhookUrl(value: string, resolve = lookup) {
   return { url, address: addresses[0]! };
 }
 
-/** Validate on every attempt, then pin the approved IP while retaining TLS hostname verification. */
-export async function postResultWebhook(url: string, body: string, headers: Record<string, string>, dependencies: { resolve?: typeof lookup; request?: typeof httpsRequest } = {}): Promise<number> {
+/** Validate on every attempt, then pin the approved IP with original-host TLS verification. */
+export async function postResultWebhook(url: string, body: string, headers: Record<string, string>, dependencies: { resolve?: typeof lookup; transport?: typeof pinnedWebhookTransport } = {}): Promise<number> {
   const destination = await validateWebhookUrl(url, dependencies.resolve);
-  return await new Promise<number>((resolve, reject) => {
-    const req = (dependencies.request ?? httpsRequest)(destination.url, {
-      method: "POST", agent: false, rejectUnauthorized: true,
-      headers: { ...headers, "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) },
-      lookup: (_hostname, options, callback) => {
-        const address = destination.address;
-        if (typeof options === "object" && options.all) callback(null, [address]);
-        else callback(null, address.address, address.family);
-      },
-    }, response => {
-      // No redirects, no response payload parsing, and no unbounded response buffering.
-      const status = response.statusCode ?? 0;
-      response.destroy();
-      resolve(status);
-    });
-    const timer = setTimeout(() => req.destroy(new Error("Webhook delivery timed out")), 10_000);
-    req.on("close", () => clearTimeout(timer));
-    req.on("error", reject);
-    req.end(body);
-  });
+  return await (dependencies.transport ?? pinnedWebhookTransport)(destination.url, destination.address.address, body, headers);
 }
