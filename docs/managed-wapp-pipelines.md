@@ -71,3 +71,17 @@ on drift. Keep builder generation gated until the dedicated isolated completed-t
 runtime has independent native execution and denial evidence. Capture real signed
 requests, terminal callbacks and durable duplicate/replay/forgery evidence before
 claiming hosted acceptance. Source fixture tests do not supply that evidence.
+
+When the HTTP installation registry is unavailable, the trusted local CLI can
+bootstrap a local-only binding without the legacy scope resolver:
+
+```sh
+bun clis/wapp-pipeline-installation.ts ensure /absolute/private/installation.json
+```
+
+Its exact fields are `appId`, `ownerNpub`, `scopeId`, `launchUrl`,
+`sourceWingmanUrl`, `title`. It validates the managed registry owner/root, HTTPS
+origins and immutable existing binding. It creates a fresh publisher only when
+absent and outputs public identity metadata. It asserts no Tower membership or
+publication grant; those remain independently authorized. This local management
+command does not activate server code or grant broad execution.
