@@ -59,9 +59,22 @@ with a 500 ms base/5 second cap. Retry-After defers to a later wake when a full
 retry cannot fit. Signing and selected host transport requests share the deadline.
 Redirects and transport fallback are forbidden.
 
+Sync certification is separately reported as `syncComplete`. Dedicated source
+`--catch-up` resumes bounded wakes without assembling summaries and stops on
+certification, a blocker or its explicit wake cap. See [source commands](../heartbeat-wake.md).
+
 Review assembly reads indexed recent records plus older active tasks, emits at
-most 200 summaries/256 KiB, and marks truncation incomplete. Summary excerpts are
-explicit excerpts; canonical cache rows stay intact. Use authorized bounded
+most 200 summaries/256 KiB per page, and returns durable indexed continuation.
+The pinned time window/checkpoint and opaque SQLite-backed position survive
+process restart. Continuation uses `--review-only --review-cursor <nextCursor>`,
+performs no sync advancement and rejects changed checkpoint/authority. Pages use
+keyset ordering across the disjoint older-active/recent phases. Iterator statements
+are finalized even on truncation; only the current bounded summary page is held
+in memory. Tokens retain positions, never duplicate histories. Coverage includes
+selected total/cumulative delivered counts, which do not assert human inspection.
+`complete` also requires full summary delivery and available authority. Cached
+review identifies its authority observation explicitly and is not a new live poll.
+Summary excerpts are explicitly excerpts; canonical cache rows stay intact. Use authorized bounded
 record-specific reads for full review detail. No raw pages or duplicate merged
 whole histories are returned. Timings separate signing/transport preparation,
 headers, body, parse, local commit and ack. The host supplies separate selected-transport headers/body timing; timingScope
@@ -81,15 +94,17 @@ new source without restarting Autopilot. A real bound CLI uses the running
 Autopilot broker: new source alone cannot load its `record_sync_request` action,
 service discovery signing target, or schedule prompt changes into that host.
 
-After review, an operator outside managed sessions must activate accepted Tower
-support at the selected endpoint and load accepted Autopilot host code through an
-explicitly approved restart. Then issue/reissue appropriately scoped capabilities
+If the required broker/Tower support is missing, an operator outside managed
+sessions must activate accepted Tower support and load accepted Autopilot host
+code through an explicitly approved restart. An already compatible running broker
+needs no restart for source CLI review/catch-up changes. Issue/reissue appropriately scoped capabilities
 that allow GET of the exact `/api/v4/flightdeck-pg/service` path and the bound
 workspace v2 register/page/checkpoint/ack routes, preserving FIPS assignments and
 transport selection. Do not replace scoped policies with broad authority.
 
-The existing heartbeat schedule must use the v4 prompt (including the
-`record-sync v2` marker and incomplete-result instructions), retain its correct
+The existing heartbeat schedule must use the v5 prompt (including the
+`indexed review continuation v1` marker, shorter sync budget and page-draining
+instructions), retain its correct
 workspace/app/bot/subscription context, and share the durable cache location
 across wakes. Startup reconciliation updates the configured job only when
 `WINGMAN_HEARTBEAT_JOB_ID`, `WINGMAN_AUTOPILOT_ROOT`,

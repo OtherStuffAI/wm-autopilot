@@ -1,5 +1,5 @@
 import { initializeRecordCache } from "./record-cache-schema.ts";
-import { readCacheReview } from "./record-cache-review.ts";
+import { readCacheReview, readCacheCounts } from "./record-cache-review.ts";
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
@@ -378,19 +378,12 @@ export class RecordSyncCache {
       .immediate();
   }
   counts(): Record<string, number> {
-    const s = this.state();
-    return Object.fromEntries(
-      (
-        this.db
-          .query(
-            "SELECT family,count(*) AS n FROM rows WHERE generation=? AND operation='upsert' GROUP BY family",
-          )
-          .all(s.generation) as { family: string; n: number }[]
-      ).map((r) => [r.family, r.n]),
-    );
+    return readCacheCounts(this.db, this.state().generation);
   }
-  review(since: string, maxBytes = 262_144, maxRows = 200) {
-    return readCacheReview(this.db, this.state(), since, maxBytes, maxRows);
+  review(since: string, maxBytes = 262_144, maxRows = 200, cursor?: string) {
+    return this.db.transaction(() => readCacheReview(
+      this.db, this.assertFence(), since, maxBytes, maxRows, cursor,
+    )).immediate();
   }
   close(): void {
     this.db.query("DELETE FROM lease WHERE id=1 AND token=?").run(this.lease);

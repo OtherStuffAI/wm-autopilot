@@ -13,18 +13,19 @@ those sessions are protected even if their metadata says `nextAction=stop`.
 
 ## Bounded wake path
 
-The heartbeat prompt uses `bun clis/heartbeat-wake.ts --hours 12 --app-npub
-<flight-deck-app-npub> --json`. `WINGMAN_HEARTBEAT_APP_NPUB` supplies the app
-namespace when the versioned prompt is reconciled. This
-entrypoint is Bun-native and does not import the Node-only Flight Deck CLI or
-`better-sqlite3`. It performs one broker identity request, one signed workspace
-list request, and one signed incremental sync request per visible workspace. It
-does not enumerate every scope, channel, thread, task, and comment with separate
-signed requests.
+The v5 prompt runs the Bun source `clis/heartbeat-wake.ts` with a 60-second
+sync budget and 10-page cap, preserving time for review/reporting. The source
+consumes negotiated record-sync v2 in one durable per-identity SQLite cache.
+It performs bounded discovery/register/page/ack requests through the broker;
+`brokerRequests` reports actual capability cost. No three-call/full-workspace
+coverage assumption is made.
 
-The result reports `brokerRequests`, making the expected capability cost
-measurable. For one workspace the representative budget is three broker calls,
-well below the default 120-call rolling minute limit.
+Sync certification and summary delivery are separate. The prompt requires
+inspection of every indexed review continuation page (`--review-only
+--review-cursor`) and honest coverage if interrupted. Dedicated `--catch-up`
+resumes bootstrap across bounded wakes without review assembly; the normal
+heartbeat routes this work to its manager rather than looping bootstrap inside
+its ordinary budget. See [source commands and exit semantics](heartbeat-wake.md).
 
 Scheduled session launches fail closed if capability issuance or MCP injection
 fails. A scheduler job cannot continue as a partially authenticated Codex
@@ -53,8 +54,12 @@ safe to repeat.
 
 ## Activation
 
-The scheduler reconciliation runs when `SchedulerStore` initializes. An operator
-must restart Autopilot from outside an active managed agent session for the
-versioned prompt/default changes and broker diagnostics to activate. Do not claim
-the live heartbeat is repaired until the first post-restart scheduled run has
-completed successfully.
+The scheduler reconciliation runs when `SchedulerStore` initializes and needs
+the configured job/source/workspace/app environment variables. Loading changed
+host reconciliation requires an operator-approved restart outside active managed
+sessions; alternatively an authorized scheduler edit can install the v5 prompt.
+Direct Bun source CLI review/catch-up changes execute immediately with an already
+compatible running broker. Neither action implies live acceptance: verify the
+existing cache boundary, drain/inspect every review page, and observe one supervised
+scheduled wake before claiming the heartbeat repaired. Preserve manager ownership
+of the cache during catch-up; do not start competing writers.

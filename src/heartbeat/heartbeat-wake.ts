@@ -4,7 +4,11 @@ import {
   readCapabilityIdentity,
   type CapabilityClientContext,
 } from "../mcp/capability-client.ts";
-import { RecordSyncClient, RecordSyncHttpError } from "./record-sync-client.ts";
+import {
+  RecordSyncClient,
+  RecordSyncHttpError,
+  RecordSyncBudgetError,
+} from "./record-sync-client.ts";
 import { RecordSyncCache, cachePath, type Fence } from "./record-sync-cache.ts";
 import {
   PAGE_MS,
@@ -17,6 +21,9 @@ export { record } from "./record-sync-protocol.ts";
 
 export interface HeartbeatWakeOptions {
   hours: number;
+  reviewCursor?: string;
+  reviewOnly?: boolean;
+  syncOnly?: boolean;
   workspaceId?: string;
   towerUrl?: string;
   appNpub?: string;
@@ -46,6 +53,12 @@ const REPAIR_ERRORS = new Set([
 ]);
 
 export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
+  if (options.reviewOnly && options.syncOnly)
+    throw new Error("reviewOnly and syncOnly are mutually exclusive");
+  if (options.reviewCursor && !options.reviewOnly)
+    throw new Error(
+      "Review continuation requires reviewOnly to pin the checkpoint",
+    );
   const start = Date.now();
   const maxPages = positive(options.maxPages ?? 100, "maxPages");
   const wakeMs = Math.min(
@@ -123,6 +136,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
   const path = cachePath(root, partition);
   const cache = new RecordSyncCache(path, partition, wakeMs + PAGE_MS);
   const errors: string[] = [];
+  let budgetDeferred = false;
   let pages = 0;
   let terminal = false;
   let negotiated = false;
@@ -161,77 +175,82 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
     }
   };
   try {
-    // A failed wake cannot reuse previously certified observations as current authority.
-    cache.unavailable();
-    const service = await client.request(
-      `${towerUrl}/api/v4/flightdeck-pg/service`,
-      "GET",
-      undefined,
-      "discovery",
-    );
-    const capability = record(service.record_sync);
-    if (
-      !Array.isArray(capability.protocol_versions) ||
-      !capability.protocol_versions.includes(2) ||
-      capability.device_checkpoints !== true ||
-      capability.additive_access !== true ||
-      capability.retention_policy !== "retain_downloaded"
-    )
-      throw new Error(
-        "Tower does not advertise required record-sync v2/access capabilities; no legacy downgrade",
+    if (!options.reviewOnly) {
+      // A failed wake cannot reuse previously certified observations as current authority.
+      cache.unavailable();
+      const service = await client.request(
+        `${towerUrl}/api/v4/flightdeck-pg/service`,
+        "GET",
+        undefined,
+        "discovery",
       );
-    negotiated = true;
-    bounded =
-      Array.isArray(capability.extensions) &&
-      capability.extensions.includes("bounded_snapshot_v1");
-    const f = fence(cache);
-    const r = registration(
-      await client.request(clientUrl(), "POST", "", "register"),
-      f.clientId,
-    );
-    cache.register(r, f);
-    await acknowledge();
-    for (; pages < maxPages; ) {
-      if (client.remaining() < PAGE_MS)
+      const capability = record(service.record_sync);
+      if (
+        !Array.isArray(capability.protocol_versions) ||
+        !capability.protocol_versions.includes(2) ||
+        capability.device_checkpoints !== true ||
+        capability.additive_access !== true ||
+        capability.retention_policy !== "retain_downloaded"
+      )
         throw new Error(
-          "Wake time budget exhausted; durable progress retained",
+          "Tower does not advertise required record-sync v2/access capabilities; no legacy downgrade",
         );
-      const started = performance.now();
-      const expected = fence(cache);
-      const url = new URL(base);
-      url.searchParams.set("protocol_version", "2");
-      url.searchParams.set("client_id", expected.clientId);
-      url.searchParams.set("cursor", expected.cursor!);
-      url.searchParams.set("limit", "200");
-      if (bounded) url.searchParams.set("extension", "bounded_snapshot_v1");
-      const payload = page(
-        await client.request(url.toString(), "GET", undefined, "page"),
-        expected.clientId,
-        workspaceId,
+      negotiated = true;
+      bounded =
+        Array.isArray(capability.extensions) &&
+        capability.extensions.includes("bounded_snapshot_v1");
+      const f = fence(cache);
+      const r = registration(
+        await client.request(clientUrl(), "POST", "", "register"),
+        f.clientId,
       );
-      const received = performance.now();
-      cache.commit(payload, expected, bounded);
-      pages++;
-      const committed = performance.now();
+      cache.register(r, f);
       await acknowledge();
-      pageTimings.push({
-        totalMs: performance.now() - started,
-        commitMs: committed - received,
-        ackMs: performance.now() - committed,
-      });
-      if (cache.state().handoverDone && !cache.pending()) {
-        terminal = true;
-        break;
+      for (; pages < maxPages; ) {
+        if (client.remaining() < PAGE_MS)
+          throw new RecordSyncBudgetError(
+            "Wake time budget exhausted; durable progress retained",
+          );
+        const started = performance.now();
+        const expected = fence(cache);
+        const url = new URL(base);
+        url.searchParams.set("protocol_version", "2");
+        url.searchParams.set("client_id", expected.clientId);
+        url.searchParams.set("cursor", expected.cursor!);
+        url.searchParams.set("limit", "200");
+        if (bounded) url.searchParams.set("extension", "bounded_snapshot_v1");
+        const payload = page(
+          await client.request(url.toString(), "GET", undefined, "page"),
+          expected.clientId,
+          workspaceId,
+        );
+        const received = performance.now();
+        cache.commit(payload, expected, bounded);
+        pages++;
+        const committed = performance.now();
+        await acknowledge();
+        pageTimings.push({
+          totalMs: performance.now() - started,
+          commitMs: committed - received,
+          ackMs: performance.now() - committed,
+        });
+        if (cache.state().handoverDone && !cache.pending()) {
+          terminal = true;
+          break;
+        }
       }
+      if (!terminal) {
+        budgetDeferred = true;
+        errors.push("Page budget exhausted; durable progress retained");
+      }
+      // Unextended v2 remains convergent polling; only Tower's negotiated certificate closes a finite review.
+      if (terminal && !bounded)
+        errors.push(
+          "Fixed handover boundary is not negotiated; convergence certification unavailable",
+        );
     }
-    if (!terminal)
-      errors.push("Page budget exhausted; durable progress retained");
-    // Unextended v2 remains convergent polling; only Tower's negotiated certificate closes a finite review.
-    if (terminal && !bounded)
-      errors.push(
-        "Fixed handover boundary is not negotiated; convergence certification unavailable",
-      );
   } catch (error) {
+    budgetDeferred = error instanceof RecordSyncBudgetError;
     if (error instanceof RecordSyncHttpError && REPAIR_ERRORS.has(error.code)) {
       cache.repair();
       errors.push(
@@ -249,35 +268,66 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
   try {
     const state = cache.state();
     const since = new Date(start - options.hours * 3_600_000).toISOString();
-    const review = cache.review(since);
-    if (review.truncated)
-      errors.push(
-        "Review assembly budget exhausted; use indexed follow-up reads",
-      );
+    const syncComplete =
+      state.certified &&
+      state.available &&
+      state.handoverDone &&
+      !cache.pending() &&
+      !errors.length;
+    const review = options.syncOnly
+      ? {
+          rows: [],
+          truncated: false,
+          unavailable: 0,
+          nextCursor: null,
+          total: 0,
+          delivered: 0,
+          since,
+        }
+      : cache.review(since, 262_144, 200, options.reviewCursor);
     if (review.unavailable)
       errors.push("Current evidence includes unavailable authority partitions");
     return {
       generatedAt: new Date().toISOString(),
-      since,
-      recentTriageHours: options.hours,
+      since: review.since,
+      recentTriageHours: options.reviewCursor ? null : options.hours,
       botNpub: identity.botNpub,
       brokerRequests: bootstrap.brokerRequests + client.brokerRequests + 1,
+      syncComplete,
+      syncOutcome: syncComplete
+        ? ("certified" as const)
+        : budgetDeferred
+          ? ("budget" as const)
+          : ("blocked" as const),
       complete:
-        terminal &&
-        bounded &&
-        state.certified &&
-        !errors.length &&
+        syncComplete &&
+        !options.syncOnly &&
         !review.truncated &&
-        !review.unavailable &&
-        !cache.pending(),
+        !review.unavailable,
+      review: {
+        started: !options.syncOnly,
+        complete:
+          syncComplete &&
+          !options.syncOnly &&
+          !review.truncated &&
+          !review.unavailable,
+        nextCursor: review.nextCursor,
+        since: review.since,
+        total: review.total,
+        delivered: review.delivered,
+        syncCertified: syncComplete,
+        semantics:
+          "Delivered summaries require inspection; excerpts are not full histories",
+      },
       errors,
       coverage: {
-        protocolVersion: negotiated ? 2 : null,
+        protocolVersion:
+          negotiated || (options.reviewOnly && state.cursor) ? 2 : null,
+        observation: options.reviewOnly ? "pinned-cache-review" : "live-sync",
         pages,
         snapshotComplete: state.snapshotDone,
-        deltaHandoverObserved: terminal,
-        certifiedBoundary:
-          terminal && bounded && state.certified && state.available,
+        deltaHandoverObserved: state.handoverDone,
+        certifiedBoundary: syncComplete,
         handoverTarget: state.target,
         handoverThrough: state.through,
         advertisedFamilies: state.families,

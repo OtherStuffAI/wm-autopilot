@@ -12,6 +12,8 @@ import {
 } from "./bounded-response.ts";
 import { PAGE_MS, record, type JsonRecord } from "./record-sync-protocol.ts";
 
+export class RecordSyncBudgetError extends Error {}
+
 export class RecordSyncHttpError extends Error {
   constructor(
     readonly status: number,
@@ -84,7 +86,7 @@ export class RecordSyncClient {
         this.remaining() <= 0 ||
         (operation === "page" && this.remaining() < PAGE_MS)
       )
-        throw new Error(
+        throw new RecordSyncBudgetError(
           "Wake budget deferred page; fewer than 30 seconds remain",
         );
       this.operationDeadline = Math.min(
@@ -213,7 +215,7 @@ export class RecordSyncClient {
         const jitter = this.random() * Math.min(500 * 2 ** attempt, 5000);
         const delay = Math.max(retryAfter, jitter);
         if (this.remaining() < delay + PAGE_MS)
-          throw new Error(
+          throw new RecordSyncBudgetError(
             "Retry deferred to next wake by Retry-After/time budget",
           );
         await new Promise<void>((resolve, reject) => {
