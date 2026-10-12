@@ -39,9 +39,9 @@ async function lookup(input: string | URL, context: TowerRequestContext): Promis
   return transport;
 }
 
-export async function prepareTowerRequestUrl(input: string | URL, context: TowerRequestContext = {}): Promise<string> {
+export async function prepareTowerRequestUrl(input: string | URL, context: TowerRequestContext = {}, signal?: AbortSignal): Promise<string> {
   const transport = await lookup(input, context);
-  return transport ? (await transport.prepare(input)).toString() : input.toString();
+  return transport ? (await transport.prepare(input, signal)).toString() : input.toString();
 }
 
 export async function fetchTowerRequest(input: string | URL, init: RequestInit = {}, context: TowerRequestContext = {}): Promise<Response> {

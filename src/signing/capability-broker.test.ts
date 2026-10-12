@@ -455,6 +455,15 @@ describe("CapabilityBroker", () => {
       method: "GET",
     })).status).toBe(200);
     expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+      sessionId: "session-a", url: "https://tower.example/api/v4/flightdeck-pg/service", method: "GET",
+    })).status).toBe(200);
+    for (const [path, method] of [["/api/v4/flightdeck-pg/service", "POST"], ["/api/v4/flightdeck-pg/service/extra", "GET"]]) {
+      expect((await call("/api/mcp/capabilities/nip98", issued.token, {
+        sessionId: "session-a", url: `https://tower.example${path}`, method, bodyHash: "ab".repeat(32),
+      })).status).toBe(403);
+    }
+
+    expect((await call("/api/mcp/capabilities/nip98", issued.token, {
       sessionId: "session-a",
       url: "https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-a/channels/channel-a/messages",
       method: "POST",

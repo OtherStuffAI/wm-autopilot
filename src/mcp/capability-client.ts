@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 const REFRESH_AFTER_MS = 90 * 60_000;
 const REFRESH_INTERVAL_MS = 90 * 60_000;
 let cachedCapabilityToken = "";
+let cachedCapabilitySeedToken = "";
 let cachedCapabilityStartedAt = Date.now();
 let cachedCapabilitySessionId = "";
 let cachedCapabilityWingmanUrl = "";
@@ -38,23 +39,25 @@ export function capabilityClientContextFromEnv(
   return { wingmanUrl: wingmanUrl.replace(/\/$/, ""), sessionId, capabilityToken };
 }
 
-export async function callCapabilityBroker<T>(
+export async function callCapabilityBrokerResponse(
   path: string,
   body: Record<string, unknown>,
   context: CapabilityClientContext = capabilityClientContextFromEnv(),
-): Promise<T> {
+): Promise<Response> {
   const contextWingmanUrl = context.wingmanUrl.replace(/\/$/, "");
   const sameCapabilityContext = cachedCapabilitySessionId === context.sessionId
     && cachedCapabilityWingmanUrl === contextWingmanUrl;
   if (!sameCapabilityContext) {
     cachedCapabilityToken = context.capabilityToken;
+    cachedCapabilitySeedToken = context.capabilityToken;
     cachedCapabilityStartedAt = Date.now();
     cachedCapabilitySessionId = context.sessionId;
     cachedCapabilityWingmanUrl = contextWingmanUrl;
   } else if (!cachedCapabilityToken) {
     cachedCapabilityToken = context.capabilityToken;
+    cachedCapabilitySeedToken = context.capabilityToken;
   }
-  if (sameCapabilityContext && context.capabilityToken === process.env.WINGMAN_CAPABILITY && cachedCapabilityToken !== context.capabilityToken) {
+  if (sameCapabilityContext && (context.capabilityToken === cachedCapabilitySeedToken || context.capabilityToken === process.env.WINGMAN_CAPABILITY) && cachedCapabilityToken !== context.capabilityToken) {
     context = { ...context, capabilityToken: cachedCapabilityToken };
   }
   if (Date.now() - cachedCapabilityStartedAt >= REFRESH_AFTER_MS) {
@@ -69,6 +72,15 @@ export async function callCapabilityBroker<T>(
     context = await refreshCapability(context);
     response = await requestCapability(path, body, context);
   }
+  return response;
+}
+
+export async function callCapabilityBroker<T>(
+  path: string,
+  body: Record<string, unknown>,
+  context: CapabilityClientContext = capabilityClientContextFromEnv(),
+): Promise<T> {
+  const response = await callCapabilityBrokerResponse(path, body, context);
   if (!response.ok) {
     const error = await response.json().catch(() => ({})) as { error?: string; code?: string; rateLimit?: { retryAfterMs?: number } };
     if (response.status === 429 && error.code === "capability_rate_limited") {
@@ -207,7 +219,7 @@ export async function capabilityNip98Fetch(
 ): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const bodyText = typeof init.body === "string" ? init.body : undefined;
-  const bodyHash = bodyText ? createHash("sha256").update(bodyText).digest("hex") : undefined;
+  const bodyHash = bodyText !== undefined ? createHash("sha256").update(bodyText).digest("hex") : undefined;
   const signed = await callCapabilityBroker<{ token: string }>(
     "/api/mcp/capabilities/nip98",
     { url: targetUrl, method, bodyHash },

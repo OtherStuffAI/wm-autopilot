@@ -1400,10 +1400,10 @@ async function handleFlightDeckHelper(
       appNpub: resolved.appNpub!, botIdentity: resolved.botIdentity!,
       subscriptionId: resolved.subscriptionId, backendConnectionId: resolved.backendConnectionId });
   }
-  if (action === "transport_prepare" || action === "transport_request") {
+  if (action === "transport_prepare" || action === "transport_request" || action === "record_sync_request") {
     if (!resolved.subscriptionId) return jsonError("Bound Tower subscription is required", 400);
     return handleFlightDeckTransport({ action, body, subscriptionId: resolved.subscriptionId,
-      workspaceId: resolved.workspaceId!, botPubkeyHex: resolved.botIdentity!.botPubkeyHex, signal: request.signal });
+      workspaceId: resolved.workspaceId!, botPubkeyHex: resolved.botIdentity!.botPubkeyHex, appNpub: resolved.appNpub!, signal: request.signal });
   }
   const pg = {
     backendConnectionId: resolved.backendConnectionId,

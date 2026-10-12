@@ -108,6 +108,7 @@ export function buildDefaultAgentCapabilityPolicy(input: {
             origin: towerOrigin,
             methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
             pathPrefixes: [workspacePrefix],
+            exactPaths: [{ path: "/api/v4/flightdeck-pg/service", methods: ["GET"] }],
             requireBodyHashMethods: mutatingMethods,
           },
           {

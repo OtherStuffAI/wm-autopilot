@@ -2,6 +2,7 @@ import type { CreateJobInput, ScheduledJob, UpdateJobInput } from "./scheduler-s
 
 export const NATIVE_CLEANUP_JOB_ID = "f60a9b22-9a01-4335-b9cf-dff56dec8805";
 export const LEGACY_HEARTBEAT_CLEANUP_MARKER = "FIRST, before any other heartbeat work, always invoke this deterministic cleanup command exactly once";
+export const HEARTBEAT_BOUNDED_MARKER = "record-sync v2";
 export const HEARTBEAT_APP_NPUB_MARKER = "--app-npub";
 
 export function buildHeartbeatPrompt(autopilotRoot: string, workspaceRoot: string, appNpub: string): string {
@@ -9,8 +10,10 @@ export function buildHeartbeatPrompt(autopilotRoot: string, workspaceRoot: strin
 
 Heartbeat observes and reports. Autopilot's native scheduled cleanup action owns automatic-session cleanup. Do not run an autosession cleanup CLI or implement a session-stop loop.
 
-Run this bounded Bun-native snapshot first:
+Run this bounded Bun-native record-sync v2 review first:
 bun ${autopilotRoot}/clis/heartbeat-wake.ts --hours 12 --app-npub ${appNpub} --json
+
+Only complete=true certifies declared coverage. Partial/time/storage/oversized/access-unavailable results never mean nothing to do. Durable cache progress resumes on later wakes; report unfinished coverage and follow up with authorized bounded task/thread reads when review summaries are truncated.
 
 Use the configured workspace at ${workspaceRoot}. Review the snapshot for tasks or conversations that may have fallen through the cracks. Do not add comments without evidence or pick up completed work.
 
@@ -38,10 +41,11 @@ export function reconcileHeartbeatReliabilityDefaults(store: HeartbeatReliabilit
   const heartbeat = heartbeatId ? store.getJob(heartbeatId) : null;
   const promptNeedsReliabilityUpdate = heartbeat
     && (heartbeat.initialPrompt.includes(LEGACY_HEARTBEAT_CLEANUP_MARKER)
-      || !heartbeat.initialPrompt.includes(HEARTBEAT_APP_NPUB_MARKER));
+      || !heartbeat.initialPrompt.includes(HEARTBEAT_APP_NPUB_MARKER)
+      || !heartbeat.initialPrompt.includes(HEARTBEAT_BOUNDED_MARKER));
   if (promptNeedsReliabilityUpdate && autopilotRoot && workspaceRoot && appNpub) {
     store.updateJob(heartbeat.id, { initialPrompt: buildHeartbeatPrompt(autopilotRoot, workspaceRoot, appNpub) });
-    changes.push("heartbeat-prompt-v3");
+    changes.push("heartbeat-prompt-v4");
   }
 
   const existingCleanup = store.getJob(NATIVE_CLEANUP_JOB_ID)

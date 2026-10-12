@@ -19,10 +19,10 @@ async function main(): Promise<void> {
   const hours = Number(value("--hours") ?? "12");
   if (!Number.isFinite(hours) || hours <= 0 || hours > 168) throw new Error("--hours must be between 1 and 168");
   const result = await runHeartbeatWake({
-    hours, workspaceId: value("--workspace"), towerUrl: value("--tower-url"), appNpub: value("--app-npub"),
+    cacheRoot: value("--cache-dir"), hours, workspaceId: value("--workspace"), towerUrl: value("--tower-url"), appNpub: value("--app-npub"),
     maxPages: Number(value("--max-pages") ?? 100),
     maxTimeMs: Number(value("--max-time-ms") ?? 120000),
-    requestTimeoutMs: Number(value("--request-timeout-ms") ?? 15000),
+    requestTimeoutMs: Number(value("--request-timeout-ms") ?? 30000),
   });
   const output = JSON.stringify(result, null, 2);
   const outputPath = value("--output");

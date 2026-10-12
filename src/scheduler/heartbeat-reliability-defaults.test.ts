@@ -27,7 +27,7 @@ describe("heartbeat reliability defaults", () => {
       updateJob: (id, update) => Object.assign(jobs.get(id)!, update),
       createJob: (input) => { const created = job(input); jobs.set(created.id, created); return created; },
     });
-    expect(changes).toEqual(["heartbeat-prompt-v3", "native-cleanup-enabled"]);
+    expect(changes).toEqual(["heartbeat-prompt-v4", "native-cleanup-enabled"]);
     const prompt = buildHeartbeatPrompt("/opt/wingman/autopilot", "/srv/workspace", "npub1flightdeck");
     expect(jobs.get(heartbeatId)?.initialPrompt).toBe(prompt);
     expect(prompt).not.toContain(LEGACY_HEARTBEAT_CLEANUP_MARKER);

@@ -124,3 +124,23 @@ describe("capability client expiry recovery", () => {
     }
   });
 });
+
+test("a long-lived heartbeat context keeps the renewed capability on subsequent raw transport calls", async () => {
+  const { callCapabilityBrokerResponse } = await import("./capability-client.ts");
+  const authorizations: string[] = [];
+  let expired = true;
+  const context = {
+    wingmanUrl: "https://broker.test", sessionId: crypto.randomUUID(), capabilityToken: "original",
+    fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      const authorization = new Headers(init?.headers).get("authorization")!;
+      if (path.endsWith("/refresh")) return Response.json({ token: "renewed" });
+      authorizations.push(authorization);
+      if (expired) { expired = false; return Response.json({ error: "Capability has expired" }, { status: 403 }); }
+      return Response.json({ ok: authorization === "Bearer renewed" });
+    }) as typeof fetch,
+  };
+  expect(await (await callCapabilityBrokerResponse("/api/mcp/wingman/flightdeck", {}, context)).json()).toEqual({ ok: true });
+  expect(await (await callCapabilityBrokerResponse("/api/mcp/wingman/flightdeck", {}, context)).json()).toEqual({ ok: true });
+  expect(authorizations).toEqual(["Bearer original", "Bearer renewed", "Bearer renewed"]);
+});

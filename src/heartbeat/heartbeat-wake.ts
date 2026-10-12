@@ -1,7 +1,20 @@
-import { snapshotSaturation, type SnapshotSaturation } from "./snapshot-saturation.ts";
-import { callCapabilityBroker, capabilityClientContextFromEnv, readCapabilityIdentity, type CapabilityClientContext } from "../mcp/capability-client";
+import { join } from "node:path";
+import {
+  capabilityClientContextFromEnv,
+  readCapabilityIdentity,
+  type CapabilityClientContext,
+} from "../mcp/capability-client.ts";
+import { RecordSyncClient, RecordSyncHttpError } from "./record-sync-client.ts";
+import { RecordSyncCache, cachePath, type Fence } from "./record-sync-cache.ts";
+import {
+  PAGE_MS,
+  page,
+  record,
+  registration,
+  type JsonRecord,
+} from "./record-sync-protocol.ts";
+export { record } from "./record-sync-protocol.ts";
 
-type JsonRecord = Record<string, unknown>;
 export interface HeartbeatWakeOptions {
   hours: number;
   workspaceId?: string;
@@ -12,165 +25,292 @@ export interface HeartbeatWakeOptions {
   requestTimeoutMs?: number;
   context?: CapabilityClientContext;
   fetchImpl?: typeof fetch;
+  cacheRoot?: string;
+  signal?: AbortSignal;
 }
-export function record(value: unknown): JsonRecord {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
-}
-function records(value: unknown): JsonRecord[] {
-  if (!Array.isArray(value)) throw new Error("Snapshot collection is missing or invalid");
-  return value.map(item => {
-    const row = record(item);
-    if (!Object.keys(row).length) throw new Error("Invalid snapshot record");
-    return row;
-  });
-}
-function mergeRows(previous: unknown, incoming: unknown): JsonRecord[] {
-  const rows = new Map<string, JsonRecord>();
-  for (const row of [...records(previous ?? []), ...records(incoming)]) {
-    const id = row.id ?? row.entity_id ?? record(row.actor).id;
-    if (typeof id !== "string" || !id) throw new Error("Snapshot record is missing id");
-    rows.set(id, row);
-  }
-  return [...rows.values()];
-}
-function positive(value: number, label: string): number {
-  if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${label} must be a positive finite integer`);
+function positive(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 1)
+    throw new Error(`${name} must be a positive finite integer`);
   return value;
 }
+function fence(cache: RecordSyncCache): Fence {
+  const s = cache.state();
+  return { cursor: s.cursor, clientId: s.clientId, generation: s.generation };
+}
+const REPAIR_ERRORS = new Set([
+  "reset_required",
+  "history_pruned",
+  "client_expired",
+  "client_not_registered",
+  "page_token_invalid",
+]);
 
 export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
   const start = Date.now();
   const maxPages = positive(options.maxPages ?? 100, "maxPages");
-  const maxTimeMs = positive(options.maxTimeMs ?? 120_000, "maxTimeMs");
-  const requestTimeoutMs = positive(options.requestTimeoutMs ?? 15_000, "requestTimeoutMs");
-  if (!Number.isFinite(options.hours) || options.hours <= 0 || options.hours > 168) throw new Error("hours must be between 0 and 168");
+  const wakeMs = Math.min(
+    positive(options.maxTimeMs ?? 120_000, "maxTimeMs"),
+    120_000,
+  );
+  const timeoutMs = Math.min(
+    positive(options.requestTimeoutMs ?? PAGE_MS, "requestTimeoutMs"),
+    PAGE_MS,
+  );
+  if (
+    !Number.isFinite(options.hours) ||
+    options.hours <= 0 ||
+    options.hours > 168
+  )
+    throw new Error("hours must be between 0 and 168");
   const baseContext = options.context ?? capabilityClientContextFromEnv();
-  const baseFetch = options.fetchImpl ?? baseContext.fetch ?? fetch;
-  // Bound broker signing/context/identity as well as Tower and response-body reads.
-  const boundedFetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const remaining = maxTimeMs - (Date.now() - start);
-    if (remaining <= 0) throw new Error("Snapshot time budget exhausted");
-    const controller = new AbortController();
-    const timeout = Math.min(requestTimeoutMs, remaining);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        (async () => {
-          const response = await baseFetch(input, { ...init, signal: controller.signal });
-          const body = await response.arrayBuffer();
-          return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
-        })(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => { controller.abort(); reject(new Error(`Request timed out after ${timeout}ms`)); }, timeout);
-        }),
-      ]);
-    } finally { clearTimeout(timer); }
-  }) as typeof fetch;
-  const context = { ...baseContext, fetch: boundedFetch };
-  let brokerRequests = 0;
-  const broker = async <T>(path: string, body: JsonRecord) => {
-    brokerRequests++;
-    return await callCapabilityBroker<T>(path, body, context);
+  const context = {
+    ...baseContext,
+    fetch: options.fetchImpl ?? baseContext.fetch ?? fetch,
   };
-  const active = record(await broker<JsonRecord>("/api/mcp/wingman/flightdeck", { action: "context" }));
+  const bootstrap = new RecordSyncClient(
+    context,
+    start + wakeMs,
+    false,
+    "",
+    timeoutMs,
+    options.signal,
+  );
+  const active = record(
+    await bootstrap.broker<JsonRecord>("/api/mcp/wingman/flightdeck", {
+      action: "context",
+    }),
+  );
   const workspace = record(active.workspace);
-  const workspaceId = options.workspaceId?.trim() || String(workspace.workspaceId ?? "").trim();
-  if (!workspaceId) throw new Error("Explicit --workspace or active broker Flight Deck workspace is required");
-  const hasWorkspaceBinding = Boolean(String(workspace.workspaceId ?? "").trim());
-  const towerUrl = String(hasWorkspaceBinding ? workspace.backendBaseUrl ?? "" : options.towerUrl ?? "").trim().replace(/\/$/, "");
-  const appNpub = String(hasWorkspaceBinding ? workspace.sourceAppNpub ?? "" : options.appNpub ?? "").trim();
-  if (!hasWorkspaceBinding && (!options.workspaceId?.trim() || !towerUrl || !appNpub)) {
-    throw new Error("Unbound broker context requires explicit --workspace, --tower-url and --app-npub");
-  }
-  if (!towerUrl || !appNpub) throw new Error("Broker Flight Deck context is missing authoritative Tower/app namespace");
-  if ((options.towerUrl && options.towerUrl.replace(/\/$/, "") !== towerUrl) || (options.appNpub && options.appNpub !== appNpub)) {
-    throw new Error("Tower/app override does not match authoritative broker context");
-  }
-  brokerRequests++;
-  const identity = await readCapabilityIdentity(context);
-  if (!identity.botNpub || identity.identityType !== "agent") throw new Error("Missing broker agent identity");
-  const sync: JsonRecord = { channels: [], channel_bundles: [] };
-  const rawPages: JsonRecord[] = [];
+  const bound = Boolean(workspace.workspaceId);
+  const workspaceId =
+    options.workspaceId?.trim() || String(workspace.workspaceId ?? "");
+  const towerUrl = String(
+    bound ? (workspace.backendBaseUrl ?? "") : (options.towerUrl ?? ""),
+  )
+    .trim()
+    .replace(/\/$/, "");
+  const appNpub = String(
+    bound ? (workspace.sourceAppNpub ?? "") : (options.appNpub ?? ""),
+  ).trim();
+  if (!workspaceId || !towerUrl || !appNpub)
+    throw new Error(
+      "Explicit --workspace, --tower-url and --app-npub or complete broker workspace context required",
+    );
+  if (
+    (bound && workspaceId !== workspace.workspaceId) ||
+    (options.towerUrl && options.towerUrl.replace(/\/$/, "") !== towerUrl) ||
+    (options.appNpub && options.appNpub !== appNpub)
+  )
+    throw new Error(
+      "Workspace/Tower/app override differs from authoritative broker context",
+    );
+  const identity = await readCapabilityIdentity(bootstrap.context);
+  if (!identity.botNpub || identity.identityType !== "agent")
+    throw new Error("Missing broker agent identity");
+  const client = new RecordSyncClient(
+    context,
+    start + wakeMs,
+    bound,
+    appNpub,
+    timeoutMs,
+    options.signal,
+  );
+  const root =
+    options.cacheRoot ??
+    process.env.WINGMAN_HEARTBEAT_CACHE_DIR ??
+    join(import.meta.dir, "../../data/heartbeat-record-sync");
+  const partition = [towerUrl, workspaceId, appNpub, identity.botNpub];
+  const path = cachePath(root, partition);
+  const cache = new RecordSyncCache(path, partition, wakeMs + PAGE_MS);
   const errors: string[] = [];
-  const saturation = new Map<string, SnapshotSaturation>();
-  const channels = new Set<string>();
-  const completedChannels = new Set<string>();
-  const bundles = new Map<string, JsonRecord>();
-  const cursors = new Set<string>();
-  let cursor: string | undefined;
+  let pages = 0;
   let terminal = false;
-  let expectedIdentity: string | undefined;
-  for (let page = 0; page < maxPages; page++) {
+  let negotiated = false;
+  let bounded = false;
+  const pageTimings: { totalMs: number; commitMs: number; ackMs: number }[] =
+    [];
+  const base = `${towerUrl}/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/record-sync`;
+  const clientUrl = () =>
+    `${base}/clients/${cache.state().clientId}?protocol_version=2`;
+  const acknowledge = async () => {
+    const intent = cache.pending();
+    if (!intent) return;
     try {
-      if (Date.now() - start >= maxTimeMs) throw new Error("Snapshot time budget exhausted");
-      const url = new URL(`${towerUrl}/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/sync`);
-      url.searchParams.set("limit", "2000");
-      if (cursor) url.searchParams.set("cursor", cursor);
-      const signed = await broker<{ token: string }>("/api/mcp/capabilities/nip98", { url: url.toString(), method: "GET" });
-      const response = await boundedFetch(url, { headers: { accept: "application/json", authorization: signed.token, "x-flightdeck-pg-app-npub": appNpub } });
-      const payload = record(await response.json());
-      rawPages.push(payload);
-      if (!response.ok) throw new Error(`Snapshot GET failed (${response.status}): ${String(payload.error ?? response.statusText)}`);
-      const pageIdentity = record(payload.identity);
-      if (pageIdentity.workspace_id !== workspaceId || pageIdentity.app_npub !== appNpub) throw new Error("Snapshot workspace/app identity mismatch");
-      const identityKey = JSON.stringify(Object.entries(pageIdentity).sort());
-      if (expectedIdentity && expectedIdentity !== identityKey) throw new Error("Snapshot identity changed between pages");
-      expectedIdentity = identityKey;
-      if (payload.mode !== "snapshot" || payload.full_snapshot !== true || typeof payload.has_more !== "boolean" || typeof payload.snapshot_complete !== "boolean" || payload.has_more === payload.snapshot_complete) {
-        throw new Error("Invalid snapshot completion metadata");
-      }
-      for (const finding of snapshotSaturation(payload)) {
-        saturation.set(`${finding.channelId ?? "workspace"}:${finding.collection}`, finding);
-      }
-      for (const channel of records(payload.channels)) {
-        if (typeof channel.id !== "string") throw new Error("Channel is missing id");
-        channels.add(channel.id);
-      }
-      for (const bundle of records(payload.channel_bundles)) {
-        const id = bundle.channel_id;
-        if (typeof id !== "string" || !channels.has(id)) throw new Error("Bundle channel is outside visible channel map");
-        const merged = bundles.get(id) ?? { channel_id: id };
-        for (const [key, value] of Object.entries(bundle)) {
-          if (key !== "channel_id") merged[key] = Array.isArray(value) ? mergeRows(merged[key], value) : value;
-        }
-        bundles.set(id, merged);
-      }
-      for (const [key, value] of Object.entries(payload)) {
-        if (key === "channel_bundles") continue;
-        sync[key] = Array.isArray(value) ? mergeRows(sync[key], value) : value;
-      }
-      sync.channel_bundles = [...bundles.values()];
-      if (!payload.has_more && payload.snapshot_complete) {
+      const value = await client.request(
+        `${base}/clients/${intent.clientId}/ack?protocol_version=2`,
+        "POST",
+        JSON.stringify({
+          cursor: intent.cursor,
+          expected_revision: intent.expected_revision,
+        }),
+        "ack",
+      );
+      cache.ack(registration(value, intent.clientId), intent);
+    } catch (error) {
+      if (
+        error instanceof RecordSyncHttpError &&
+        ["checkpoint_conflict", "checkpoint_regression"].includes(error.code)
+      ) {
+        const r = registration(
+          await client.request(clientUrl(), "GET", undefined, "checkpoint"),
+          intent.clientId,
+        );
+        if (r.checkpoint_cursor === intent.cursor) cache.ack(r, intent);
+        else cache.replayConflict(r, intent);
+      } else throw error;
+    }
+  };
+  try {
+    // A failed wake cannot reuse previously certified observations as current authority.
+    cache.unavailable();
+    const service = await client.request(
+      `${towerUrl}/api/v4/flightdeck-pg/service`,
+      "GET",
+      undefined,
+      "discovery",
+    );
+    const capability = record(service.record_sync);
+    if (
+      !Array.isArray(capability.protocol_versions) ||
+      !capability.protocol_versions.includes(2) ||
+      capability.device_checkpoints !== true ||
+      capability.additive_access !== true ||
+      capability.retention_policy !== "retain_downloaded"
+    )
+      throw new Error(
+        "Tower does not advertise required record-sync v2/access capabilities; no legacy downgrade",
+      );
+    negotiated = true;
+    bounded =
+      Array.isArray(capability.extensions) &&
+      capability.extensions.includes("bounded_snapshot_v1");
+    const f = fence(cache);
+    const r = registration(
+      await client.request(clientUrl(), "POST", "", "register"),
+      f.clientId,
+    );
+    cache.register(r, f);
+    await acknowledge();
+    for (; pages < maxPages; ) {
+      if (client.remaining() < PAGE_MS)
+        throw new Error(
+          "Wake time budget exhausted; durable progress retained",
+        );
+      const started = performance.now();
+      const expected = fence(cache);
+      const url = new URL(base);
+      url.searchParams.set("protocol_version", "2");
+      url.searchParams.set("client_id", expected.clientId);
+      url.searchParams.set("cursor", expected.cursor!);
+      url.searchParams.set("limit", "200");
+      if (bounded) url.searchParams.set("extension", "bounded_snapshot_v1");
+      const payload = page(
+        await client.request(url.toString(), "GET", undefined, "page"),
+        expected.clientId,
+        workspaceId,
+      );
+      const received = performance.now();
+      cache.commit(payload, expected, bounded);
+      pages++;
+      const committed = performance.now();
+      await acknowledge();
+      pageTimings.push({
+        totalMs: performance.now() - started,
+        commitMs: committed - received,
+        ackMs: performance.now() - committed,
+      });
+      if (cache.state().handoverDone && !cache.pending()) {
         terminal = true;
-        for (const id of bundles.keys()) completedChannels.add(id);
         break;
       }
-      const next = payload.next_cursor;
-      if (typeof next !== "string" || !next || cursors.has(next)) throw new Error("Missing or repeated snapshot cursor");
-      // Snapshot cursors are opaque for requests; decode only to report unfinished channels.
-      const continuation = record(JSON.parse(Buffer.from(next, "base64url").toString("utf8")));
-      if (continuation.kind !== "workspace_snapshot" || continuation.version !== 2 || typeof continuation.channelId !== "string") throw new Error("Invalid snapshot continuation cursor");
-      for (const id of bundles.keys()) if (id !== continuation.channelId) completedChannels.add(id);
-      cursors.add(next);
-      cursor = next;
-    } catch (error) {
+    }
+    if (!terminal)
+      errors.push("Page budget exhausted; durable progress retained");
+    // Unextended v2 remains convergent polling; only Tower's negotiated certificate closes a finite review.
+    if (terminal && !bounded)
+      errors.push(
+        "Fixed handover boundary is not negotiated; convergence certification unavailable",
+      );
+  } catch (error) {
+    if (error instanceof RecordSyncHttpError && REPAIR_ERRORS.has(error.code)) {
+      cache.repair();
+      errors.push(
+        `${error.message}; retained downloads/pending intent; fresh cache ID will bootstrap next wake`,
+      );
+    } else {
+      if (
+        error instanceof RecordSyncHttpError &&
+        (error.status === 401 || error.status === 403)
+      )
+        cache.unavailable();
       errors.push(error instanceof Error ? error.message : String(error));
-      break;
     }
   }
-  if (!terminal && !errors.length) errors.push("Snapshot page budget exhausted");
-  const missingChannelIds = [...channels].filter(id => !completedChannels.has(id));
-  if (terminal && missingChannelIds.length) errors.push("Terminal snapshot omitted visible channel bundles");
-  if (saturation.size) errors.push("Possible Tower collection saturation; full coverage cannot be certified");
-  const complete = terminal && !errors.length && !missingChannelIds.length;
-  const counts: Record<string, number> = {};
-  for (const bundle of bundles.values()) for (const [key, value] of Object.entries(bundle)) {
-    if (Array.isArray(value)) counts[key] = (counts[key] ?? 0) + value.length;
+  try {
+    const state = cache.state();
+    const since = new Date(start - options.hours * 3_600_000).toISOString();
+    const review = cache.review(since);
+    if (review.truncated)
+      errors.push(
+        "Review assembly budget exhausted; use indexed follow-up reads",
+      );
+    if (review.unavailable)
+      errors.push("Current evidence includes unavailable authority partitions");
+    return {
+      generatedAt: new Date().toISOString(),
+      since,
+      recentTriageHours: options.hours,
+      botNpub: identity.botNpub,
+      brokerRequests: bootstrap.brokerRequests + client.brokerRequests + 1,
+      complete:
+        terminal &&
+        bounded &&
+        state.certified &&
+        !errors.length &&
+        !review.truncated &&
+        !review.unavailable &&
+        !cache.pending(),
+      errors,
+      coverage: {
+        protocolVersion: negotiated ? 2 : null,
+        pages,
+        snapshotComplete: state.snapshotDone,
+        deltaHandoverObserved: terminal,
+        certifiedBoundary:
+          terminal && bounded && state.certified && state.available,
+        handoverTarget: state.target,
+        handoverThrough: state.through,
+        advertisedFamilies: state.families,
+        completedFamilies: state.partitions,
+        unfinishedFamilies: state.families.filter(
+          (family) => !state.partitions.includes(family),
+        ),
+        outsideCoverage: ["directory", "approvals", "graph", "wapp_activity"],
+        unavailablePartitions: review.unavailable,
+        downloadedCounts: cache.counts(),
+        reviewTruncated: review.truncated,
+      },
+      cache: {
+        path,
+        clientId: state.clientId,
+        generation: state.generation,
+        pendingAck: Boolean(cache.pending()),
+        resumable: Boolean(state.cursor),
+      },
+      timings: {
+        transfers: client.timings,
+        pages: pageTimings,
+        wakeMs: Date.now() - start,
+      },
+      workspaces: [
+        {
+          id: workspaceId,
+          label: workspace.label ?? null,
+          review: review.rows,
+        },
+      ],
+    };
+  } finally {
+    cache.close();
   }
-  return {
-    generatedAt: new Date().toISOString(), since: new Date(start - options.hours * 3_600_000).toISOString(),
-    recentTriageHours: options.hours, botNpub: identity.botNpub, brokerRequests, complete, errors,
-    coverage: { pages: rawPages.length, visibleChannels: channels.size, visitedChannels: bundles.size, completedChannels: completedChannels.size, missingChannels: missingChannelIds.length, channelDirectoryKnown: Boolean(expectedIdentity), missingChannelIds, possibleSaturation: [...saturation.values()], counts },
-    workspaces: [{ id: workspaceId, label: typeof workspace.label === "string" ? workspace.label : null, sync }], rawPages,
-  };
 }
