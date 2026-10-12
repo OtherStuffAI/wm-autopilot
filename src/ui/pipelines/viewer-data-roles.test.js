@@ -55,3 +55,20 @@ test("nested array paths expand whole-object inputs and select their exact retai
   expect(portSelection({workPlan:{items:[{text:"Actual requirement"}]}},"$.workPlan.items[0].text")).toEqual({status:"present",value:"Actual requirement"});
   expect(portSelection({"quoted-key":{text:"Evidence"}},'$["quoted-key"].text').value).toBe("Evidence");
 });
+test("pre-activation DTO without role/source/evidenceKind parses and retains inspectable mappings", async()=>{
+  const {definition}=fixture();
+  for (const node of definition.steps) for (const side of ["inputs","outputs"]) for (const port of node[side]) {
+    delete port.role; delete port.source; delete port.evidenceKind;
+  }
+  const legacy=definitionDto(definition), nodes=legacy.steps;
+  const mapping=viewerMapping(nodes,legacy.wiring);
+  const view=Object.assign(createReviewView(),{nodes,mapping,inspectLabel:"do",inspectPath:"",inspectSide:"",selectedStepKey:"do",queueGeometry(){}});
+  expect(view.operationLinks).toEqual([]);
+  expect(view.selectedLinks).toEqual([]);
+  expect(nodes[1].inputs[0]).toEqual({label:"Original request",path:"$.workPlan.originalPrompt",format:"auto"});
+  view.toggleMappings(); expect(view.selectedLinks).toHaveLength(6);
+  const {latestPortReference}=await import("./viewer-projection.js");
+  const input={kind:"resolved_input",id:"input"}, output={kind:"returned_output",id:"output"};
+  expect(latestPortReference({evidence:[input,output]},"inputs",nodes[1].inputs[0])).toBe(input);
+  expect(latestPortReference({evidence:[input,output]},"outputs",nodes[1].outputs[0])).toBe(output);
+});
