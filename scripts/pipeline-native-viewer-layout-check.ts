@@ -39,8 +39,11 @@ export async function assertViewerLayout(page: any) {
 
 export async function assertScopeInputSelection(page: any) {
   await page.getByTestId("pipeline-select-prepare").click();
+  if (await page.getByTestId("pipeline-all-mappings").getAttribute("aria-pressed") !== "true") await page.getByTestId("pipeline-all-mappings").click();
+  await page.getByTestId("pipeline-context-fields").waitFor({ state: "visible" });
   expect(await page.getByTestId("pipeline-step-details").innerText()).toContain("$.request");
   expect(await page.getByTestId("pipeline-selected-connections").innerText()).toContain("Pipeline input");
+  await page.getByTestId("pipeline-all-mappings").click();
   await page.keyboard.press("Escape");
 }
 
@@ -49,7 +52,7 @@ export async function assertExpandedEvidenceLayout(page: any) {
   const card = page.getByTestId("pipeline-step-prepare");
   const before = await card.evaluate((element: any) => [element.style.left, element.style.top, element.offsetHeight]);
   await page.getByTestId("pipeline-select-prepare").click();
-  await page.getByTestId("pipeline-step-details").locator("details").first().locator("summary").click();
+  await page.getByLabel("Inspect exact step configuration", { exact: true }).click();
   await assertViewerLayout(page);
   expect(await card.evaluate((element: any) => [element.style.left, element.style.top, element.offsetHeight])).toEqual(before);
   await page.keyboard.press("Escape");

@@ -333,3 +333,14 @@ function makeRecord(slug: string, version: number | undefined): PipelineDefiniti
     },
   };
 }
+
+test("definition loading rejects unsupported display roles while retaining legacy declarations", async () => {
+  const directory = getSharedPipelineDefinitionsDirectory();
+  mkdirSync(directory, { recursive: true });
+  const base = { name: "roles-fixture", steps: [{ name: "do", type: "code", function: "noop", display: { in: [{ label: "Request", path: "$.request" }] } }] };
+  writeFileSync(join(directory, "roles-legacy.json"), JSON.stringify(base));
+  expect((await getPipelineDefinition("roles-legacy", "tester"))?.spec.steps[0]?.display?.in?.[0]?.role).toBeUndefined();
+  const invalid = JSON.parse(JSON.stringify(base)); invalid.steps[0].display.in[0].role = "routing";
+  writeFileSync(join(directory, "roles-invalid.json"), JSON.stringify(invalid));
+  expect(await getPipelineDefinition("roles-invalid", "tester")).toBeNull();
+});

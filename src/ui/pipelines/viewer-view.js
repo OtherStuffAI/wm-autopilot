@@ -306,7 +306,7 @@ export function createNativeViewerView({ route, ...deps }) {
         selectedRef = null;
         this.preview =
           this.mode === "definition"
-            ? `${port.label} · ${port.format || "auto"} field. Selects ${port.path} from ${node.inputNode ? "pipeline/scope input" : side === "inputs" ? "resolved step input" : "returned step output"}. No execution value exists in definition mode.`
+            ? `${port.label} · ${port.format || "auto"} field. Selects ${port.path} from ${node.inputNode ? "pipeline/scope input" : port.source === "state" ? "written step state" : port.source === "input" || side === "inputs" && !port.source ? "resolved step input" : "returned step output"}. No execution value exists in definition mode.`
             : node.inputNode ? `Source selector ${port.path}. Inspect the receiving step’s captured input for execution values.` : "Not captured for this attempt.";
         this.pinned = pin;
         if (pin) focusViewerDrawer(this);

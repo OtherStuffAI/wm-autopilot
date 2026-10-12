@@ -67,7 +67,9 @@ export async function captureTimeline(page: any, fixture: any, width: number, ev
   }
   await page.getByTestId("pipeline-select-reply").click();
   await assertViewerLayout(page);
-  const metadata = page.getByTestId("pipeline-step-details").getByRole("button", { name: /Inspect .* inputs: \$\.threadId/, exact: false });
+  await page.getByTestId("pipeline-all-mappings").click();
+  await assertViewerLayout(page);
+  const metadata = page.getByTestId("pipeline-context-fields").getByRole("button", { name: /Inspect unclassified inputs: \$\.threadId/, exact: false });
   const routesBeforeHover = await page.locator(".pipeline-viewer-edges path").evaluateAll((paths: any[]) => paths.map(path => path.getAttribute("d")));
   await metadata.hover();
   await page.mouse.move(0, 0);

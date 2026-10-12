@@ -62,16 +62,17 @@ export function createReviewGeometry() {
             labelY: (segment.start.y + segment.end.y) / 2 - (["repeat", "skip"].includes(link.kind) && segment.start.x === segment.end.x ? 0 : 10) };
         }));
         // Field inspection is an overlay: selection never changes card positions.
-        view.selectedLinks.forEach((link, index) => {
+        view.diagramDataGroups.forEach((group, index) => {
+          const link = group.links[0];
           const source = positions.get(link.sourceKey), target = positions.get(link.targetKey);
           if (!target) return;
-          const start = source ? { x: source.x + source.width, y: source.y + source.height - 12 } : { x: 8, y: target.y + target.height - 12 };
+          const start = source ? { x: source.x + source.width, y: source.y + source.height - 12 } : { x: target.x + target.width + 12, y: target.y + target.height - 32 };
           const end = { x: target.x + target.width, y: target.y + target.height - 12 };
           const laneX = Math.max(...result.children.map(node => node.x + node.width)) + 22 + index * 20;
 
           edges.push({ wire: link.wire, kind: "data", index: "data-" + index,
             path: `M ${start.x} ${start.y} H ${laneX} V ${end.y} H ${end.x}`,
-            label: String(index + 1), labelX: laneX - 3, labelY: (start.y + end.y) / 2 });
+            label: String(group.number), labelX: laneX - 3, labelY: (start.y + end.y) / 2 });
         });
         const regions = view.flow.loops.map(loop => {
           const members = loop.keys.map(key => positions.get(key)).filter(Boolean);
@@ -86,7 +87,7 @@ export function createReviewGeometry() {
           Object.assign(element.style, { left: region.left + "px", top: region.top + "px", width: region.width + "px", height: region.height + "px" });
           canvas.prepend(element);
         }
-        view.diagramWidth = result.width + view.selectedLinks.length * 20 + 24; view.diagramHeight = result.height + view.selectedLinks.length * 20 + 24;
+        view.diagramWidth = result.width + view.diagramDataGroups.length * 20 + 24; view.diagramHeight = result.height + view.diagramDataGroups.length * 20 + 24;
         canvas.style.width = view.diagramWidth + "px"; canvas.style.height = view.diagramHeight + "px";
         if (view.autoFit) view.zoom = Math.min(1, Math.max(0.85, (canvas.parentElement.clientWidth - 8) / result.width));
         canvas.style.transform = `scale(${view.zoom})`; canvas.style.transformOrigin = "top left";
@@ -100,7 +101,7 @@ export function createReviewGeometry() {
         }
         view.edges = edges; view.layoutError = "";
         renderPipelineConnections(canvas.querySelector("svg"), edges, view.diagramWidth, view.diagramHeight,
-          wire => wire.kind ? !view.selectionActive || [wire.sourceKey, wire.targetKey].includes(view.selectedStepKey || view.inspectLabel) : view.wireSelected(wire));
+          wire => wire.kind ? !view.selectionActive || [wire.sourceKey, wire.targetKey].includes(view.selectedStepKey || view.inspectLabel) : !view.selectionActive || view.wireSelected(wire));
       } catch (error) {
         result = null; signature = ""; view.edges = [];
         view.layoutError = "Layout unavailable: " + error.message;

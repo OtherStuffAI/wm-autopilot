@@ -1,3 +1,4 @@
+import { validatePipelineDisplayRoles } from "./pipeline-display-roles";
 import { validateChildPipelineSteps } from "./child-pipeline";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -667,204 +668,6 @@ Return JSON only:
   "confidence": 0.0
 }`;
 
-const DO_AND_REVIEW_DEFINITION = {
-  "name": "do-and-review",
-  "description": "Origin-agnostic generic delivery pipeline. A worker completes non-code work such as research, planning, writing, or operations, then a manager reviews evidence and the pipeline reports either to the originating Flight Deck task/thread or as a direct pipeline result.",
-  "default": true,
-  "tags": [
-    "default",
-    "generic",
-    "delivery",
-    "review",
-    "origin-agnostic"
-  ],
-  "input": {
-    "taskId": "task-demo",
-    "scopeId": "scope-demo",
-    "workdir": "/workspace",
-    "assignerNpub": "npub1requester",
-    "reviewerNpub": "npub1requester",
-    "workPlan": {
-      "taskSummary": "Complete the requested task.",
-      "instructions": "Use the task and chat context to complete the requested non-code work.",
-      "acceptanceCriteria": [
-        "The requested outcome is complete",
-        "Evidence or sources are recorded"
-      ],
-      "executionPlan": [
-        "Investigate",
-        "Do the work",
-        "Review evidence",
-        "Report result"
-      ],
-      "managerChecklist": [
-        "Sources or evidence are recorded",
-        "The answer matches the task",
-        "Task status was updated"
-      ]
-    },
-    "reporting": {
-      "mode": "pipeline_result",
-      "callbackPipelineId": "",
-      "callbackRef": {}
-    }
-  },
-  "steps": [
-    {
-      "name": "normalise-work-plan-context",
-      "description": "Normalise direct, chat, and Flight Deck task origins into one work plan and reporting contract.",
-      "type": "code",
-      "function": "dispatch.normaliseWorkPlanContext",
-      "input": {
-        "pick": {
-          "taskId": "$.taskId",
-          "scopeId": "$.scopeId",
-          "workdir": "$.workdir",
-          "assignerNpub": "$.assignerNpub",
-          "reviewerNpub": "$.reviewerNpub",
-          "workPlan": "$.workPlan",
-          "createdTask": "$.createdTask",
-          "reporting": "$.reporting",
-          "dispatch": "$.dispatch",
-          "workspace": "$.workspace",
-          "agent": "$.agent",
-          "record": "$.record",
-          "routing": "$.routing",
-          "runtime": "$.runtime"
-        }
-      },
-      "assign": "$.workContext"
-    },
-    {
-      "name": "do-work",
-      "type": "agent",
-      "agent": "$.agent.defaultAgent",
-      "directory": "$.workContext.workPlan.workdir",
-      "timeoutMs": 1800000,
-      "input": {
-        "pick": {
-          "createdTask": "$.workContext.createdTask",
-          "workPlan": "$.workContext.workPlan"
-        }
-      },
-      "prompt": "You are the worker in a Wingman do-and-review pipeline. Use only the selected input: createdTask and workPlan. workPlan includes the task plan, originalPrompt, originThread, referencedRecords, instructions, acceptanceCriteria, executionPlan, managerChecklist, and reporting mode. For current-world facts, use internet research and record sources. Always make the best effort possible from the available context. If required information is missing, do not return callback status needs_input; return callback status ok with completed false, state what you could and could not complete, list blockers, and write a concrete taskUpdateComment or result note that asks for the missing information or states the limitation for the final feedback. Do not fabricate requirements. Do not run Flight Deck task update, task comment, chat reply, chat reply-current, or any command that changes task state, task comments, or chat messages. Do not run Yoke or sync a Yoke workspace for Flight Deck PG work. Document comment replies are allowed only when workPlan explicitly asks to answer or respond to existing document comments and a current Wingman/Autopilot Flight Deck helper is available for the document comment thread surface; include evidence that child comments were created with parent_comment_id set to the original comment ids. Updating the document body does not satisfy an answer-comments request unless workPlan explicitly asks for a document-body response section. Return JSON fields: completed boolean, summary string, sources array, evidence array, result string, blockers array, taskUpdateComment string, confidence number.",
-      "assign": "$.workerResult"
-    },
-    {
-      "name": "manager-review",
-      "type": "agent",
-      "agent": "$.agent.defaultAgent",
-      "directory": "$.workContext.workPlan.workdir",
-      "timeoutMs": 1200000,
-      "input": {
-        "pick": {
-          "taskId": "$.workContext.createdTask.taskId",
-          "taskSummary": "$.workContext.workPlan.taskSummary",
-          "instructions": "$.workContext.workPlan.instructions",
-          "acceptanceCriteria": "$.workContext.workPlan.acceptanceCriteria",
-          "executionPlan": "$.workContext.workPlan.executionPlan",
-          "managerChecklist": "$.workContext.workPlan.managerChecklist",
-          "originalPrompt": "$.workContext.workPlan.originalPrompt",
-          "originThread": "$.workContext.workPlan.originThread",
-          "referencedRecords": "$.workContext.workPlan.referencedRecords",
-          "reporting": "$.workContext.workPlan.reporting",
-          "workerCompleted": "$.workerResult.completed",
-          "workerSummary": "$.workerResult.summary",
-          "workerSources": "$.workerResult.sources",
-          "workerEvidence": "$.workerResult.evidence",
-          "workerOutput": "$.workerResult.result",
-          "workerBlockers": "$.workerResult.blockers",
-          "taskUpdateComment": "$.workerResult.taskUpdateComment"
-        }
-      },
-      "prompt": "You are the manager reviewer in a Wingman do-and-review pipeline. Use only the selected input. Check the worker fields against instructions, acceptanceCriteria, executionPlan, managerChecklist, originalPrompt, originThread, referencedRecords, and reporting. Verify sources/evidence are sufficient and decide whether the work is complete. If instructions ask to answer or respond to Flight Deck document comments, require evidence that actual comment-thread replies were created with parent_comment_id pointing at the original comment ids; a document-body section alone is not sufficient unless instructions explicitly requested that instead. If workerCompleted is false because information is missing, review the best-effort result as a handoffable partial outcome: set accepted according to whether the worker honestly used available context, put missing information or limitations in requiredChanges/risks, and rely on taskUpdateComment for final feedback. For Flight Deck task runs, the deterministic pipeline closeout updates the task to review and assigns it to the requester. For direct runs, return the review as the pipeline result. Return JSON fields: accepted boolean, taskSummary string, reviewSummary string, executionPlan array, managerChecklist array, requiredChanges array, risks array, confidence number.",
-      "assign": "$.agentResponse"
-    },
-    {
-      "name": "reload-final-thread",
-      "description": "Refresh the originating thread before composing the final user-facing response.",
-      "type": "code",
-      "function": "dispatch.reloadChatThread",
-      "input": {
-        "pick": {
-          "dispatch": "$.dispatch",
-          "workspace": "$.workspace",
-          "agent": "$.agent",
-          "record": "$.record",
-          "routing": "$.routing",
-          "runtime": "$.runtime",
-          "workPlan": "$.workContext.workPlan"
-        }
-      },
-      "assign": "$.finalThreadContext",
-      "when": {
-        "path": "$.workContext.workPlan.reporting.mode",
-        "equals": "flightdeck_task"
-      }
-    },
-    {
-      "name": "final-thread-response",
-      "description": "Compose the final conversational answer for the source thread.",
-      "type": "agent",
-      "agent": "$.agent.defaultAgent",
-      "directory": "$.workContext.workPlan.workdir",
-      "timeoutMs": 600000,
-      "input": {
-        "pick": {
-          "taskId": "$.workContext.createdTask.taskId",
-          "taskSummary": "$.workContext.workPlan.taskSummary",
-          "originalPrompt": "$.workContext.workPlan.originalPrompt",
-          "originThread": "$.workContext.workPlan.originThread",
-          "reporting": "$.workContext.workPlan.reporting",
-          "finalThreadMessages": "$.finalThreadContext.thread.recent_messages",
-          "workerCompleted": "$.workerResult.completed",
-          "workerSummary": "$.workerResult.summary",
-          "workerOutput": "$.workerResult.result",
-          "workerBlockers": "$.workerResult.blockers",
-          "workerEvidence": "$.workerResult.evidence",
-          "reviewAccepted": "$.agentResponse.accepted",
-          "reviewSummary": "$.agentResponse.reviewSummary",
-          "requiredChanges": "$.agentResponse.requiredChanges",
-          "risks": "$.agentResponse.risks"
-        }
-      },
-      "prompt": "You are the final response agent for a Wingman pipeline.\n\nYour job is to write the message that will be posted back into the originating Flight Deck thread. Review the original thread, any refreshed thread context, the task/work plan, new worker output, manager review, and any artifacts created by the pipeline.\n\nRules:\n- Be conversational. Write as a direct reply in the thread, not as pipeline telemetry.\n- Be complete. Answer the user's actual question/request using the work that was just completed.\n- If there is a Flight Deck document, WApp, file, or other user-accessible artifact, include the mention/link. Do not make the requester hunt through internal task records.\n- Do not make an internal task the main artifact unless it is the only durable place the result exists.\n- Do not say only that work is \"ready for review\"; summarise or present the useful output.\n- Do not prefix the body with labels like \"Summary:\", \"Task:\", \"Assigned back to:\", or \"Pipeline handoff:\".\n- If the work is incomplete or assumptions matter, say that plainly.\n- If a follow-up question would materially improve the outcome, ask one focused question. If there is an obvious next step, suggest it.\n\nReturn JSON only:\n{\n  \"body\": \"the exact chat reply to post\",\n  \"summary\": \"short internal summary\",\n  \"artifacts\": [{\"type\":\"document|wapp|file|task|other\", \"label\":\"\", \"mentionOrUrl\":\"\"}],\n  \"followUpQuestion\": \"question or null\",\n  \"confidence\": 0.0\n}",
-      "assign": "$.finalThreadResponse",
-      "when": {
-        "path": "$.workContext.workPlan.reporting.mode",
-        "equals": "flightdeck_task"
-      }
-    },
-    {
-      "name": "move-task-to-review",
-      "description": "Move the originating Flight Deck task to Review and assign it back to the requester.",
-      "type": "code",
-      "function": "dispatch.markTaskReadyForReview",
-      "input": {
-        "pick": {
-          "dispatch": "$.dispatch",
-          "workspace": "$.workspace",
-          "agent": "$.agent",
-          "record": "$.record",
-          "routing": "$.routing",
-          "runtime": "$.runtime",
-          "createdTask": "$.workContext.createdTask",
-          "workPlan": "$.workContext.workPlan",
-          "workerResult": "$.workerResult",
-          "agentResponse": "$.agentResponse",
-          "finalThreadContext": "$.finalThreadContext",
-          "finalThreadResponse": "$.finalThreadResponse"
-        }
-      },
-      "assign": "$.taskReviewUpdate",
-      "when": {
-        "path": "$.workContext.workPlan.reporting.mode",
-        "equals": "flightdeck_task"
-      }
-    }
-  ]
-};
-
 const RESEARCH_AND_REPORT_DEFINITION = {
   "name": "research-and-report",
   "description": "Origin-agnostic research pipeline. A researcher gathers evidence, a report writer prepares the report, then a manager reviews and the pipeline reports either to the originating Flight Deck task/thread or as a direct pipeline result.",
@@ -1320,6 +1123,7 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
     await mkdir(getUserPipelineFunctionsDirectory(ownerAlias), { recursive: true });
   }
   await ensurePipelineGitRepository();
+  const doAndReviewDefinition = await readBundledDefaultDefinition("do-and-review.json");
   const documentDiscussionDefinition = await readBundledDefaultDefinition("document-discussion.json");
   const flightDeckDocumentInvocationDefinition = await readBundledDefaultDefinition("fd-document-invocation.json");
   const flightDeckTaskInvocationDefinition = await readBundledDefaultDefinition("fd-task-invocation.json");
@@ -1346,7 +1150,7 @@ export async function ensurePipelineDirectories(ownerAlias: string | null): Prom
     ["document-discussion.json", documentDiscussionDefinition],
     ["fd-document-invocation.json", flightDeckDocumentInvocationDefinition],
     ["fd-task-invocation.json", flightDeckTaskInvocationDefinition],
-    ["do-and-review.json", DO_AND_REVIEW_DEFINITION],
+    ["do-and-review.json", doAndReviewDefinition],
     ["research-and-report.json", RESEARCH_AND_REPORT_DEFINITION],
     ["software-implementation-review-loop.json", softwareImplementationReviewLoopDefinition],
     ["daily-note-review.json", dailyNoteReviewDefinition],
@@ -1500,6 +1304,7 @@ async function readDefinitionDirectory(
     try {
       spec = JSON.parse(raw) as DeclarativePipeline;
       validateChildPipelineSteps(spec);
+      validatePipelineDisplayRoles(spec);
     } catch (error) {
       console.warn("[pipelines] skipping invalid pipeline definition", path, error instanceof Error ? error.message : String(error));
       continue;

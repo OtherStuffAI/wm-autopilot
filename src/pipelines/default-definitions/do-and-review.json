@@ -1,0 +1,1061 @@
+{
+  "name": "do-and-review",
+  "description": "Origin-agnostic generic delivery pipeline. A worker completes non-code work such as research, planning, writing, or operations, then a manager reviews evidence and the pipeline reports either to the originating Flight Deck task/thread or as a direct pipeline result.",
+  "default": true,
+  "tags": [
+    "default",
+    "generic",
+    "delivery",
+    "review",
+    "origin-agnostic"
+  ],
+  "input": {
+    "taskId": "task-demo",
+    "scopeId": "scope-demo",
+    "workdir": "/workspace",
+    "assignerNpub": "npub1requester",
+    "reviewerNpub": "npub1requester",
+    "workPlan": {
+      "taskSummary": "Complete the requested task.",
+      "instructions": "Use the task and chat context to complete the requested non-code work.",
+      "acceptanceCriteria": [
+        "The requested outcome is complete",
+        "Evidence or sources are recorded"
+      ],
+      "executionPlan": [
+        "Investigate",
+        "Do the work",
+        "Review evidence",
+        "Report result"
+      ],
+      "managerChecklist": [
+        "Sources or evidence are recorded",
+        "The answer matches the task",
+        "Task status was updated"
+      ]
+    },
+    "reporting": {
+      "mode": "pipeline_result",
+      "callbackPipelineId": "",
+      "callbackRef": {}
+    }
+  },
+  "steps": [
+    {
+      "name": "normalise-work-plan-context",
+      "description": "Resolve the supplied work plan and origin into requirements, task context, and reporting mode; preserve dispatch context without publishing a report.",
+      "type": "code",
+      "function": "dispatch.normaliseWorkPlanContext",
+      "input": {
+        "pick": {
+          "taskId": "$.taskId",
+          "scopeId": "$.scopeId",
+          "workdir": "$.workdir",
+          "assignerNpub": "$.assignerNpub",
+          "reviewerNpub": "$.reviewerNpub",
+          "workPlan": "$.workPlan",
+          "createdTask": "$.createdTask",
+          "reporting": "$.reporting",
+          "dispatch": "$.dispatch",
+          "workspace": "$.workspace",
+          "agent": "$.agent",
+          "record": "$.record",
+          "routing": "$.routing",
+          "runtime": "$.runtime"
+        }
+      },
+      "assign": "$.workContext",
+      "display": {
+        "in": [
+          {
+            "label": "Original request",
+            "path": "$.workPlan.originalPrompt",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Work instructions",
+            "path": "$.workPlan.instructions",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Acceptance criteria",
+            "path": "$.workPlan.acceptanceCriteria",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Conversation",
+            "path": "$.workPlan.originThread",
+            "role": "operation",
+            "format": "messages"
+          },
+          {
+            "label": "References",
+            "path": "$.workPlan.referencedRecords",
+            "role": "operation",
+            "format": "records"
+          },
+          {
+            "label": "Execution plan",
+            "path": "$.workPlan.executionPlan",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Review checklist",
+            "path": "$.workPlan.managerChecklist",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Reporting mode",
+            "path": "$.reporting.mode",
+            "role": "operation"
+          },
+          {
+            "label": "Task",
+            "path": "$.taskId",
+            "role": "operation"
+          },
+          {
+            "label": "Dispatch",
+            "path": "$.dispatch",
+            "role": "carried"
+          },
+          {
+            "label": "Workspace",
+            "path": "$.workspace",
+            "role": "carried"
+          },
+          {
+            "label": "Agent",
+            "path": "$.agent",
+            "role": "carried"
+          },
+          {
+            "label": "Record",
+            "path": "$.record",
+            "role": "carried"
+          },
+          {
+            "label": "Routing",
+            "path": "$.routing",
+            "role": "carried"
+          },
+          {
+            "label": "Runtime",
+            "path": "$.runtime",
+            "role": "carried"
+          },
+          {
+            "label": "Task context",
+            "path": "$.createdTask",
+            "role": "carried"
+          },
+          {
+            "label": "Scope",
+            "path": "$.scopeId",
+            "role": "carried"
+          },
+          {
+            "label": "Working directory",
+            "path": "$.workdir",
+            "role": "carried"
+          },
+          {
+            "label": "Requester",
+            "path": "$.assignerNpub",
+            "role": "carried"
+          },
+          {
+            "label": "Reviewer",
+            "path": "$.reviewerNpub",
+            "role": "carried"
+          }
+        ],
+        "out": [
+          {
+            "label": "Original request",
+            "path": "$.workPlan.originalPrompt",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Work instructions",
+            "path": "$.workPlan.instructions",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Acceptance criteria",
+            "path": "$.workPlan.acceptanceCriteria",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Conversation",
+            "path": "$.workPlan.originThread",
+            "role": "operation",
+            "format": "messages"
+          },
+          {
+            "label": "References",
+            "path": "$.workPlan.referencedRecords",
+            "role": "operation",
+            "format": "records"
+          },
+          {
+            "label": "Execution plan",
+            "path": "$.workPlan.executionPlan",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Review checklist",
+            "path": "$.workPlan.managerChecklist",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Reporting mode",
+            "path": "$.workPlan.reporting.mode",
+            "role": "operation"
+          },
+          {
+            "label": "Context status",
+            "path": "$.status",
+            "role": "operation"
+          },
+          {
+            "label": "Task context",
+            "path": "$.createdTask",
+            "role": "carried"
+          },
+          {
+            "label": "Task",
+            "path": "$.taskId",
+            "role": "carried"
+          },
+          {
+            "label": "Origin",
+            "path": "$.workPlan.origin",
+            "role": "carried"
+          },
+          {
+            "label": "Working directory",
+            "path": "$.workPlan.workdir",
+            "role": "carried"
+          },
+          {
+            "label": "Reporting",
+            "path": "$.workPlan.reporting",
+            "role": "carried"
+          }
+        ]
+      },
+      "title": "Resolve work plan"
+    },
+    {
+      "name": "do-work",
+      "type": "agent",
+      "agent": "$.agent.defaultAgent",
+      "directory": "$.workContext.workPlan.workdir",
+      "timeoutMs": 1800000,
+      "input": {
+        "pick": {
+          "createdTask": "$.workContext.createdTask",
+          "workPlan": "$.workContext.workPlan"
+        }
+      },
+      "prompt": "You are the worker in a Wingman do-and-review pipeline. Use only the selected input: createdTask and workPlan. workPlan includes the task plan, originalPrompt, originThread, referencedRecords, instructions, acceptanceCriteria, executionPlan, managerChecklist, and reporting mode. For current-world facts, use internet research and record sources. Always make the best effort possible from the available context. If required information is missing, do not return callback status needs_input; return callback status ok with completed false, state what you could and could not complete, list blockers, and write a concrete taskUpdateComment or result note that asks for the missing information or states the limitation for the final feedback. Do not fabricate requirements. Do not run Flight Deck task update, task comment, chat reply, chat reply-current, or any command that changes task state, task comments, or chat messages. Do not run Yoke or sync a Yoke workspace for Flight Deck PG work. Document comment replies are allowed only when workPlan explicitly asks to answer or respond to existing document comments and a current Wingman/Autopilot Flight Deck helper is available for the document comment thread surface; include evidence that child comments were created with parent_comment_id set to the original comment ids. Updating the document body does not satisfy an answer-comments request unless workPlan explicitly asks for a document-body response section. Return JSON fields: completed boolean, summary string, sources array, evidence array, result string, blockers array, taskUpdateComment string, confidence number.",
+      "assign": "$.workerResult",
+      "description": "Complete the original request using the work instructions, acceptance criteria, conversation, and references; return actual results, evidence, completion, and blockers.",
+      "display": {
+        "in": [
+          {
+            "label": "Original request",
+            "path": "$.workPlan.originalPrompt",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Work instructions",
+            "path": "$.workPlan.instructions",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Acceptance criteria",
+            "path": "$.workPlan.acceptanceCriteria",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Conversation",
+            "path": "$.workPlan.originThread",
+            "role": "operation",
+            "format": "messages"
+          },
+          {
+            "label": "References",
+            "path": "$.workPlan.referencedRecords",
+            "role": "operation",
+            "format": "records"
+          },
+          {
+            "label": "Execution plan",
+            "path": "$.workPlan.executionPlan",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Review checklist",
+            "path": "$.workPlan.managerChecklist",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Task context",
+            "path": "$.createdTask",
+            "role": "carried"
+          },
+          {
+            "label": "Task",
+            "path": "$.workPlan.taskId",
+            "role": "carried"
+          },
+          {
+            "label": "Origin",
+            "path": "$.workPlan.origin",
+            "role": "carried"
+          },
+          {
+            "label": "Working directory",
+            "path": "$.workPlan.workdir",
+            "role": "carried"
+          },
+          {
+            "label": "Reporting",
+            "path": "$.workPlan.reporting",
+            "role": "carried"
+          }
+        ],
+        "out": [
+          {
+            "label": "Result",
+            "path": "$.result",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Summary",
+            "path": "$.summary",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Evidence",
+            "path": "$.evidence",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Sources",
+            "path": "$.sources",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Completed",
+            "path": "$.completed",
+            "role": "operation"
+          },
+          {
+            "label": "Blockers",
+            "path": "$.blockers",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Task report",
+            "path": "$.taskUpdateComment",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Confidence",
+            "path": "$.confidence",
+            "role": "operation"
+          }
+        ]
+      },
+      "title": "Do work"
+    },
+    {
+      "name": "manager-review",
+      "type": "agent",
+      "agent": "$.agent.defaultAgent",
+      "directory": "$.workContext.workPlan.workdir",
+      "timeoutMs": 1200000,
+      "input": {
+        "pick": {
+          "taskId": "$.workContext.createdTask.taskId",
+          "taskSummary": "$.workContext.workPlan.taskSummary",
+          "instructions": "$.workContext.workPlan.instructions",
+          "acceptanceCriteria": "$.workContext.workPlan.acceptanceCriteria",
+          "executionPlan": "$.workContext.workPlan.executionPlan",
+          "managerChecklist": "$.workContext.workPlan.managerChecklist",
+          "originalPrompt": "$.workContext.workPlan.originalPrompt",
+          "originThread": "$.workContext.workPlan.originThread",
+          "referencedRecords": "$.workContext.workPlan.referencedRecords",
+          "reporting": "$.workContext.workPlan.reporting",
+          "workerCompleted": "$.workerResult.completed",
+          "workerSummary": "$.workerResult.summary",
+          "workerSources": "$.workerResult.sources",
+          "workerEvidence": "$.workerResult.evidence",
+          "workerOutput": "$.workerResult.result",
+          "workerBlockers": "$.workerResult.blockers",
+          "taskUpdateComment": "$.workerResult.taskUpdateComment"
+        }
+      },
+      "prompt": "You are the manager reviewer in a Wingman do-and-review pipeline. Use only the selected input. Check the worker fields against instructions, acceptanceCriteria, executionPlan, managerChecklist, originalPrompt, originThread, referencedRecords, and reporting. Verify sources/evidence are sufficient and decide whether the work is complete. If instructions ask to answer or respond to Flight Deck document comments, require evidence that actual comment-thread replies were created with parent_comment_id pointing at the original comment ids; a document-body section alone is not sufficient unless instructions explicitly requested that instead. If workerCompleted is false because information is missing, review the best-effort result as a handoffable partial outcome: set accepted according to whether the worker honestly used available context, put missing information or limitations in requiredChanges/risks, and rely on taskUpdateComment for final feedback. For Flight Deck task runs, the deterministic pipeline closeout updates the task to review and assigns it to the requester. For direct runs, return the review as the pipeline result. Return JSON fields: accepted boolean, taskSummary string, reviewSummary string, executionPlan array, managerChecklist array, requiredChanges array, risks array, confidence number.",
+      "assign": "$.agentResponse",
+      "description": "Compare the actual worker result and evidence with the original requirements; decide acceptance and identify required changes and risks.",
+      "display": {
+        "in": [
+          {
+            "label": "Original request",
+            "path": "$.originalPrompt",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Work instructions",
+            "path": "$.instructions",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Acceptance criteria",
+            "path": "$.acceptanceCriteria",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Conversation",
+            "path": "$.originThread",
+            "role": "operation",
+            "format": "messages"
+          },
+          {
+            "label": "References",
+            "path": "$.referencedRecords",
+            "role": "operation",
+            "format": "records"
+          },
+          {
+            "label": "Execution plan",
+            "path": "$.executionPlan",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Review checklist",
+            "path": "$.managerChecklist",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Task summary",
+            "path": "$.taskSummary",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Result",
+            "path": "$.workerOutput",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Summary",
+            "path": "$.workerSummary",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Evidence",
+            "path": "$.workerEvidence",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Sources",
+            "path": "$.workerSources",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Completed",
+            "path": "$.workerCompleted",
+            "role": "operation"
+          },
+          {
+            "label": "Blockers",
+            "path": "$.workerBlockers",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Task report",
+            "path": "$.taskUpdateComment",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Task",
+            "path": "$.taskId",
+            "role": "carried"
+          },
+          {
+            "label": "Reporting",
+            "path": "$.reporting",
+            "role": "carried"
+          }
+        ],
+        "out": [
+          {
+            "label": "Accepted",
+            "path": "$.accepted",
+            "role": "operation"
+          },
+          {
+            "label": "Review findings",
+            "path": "$.reviewSummary",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Required changes",
+            "path": "$.requiredChanges",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Risks",
+            "path": "$.risks",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Task summary",
+            "path": "$.taskSummary",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Execution plan",
+            "path": "$.executionPlan",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Review checklist",
+            "path": "$.managerChecklist",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Confidence",
+            "path": "$.confidence",
+            "role": "operation"
+          }
+        ]
+      },
+      "title": "Review work"
+    },
+    {
+      "name": "reload-final-thread",
+      "description": "For Flight Deck task reporting, reload the originating conversation before drafting the final answer; other reporting modes skip this step.",
+      "type": "code",
+      "function": "dispatch.reloadChatThread",
+      "input": {
+        "pick": {
+          "dispatch": "$.dispatch",
+          "workspace": "$.workspace",
+          "agent": "$.agent",
+          "record": "$.record",
+          "routing": "$.routing",
+          "runtime": "$.runtime",
+          "workPlan": "$.workContext.workPlan"
+        }
+      },
+      "assign": "$.finalThreadContext",
+      "when": {
+        "path": "$.workContext.workPlan.reporting.mode",
+        "equals": "flightdeck_task"
+      },
+      "display": {
+        "in": [
+          {
+            "label": "Channel",
+            "path": "$.routing.channelId",
+            "role": "operation"
+          },
+          {
+            "label": "Thread",
+            "path": "$.routing.threadId",
+            "role": "operation"
+          },
+          {
+            "label": "Origin channel",
+            "path": "$.workPlan.origin.channelId",
+            "role": "operation"
+          },
+          {
+            "label": "Origin thread",
+            "path": "$.workPlan.origin.threadId",
+            "role": "operation"
+          },
+          {
+            "label": "Dispatch",
+            "path": "$.dispatch",
+            "role": "carried"
+          },
+          {
+            "label": "Workspace",
+            "path": "$.workspace",
+            "role": "carried"
+          },
+          {
+            "label": "Agent",
+            "path": "$.agent",
+            "role": "carried"
+          },
+          {
+            "label": "Record",
+            "path": "$.record",
+            "role": "carried"
+          },
+          {
+            "label": "Routing",
+            "path": "$.routing",
+            "role": "carried"
+          },
+          {
+            "label": "Runtime",
+            "path": "$.runtime",
+            "role": "carried"
+          },
+          {
+            "label": "Work plan",
+            "path": "$.workPlan",
+            "role": "carried"
+          }
+        ],
+        "out": [
+          {
+            "label": "Conversation",
+            "path": "$.thread.recent_messages",
+            "role": "operation",
+            "format": "messages"
+          },
+          {
+            "label": "References",
+            "path": "$.referencedRecords",
+            "role": "operation",
+            "format": "records"
+          },
+          {
+            "label": "Thread",
+            "path": "$.threadId",
+            "role": "operation"
+          },
+          {
+            "label": "Channel",
+            "path": "$.channelId",
+            "role": "operation"
+          },
+          {
+            "label": "Hydrated",
+            "path": "$.hydrated",
+            "role": "operation"
+          },
+          {
+            "label": "Status",
+            "path": "$.status",
+            "role": "operation"
+          },
+          {
+            "label": "Warnings",
+            "path": "$.hydrationWarnings",
+            "role": "operation",
+            "format": "list"
+          }
+        ]
+      },
+      "title": "Refresh conversation"
+    },
+    {
+      "name": "final-thread-response",
+      "description": "For Flight Deck task reporting, compose the final conversational answer from the request, latest conversation, actual result, and review; this step drafts the answer without sending it.",
+      "type": "agent",
+      "agent": "$.agent.defaultAgent",
+      "directory": "$.workContext.workPlan.workdir",
+      "timeoutMs": 600000,
+      "input": {
+        "pick": {
+          "taskId": "$.workContext.createdTask.taskId",
+          "taskSummary": "$.workContext.workPlan.taskSummary",
+          "originalPrompt": "$.workContext.workPlan.originalPrompt",
+          "originThread": "$.workContext.workPlan.originThread",
+          "reporting": "$.workContext.workPlan.reporting",
+          "finalThreadMessages": "$.finalThreadContext.thread.recent_messages",
+          "workerCompleted": "$.workerResult.completed",
+          "workerSummary": "$.workerResult.summary",
+          "workerOutput": "$.workerResult.result",
+          "workerBlockers": "$.workerResult.blockers",
+          "workerEvidence": "$.workerResult.evidence",
+          "reviewAccepted": "$.agentResponse.accepted",
+          "reviewSummary": "$.agentResponse.reviewSummary",
+          "requiredChanges": "$.agentResponse.requiredChanges",
+          "risks": "$.agentResponse.risks"
+        }
+      },
+      "prompt": "You are the final response agent for a Wingman pipeline.\n\nYour job is to write the message that will be posted back into the originating Flight Deck thread. Review the original thread, any refreshed thread context, the task/work plan, new worker output, manager review, and any artifacts created by the pipeline.\n\nRules:\n- Be conversational. Write as a direct reply in the thread, not as pipeline telemetry.\n- Be complete. Answer the user's actual question/request using the work that was just completed.\n- If there is a Flight Deck document, WApp, file, or other user-accessible artifact, include the mention/link. Do not make the requester hunt through internal task records.\n- Do not make an internal task the main artifact unless it is the only durable place the result exists.\n- Do not say only that work is \"ready for review\"; summarise or present the useful output.\n- Do not prefix the body with labels like \"Summary:\", \"Task:\", \"Assigned back to:\", or \"Pipeline handoff:\".\n- If the work is incomplete or assumptions matter, say that plainly.\n- If a follow-up question would materially improve the outcome, ask one focused question. If there is an obvious next step, suggest it.\n\nReturn JSON only:\n{\n  \"body\": \"the exact chat reply to post\",\n  \"summary\": \"short internal summary\",\n  \"artifacts\": [{\"type\":\"document|wapp|file|task|other\", \"label\":\"\", \"mentionOrUrl\":\"\"}],\n  \"followUpQuestion\": \"question or null\",\n  \"confidence\": 0.0\n}",
+      "assign": "$.finalThreadResponse",
+      "when": {
+        "path": "$.workContext.workPlan.reporting.mode",
+        "equals": "flightdeck_task"
+      },
+      "display": {
+        "in": [
+          {
+            "label": "Original request",
+            "path": "$.originalPrompt",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Task summary",
+            "path": "$.taskSummary",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Original conversation",
+            "path": "$.originThread",
+            "role": "operation",
+            "format": "messages"
+          },
+          {
+            "label": "Latest conversation",
+            "path": "$.finalThreadMessages",
+            "role": "operation",
+            "format": "messages"
+          },
+          {
+            "label": "Result",
+            "path": "$.workerOutput",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Summary",
+            "path": "$.workerSummary",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Completed",
+            "path": "$.workerCompleted",
+            "role": "operation"
+          },
+          {
+            "label": "Evidence",
+            "path": "$.workerEvidence",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Blockers",
+            "path": "$.workerBlockers",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Accepted",
+            "path": "$.reviewAccepted",
+            "role": "operation"
+          },
+          {
+            "label": "Review findings",
+            "path": "$.reviewSummary",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Required changes",
+            "path": "$.requiredChanges",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Risks",
+            "path": "$.risks",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Task",
+            "path": "$.taskId",
+            "role": "carried"
+          },
+          {
+            "label": "Reporting",
+            "path": "$.reporting",
+            "role": "carried"
+          }
+        ],
+        "out": [
+          {
+            "label": "Final answer",
+            "path": "$.body",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Summary",
+            "path": "$.summary",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Artifacts",
+            "path": "$.artifacts",
+            "role": "operation",
+            "format": "records"
+          },
+          {
+            "label": "Follow-up question",
+            "path": "$.followUpQuestion",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Confidence",
+            "path": "$.confidence",
+            "role": "operation"
+          }
+        ]
+      },
+      "title": "Draft final answer"
+    },
+    {
+      "name": "move-task-to-review",
+      "description": "For Flight Deck task reporting, move the real task to Review, assign it to the requester, write the task report, and publish the composed answer to the originating channel/thread when available; expose partial reporting failures.",
+      "type": "code",
+      "function": "dispatch.markTaskReadyForReview",
+      "input": {
+        "pick": {
+          "dispatch": "$.dispatch",
+          "workspace": "$.workspace",
+          "agent": "$.agent",
+          "record": "$.record",
+          "routing": "$.routing",
+          "runtime": "$.runtime",
+          "createdTask": "$.workContext.createdTask",
+          "workPlan": "$.workContext.workPlan",
+          "workerResult": "$.workerResult",
+          "agentResponse": "$.agentResponse",
+          "finalThreadContext": "$.finalThreadContext",
+          "finalThreadResponse": "$.finalThreadResponse"
+        }
+      },
+      "assign": "$.taskReviewUpdate",
+      "when": {
+        "path": "$.workContext.workPlan.reporting.mode",
+        "equals": "flightdeck_task"
+      },
+      "display": {
+        "in": [
+          {
+            "label": "Task",
+            "path": "$.createdTask.taskId",
+            "role": "operation"
+          },
+          {
+            "label": "Requester",
+            "path": "$.workPlan.assignerNpub",
+            "role": "operation"
+          },
+          {
+            "label": "Origin channel",
+            "path": "$.workPlan.origin.channelId",
+            "role": "operation"
+          },
+          {
+            "label": "Origin thread",
+            "path": "$.workPlan.origin.threadId",
+            "role": "operation"
+          },
+          {
+            "label": "Final answer",
+            "path": "$.finalThreadResponse.body",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Task report",
+            "path": "$.workerResult.taskUpdateComment",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Result",
+            "path": "$.workerResult.result",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Evidence",
+            "path": "$.workerResult.evidence",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Completed",
+            "path": "$.workerResult.completed",
+            "role": "operation"
+          },
+          {
+            "label": "Review findings",
+            "path": "$.agentResponse.reviewSummary",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Accepted",
+            "path": "$.agentResponse.accepted",
+            "role": "operation"
+          },
+          {
+            "label": "Required changes",
+            "path": "$.agentResponse.requiredChanges",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Risks",
+            "path": "$.agentResponse.risks",
+            "role": "operation",
+            "format": "list"
+          },
+          {
+            "label": "Dispatch",
+            "path": "$.dispatch",
+            "role": "carried"
+          },
+          {
+            "label": "Workspace",
+            "path": "$.workspace",
+            "role": "carried"
+          },
+          {
+            "label": "Agent",
+            "path": "$.agent",
+            "role": "carried"
+          },
+          {
+            "label": "Record",
+            "path": "$.record",
+            "role": "carried"
+          },
+          {
+            "label": "Routing",
+            "path": "$.routing",
+            "role": "carried"
+          },
+          {
+            "label": "Runtime",
+            "path": "$.runtime",
+            "role": "carried"
+          },
+          {
+            "label": "Reporting",
+            "path": "$.workPlan.reporting",
+            "role": "carried"
+          },
+          {
+            "label": "Thread context",
+            "path": "$.finalThreadContext",
+            "role": "carried"
+          }
+        ],
+        "out": [
+          {
+            "label": "Task",
+            "path": "$.taskId",
+            "role": "operation"
+          },
+          {
+            "label": "Task state",
+            "path": "$.state",
+            "role": "operation"
+          },
+          {
+            "label": "Assigned requester",
+            "path": "$.assignedToNpub",
+            "role": "operation"
+          },
+          {
+            "label": "Assignment",
+            "path": "$.assignment",
+            "role": "operation"
+          },
+          {
+            "label": "Task report",
+            "path": "$.commentResult",
+            "role": "operation"
+          },
+          {
+            "label": "Reply delivered",
+            "path": "$.chatNotified",
+            "role": "operation"
+          },
+          {
+            "label": "Reply receipt",
+            "path": "$.chatResult",
+            "role": "operation"
+          },
+          {
+            "label": "Status",
+            "path": "$.status",
+            "role": "operation"
+          },
+          {
+            "label": "Report error",
+            "path": "$.commentError",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Reply error",
+            "path": "$.chatError",
+            "role": "operation",
+            "format": "text"
+          },
+          {
+            "label": "Reply skipped",
+            "path": "$.chatSkippedReason",
+            "role": "operation",
+            "format": "text"
+          }
+        ]
+      },
+      "title": "Report task review"
+    }
+  ]
+}

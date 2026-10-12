@@ -272,3 +272,19 @@ test("assigned-state wiring names captured source value and declared endpoint po
     { id: "target", name: "target", type: "code", function: "target", input: { pick: { state: "$.bird.retrieval" } }, display: { in: [{ label: "Tweets", path: "$.state.tweets" }] } }]);
   expect(viewerDefinition(def).wiring[0]).toMatchObject({ sourceStepKey: "source", sourcePath: "$.bird.retrieval", sourceValuePath: "$.retrieval", sourcePortPaths: ["$.retrieval.tweets"], targetPath: "$.state", targetPortPaths: ["$.state.tweets"] });
 });
+
+test("pinned roles and evidence sources survive live changes and redact configured instructions", async () => {
+  const secret = "synthetic-role-contract-secret";
+  store.evidence.registerSecret(secret);
+  const def = definition([{ name: "do", type: "code", function: "noop", description: secret, display: {
+    in: [{ label: "Request", path: "$.request", role: "operation" }, { label: "Thread", path: "$.thread", role: "carried" }],
+    out: [{ label: "Saved", path: "$.saved", role: "carried", source: "state" }],
+  } }]);
+  const run = await runDeclarativePipeline({ ...runner(def), registry: { noop: async () => ({ saved: true }) } });
+  const before = viewerSnapshot(run.id, store, "service");
+  expect(before.definition.steps[0]!.inputs[0]!.role).toBe("operation");
+  expect(before.steps[0]!.outputs[0]).toMatchObject({ role: "carried", source: "state", evidenceKind: "state_write" });
+  expect(JSON.stringify(before)).not.toContain(secret);
+  def.spec.steps[0]!.display!.in![0]!.role = "carried";
+  expect(viewerSnapshot(run.id, store, "service").definition).toEqual(before.definition);
+});

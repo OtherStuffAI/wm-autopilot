@@ -23,7 +23,13 @@ export function assertViewerEnvelope(payload, serviceId) {
 }
 function port(row) {
   if (!string(row?.label) || !string(row.path)) invalid();
-  return pick(row, ["label", "path", "format"]);
+  if (row.role != null && !["operation", "carried"].includes(row.role)) invalid();
+  if (row.source != null && !["input", "output", "state"].includes(row.source)) invalid();
+  if (row.evidenceKind != null && !["resolved_input", "returned_output", "state_write"].includes(row.evidenceKind)) invalid();
+  return { ...pick(row, ["label", "path", "format"]),
+    ...(row.role == null ? {} : { role: row.role }),
+    ...(row.source == null ? {} : { source: row.source }),
+    ...(row.evidenceKind == null ? {} : { evidenceKind: row.evidenceKind }) };
 }
 function node(row) {
   if (!string(row?.logicalKey)) invalid();

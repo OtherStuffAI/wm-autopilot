@@ -39,6 +39,7 @@ browserTest("compact review in production shell: branches, data, keyboard, loops
       await page.getByRole("button", { name: "Load current function source", exact: true }).click();
       await page.getByTestId("pipeline-step-details").getByText("Current library source; historical runs may have used an earlier revision.").waitFor();
       await page.getByTestId("pipeline-step-details").locator("pre").filter({ hasText: "export function prepare(input)" }).waitFor();
+      await page.getByLabel("Inspect exact step configuration", { exact: true }).click();
       expect(await page.getByTestId("pipeline-step-details").innerText()).toContain('"function": "prepare"');
       await page.keyboard.press("Escape");
       expect(await page.getByRole("button", { name: "Review step: Parse chat request", exact: true }).evaluate((element: Element) => element === document.activeElement)).toBe(true);
@@ -80,6 +81,7 @@ browserTest("compact review in production shell: branches, data, keyboard, loops
       await assertViewerLayout(page);
       expect(await page.locator(".pipeline-review-loop-region").innerText()).toContain("collect $.history");
       await page.getByTestId("pipeline-select-draft").click();
+      await page.getByLabel("Inspect configured agent instructions", { exact: true }).click();
       expect(await page.getByTestId("pipeline-step-details").innerText()).toContain("Draft from the selected evidence");
       await page.keyboard.press("Escape");
       if (evidence) await page.getByTestId("pipeline-viewer").screenshot({ path: `${evidence}/target-loop-${viewport.width}.png` });

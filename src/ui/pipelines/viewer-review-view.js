@@ -1,11 +1,15 @@
+import { operationLinks, rolePorts, dataConnectionGroups } from "./viewer-data-roles.js";
 import { stepType, conditionLabel, domainPorts, executionFlow, selectedMappingLinks, reviewValidation } from "./viewer-review.js";
 import { focusViewerDrawer } from "./viewer-accessibility.js";
 import { flattenPipelineNodes, matchingWires, evidenceText } from "./viewer-projection.js";
 
 export function createReviewView() {
   return {
-    selectedStepKey: "", functionDetail: null, functionStatus: "", zoom: 1, autoFit: true,
+    showAllMappings: false, selectedStepKey: "", functionDetail: null, functionStatus: "", zoom: 1, autoFit: true,
     stepType, domainPorts,
+    cardPorts(node, side) { return domainPorts(node, side).slice(0, 3); },
+    extraPortCount(node, side) { return Math.max(0, domainPorts(node, side).length - 3); },
+    connectionSummary(group) { return group.labels.slice(0, 3).join(" · ") + (group.labels.length > 3 ? " · +" + (group.labels.length - 3) + " fields" : ""); },
     get selectedStep() { return this.nodes.find(node => node.logicalKey === this.selectedStepKey); },
     get flow() {
       const flow = executionFlow(this.nodes);
@@ -16,10 +20,29 @@ export function createReviewView() {
       }
       return flow;
     },
-    get selectedLinks() { return selectedMappingLinks(this.mapping, this.inspectLabel || this.selectedStepKey, this.inspectPath, this.inspectSide); },
+    get operationLinks() { return operationLinks(this.mapping, this.nodes); },
+    numberDataGroups(groups) {
+      const all = dataConnectionGroups(this.mapping.links, this.nodes);
+      return groups.map(group => ({ ...group, number: all.findIndex(candidate => candidate.key === group.key) + 1 }));
+    },
+    get dataGroups() { return this.numberDataGroups(dataConnectionGroups(this.operationLinks, this.nodes)); },
+    incomingData(node) { return this.dataGroups.filter(group => group.targetKey === node.logicalKey); },
+    portHeading(node, side) { return (node[side] || []).some(port => port.role) ? (side === "inputs" ? "Operation inputs" : "Operation outputs") : "Unclassified display · " + side; },
+    operationPorts(node, side) { return rolePorts(this.ports(node, side), "operation"); },
+    carriedPorts(node, side) { return rolePorts(this.ports(node, side), "carried"); },
+    unclassifiedPorts(node, side) { return rolePorts(this.ports(node, side), "unclassified"); },
+    get selectedLinks() {
+      const links = selectedMappingLinks(this.mapping, this.inspectLabel || this.selectedStepKey, this.inspectPath, this.inspectSide);
+      // A clicked value is an explicit request to trace that exact field. Step
+      // selection retains only declared operation data until all mappings opens.
+      return this.showAllMappings || this.inspectPath ? links : links.filter(link => this.operationLinks.includes(link));
+    },
+    get selectedDataGroups() { return this.numberDataGroups(dataConnectionGroups(this.selectedLinks, this.nodes)); },
+    get diagramDataGroups() { return this.selectionActive ? this.selectedDataGroups : this.dataGroups; },
+    toggleMappings() { this.showAllMappings = !this.showAllMappings; this.queueGeometry(); },
     get selectionActive() { return !!(this.selectedStepKey || this.inspectLabel); },
     get reviewMessages() { return this.selectedStep ? reviewValidation(this.selectedStep, this.nodes) : []; },
-    get selectedConnections() { return this.selectedLinks.map((link,index) => (index+1)+". "+this.wireLabel({ ...link.wire, sourcePath: link.sourcePath, targetPath: link.targetPath })); },
+    get selectedConnections() { return this.selectedDataGroups.map(group => group.number + ". " + group.sourceLabel + " → " + (this.nodes.find(node => node.logicalKey === group.targetKey)?.title || group.targetKey) + ": " + group.labels.join(", ")); },
     highlighted(node) {
       if (this.selectedStepKey && !this.inspectPath) return node.logicalKey === this.selectedStepKey || this.selectedLinks.some(link => [link.sourceKey, link.targetKey].includes(node.logicalKey));
       return this.inspectPath && (node.logicalKey === this.inspectLabel || matchingWires(this.wires, this.inspectLabel, this.inspectPath, this.inspectSide).some(wire => [wire.sourceStepKey, wire.targetStepKey].includes(node.logicalKey)));

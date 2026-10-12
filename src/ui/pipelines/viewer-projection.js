@@ -45,10 +45,10 @@ export function evidencePreview(value, limit = 180) {
   return evidenceText(value).slice(0, limit);
 }
 export function portValue(value, path) {
-  const parts = String(path || "")
-    .replace(/^\$\.?/, "")
-    .split(".")
-    .filter(Boolean);
+  const selector = String(path || "");
+  if (!/^\$(?:(?:\.[A-Za-z_][\w-]*)|(?:\[(?:\d+|"[^"\\]*"|'[^'\\]*')\]))*$/.test(selector)) return undefined;
+  const parts = [...selector.slice(1).matchAll(/\.([A-Za-z_][\w-]*)|\[(\d+)|\["([^"\\]*)"|\['([^'\\]*)'/g)]
+    .map(match => match[1] ?? match[2] ?? match[3] ?? match[4]);
   let selected = value;
   for (const part of parts) {
     if (
@@ -69,7 +69,7 @@ export function wiringPortPath(wire, side) {
 export function wiringEndpoints(wire) {
   const sourceBase = wiringPortPath(wire, "outputs"),
     targetBase = wiringPortPath(wire, "inputs");
-  const within = (path, base) => path === base || path.startsWith(base + ".");
+  const within = (path, base) => path === base || path.startsWith(base + ".") || path.startsWith(base + "[");
   // Whole-object selectors expand the receiving display contract first. Do not
   // turn every upstream preview field into another implied receiving field.
   const targets = (wire.targetPortPaths || []).filter(path => within(path, targetBase));

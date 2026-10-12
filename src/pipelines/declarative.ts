@@ -14,10 +14,13 @@ export interface EqualsCondition {
 
 export type DisplayFieldFormat = "auto" | "text" | "count" | "messages" | "records" | "list" | "json";
 
+export type DisplayFieldRole = "operation" | "carried";
+
 export interface DisplayFieldSpec {
   label: string;
   path: string;
   source?: "input" | "output" | "state";
+  role?: DisplayFieldRole;
   format?: DisplayFieldFormat;
   limit?: number;
   empty?: string;

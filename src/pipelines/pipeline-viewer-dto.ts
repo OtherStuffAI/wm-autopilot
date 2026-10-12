@@ -7,7 +7,11 @@ import type { PipelineBlockSnapshots } from "./pipeline-block-snapshot";
 import type { EvidenceReference } from "./pipeline-evidence-store";
 import { redactPipelineValue } from "./pipeline-evidence-redaction";
 
-export interface ViewerPort { label: string; path: string; format: string }
+export interface ViewerPort {
+  label: string; path: string; format: string;
+  role?: DisplayFieldSpec["role"]; source: "input" | "output" | "state";
+  evidenceKind: "resolved_input" | "returned_output" | "state_write";
+}
 export interface ViewerDefinitionStep {
   logicalKey: string; name: string; title: string; description: string; type: string;
   inputs: ViewerPort[]; outputs: ViewerPort[]; children: ViewerDefinitionStep[];
@@ -46,17 +50,17 @@ export function viewerDefinition(definition: PipelineDefinitionRecord & { viewer
         const sourceValuePath = writer ? `$${sourcePath.slice(writer.path.length)}` : sourcePath;
         const targetPath = target === "$" ? "$" : `$.${target}`;
         const relatedPorts = (rows: DisplayFieldSpec[], path: string) => rows.map(row => row.path).filter(port => port === path || port.startsWith(`${path}.`) || path.startsWith(`${port}.`));
-        wiring.push({ sourceValuePath, sourcePortPaths: relatedPorts(writer?.ports ?? [], sourceValuePath), targetPortPaths: relatedPorts(step.display?.in ?? [], targetPath), sourceStepKey: writer?.key ?? null, sourcePath, targetStepKey: logicalKey,
+        wiring.push({ sourceValuePath, sourcePortPaths: relatedPorts((writer?.ports ?? []).filter(row => !row.source || row.source === "output"), sourceValuePath), targetPortPaths: relatedPorts((step.display?.in ?? []).filter(row => !row.source || row.source === "input"), targetPath), sourceStepKey: writer?.key ?? null, sourcePath, targetStepKey: logicalKey,
           targetPath, carriedForward: !writer || writer.key !== writers.at(-1)?.key });
       }
       if (step.type === "block" && blockExpansions && !blockExpansions[logicalKey]) missingExpansion = true;
       const children = step.type === "block" ? (blockExpansions ? blockExpansions[logicalKey]?.steps ?? [] : expandPipelineBlock(step).steps) : step.type === "loop" ? step.steps ?? [] : step.type === "parallel" ? [step.step] : [];
       if (step.assign) writers.push({ path: step.assign, key: logicalKey, ports: step.display?.out ?? [] });
       return { logicalKey, name: step.name, title: step.title ?? step.name, description: step.description ?? "", type: step.type,
-        inputs: ports(step.display?.in), outputs: ports(step.display?.out),
+        inputs: ports(step.display?.in, "input"), outputs: ports(step.display?.out, "output"),
         // Use the already sanitized, pinned definition; never substitute live config
         // for a historical execution. Nested bodies have their own real nodes.
-        review: Object.fromEntries(Object.entries(step).filter(([key]) => !["steps", "step", "display"].includes(key))),
+        review: Object.fromEntries(Object.entries(step).filter(([key]) => !["steps", "step"].includes(key))),
         children: visit(children, `${logicalKey}/`, writers) };
     });
   }
@@ -101,7 +105,7 @@ export function viewerSnapshot(runId: string, store: PipelineStore, serviceId: s
       skipReason: step.status === "skipped" ? store.evidence.sanitize(step.error ?? String(metadata?.description ?? "Configured condition did not match"), [step.callbackToken ?? ""]).value as string : null,
       continuationReason: ((metadata?.controlFlow as Record<string, unknown> | undefined)?.continuationReason as string | null) ?? null,
       exitReason: ((metadata?.controlFlow as Record<string, unknown> | undefined)?.exitReason as string | null) ?? null,
-      childRunId: store.composition.child(step.id)?.childRunId ?? null, inputs: ports(display?.in), outputs: ports(display?.out), evidence };
+      childRunId: store.composition.child(step.id)?.childRunId ?? null, inputs: ports(display?.in, "input"), outputs: ports(display?.out, "output"), evidence };
   });
   const snapshot = store.evidence.sanitize({ run: viewerRunSummary(run, store, serviceId), definition, steps, children },
     summaries.map(step => step.callbackToken ?? "")).value as { run: ViewerRunSummary; definition: ViewerDefinition; steps: ViewerStepSummary[]; children: ViewerRunSummary[] };
@@ -110,8 +114,13 @@ export function viewerSnapshot(runId: string, store: PipelineStore, serviceId: s
   return { ...snapshot, revision };
 }
 
-function ports(fields: DisplayFieldSpec[] = []): ViewerPort[] {
-  return fields.map(field => ({ label: field.label, path: field.path, format: field.format ?? "auto" }));
+function ports(fields: DisplayFieldSpec[] = [], defaultSource: "input" | "output"): ViewerPort[] {
+  return fields.map(field => {
+    const source = field.source ?? defaultSource;
+    return { label: field.label, path: field.path, format: field.format ?? "auto",
+      ...(field.role === undefined ? {} : { role: field.role }), source,
+      evidenceKind: source === "input" ? "resolved_input" : source === "state" ? "state_write" : "returned_output" };
+  });
 }
 function legacyEvidence(step: PipelineStepSummary): EvidenceReference[] {
   return (["resolved_input", "executor_request", "returned_output", "state_write", "side_effect_confirmation"] as const).map(kind => ({

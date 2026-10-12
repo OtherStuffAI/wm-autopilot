@@ -338,7 +338,8 @@ browserTest(
         await assertViewerLayout(page);
         await assertScopeInputSelection(page);
         await page.getByTestId("pipeline-select-prepare").click();
-        const configuredRequest = page.getByTestId("pipeline-step-details").getByRole("button", { name: /Inspect .* inputs: Request/, exact: false });
+        await page.getByTestId("pipeline-all-mappings").click();
+        const configuredRequest = page.getByTestId("pipeline-context-fields").getByRole("button", { name: "Inspect unclassified inputs: Request", exact: true });
         await configuredRequest.click();
         expect(await page.getByTestId("pipeline-inspector").innerText()).toContain("No execution value exists");
         if (evidenceDir) await page.screenshot({path:`${evidenceDir}/bird-${viewport.width}-drawer.png`});

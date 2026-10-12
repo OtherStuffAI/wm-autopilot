@@ -52,7 +52,7 @@ export function executionFlow(nodes) {
   return { links, loops, unavailable };
 }
 export function domainPorts(node, side) {
-  return (node[side] || []).filter(port => !port.configured);
+  return (node[side] || []).filter(port => !port.configured && port.role !== "carried");
 }
 export function selectedMappingLinks(mapping, key, path, side) {
   if (!key) return [];
