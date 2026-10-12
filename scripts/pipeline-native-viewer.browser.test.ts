@@ -76,7 +76,7 @@ browserTest(
         }
         expect(await page.getByTestId("pipeline-step-prepare").count()).toBe(1);
         expect(await page.getByTestId("pipeline-step-child").count()).toBe(1);
-        await page.locator(".pipeline-viewer-edges g").first().waitFor();
+        await page.locator(".pipeline-viewer-edges g").first().waitFor({ state: "attached" });
         expect(await page.locator(".pipeline-viewer-edges g").count()).toBeGreaterThan(0);
         await assertExpandedEvidenceLayout(page);
         if (evidenceDir)
@@ -184,6 +184,7 @@ browserTest(
           true,
         );
         await page.keyboard.press("Escape");
+        await page.getByTestId("pipeline-select-child").click();
         await page
           .getByRole("button", {
             name: "Open child workflow: Retrieve records attempt 1",
@@ -194,9 +195,9 @@ browserTest(
         expect(await page.getByTestId("pipeline-step-loop/retrieve").count()).toBe(0);
         await page.getByTestId("pipeline-drill-loop").click();
         await page.getByTestId("pipeline-step-loop/retrieve").waitFor();
-        expect(
-          await page.locator('[data-testid^="pipeline-attempt-"]').count(),
-        ).toBe(2);
+        await page.getByTestId("pipeline-select-loop/retrieve").click();
+        expect(await page.locator('[data-testid^="pipeline-attempt-"]').count()).toBe(2);
+        await page.keyboard.press("Escape");
         if (evidenceDir) await captureViewer(page, `${evidenceDir}/run-${viewport.width}-child-loop.png`);
         await page.getByTestId("pipeline-parent").click();
         await promptPort.waitFor();
@@ -260,7 +261,7 @@ browserTest(
           if (outcome === "clarification")
             expect(
               await page.getByTestId("pipeline-step-clarify").innerText(),
-            ).toContain("Attempt 1 · ok");
+            ).toContain("ok · 1 attempt(s)");
           if (outcome === "partial" || outcome === "no-results") {
             await page
               .getByTestId("pipeline-port-child-outputs-$.result.records")
@@ -336,7 +337,8 @@ browserTest(
         }
         await assertViewerLayout(page);
         await assertScopeInputSelection(page);
-        const configuredRequest = page.getByTestId("pipeline-port-prepare-inputs-$.request");
+        await page.getByTestId("pipeline-select-prepare").click();
+        const configuredRequest = page.getByTestId("pipeline-step-details").getByRole("button", { name: /Inspect .* inputs: Request/, exact: false });
         await configuredRequest.click();
         expect(await page.getByTestId("pipeline-inspector").innerText()).toContain("No execution value exists");
         if (evidenceDir) await page.screenshot({path:`${evidenceDir}/bird-${viewport.width}-drawer.png`});

@@ -32,6 +32,7 @@ function node(row) {
     inputs: list(row.inputs).map(port),
     outputs: list(row.outputs).map(port),
     children: list(row.children).map(node),
+    review: row.review && typeof row.review === "object" && !Array.isArray(row.review) ? row.review : null,
   };
 }
 export function definitionDto(row) {

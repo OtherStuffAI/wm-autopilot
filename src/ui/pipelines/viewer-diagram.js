@@ -11,10 +11,11 @@ export function renderPipelineConnections(svg, edges, width, height, selected) {
     const group = document.createElementNS(SVG, "g");
     group.dataset.testid = `pipeline-wire-${edge.index}`;
     group.dataset.highlighted = String(selected(edge.wire));
+    group.dataset.kind = edge.kind || "data";
     const path = document.createElementNS(SVG, "path");
     path.setAttribute("d", edge.path);
     path.setAttribute("marker-end", "url(#pipeline-arrow)");
-    if (edge.wire.carriedForward) path.setAttribute("stroke-dasharray", "6 4");
+    if (edge.wire.carriedForward || ["skip", "repeat", "data"].includes(edge.kind)) path.setAttribute("stroke-dasharray", "6 4");
     const label = document.createElementNS(SVG, "text");
     label.setAttribute("x", String(edge.labelX));
     label.setAttribute("y", String(edge.labelY));

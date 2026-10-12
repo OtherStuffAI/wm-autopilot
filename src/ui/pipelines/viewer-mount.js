@@ -12,6 +12,9 @@ export function mountNativePipelineViewer(root, route) {
     link.href = "/pipelines/viewer.css";
     link.dataset.nativePipelineViewer = "";
     document.head.append(link);
+    const review = document.createElement("link");
+    review.rel = "stylesheet"; review.href = "/pipelines/viewer-review.css";
+    document.head.append(review);
   }
   const name = `nativePipelineViewer${++sequence}`;
   Alpine.data(name, () => createNativeViewerView({ route }));

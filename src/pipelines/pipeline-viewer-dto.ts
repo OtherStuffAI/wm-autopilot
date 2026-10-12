@@ -11,6 +11,7 @@ export interface ViewerPort { label: string; path: string; format: string }
 export interface ViewerDefinitionStep {
   logicalKey: string; name: string; title: string; description: string; type: string;
   inputs: ViewerPort[]; outputs: ViewerPort[]; children: ViewerDefinitionStep[];
+  review?: Record<string, unknown>;
 }
 export interface ViewerWiring { sourceStepKey: string | null; sourcePath: string; targetStepKey: string; targetPath: string; carriedForward: boolean; sourceValuePath: string; sourcePortPaths: string[]; targetPortPaths: string[] }
 export interface ViewerDefinition {
@@ -52,7 +53,11 @@ export function viewerDefinition(definition: PipelineDefinitionRecord & { viewer
       const children = step.type === "block" ? (blockExpansions ? blockExpansions[logicalKey]?.steps ?? [] : expandPipelineBlock(step).steps) : step.type === "loop" ? step.steps ?? [] : step.type === "parallel" ? [step.step] : [];
       if (step.assign) writers.push({ path: step.assign, key: logicalKey, ports: step.display?.out ?? [] });
       return { logicalKey, name: step.name, title: step.title ?? step.name, description: step.description ?? "", type: step.type,
-        inputs: ports(step.display?.in), outputs: ports(step.display?.out), children: visit(children, `${logicalKey}/`, writers) };
+        inputs: ports(step.display?.in), outputs: ports(step.display?.out),
+        // Use the already sanitized, pinned definition; never substitute live config
+        // for a historical execution. Nested bodies have their own real nodes.
+        review: Object.fromEntries(Object.entries(step).filter(([key]) => !["steps", "step", "display"].includes(key))),
+        children: visit(children, `${logicalKey}/`, writers) };
     });
   }
   const steps = visit(spec.steps);

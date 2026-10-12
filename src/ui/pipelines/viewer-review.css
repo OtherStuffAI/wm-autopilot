@@ -1,0 +1,30 @@
+/* Review cards expose domain fields; configured selector rows live in the drawer. */
+.pipeline-viewer-step{position:absolute;width:220px;padding:12px;border-radius:10px;transition:opacity .12s}
+.pipeline-viewer-step[data-faded=true]{opacity:.35}
+.pipeline-viewer-step[data-step-type=loop]{border-style:dashed}
+.pipeline-review-type{display:inline-block;padding:3px 8px;border-radius:5px;background:var(--bg-secondary,#243852);font-size:12px;font-weight:700;letter-spacing:.02em;margin-bottom:6px}
+.pipeline-viewer .pipeline-review-select{border:0;background:transparent;padding:0;min-height:44px;text-align:left;font-weight:700;line-height:1.35;width:100%;font-size:14px}
+.pipeline-viewer-step .pipeline-review-purpose{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:4px 0 8px;font-size:12px}
+.pipeline-viewer-step .pipeline-review-condition,.pipeline-viewer-step .pipeline-review-loop{font-size:12px;color:var(--text-primary);margin:4px 0}
+.pipeline-viewer-ports{flex-direction:row;flex-wrap:wrap;gap:4px;margin-top:5px}
+.pipeline-viewer-ports h4{width:100%;margin:3px 0;font-size:10px;letter-spacing:.04em}
+.pipeline-viewer .pipeline-viewer-ports button{margin:0;width:auto;padding:4px 7px;border-radius:5px;min-height:36px;border-color:var(--pv-border);font-size:12px;display:inline-flex}
+.pipeline-viewer-ports button span{font-size:12px}
+.pipeline-review-run{font-size:12px!important;margin:6px 0 0!important}
+.pipeline-viewer-edges g[data-kind=execution]>path{stroke-width:3;stroke:currentColor}
+.pipeline-viewer-edges g[data-kind=skip],.pipeline-viewer-edges g[data-kind=repeat]{color:var(--accent,#ce8d3c)}
+.pipeline-viewer-edges g[data-kind=data]{color:#4a9fdf}
+.pipeline-viewer-edges g[data-kind=data]>path{stroke-width:1.5}
+.pipeline-viewer-edges g[data-highlighted=false]{opacity:.25}
+.pipeline-viewer-edges text{font-size:12px;font-weight:600}
+.pipeline-review-loop-region{position:absolute;border:1px dashed var(--accent,#ce8d3c);border-radius:12px;box-sizing:border-box;padding:5px 8px;font-size:11px;color:var(--text-primary);pointer-events:none;background:color-mix(in srgb,var(--accent,#ce8d3c) 5%,transparent);z-index:0}
+.pipeline-viewer-scroll{position:relative;overflow:auto;max-height:72vh}
+.pipeline-viewer-inspector{top:12vh;max-height:84vh;width:min(440px,calc(100vw - 2rem))}
+.pipeline-viewer-inspector h4{margin:1rem 0 .5rem}.pipeline-viewer-inspector h5{margin:.6rem 0}
+.pipeline-viewer-inspector button{margin:3px}
+@media(max-width:850px){.pipeline-viewer-step{width:300px}.pipeline-viewer-inspector[data-pinned=true]{top:auto;max-height:65vh}.pipeline-viewer-scroll{max-height:70vh}}
+.wm-pipelines-page:has(.wm-native-pipeline-shell){max-width:none;width:100%;box-sizing:border-box}
+.pipeline-viewer-step{font-size:14px}
+#app:has(.wm-native-pipeline-shell){max-width:none}
+.pipeline-viewer .pipeline-review-select{font-size:16px}
+.pipeline-viewer-step .pipeline-review-purpose,.pipeline-viewer-ports button span{font-size:14px}

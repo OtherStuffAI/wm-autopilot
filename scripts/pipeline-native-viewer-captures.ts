@@ -65,7 +65,9 @@ export async function captureTimeline(page: any, fixture: any, width: number, ev
     }, theme);
     if (evidenceDir) await captureViewer(page, `${evidenceDir}/timeline-${width}-${theme}-overview.png`);
   }
-  const metadata = page.getByTestId("pipeline-port-reply-inputs-$.threadId");
+  await page.getByTestId("pipeline-select-reply").click();
+  await assertViewerLayout(page);
+  const metadata = page.getByTestId("pipeline-step-details").getByRole("button", { name: /Inspect .* inputs: \$\.threadId/, exact: false });
   const routesBeforeHover = await page.locator(".pipeline-viewer-edges path").evaluateAll((paths: any[]) => paths.map(path => path.getAttribute("d")));
   await metadata.hover();
   await page.mouse.move(0, 0);
@@ -77,7 +79,7 @@ export async function captureTimeline(page: any, fixture: any, width: number, ev
   });
   expect(metadataRoutes).toContain("$.threadId");
   expect(metadataRoutes).not.toContain("$.message");
-  await page.locator('.pipeline-viewer-edges g[data-highlighted="true"]').first().waitFor();
+  await page.locator('.pipeline-viewer-edges g[data-highlighted="true"]').first().waitFor({ state: "attached" });
   expect(await page.locator('.pipeline-viewer-edges g[data-highlighted="true"]').count()).toBeGreaterThan(0);
   expect(await page.getByTestId("pipeline-inspector").innerText()).toContain("$.threadId");
   expect(await page.getByTestId("pipeline-inspector").innerText()).toContain("No execution value exists");

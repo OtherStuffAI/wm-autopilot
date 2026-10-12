@@ -155,10 +155,11 @@ export async function createNativeViewerFixture() {
       },
     },
   ]);
-  let bird = record(birdSpec.name, birdSpec.steps);
-  bird.spec = birdSpec as unknown as typeof bird.spec;
-  let timeline = record(timelineSpec.name, timelineSpec.steps);
-  timeline.spec = timelineSpec as unknown as typeof timeline.spec;
+  // Fixture identities must not be superseded by evolving bundled demos.
+  let bird = record("bird.synthetic.retrieve", birdSpec.steps);
+  bird.spec = { ...birdSpec, name: bird.name } as unknown as typeof bird.spec;
+  let timeline = record("bird.synthetic.timeline", timelineSpec.steps);
+  timeline.spec = { ...timelineSpec, name: timeline.name } as unknown as typeof timeline.spec;
   const priorRoot = process.env.WINGMEN_PIPELINES_ROOT;
   process.env.WINGMEN_PIPELINES_ROOT = join(directory, "pipelines");
   const definitionsDirectory = join(
