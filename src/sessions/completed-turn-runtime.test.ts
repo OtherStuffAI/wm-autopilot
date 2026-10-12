@@ -34,6 +34,7 @@ afterEach(() => {
 
 function fixture() {
   const sessions = new Map<string, SessionSnapshot>();
+  const archives = new Map<string, SessionSnapshot>();
   const prompts: string[] = [];
   const launches: Array<{ nativeId: string | undefined }> = [];
   let gate: Promise<void> | null = null;
@@ -71,11 +72,12 @@ function fixture() {
         return session;
       },
     },
+    sessionArchiveStore: { getArchivedSession: (id: string) => archives.get(id) },
     messageStore: { getSession: (id: string) => sessions.get(id), listSessions: () => [...sessions.values()], recordSession: () => {} },
     syncSessionMessages: async () => {}, promptQueueStore: { getQueueCount: () => 0 },
   } as unknown as SessionApiContext;
   const request = (id = "one") => parseCompletedTurnRequest({ conversationKey: "conversation", projectId: "project", requestId: id, prompt: `  ${id}\nexact  `, directory });
-  return { ctx, sessions, launches, prompts, request, setGate: (value: Promise<void> | null) => { gate = value; }, setFail: (value: boolean) => { fail = value; } };
+  return { ctx, sessions, archives, launches, prompts, request, setGate: (value: Promise<void> | null) => { gate = value; }, setFail: (value: boolean) => { fail = value; } };
 }
 function definition(): PipelineDefinitionRecord {
   return { id: "native", slug: "native", name: "native", scope: "shared", ownerAlias: null, path: null,
@@ -205,4 +207,37 @@ test("uncertain native resume recovers the persisted child without launching ano
   f.sessions.get(childId)!.status = "stopped";
   await expect(runtime.prepare(stoppedBinding, f.request("two"), true)).rejects.toThrow("requires operator recovery");
   expect(f.launches).toHaveLength(2);
+});
+
+
+test("completed-turn resume resolves archived bound sessions with unchanged ownership and native reference", async () => {
+  const f = fixture();
+  const store = new PipelineStore(join(directory, "archived-runs.sqlite"));
+  const run = (id: string) => runDeclarativePipeline({ store, definition: definition(), registry: {},
+    input: { ...f.request(id) }, ownerNpub: "npub1owner", ownerAlias: null, sessionApiContext: f.ctx, callbackOrigin: "https://example.com" });
+  const first = await run("one");
+  expect(first.result).toMatchObject({ status: "completed", nativeSessionId: "native-conversation" });
+  f.archives.set("session-1", { ...f.sessions.get("session-1")!, status: "stopped" });
+  f.sessions.delete("session-1");
+  const resumed = await run("two");
+  expect(resumed.result).toMatchObject({ status: "completed", sessionId: "session-2", nativeSessionId: "native-conversation", sequence: 2 });
+  expect(f.launches).toEqual([{ nativeId: undefined }, { nativeId: "native-conversation" }]);
+  expect(f.prompts).toEqual(["  one\nexact  ", "  two\nexact  "]);
+});
+
+test("archive lookup never permits foreign owner, directory or binding", async () => {
+  for (const changed of [{ npub: "foreign", metadata: { ownerNpub: "foreign" } },
+    { workingDirectory: "/foreign" }, { metadata: { role: "completed-turn", agentTransport: "codex-sdk", bindingId: "foreign" } }]) {
+    const f = fixture();
+    const runtime = createCompletedTurnRuntime(f.ctx);
+    const binding = { owner: "npub1owner", conversationKey: "conversation", config: "", sessionId: null, executionId: null };
+    const id = await runtime.prepare(binding, f.request(), false);
+    await runtime.send(id, f.request().prompt);
+    const existing = f.sessions.get(id)!;
+    f.archives.set(id, { ...existing, ...changed, metadata: { ...existing.metadata, ...(changed.metadata ?? {}) }, status: "stopped" });
+    f.sessions.delete(id);
+    await expect(runtime.prepare({ ...binding, sessionId: id }, f.request("two"), false)).rejects.toThrow();
+    expect(f.launches).toHaveLength(1);
+    expect(f.prompts).toHaveLength(1);
+  }
 });

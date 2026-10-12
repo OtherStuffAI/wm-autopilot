@@ -16,7 +16,7 @@ export function completedTurnBindingId(owner: string, key: string): string {
 /** Only an owned dedicated native session may participate; no submission adapter fallback. */
 export function createCompletedTurnRuntime(ctx: SessionApiContext): CompletedTurnRuntime {
   function source(id: string): NativeResumeSourceSession {
-    const session = ctx.manager.getSession(id) ?? ctx.messageStore.getSession(id);
+    const session = ctx.manager.getSession(id) ?? ctx.messageStore.getSession(id) ?? ctx.sessionArchiveStore?.getArchivedSession(id);
     if (!session) throw new Error("Completed-turn bound session unavailable");
     return session;
   }
