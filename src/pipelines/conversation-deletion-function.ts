@@ -30,6 +30,6 @@ export function createConversationDeletionRuntime(ctx:SessionApiContext,codexHom
     let nativeTranscriptDeleted=false;
     if(file){const root=await realpath(join(home,'sessions')),actual=await realpath(file),rel=relative(root,actual),stats=await lstat(file);if(!stats.isFile()||stats.isSymbolicLink()||rel.startsWith('..')||rel.startsWith('/'))throw Error('Native transcript deletion path denied');await unlink(file);nativeTranscriptDeleted=true;}
     for(const id of ids){ctx.cancelPendingArchive(id);if(ctx.manager.getSession(id))ctx.manager.deleteSession(id);ctx.messageStore.removeSession(id);ctx.sessionArchiveStore?.deleteArchivedSession(id);}
-    return {runtimeStorageDeleted:true,nativeTranscriptDeleted,nativeStorageDeleted:false,metadataIndexesPreserved:true};
+    return {runtimeStorageDeleted:true,nativeTranscriptDeleted,nativeSessionId:native.sessionId,nativeStorageDeleted:false,metadataIndexesPreserved:true};
   }};
 }

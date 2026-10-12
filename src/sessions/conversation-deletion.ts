@@ -1,6 +1,6 @@
 import type { CompletedTurnStore } from './completed-turn-store.ts';
 export type ConversationDeletionRequest={conversationKey:string;projectId:string;directory:string;requestId:string;confirmation:'delete_native_transcript'};
-export interface ConversationDeletionRuntime { remove(input:{owner:string;conversationKey:string;projectId:string;directory:string;sessionId:string}):Promise<{runtimeStorageDeleted:boolean;nativeTranscriptDeleted:boolean;nativeStorageDeleted:false;metadataIndexesPreserved:true}> }
+export interface ConversationDeletionRuntime { remove(input:{owner:string;conversationKey:string;projectId:string;directory:string;sessionId:string}):Promise<{runtimeStorageDeleted:boolean;nativeTranscriptDeleted:boolean;nativeSessionId:string;nativeStorageDeleted:false;metadataIndexesPreserved:true}> }
 const inFlight=new WeakMap<CompletedTurnStore,Map<string,Promise<any>>>();
 /** The authenticated pipeline principal supplies owner; callers cannot supply session IDs or paths. */
 export async function deleteCompletedConversation(input:{owner:string;request:ConversationDeletionRequest;store:CompletedTurnStore;runtime:ConversationDeletionRuntime}) {
