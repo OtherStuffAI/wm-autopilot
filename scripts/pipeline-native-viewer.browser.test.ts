@@ -105,6 +105,7 @@ browserTest(
           .waitFor();
         expect(await page.getByTestId("pipeline-inspector").getAttribute("role")).toBe("region");
         const canvasWidth = await page.locator(".pipeline-viewer-diagram").evaluate((el: Element) => el.getBoundingClientRect().width);
+        await page.waitForFunction(() => document.querySelector('[data-testid="pipeline-inspector"]')?.contains(document.activeElement));
         expect(await page.getByTestId("pipeline-inspector").evaluate((el: Element) => el.contains(document.activeElement))).toBe(true);
         await page.getByTestId("pipeline-inspector").focus();
         await page.keyboard.press("Tab");

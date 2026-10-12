@@ -1,3 +1,4 @@
+import { renderDefinitionMetadata } from "./definition-metadata-view.js";
 import { renderCreator, renderEditWizard } from "./launcher-view.js";
 import {
   DEFINITION_FILTERS,
@@ -253,34 +254,20 @@ function renderDefinitionDetail(state, definition) {
       <header class="wm-pipeline-detail-header">
         <div>
           <h2 id="pipeline-definition-detail-title">${escapeHtml(definition.name)}</h2>
-          ${definition.description ? `<p>${escapeHtml(definition.description)}</p>` : `<p class="wm-muted">No description.</p>`}
-          <p><code>${escapeHtml(definition.id)}</code></p>
-          ${renderTagPills(definition.tags)}
         </div>
         <span class="wm-pipeline-status-chip" data-status="${escapeAttribute(definition.default ? "default" : definition.scope)}">${escapeHtml(definition.default ? "Default" : definition.scope)}</span>
-      </header>
       <div class="wm-pipeline-definition-actions">
         <button type="button" data-action="open-launcher-for-definition" data-id="${escapeAttribute(definition.id)}" aria-label="Run pipeline definition">Run</button>
-        <button type="button" data-action="open-manual-edit" data-id="${escapeAttribute(definition.id)}" aria-label="Manually edit pipeline definition" ${definition.scope !== "user" ? "disabled title='Shared definitions must be duplicated before editing'" : ""}>Manual Edit</button>
-        <button type="button" data-action="open-edit-wizard" data-id="${escapeAttribute(definition.id)}" aria-label="Edit pipeline definition with wizard" ${definition.scope !== "user" ? "disabled title='Shared definitions must be duplicated before editing'" : ""}>Edit with Wizard</button>
+        ${definition.scope === "user" ? `<button type="button" data-action="open-manual-edit" data-id="${escapeAttribute(definition.id)}" aria-label="Manually edit pipeline definition" ${definition.scope !== "user" ? "disabled title='Shared definitions must be duplicated before editing'" : ""}>Manual Edit</button>
+        <button type="button" data-action="open-edit-wizard" data-id="${escapeAttribute(definition.id)}" aria-label="Edit pipeline definition with wizard" ${definition.scope !== "user" ? "disabled title='Shared definitions must be duplicated before editing'" : ""}>Edit with Wizard</button>` : ""}
       </div>
-      ${definition.scope !== "user" ? `<p class="wm-muted">Shared definitions cannot be edited directly. Create a user-owned version before changing them.</p>` : ""}
-      <dl class="wm-pipeline-facts">
-        <div><dt>Version</dt><dd>${escapeHtml(definition.version ?? "--")}</dd></div>
-        <div><dt>Default</dt><dd>${definition.default ? "Yes" : "No"}</dd></div>
-        <div><dt>Tags</dt><dd>${escapeHtml((definition.tags ?? []).join(", ") || "--")}</dd></div>
-        <div><dt>Steps</dt><dd>${countSteps(definition)}</dd></div>
-        <div><dt>Scope</dt><dd>${escapeHtml(definition.scope)}</dd></div>
-        <div><dt>Path</dt><dd><code>${escapeHtml(definition.path)}</code></dd></div>
-      </dl>
+      </header>
+      ${renderDefinitionMetadata(definition)}
       ${state.manualEditDefinitionId === definition.id ? renderManualEditPanel(state, definition) : ""}
       ${state.editDefinitionId === definition.id ? renderEditWizard(state, definition) : ""}
       ${state.nativeViewerEnabled ? "" : "<h3>Step Preview</h3>"}
       ${state.nativeViewerEnabled ? "" : renderDefinitionFlow(definition)}
-      <details>
-        <summary>Default input</summary>
-        <pre>${escapeHtml(JSON.stringify(definition.input ?? {}, null, 2))}</pre>
-      </details>
+
     </article>
   `;
 }

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { viewerDefinition } from "../../pipelines/pipeline-viewer-dto.ts";
 import { definitionDto } from "./viewer-contract.js";
-import { pipelineNodes } from "./viewer-projection.js";
+import { humanStepTitle, pipelineNodes } from "./viewer-projection.js";
 import { viewerMapping } from "./viewer-mapping.js";
 import { conditionLabel, domainPorts, executionFlow, selectedMappingLinks, stepType, reviewValidation } from "./viewer-review.js";
 import { reviewGraph } from "./viewer-review-geometry.js";
@@ -77,5 +77,14 @@ test("condition summaries retain declared labels and bounded exact path context"
   expect(conditionLabel({ path: "$.builderAllowed", equals: true }, [])).toBe("builder Allowed is true");
   expect(conditionLabel({ path: "$." + "long".repeat(30), equals: true }, [])).toBe("Configured condition (see details)");
   expect(conditionLabel({ expression: "unknown expression" }, [])).toBe("Configured condition (see details)");
-  expect(reviewGraph([], []).layoutOptions["elk.direction"]).toBe("DOWN");
+  expect(reviewGraph([], []).layoutOptions["elk.direction"]).toBe("RIGHT");
+});
+
+test("legacy names remain readable without inventing missing purpose or roles", () => {
+  expect(humanStepTitle({ name: "manager-review", title: "manager-review" })).toBe("Manager review");
+  expect(humanStepTitle({ name: "manager-review", title: "Review work" })).toBe("Review work");
+  const { nodes } = project([{ name: "manager-review", type: "agent", prompt: "Review" }]);
+  expect(nodes[0].title).toBe("Manager review");
+  expect(nodes[0].description || "").toBe("");
+  expect(nodes[0].inputs).toEqual([]);
 });

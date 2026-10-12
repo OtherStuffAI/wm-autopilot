@@ -1,13 +1,14 @@
+import { dataConnectionGroups } from "./viewer-data-roles.js";
 import { createElkLayout } from "./viewer-elk.js";
 import { renderPipelineConnections } from "./viewer-diagram.js";
 
-export function reviewGraph(cards, links, direction = "DOWN") {
+export function reviewGraph(cards, links, direction = "RIGHT") {
   const keys = new Set(cards.map(card => card.key));
   return {
     id: "review", layoutOptions: {
       "elk.algorithm": "layered", "elk.direction": direction,
-      "elk.edgeRouting": "ORTHOGONAL", "elk.padding": "[top=54,left=28,bottom=40,right=28]",
-      "elk.spacing.nodeNode": "28", "elk.layered.spacing.nodeNodeBetweenLayers": "84",
+      "elk.edgeRouting": "ORTHOGONAL", "elk.padding": "[top=42,left=16,bottom=32,right=16]",
+      "elk.spacing.nodeNode": "28", "elk.layered.spacing.nodeNodeBetweenLayers": "64",
       "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
       "elk.layered.cycleBreaking.strategy": "MODEL_ORDER",
       "elk.layered.nodePlacement.strategy": "SIMPLE",
@@ -26,7 +27,7 @@ export function createReviewGeometry() {
   return {
     dispose() { generation++; layout.dispose(); observer?.disconnect(); observed.clear(); result = null; },
     async measure(view) {
-      const canvas = view.$el?.querySelector(".pipeline-viewer-canvas");
+      const canvas = (view.$root || view.$el)?.querySelector(".pipeline-viewer-canvas");
       if (!canvas) return;
       const elements = [...canvas.querySelectorAll(".pipeline-viewer-step")];
       if (!elements.length || elements.length !== view.nodes.length) return;
@@ -34,7 +35,7 @@ export function createReviewGeometry() {
       for (const element of observed) if (!elements.includes(element)) { observer.unobserve(element); observed.delete(element); }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element); }
       const cards = elements.map(element => ({ key: element.dataset.nodeKey, width: element.offsetWidth, height: element.offsetHeight }));
-      const graph = reviewGraph(cards, view.flow.links, "DOWN");
+      const graph = reviewGraph(cards, view.flow.links, "RIGHT");
       const next = JSON.stringify(graph), ticket = ++generation;
       try {
         if (signature !== next || !result) {
@@ -66,13 +67,12 @@ export function createReviewGeometry() {
           const link = group.links[0];
           const source = positions.get(link.sourceKey), target = positions.get(link.targetKey);
           if (!target) return;
-          const start = source ? { x: source.x + source.width, y: source.y + source.height - 12 } : { x: target.x + target.width + 12, y: target.y + target.height - 32 };
-          const end = { x: target.x + target.width, y: target.y + target.height - 12 };
-          const laneX = Math.max(...result.children.map(node => node.x + node.width)) + 22 + index * 20;
-
+          const start = source ? { x: source.x + source.width - 12, y: source.y + source.height } : { x: target.x + 12, y: target.y + target.height + 14 };
+          const end = { x: target.x + 12, y: target.y + target.height };
+          const laneY = Math.max(...result.children.map(node => node.y + node.height)) + 24 + (group.number - 1) * 20;
           edges.push({ wire: link.wire, kind: "data", index: "data-" + index,
-            path: `M ${start.x} ${start.y} H ${laneX} V ${end.y} H ${end.x}`,
-            label: String(group.number), labelX: laneX - 3, labelY: (start.y + end.y) / 2 });
+            path: `M ${start.x} ${start.y} V ${laneY} H ${end.x} V ${end.y}`,
+            label: String(group.number), labelX: (start.x + end.x) / 2, labelY: laneY - 4 });
         });
         const regions = view.flow.loops.map(loop => {
           const members = loop.keys.map(key => positions.get(key)).filter(Boolean);
@@ -87,18 +87,15 @@ export function createReviewGeometry() {
           Object.assign(element.style, { left: region.left + "px", top: region.top + "px", width: region.width + "px", height: region.height + "px" });
           canvas.prepend(element);
         }
-        view.diagramWidth = result.width + view.diagramDataGroups.length * 20 + 24; view.diagramHeight = result.height + view.diagramDataGroups.length * 20 + 24;
+        // Reserve every mapping lane even while only selected links are drawn.
+        // Selection and the context toggle must never resize or reposition the graph.
+        const laneCount = dataConnectionGroups(view.mapping.links, view.nodes).length;
+        view.diagramWidth = result.width;
+        view.diagramHeight = result.height + laneCount * 20 + 24;
         canvas.style.width = view.diagramWidth + "px"; canvas.style.height = view.diagramHeight + "px";
-        if (view.autoFit) view.zoom = Math.min(1, Math.max(0.85, (canvas.parentElement.clientWidth - 8) / result.width));
+        if (view.autoFit) view.zoom = Math.min(1, (canvas.parentElement.clientWidth - 8) / view.diagramWidth);
         canvas.style.transform = `scale(${view.zoom})`; canvas.style.transformOrigin = "top left";
         canvas.parentElement.style.height = Math.ceil(view.diagramHeight * view.zoom) + 18 + "px";
-        const selected = elements.find(element => element.dataset.nodeKey === (view.selectedStepKey || view.inspectLabel));
-        if (selected && view.pinned) {
-          const node = positions.get(selected.dataset.nodeKey), viewport = canvas.parentElement;
-          const top = node.y * view.zoom, bottom = (node.y + node.height) * view.zoom;
-          if (top < viewport.scrollTop || bottom > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = Math.max(0, top - 20);
-          viewport.scrollLeft = Math.max(0, node.x * view.zoom - 20);
-        }
         view.edges = edges; view.layoutError = "";
         renderPipelineConnections(canvas.querySelector("svg"), edges, view.diagramWidth, view.diagramHeight,
           wire => wire.kind ? !view.selectionActive || [wire.sourceKey, wire.targetKey].includes(view.selectedStepKey || view.inspectLabel) : !view.selectionActive || view.wireSelected(wire));

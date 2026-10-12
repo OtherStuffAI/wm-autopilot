@@ -49,6 +49,14 @@ loading rejects unsupported role values, including within loop and parallel bodi
 
 ## Viewer defaults
 
+The pipeline page uses the available screen width. Actual sibling steps run left
+to right at 100% scale by default, with horizontal scrolling confined to the
+process. Arrow keys, Home/End and First/Last navigation reach the whole sequence.
+Fit to view is an explicit optional overview; 100% restores readable scale.
+Selected details follow the process on desktop and mobile. Selection highlights
+relevant paths without fading other cards or moving their positions. Empty data
+sections are omitted; diagnostics and raw configuration use technical disclosures.
+
 Declared operation connections appear without selecting a field. Data routes are
 blue numbered bundles per configured producer/consumer pair, distinct from solid
 execution arrows and skip/repeat routes. Receiving cards name the source and key
@@ -59,7 +67,7 @@ result produced by the intervening operation.
 
 Cards show the first three operation fields per direction and an explicit count
 of remaining fields. Selecting the card or `+N more` opens all operation fields
-in docked details. Legacy display rows remain visible as unclassified display.
+in details below the process. Legacy display rows remain visible as unclassified display.
 Selecting a step draws only operation bundles. `Show carried context / all
 mappings` opens separate carried and unclassified sections and all configured
 selectors. Clicking a particular value explicitly traces its exact mapping.

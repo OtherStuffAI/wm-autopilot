@@ -707,10 +707,15 @@ body[data-menu-open="true"] .wm-menu-panel {
 #app[data-route="files"],
 #app[data-route="apps"],
 #app[data-route="scheduler"],
-#app[data-route="pipelines"],
 #app[data-route="live"] {
   max-width: 90vw;
   width: 90vw;
+}
+
+#app[data-route="pipelines"] {
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 #app[data-route="live"] {
@@ -15465,7 +15470,8 @@ textarea.wm-input {
 }
 
 .wm-pipelines-page {
-  max-width: 1320px;
+  max-width: none;
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   margin: 0 auto;

@@ -1,4 +1,5 @@
-// Focus the nonmodal detail region after explicit selection.
+// Wait for the nonmodal region's x-show transition before moving focus.
 export function focusViewerDrawer(view) {
-  view.$nextTick?.(() => (view.$root || view.$el).querySelector(".pipeline-viewer-inspector")?.focus());
+  const region = (view.$root || view.$el).querySelector(".pipeline-viewer-inspector");
+  view.$nextTick?.(() => requestAnimationFrame(() => region?.focus({ preventScroll: true })));
 }

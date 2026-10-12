@@ -26,6 +26,9 @@ test("nested operation inputs trace through selected objects and renamed results
 test("step selection prioritizes operation fields; explicit toggle reveals carried and unclassified mappings",()=>{
   const {nodes,mapping}=fixture();
   const view=Object.assign(createReviewView(),{nodes,mapping,inspectLabel:"do",inspectPath:"",inspectSide:"",selectedStepKey:"do",queueGeometry(){}});
+  // Reactive projection returns fresh mapping objects on each read.
+  const definition = fixture().definition;
+  Object.defineProperty(view, "mapping", { get: () => viewerMapping(nodes, definition.wiring) });
   expect(view.selectedLinks).toHaveLength(4);
   view.toggleMappings();expect(view.selectedLinks).toHaveLength(6);
   expect(rolePorts(nodes[1].inputs,"carried")).toHaveLength(1);

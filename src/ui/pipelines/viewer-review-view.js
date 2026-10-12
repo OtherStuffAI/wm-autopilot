@@ -1,11 +1,11 @@
-import { operationLinks, rolePorts, dataConnectionGroups } from "./viewer-data-roles.js";
+import { operationLinks, mappingRole, rolePorts, dataConnectionGroups } from "./viewer-data-roles.js";
 import { stepType, conditionLabel, domainPorts, executionFlow, selectedMappingLinks, reviewValidation } from "./viewer-review.js";
 import { focusViewerDrawer } from "./viewer-accessibility.js";
 import { flattenPipelineNodes, matchingWires, evidenceText } from "./viewer-projection.js";
 
 export function createReviewView() {
   return {
-    showAllMappings: false, selectedStepKey: "", functionDetail: null, functionStatus: "", zoom: 1, autoFit: true,
+    showAllMappings: false, selectedStepKey: "", functionDetail: null, functionStatus: "", zoom: 1, autoFit: false,
     stepType, domainPorts,
     cardPorts(node, side) { return domainPorts(node, side).slice(0, 3); },
     extraPortCount(node, side) { return Math.max(0, domainPorts(node, side).length - 3); },
@@ -35,7 +35,7 @@ export function createReviewView() {
       const links = selectedMappingLinks(this.mapping, this.inspectLabel || this.selectedStepKey, this.inspectPath, this.inspectSide);
       // A clicked value is an explicit request to trace that exact field. Step
       // selection retains only declared operation data until all mappings opens.
-      return this.showAllMappings || this.inspectPath ? links : links.filter(link => this.operationLinks.includes(link));
+      return this.showAllMappings || this.inspectPath ? links : links.filter(link => mappingRole(link, this.nodes) === "operation");
     },
     get selectedDataGroups() { return this.numberDataGroups(dataConnectionGroups(this.selectedLinks, this.nodes)); },
     get diagramDataGroups() { return this.selectionActive ? this.selectedDataGroups : this.dataGroups; },
@@ -92,6 +92,17 @@ export function createReviewView() {
         if (node.review.version != null && String(payload.definition.spec?.version) !== String(node.review.version)) throw new Error("Pinned child definition version is unavailable here. Inspect the actual child run instead.");
         if (this.definition?.id === definitionId) window.location.assign(`/pipelines/definitions/${encodeURIComponent(payload.definition.id)}`);
       } catch (error) { this.notice = error.message; this.preview = error.message; this.pinned = true; focusViewerDrawer(this); }
+    },
+    navigateGraph(direction) {
+      const viewport = (this.$root || this.$el).querySelector(".pipeline-viewer-scroll");
+      if (direction === "start" || direction === "end") viewport.scrollTo({ behavior: "instant", left: direction === "start" ? 0 : viewport.scrollWidth });
+      else viewport.scrollBy({ behavior: "instant", left: direction * Math.max(280, viewport.clientWidth * 0.7) });
+    },
+    scrollGraph(event) {
+      if (!event.target.classList.contains("pipeline-viewer-scroll")) return;
+      const viewport = event.target;
+      const actions = { ArrowRight: () => viewport.scrollBy({ behavior: "instant", left: 280 }), ArrowLeft: () => viewport.scrollBy({ behavior: "instant", left: -280 }), Home: () => viewport.scrollTo({ behavior: "instant", left: 0 }), End: () => viewport.scrollTo({ behavior: "instant", left: viewport.scrollWidth }) };
+      if (actions[event.key]) { event.preventDefault(); actions[event.key](); }
     },
     fitView() { this.autoFit = true; this.queueGeometry(); },
     actualSize() { this.autoFit = false; this.zoom = 1; this.queueGeometry(); },

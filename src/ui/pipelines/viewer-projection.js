@@ -1,9 +1,16 @@
+export function humanStepTitle(node) {
+  const title = node.title || node.name || node.logicalKey;
+  if (title !== node.name || !/[-_]/.test(title)) return title;
+  const words = title.replace(/[-_]+/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 // Shared renderer logic adapted from the reviewed Flight Deck viewer.
 export function pipelineNodes(definition, snapshot) {
   const attempts = snapshot?.steps || [];
   function project(nodes) {
     return (nodes || []).map((node) => ({
       ...node,
+      title: humanStepTitle(node),
       attempts: attempts
         .filter((step) => step.logicalKey === node.logicalKey)
         .sort((a, b) => a.attempt - b.attempt || a.id.localeCompare(b.id)),
@@ -17,7 +24,7 @@ export function pipelineNodes(definition, snapshot) {
       return {
         logicalKey,
         name: first.title,
-        title: first.title,
+        title: humanStepTitle({ title: first.title, name: first.title, logicalKey }),
         description: first.description,
         type: first.kind,
         inputs: first.inputs || [],

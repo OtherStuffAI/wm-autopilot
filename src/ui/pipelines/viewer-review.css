@@ -1,40 +1,73 @@
 /* Review cards expose domain fields; configured selector rows live in the drawer. */
-.pipeline-viewer-step{position:absolute;width:300px;max-width:none;padding:12px;border-radius:10px;transition:opacity .12s}
-.pipeline-viewer-step[data-faded=true]{opacity:.35}
+.pipeline-viewer-step{position:absolute;width:300px;max-width:none;padding:12px;border-radius:10px;font-size:14px}
 .pipeline-viewer-step[data-step-type=loop]{border-style:dashed}
 .pipeline-review-type{display:inline-block;padding:3px 8px;border-radius:5px;background:var(--bg-secondary,#243852);font-size:12px;font-weight:700;letter-spacing:.02em;margin-bottom:6px}
-.pipeline-viewer .pipeline-review-select{border:0;background:transparent;padding:0;min-height:44px;text-align:left;font-weight:700;line-height:1.35;width:100%;font-size:14px}
-.pipeline-viewer-step .pipeline-review-purpose{white-space:normal;margin:4px 0 8px;font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pipeline-viewer .pipeline-review-select{border:0;background:transparent;padding:0;min-height:32px;text-align:left;font-weight:700;line-height:1.35;width:100%;font-size:16px}
+.pipeline-viewer-step .pipeline-review-purpose{white-space:normal;margin:4px 0 8px;font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pipeline-viewer-step .pipeline-review-condition,.pipeline-viewer-step .pipeline-review-loop{font-size:14px;color:var(--text-primary);margin:4px 0}
 .pipeline-viewer-ports{flex-direction:row;flex-wrap:wrap;gap:4px;margin-top:5px}
 .pipeline-viewer-ports h4{width:100%;margin:3px 0;font-size:10px;letter-spacing:.04em}
 .pipeline-viewer .pipeline-viewer-ports button{margin:0;width:auto;padding:4px 7px;border-radius:5px;min-height:36px;border-color:var(--pv-border);font-size:12px;display:inline-flex}
-.pipeline-viewer-ports button span{font-size:12px}
+.pipeline-viewer-ports button span{font-size:14px}
 .pipeline-review-run{font-size:12px!important;margin:6px 0 0!important}
 .pipeline-viewer-edges g[data-kind=execution]>path{stroke-width:3;stroke:currentColor}
 .pipeline-viewer-edges g[data-kind=skip],.pipeline-viewer-edges g[data-kind=repeat]{color:var(--accent,#ce8d3c)}
 .pipeline-viewer-edges g[data-kind=data]{color:#4a9fdf}
 .pipeline-viewer-edges g[data-kind=data]>path{stroke-width:1.5}
-.pipeline-viewer-edges g[data-highlighted=false]{opacity:.25}
+.pipeline-viewer-edges g[data-highlighted=false]{opacity:1}
 .pipeline-viewer-edges text{font-size:14px;font-weight:700}
 .pipeline-review-loop-region{position:absolute;border:1px dashed var(--accent,#ce8d3c);border-radius:12px;box-sizing:border-box;padding:5px 8px;font-size:11px;color:var(--text-primary);pointer-events:none;background:color-mix(in srgb,var(--accent,#ce8d3c) 5%,transparent);z-index:0}
-.pipeline-viewer-scroll{position:relative;overflow:auto;max-height:72vh}
-.pipeline-viewer-inspector{position:sticky;top:1rem;max-height:72vh;width:100%;box-sizing:border-box}
+.pipeline-viewer-scroll{position:relative;overflow:auto;scrollbar-width:auto;max-height:72vh}
+.pipeline-viewer-inspector{position:static;max-height:none;width:100%;box-sizing:border-box}
 .pipeline-viewer-inspector h4{margin:1rem 0 .5rem}.pipeline-viewer-inspector h5{margin:.6rem 0}
 .pipeline-viewer-inspector button{margin:3px}
-@media(max-width:850px){.pipeline-viewer-step{width:300px}.pipeline-viewer-inspector[data-pinned=true]{top:auto;max-height:65vh}.pipeline-viewer-scroll{max-height:70vh}}
-.wm-pipelines-page:has(.wm-native-pipeline-shell){max-width:none;width:100%;box-sizing:border-box}
-.pipeline-viewer-step{font-size:14px}
-#app:has(.wm-native-pipeline-shell){max-width:none}
-.pipeline-viewer .pipeline-review-select{font-size:16px}
-.pipeline-viewer-step .pipeline-review-purpose,.pipeline-viewer-ports button span{font-size:14px}
+@media(max-width:850px){.pipeline-viewer-step{width:300px}.pipeline-viewer-scroll{max-height:70vh}}
 
-.pipeline-viewer-layout[data-inspecting="true"]{grid-template-columns:minmax(0,1fr) minmax(300px,400px)}
+.pipeline-viewer-layout[data-inspecting="true"]{grid-template-columns:minmax(0,1fr)}
 .pipeline-viewer-edges g[data-kind=execution],.pipeline-viewer-edges g[data-kind=skip],.pipeline-viewer-edges g[data-kind=repeat]{color:var(--text-primary,#e4e9f1)}
 .pipeline-viewer-edges g[data-highlighted=true]>path{stroke:currentColor}
-.pipeline-viewer-step[data-faded=true]{opacity:.72}
+.pipeline-viewer-step[data-faded=true]{opacity:1}
 @media(max-width:850px){.pipeline-viewer-layout[data-inspecting="true"]{grid-template-columns:minmax(0,1fr)}.pipeline-viewer-inspector,.pipeline-viewer-inspector[data-pinned=true]{position:static;max-height:none;width:100%}}
 .pipeline-operation-connections{border-top:1px dashed #4a9fdf;margin-top:8px;padding-top:5px;font-size:12px;color:var(--text-primary)}
 .pipeline-operation-connections p{margin:4px 0!important;font-size:12px!important;overflow-wrap:anywhere}
 .pipeline-data-source{color:#4a9fdf;font-weight:700}
 .pipeline-viewer-connection-details{overflow-wrap:anywhere}
+
+/* The process owns the full row; all review details follow it in document flow. */
+.pipeline-viewer-layout{grid-template-columns:minmax(0,1fr)}
+.pipeline-viewer-diagram{overflow:visible}
+.pipeline-viewer-inspector-header{position:static}
+.pipeline-viewer-step .pipeline-review-condition{font-size:12px;line-height:1.35}
+.pipeline-viewer-inspector .pipeline-operation-fields{display:flex;flex-wrap:wrap;gap:16px}
+.pipeline-operation-fields>div{flex:1 1 280px}
+
+.pipeline-process-navigation{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:12px}
+.pipeline-process-navigation button{min-width:44px}
+.pipeline-viewer-scroll::-webkit-scrollbar{height:14px;width:14px}
+.pipeline-viewer-scroll::-webkit-scrollbar-track{background:var(--bg-secondary,#e5e9ed);border-radius:8px}
+.pipeline-viewer-scroll::-webkit-scrollbar-thumb{background:var(--pv-border);border:3px solid var(--bg-secondary,#e5e9ed);border-radius:8px}
+
+.pipeline-viewer{overflow-anchor:none}
+.wm-native-pipeline-shell .wm-pipelines-header{padding:.5rem 1rem}
+.wm-native-pipeline-shell .wm-pipelines-header h1{font-size:1.4rem;margin:0}
+.wm-native-pipeline-shell .wm-pipelines-header p{display:none}
+.wm-native-pipeline-shell .wm-pipeline-definition-actions{margin:.35rem 0}
+.pipeline-definition-metadata{margin:.5rem 0}
+.pipeline-definition-metadata>summary{cursor:pointer;padding:.25rem 0}
+.pipeline-viewer-toolbar{margin-bottom:.4rem}
+
+#app[data-route="pipelines"]:has(.wm-native-pipeline-shell){padding-top:.75rem}
+.wm-native-pipeline-shell .wm-pipelines-page{padding-top:.5rem}
+.wm-native-pipeline-shell .wm-pipeline-definition-detail{gap:.25rem}
+.wm-native-pipeline-shell .wm-pipeline-detail-header{align-items:center;flex-wrap:wrap}
+.wm-native-pipeline-shell .wm-pipeline-definition-detail>.pipeline-viewer{padding-top:0;padding-bottom:0}
+.wm-native-pipeline-shell .pipeline-definition-metadata{margin:0}
+.pipeline-viewer-diagram>.pipeline-viewer-hint{max-width:none;margin:.25rem 0}
+
+@media(max-width:850px){
+ .wm-native-pipeline-shell .wm-pipelines-header{display:flex;align-items:center;gap:.5rem}
+ .wm-native-pipeline-shell .wm-pipelines-header-actions{gap:.25rem}
+ .wm-native-pipeline-shell .wm-pipeline-detail-header{display:flex}
+}
+
+@media(max-width:850px){.pipeline-process-navigation span{display:none}}
