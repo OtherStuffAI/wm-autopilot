@@ -59,6 +59,25 @@ export class CompletedTurnStore {
     }).immediate();
   }
 
+  request(owner: string, requestId: string): TurnRecord | null {
+    const row = this.db.query("SELECT receiptId FROM completed_turn_receipts WHERE owner=? AND requestId=?").get(owner, requestId) as { receiptId: string } | null;
+    return row ? this.get(row.receiptId) : null;
+  }
+
+  /** Explicit recovery only for the known source lookup failure BEFORE any launch/send. */
+  recoverMissingPreparation(owner: string, request: CompletedTurnRequest): void {
+    this.db.transaction(() => {
+      const row = this.request(owner, request.requestId);
+      if (!row || row.requestJson !== JSON.stringify(request)) throw new Error("Preparation recovery request binding denied");
+      if (row.status === "completed" || row.status === "queued") return;
+      if (row.status !== "preparing" || row.error !== "Completed-turn bound session unavailable" ||
+          row.sessionId || row.executionId || row.nativeSessionId || row.checkpoint !== null || row.claimToken || row.leaseUntil !== 0) {
+        throw new Error("Preparation recovery denied: launch or send outcome is not proven absent");
+      }
+      this.db.query("UPDATE completed_turn_receipts SET status='queued',error=NULL WHERE receiptId=?").run(row.receiptId);
+    }).immediate();
+  }
+
   binding(owner: string, key: string): TurnBinding | null {
     return this.db.query("SELECT * FROM completed_turn_bindings WHERE owner=? AND conversationKey=?").get(owner, key) as TurnBinding | null;
   }

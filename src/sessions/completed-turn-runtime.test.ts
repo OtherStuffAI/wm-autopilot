@@ -241,3 +241,28 @@ test("archive lookup never permits foreign owner, directory or binding", async (
     expect(f.prompts).toHaveLength(1);
   }
 });
+
+test("explicit source-lookup recovery resumes the archived native request once without changing its receipt", async () => {
+  const f = fixture();
+  const store = new PipelineStore(join(directory, "preparation-recovery.sqlite"));
+  const run = (id: string, recovery = false) => runDeclarativePipeline({ store, definition: definition(), registry: {},
+    input: { ...f.request(id), ...(recovery ? { recoverPreparation: true } : {}) }, ownerNpub: "npub1owner", ownerAlias: null,
+    sessionApiContext: f.ctx, callbackOrigin: "https://example.com" });
+  await run("one");
+  const archived = { ...f.sessions.get("session-1")!, status: "stopped" as const };
+  f.sessions.delete("session-1");
+  // The source was missing before any resume launch. No second native prompt was sent.
+  const failed = await run("two");
+  expect(failed.status).toBe("error");
+  const prepared = store.completedTurns.request("npub1owner", "two")!;
+  expect(prepared).toMatchObject({ status: "preparing", sessionId: null, executionId: null, checkpoint: null, error: "Completed-turn bound session unavailable" });
+  expect(f.prompts).toHaveLength(1);
+  f.archives.set("session-1", archived);
+  const recovered = await run("two", true);
+  expect(recovered.result).toMatchObject({ status: "completed", receiptId: prepared.receiptId, nativeSessionId: "native-conversation", sequence: 2, invocationRunId: recovered.id });
+  expect(f.prompts).toEqual(["  one\nexact  ", "  two\nexact  "]);
+  expect(f.launches).toHaveLength(2);
+  const repeat = await run("two", true);
+  expect(repeat.result).toMatchObject({ status: "completed", receiptId: prepared.receiptId, sequence: 2 });
+  expect(f.prompts).toHaveLength(2);
+});
