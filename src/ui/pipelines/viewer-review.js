@@ -5,6 +5,7 @@ export function stepType(node) {
 }
 export function conditionLabel(condition, nodes) {
   if (!condition) return "";
+  if (typeof condition.path !== "string") return "Configured condition (see details)";
   let label = condition.path;
   for (const node of nodes) {
     const assign = node.review?.assign;
@@ -12,7 +13,13 @@ export function conditionLabel(condition, nodes) {
     const path = "$" + condition.path.slice(assign.length);
     label = node.outputs.find(port => port.path === path)?.label || condition.path;
   }
-  return `${label} = ${JSON.stringify(condition.equals)}`;
+  if (label === condition.path) {
+    const parts = condition.path.replace(/^\$\.?/, "").split(".");
+    label = parts.slice(-2).join(" ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]/g, " ");
+  }
+  const value = JSON.stringify(condition.equals);
+  if (label.length > 48 || !value || value.length > 40) return "Configured condition (see details)";
+  return `${label} is ${value}`;
 }
 // Conditions gate sequential steps; a classifier alone is not a branch. Skip
 // edges bypass the actual contiguous gated range, never invent outcome nodes.

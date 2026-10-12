@@ -103,13 +103,13 @@ browserTest(
           .getByTestId("pipeline-value-completeness")
           .filter({ hasText: "Complete retained value" })
           .waitFor();
-        expect(await page.getByTestId("pipeline-inspector").getAttribute("role")).toBe("dialog");
+        expect(await page.getByTestId("pipeline-inspector").getAttribute("role")).toBe("region");
         const canvasWidth = await page.locator(".pipeline-viewer-diagram").evaluate((el: Element) => el.getBoundingClientRect().width);
         expect(await page.getByTestId("pipeline-inspector").evaluate((el: Element) => el.contains(document.activeElement))).toBe(true);
         await page.getByTestId("pipeline-inspector").focus();
         await page.keyboard.press("Tab");
         expect(await page.getByLabel("Close value inspector", {exact:true}).evaluate((el: Element) => el === document.activeElement)).toBe(true);
-        expect(canvasWidth).toBeGreaterThan(viewport.width < 850 ? 200 : 900);
+        expect(canvasWidth).toBeGreaterThan(viewport.width < 850 ? 200 : 650);
         expect(
           await page.getByTestId("pipeline-exact-value").textContent(),
         ).toBe(exactPrompt);

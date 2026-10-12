@@ -26,8 +26,13 @@ containing loop and repeat bound. Child steps can open a resolved definition or,
 in run review, the actual child run. A pinned child version mismatch is reported;
 the viewer does not silently open a different version.
 
-The default reading direction is left to right on desktop and top to bottom on
-mobile. Fit to view scales the graph within a readability floor; large graphs
+The default reading direction is top to bottom on desktop and mobile.
+Desktop details dock beside the resized graph; mobile details follow it in flow.
+The inspector is a nonmodal region, so keyboard users can return to the process.
+Condition cards show declared field labels or the final two path components;
+exact conditions remain in configuration. Long or complex expressions use a
+bounded “Configured condition (see details)” summary. Execution arrows say
+“Condition met” rather than repeating selector strings across the process. Fit to view scales the graph within a readability floor; large graphs
 remain scrollable. The 100% control restores unscaled text. Buttons support
 keyboard selection; Escape closes inspection and returns focus to the trigger.
 
@@ -66,3 +71,12 @@ Playwright module and `CHROMIUM_EXECUTABLE` to the browser executable, then run
 QA; `PIPELINE_REVIEW_EVIDENCE_DIR` should point to ignored operational storage.
 The existing `scripts/pipeline-native-viewer.browser.test.ts` also covers retained
 values, paging, child execution evidence, identity loss, refused and stale reads.
+
+Vertical layout QA uses `scripts/pipeline-vertical.browser.test.ts` with the same
+browser settings, `PIPELINE_VERTICAL_DEFINITIONS_ROOT` pointing to the local
+pipeline store and `PIPELINE_REVIEW_EVIDENCE_DIR` pointing to ignored evidence.
+It resolves the requested do-and-review, Agent Direct Context and Freedom Tools
+IDs from their paths, renders their exact definitions without executing them,
+and records open/closed inspector bounds and full-page screenshots at desktop
+and mobile sizes. Assertions check downward order, readable scale, selected-card
+visibility, layout docking, page overflow and retained field routes.

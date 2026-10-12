@@ -26,7 +26,7 @@ export async function assertViewerLayout(page: any) {
         const bounds = card.getBoundingClientRect();
         for (let distance = 0; distance <= path.getTotalLength(); distance += 4) {
           const point = path.getPointAtLength(distance), x = point.x * view.zoom + origin.left, y = point.y * view.zoom + origin.top;
-          if (x > bounds.left + 2 && x < bounds.right - 2 && y > bounds.top + 2 && y < bounds.bottom - 2) { failures.push(`Route crosses unrelated card ${card.dataset.nodeKey}`); break; }
+          if (x > bounds.left + 2 && x < bounds.right - 2 && y > bounds.top + 2 && y < bounds.bottom - 2) { failures.push(`Route ${edge.index} crosses unrelated card ${card.dataset.nodeKey}`); break; }
         }
       }
       const label = group?.querySelector("text"), box = label?.getBoundingClientRect(), svgBounds = svg.getBoundingClientRect();

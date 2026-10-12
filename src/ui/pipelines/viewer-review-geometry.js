@@ -1,7 +1,7 @@
 import { createElkLayout } from "./viewer-elk.js";
 import { renderPipelineConnections } from "./viewer-diagram.js";
 
-export function reviewGraph(cards, links, direction) {
+export function reviewGraph(cards, links, direction = "DOWN") {
   const keys = new Set(cards.map(card => card.key));
   return {
     id: "review", layoutOptions: {
@@ -10,6 +10,7 @@ export function reviewGraph(cards, links, direction) {
       "elk.spacing.nodeNode": "28", "elk.layered.spacing.nodeNodeBetweenLayers": "84",
       "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
       "elk.layered.cycleBreaking.strategy": "MODEL_ORDER",
+      "elk.layered.nodePlacement.strategy": "SIMPLE",
     },
     children: cards.map(card => ({ id: card.key, width: card.width, height: card.height })),
     edges: links.filter(link => keys.has(link.sourceKey) && keys.has(link.targetKey)).map((link, index) => ({
@@ -20,17 +21,20 @@ export function reviewGraph(cards, links, direction) {
 }
 export function createReviewGeometry() {
   const layout = createElkLayout();
-  let signature = "", result = null, generation = 0;
+  let signature = "", result = null, generation = 0, observer;
+  const observed = new Set();
   return {
-    dispose() { generation++; layout.dispose(); result = null; },
+    dispose() { generation++; layout.dispose(); observer?.disconnect(); observed.clear(); result = null; },
     async measure(view) {
       const canvas = view.$el?.querySelector(".pipeline-viewer-canvas");
       if (!canvas) return;
       const elements = [...canvas.querySelectorAll(".pipeline-viewer-step")];
       if (!elements.length || elements.length !== view.nodes.length) return;
-      const mobile = globalThis.innerWidth <= 850;
+      observer ||= new ResizeObserver(() => view.queueGeometry());
+      for (const element of observed) if (!elements.includes(element)) { observer.unobserve(element); observed.delete(element); }
+      for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element); }
       const cards = elements.map(element => ({ key: element.dataset.nodeKey, width: element.offsetWidth, height: element.offsetHeight }));
-      const graph = reviewGraph(cards, view.flow.links, mobile ? "DOWN" : "RIGHT");
+      const graph = reviewGraph(cards, view.flow.links, "DOWN");
       const next = JSON.stringify(graph), ticket = ++generation;
       try {
         if (signature !== next || !result) {
@@ -52,7 +56,7 @@ export function createReviewGeometry() {
           const segment = segments.sort((a, b) => (Math.abs(b.end.x-b.start.x)+Math.abs(b.end.y-b.start.y)) - (Math.abs(a.end.x-a.start.x)+Math.abs(a.end.y-a.start.y)))[0];
           return { wire: link, kind: link.kind, index: "execution-" + edge.id,
             path: points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" "),
-            label: link.label,
+            label: link.kind === "execution" && link.label ? (link.label.startsWith("Bound reached") ? "Bound reached" : "Condition met") : link.label,
             verticalLabel: ["repeat", "skip"].includes(link.kind) && segment.start.x === segment.end.x,
             labelX: ["repeat", "skip"].includes(link.kind) && segment.start.x === segment.end.x ? Math.max(14, segment.start.x - 10) : Math.max(link.label.length * 3 + 4, Math.min(result.width - link.label.length * 3 - 4, (segment.start.x + segment.end.x) / 2)),
             labelY: (segment.start.y + segment.end.y) / 2 - (["repeat", "skip"].includes(link.kind) && segment.start.x === segment.end.x ? 0 : 10) };
@@ -62,12 +66,12 @@ export function createReviewGeometry() {
           const source = positions.get(link.sourceKey), target = positions.get(link.targetKey);
           if (!target) return;
           const start = source ? { x: source.x + source.width, y: source.y + source.height - 12 } : { x: 8, y: target.y + target.height - 12 };
-          const end = { x: mobile ? target.x + target.width : target.x, y: target.y + target.height - 12 };
-          const laneX = Math.max(...result.children.map(node => node.x + node.width)) + 22 + index * 6;
-          const lane = Math.max(...result.children.map(node => node.y + node.height)) + 22 + index * 6;
+          const end = { x: target.x + target.width, y: target.y + target.height - 12 };
+          const laneX = Math.max(...result.children.map(node => node.x + node.width)) + 22 + index * 20;
+
           edges.push({ wire: link.wire, kind: "data", index: "data-" + index,
-            path: mobile ? `M ${start.x} ${start.y} H ${laneX} V ${end.y} H ${end.x}` : `M ${start.x} ${start.y} H ${start.x + 12} V ${lane} H ${end.x - 12} V ${end.y} H ${end.x}`,
-            label: String(index + 1), labelX: mobile ? laneX - 3 : (start.x + end.x) / 2, labelY: mobile ? (start.y + end.y) / 2 : lane - 3 });
+            path: `M ${start.x} ${start.y} H ${laneX} V ${end.y} H ${end.x}`,
+            label: String(index + 1), labelX: laneX - 3, labelY: (start.y + end.y) / 2 });
         });
         const regions = view.flow.loops.map(loop => {
           const members = loop.keys.map(key => positions.get(key)).filter(Boolean);
@@ -82,11 +86,18 @@ export function createReviewGeometry() {
           Object.assign(element.style, { left: region.left + "px", top: region.top + "px", width: region.width + "px", height: region.height + "px" });
           canvas.prepend(element);
         }
-        view.diagramWidth = result.width + (mobile ? view.selectedLinks.length * 6 + 24 : 0); view.diagramHeight = result.height + view.selectedLinks.length * 6 + 24;
+        view.diagramWidth = result.width + view.selectedLinks.length * 20 + 24; view.diagramHeight = result.height + view.selectedLinks.length * 20 + 24;
         canvas.style.width = view.diagramWidth + "px"; canvas.style.height = view.diagramHeight + "px";
-        if (view.autoFit) view.zoom = Math.min(1, Math.max(mobile ? 0.85 : 0.65, (canvas.parentElement.clientWidth - 8) / result.width));
+        if (view.autoFit) view.zoom = Math.min(1, Math.max(0.85, (canvas.parentElement.clientWidth - 8) / result.width));
         canvas.style.transform = `scale(${view.zoom})`; canvas.style.transformOrigin = "top left";
         canvas.parentElement.style.height = Math.ceil(view.diagramHeight * view.zoom) + 18 + "px";
+        const selected = elements.find(element => element.dataset.nodeKey === (view.selectedStepKey || view.inspectLabel));
+        if (selected && view.pinned) {
+          const node = positions.get(selected.dataset.nodeKey), viewport = canvas.parentElement;
+          const top = node.y * view.zoom, bottom = (node.y + node.height) * view.zoom;
+          if (top < viewport.scrollTop || bottom > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = Math.max(0, top - 20);
+          viewport.scrollLeft = Math.max(0, node.x * view.zoom - 20);
+        }
         view.edges = edges; view.layoutError = "";
         renderPipelineConnections(canvas.querySelector("svg"), edges, view.diagramWidth, view.diagramHeight,
           wire => wire.kind ? !view.selectionActive || [wire.sourceKey, wire.targetKey].includes(view.selectedStepKey || view.inspectLabel) : view.wireSelected(wire));

@@ -1,4 +1,4 @@
-import { focusViewerDrawer, trapViewerDrawer } from "./viewer-accessibility.js";
+import { focusViewerDrawer } from "./viewer-accessibility.js";
 import { createReviewGeometry } from "./viewer-review-geometry.js";
 import { connectedPorts, viewerMapping } from "./viewer-mapping.js";
 import {
@@ -86,6 +86,8 @@ export function createNativeViewerView({ route, ...deps }) {
       });
       observer = new ResizeObserver(() => this.queueGeometry());
       observer.observe(this.$el);
+      const viewport = this.$el.querySelector(".pipeline-viewer-scroll");
+      if (viewport) observer.observe(viewport);
       void service.select(this.mode, route.id);
       timer = setInterval(() => {
         if (this.$el.isConnected && this.mode === "run") void service.refresh();
@@ -136,7 +138,6 @@ export function createNativeViewerView({ route, ...deps }) {
       else queueMicrotask(measure);
     },
     publishReview(record) { return store?.publish({ status: this.status, reason: this.reason, snapshot: this.snapshot, reviewKey: this.selectedStepKey, ...record }); },
-    trapDrawer: trapViewerDrawer,
     measureConnections() { void geometry.measure(this); },
     get mapping() { return viewerMapping(this.nodes, this.wires, !!this.scopeTrail.length, new Set(flattenPipelineNodes(this.definition?.steps || []).map(node => node.logicalKey))); },
     get diagramNodes() { return this.nodes; },

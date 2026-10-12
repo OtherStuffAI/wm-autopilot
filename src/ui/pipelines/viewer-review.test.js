@@ -6,7 +6,7 @@ import { viewerDefinition } from "../../pipelines/pipeline-viewer-dto.ts";
 import { definitionDto } from "./viewer-contract.js";
 import { pipelineNodes } from "./viewer-projection.js";
 import { viewerMapping } from "./viewer-mapping.js";
-import { domainPorts, executionFlow, selectedMappingLinks, stepType, reviewValidation } from "./viewer-review.js";
+import { conditionLabel, domainPorts, executionFlow, selectedMappingLinks, stepType, reviewValidation } from "./viewer-review.js";
 import { reviewGraph } from "./viewer-review-geometry.js";
 
 function project(steps) {
@@ -23,7 +23,7 @@ test("sequence and gated skip range reflect executor semantics without fabricate
   const flow = executionFlow(nodes);
   expect(flow.links.filter(row => row.kind === "execution").map(row => [row.sourceKey, row.targetKey])).toEqual([["prepare", "screen"], ["screen", "build"], ["build", "validate"], ["validate", "deliver"]]);
   expect(flow.links.find(row => row.kind === "skip")).toMatchObject({ sourceKey: "screen", targetKey: "deliver", label: "Otherwise · skip 2" });
-  expect(flow.links.find(row => row.targetKey === "build").label).toBe("Allowed = true");
+  expect(flow.links.find(row => row.targetKey === "build").label).toBe("Allowed is true");
   expect(stepType(nodes[1])).toBe("Decision"); expect(stepType(nodes[2])).toBe("Code");
 });
 test("bounded target and body loops retain actual repeat range and missing targets surface", () => {
@@ -70,4 +70,12 @@ test("execution layout does not depend on number of plumbing selectors", async (
   expect(result.children[1].x).toBeLessThan(result.children[2].x);
   const vertical = await elk.layout(reviewGraph(cards, flow.links, "DOWN"));
   expect(vertical.children[0].y).toBeLessThan(vertical.children[2].y);
+});
+
+test("condition summaries retain declared labels and bounded exact path context", () => {
+  expect(conditionLabel({ path: "$.workContext.workPlan.reporting.mode", equals: "flightdeck_task" }, [])).toBe('reporting mode is "flightdeck_task"');
+  expect(conditionLabel({ path: "$.builderAllowed", equals: true }, [])).toBe("builder Allowed is true");
+  expect(conditionLabel({ path: "$." + "long".repeat(30), equals: true }, [])).toBe("Configured condition (see details)");
+  expect(conditionLabel({ expression: "unknown expression" }, [])).toBe("Configured condition (see details)");
+  expect(reviewGraph([], []).layoutOptions["elk.direction"]).toBe("DOWN");
 });
