@@ -31,15 +31,33 @@ export class CompletedTurnStore {
       status TEXT NOT NULL, reply TEXT, error TEXT, claimToken TEXT, leaseUntil INTEGER NOT NULL DEFAULT 0,
       UNIQUE(owner, requestId), UNIQUE(owner, conversationKey, sequence),
       FOREIGN KEY(owner, conversationKey) REFERENCES completed_turn_bindings(owner, conversationKey));`);
+    db.exec(`CREATE TABLE IF NOT EXISTS completed_turn_deletions(owner TEXT NOT NULL,conversationKey TEXT NOT NULL,requestJson TEXT NOT NULL,receiptId TEXT NOT NULL UNIQUE,sessionId TEXT NOT NULL,receiptJson TEXT,PRIMARY KEY(owner,conversationKey));`);
   }
 
+  beginDeletion(owner:string,request:{conversationKey:string;projectId:string;directory:string;requestId:string}) : {receiptId:string;sessionId:string;receiptJson:string|null} {
+    return this.db.transaction(()=>{
+      const previous=this.db.query('SELECT * FROM completed_turn_deletions WHERE owner=? AND conversationKey=?').get(owner,request.conversationKey) as any;
+      if(previous){if(previous.requestJson!==JSON.stringify(request))throw Error('Conversation deletion idempotency conflict');return previous;}
+      const binding=this.binding(owner,request.conversationKey),config=binding?JSON.parse(binding.config):null;
+      if(!binding?.sessionId || config.projectId!==request.projectId || config.directory!==request.directory || config.executionProfile)throw Error('Conversation deletion binding denied');
+      if(this.head(owner,request.conversationKey))throw Error('Active or uncertain conversation turn prevents deletion');
+      const result={receiptId:crypto.randomUUID(),sessionId:binding.sessionId,receiptJson:null};
+      this.db.query('INSERT INTO completed_turn_deletions(owner,conversationKey,requestJson,receiptId,sessionId) VALUES(?,?,?,?,?)').run(owner,request.conversationKey,JSON.stringify(request),result.receiptId,result.sessionId);
+      return result;
+    }).immediate();
+  }
+  finishDeletion(owner:string,key:string,receipt:unknown):void {
+    this.db.query('UPDATE completed_turn_deletions SET receiptJson=? WHERE owner=? AND conversationKey=? AND receiptJson IS NULL').run(JSON.stringify(receipt),owner,key);
+  }
   enqueue(owner: string, request: CompletedTurnRequest, runId: string, stepId: string): TurnRecord {
     if (!owner) throw new Error("Completed turns require an authenticated pipeline owner");
+    if(this.db.query('SELECT 1 FROM completed_turn_deletions WHERE owner=? AND conversationKey=?').get(owner,request.conversationKey))throw Error('Deleted conversation requires a new generation');
     const config = JSON.stringify({ directory: request.directory, model: request.model, projectId: request.projectId, executionProfile: request.executionProfile });
     const fingerprint = JSON.stringify(request);
     return this.db.transaction(() => {
       this.db.query("INSERT OR IGNORE INTO completed_turn_bindings (owner,conversationKey,config,sessionId) VALUES (?, ?, ?, ?)")
         .run(owner, request.conversationKey, config, request.sessionId);
+      if(this.db.query('SELECT 1 FROM completed_turn_deletions WHERE owner=? AND conversationKey=?').get(owner,request.conversationKey))throw Error('Deleted conversation requires a new generation');
       const binding = this.binding(owner, request.conversationKey)!;
       if (binding.config !== config) throw new Error("Completed-turn conversation binding conflict");
       if (request.sessionId && binding.sessionId !== request.sessionId) throw new Error("Completed-turn stale session binding");

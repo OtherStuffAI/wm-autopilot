@@ -1,3 +1,4 @@
+import { conversationDeletionFunctionName, executeConversationDeletionFunction } from "./conversation-deletion-function.ts";
 import type { PipelineSecretAuthority } from "../secrets/secret-authority";
 import { executeSecretPipelineFunction, secretPipelineFunctions } from "../secrets/secret-runtime";
 import { blockMissingPipelineHistory } from "./pipeline-history-resume";
@@ -291,7 +292,9 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       idempotencyKey: `pipeline:${input.runId}:thread-reply:${stepName}` } : selected;
     store.evidence.capture({ runId: input.runId, stepId: stepRecord.id, kind: "executor_request",
       scope: "code_function_arguments", value: { function: step.function, arguments: request } });
-    const result = step.function === completedTurnFunctionName
+    const result = step.function === conversationDeletionFunctionName
+      ? await executeConversationDeletionFunction({store,sessionApiContext:input.sessionApiContext,ownerNpub:input.ownerNpub,request})
+      : step.function === completedTurnFunctionName
       ? await executeCompletedTurnFunction({ store, sessionApiContext: input.sessionApiContext, runId: input.runId,
         stepId: stepRecord.id, ownerNpub: input.ownerNpub, request })
       : secretPipelineFunctions[step.function]

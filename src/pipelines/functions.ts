@@ -1209,6 +1209,7 @@ function latestThreadText(chatContext: Record<string, unknown>, fallback: unknow
 
 export const builtinPipelineFunctions: FunctionRegistry = {
   "session.completedTurn": completedTurnRegistration,
+  "session.deleteConversation": () => { throw Error("session.deleteConversation requires authenticated pipeline runner context"); },
   "spaceResearch.selectTopics": selectSpaceResearchTopics,
   "spaceResearch.validateSourcePlan": validateSpaceSourcePlan,
   "spaceResearch.retrievePrimarySources": retrieveSpacePrimarySources,

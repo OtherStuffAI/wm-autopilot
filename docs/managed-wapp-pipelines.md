@@ -85,3 +85,36 @@ origins and immutable existing binding. It creates a fresh publisher only when
 absent and outputs public identity metadata. It asserts no Tower membership or
 publication grant; those remain independently authorized. This local management
 command does not activate server code or grant broad execution.
+
+## Prepared scoped conversation deletion (requires platform activation)
+
+`session.deleteConversation` executes only inside the authenticated pipeline runner.
+It accepts `conversationKey`, `projectId`, exact `directory`, stable `requestId` and
+`confirmation: "delete_native_transcript"`. The runner supplies the principal;
+callers cannot supply an owner, session ID, transcript path or home directory.
+Use an installation-pinned preparation function and separately pinned managed grant
+before exposing this function to a WApp. General session-management authority is
+not required or granted.
+
+The store resolves the owned dedicated completed-turn binding, refuses pending or
+uncertain turns, and persists a tombstone before runtime side effects. New turns
+on that key are fenced; use a new app generation for replacement. Matching retries
+share one receipt, concurrent requests share one operation, and old turn receipts
+remain audit evidence. Failures after deletion begins stay fenced and require
+reconciling that exact operation, never recreating the native session.
+
+The runtime validates owner, Codex SDK role, binding ID, working directory and native
+reference, and rejects any foreign live/stored/archived association with that native
+ID. It stops matching runtime sessions, removes the exact matching native JSONL
+transcript after checking its real filesystem boundary, and removes runtime,
+message-store and archive records. It returns component-specific evidence:
+`runtimeStorageDeleted`, `nativeTranscriptDeleted`, `nativeStorageDeleted:false`,
+`metadataIndexesPreserved:true`. Provider metadata/index storage and pipeline audit
+receipts remain; this is not full provider-history erasure. A WApp must display the
+actual components deleted and preserve its own project messages intentionally.
+
+Source preparation is not activation. The operator must separately approve the
+normal managed Autopilot restart, verify the new function in the live catalog,
+install a narrowly pinned deletion pipeline/grant, wire its signed receipts into
+the WApp lifecycle mapping, and test only a newly created disposable owned builder.
+Do not substitute existing broad stop/storage APIs or export owner keys.
