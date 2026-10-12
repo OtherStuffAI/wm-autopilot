@@ -1,3 +1,4 @@
+import { CodexCapacityRecovery } from "./codex-capacity-recovery";
 import type { ProcessManager } from "../agents/process-manager";
 import type { messageStore as MessageStoreInstance, StoredMessage } from "../storage/message-store";
 import {
@@ -12,6 +13,8 @@ interface LiveSessionMessageSyncOptions {
   minimumRefreshIntervalMs?: number;
   requestTimeoutMs?: number;
   slowSyncThresholdMs?: number;
+  queueCapacityContinue?: (sessionId: string) => void;
+  hasQueuedPrompt?: (sessionId: string) => boolean;
   logger?: Pick<Console, "info">;
 }
 
@@ -19,7 +22,19 @@ export class LiveSessionMessageSync {
   private readonly inFlight = new Map<string, Promise<StoredMessage[]>>();
   private readonly lastCompletedAt = new Map<string, number>();
 
-  constructor(private readonly options: LiveSessionMessageSyncOptions) {}
+  private readonly capacityRecovery: CodexCapacityRecovery;
+
+  constructor(private readonly options: LiveSessionMessageSyncOptions) {
+    this.capacityRecovery = new CodexCapacityRecovery({
+      isRunningCodex: (id) => {
+        const session = options.manager.getSession(id);
+        return session?.agent === "codex" && session.status === "running" && !!options.queueCapacityContinue;
+      },
+      readMessages: (id) => options.messageStore.listSessionMessages(id),
+      hasQueuedPrompt: (id) => options.hasQueuedPrompt?.(id) ?? false,
+      queueContinue: (id) => options.queueCapacityContinue?.(id),
+    });
+  }
 
   sync(sessionId: string, force = false): Promise<StoredMessage[]> {
     const existing = this.inFlight.get(sessionId);
@@ -41,6 +56,7 @@ export class LiveSessionMessageSync {
       onTiming: (timing) => this.logSlowSync(timing),
     }).then((messages) => {
       this.lastCompletedAt.set(sessionId, Date.now());
+      this.capacityRecovery.observe(sessionId, messages);
       return messages;
     }).finally(() => {
       this.inFlight.delete(sessionId);

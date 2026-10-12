@@ -1796,6 +1796,11 @@ try {
 
 const sessionMessageUpdates = new SessionMessageUpdates();
 const liveSessionMessageSync = new LiveSessionMessageSync({
+  hasQueuedPrompt: (id) => promptQueueStore.getQueueCount(id) > 0,
+  queueCapacityContinue: (id) => {
+    promptQueueStore.addPrompt(id, { content: "continue" });
+    void maybeAutoDispatchQueuedPrompt(manager.getSession(id) ?? null);
+  },
   manager,
   messageStore,
   agentHost,
