@@ -28,7 +28,10 @@ export interface SessionEvent {
 const encoder = new TextEncoder();
 const SSE_KEEPALIVE_INTERVAL_MS = 30_000;
 
-class SessionBroadcaster {
+export class SessionBroadcaster {
+  private executionOwner: (npub: string) => string | null = () => null;
+
+  setExecutionOwnerResolver(resolve: (npub: string) => string | null): void { this.executionOwner = resolve; }
   private subscribers = new Map<string, Subscriber[]>();
 
   /** Register a browser SSE subscriber for an npub. */
@@ -56,8 +59,10 @@ class SessionBroadcaster {
 
   /** Broadcast a session event to all subscribers for an npub. */
   broadcast(npub: string, event: SessionEvent): void {
-    const subs = this.subscribers.get(npub);
-    if (!subs || subs.length === 0) return;
+    const operator = this.executionOwner(npub);
+    const recipients = [...new Set([npub, ...(operator ? [operator] : [])])];
+    const subs = recipients.flatMap(recipient => this.subscribers.get(recipient) ?? []);
+    if (subs.length === 0) return;
 
     const data = `data: ${JSON.stringify(event)}\n\n`;
     const encoded = encoder.encode(data);

@@ -22,3 +22,12 @@ describe('resolveSessionOwnerNpub', () => {
     ).toBe('npub1owner');
   });
 });
+
+test('installation operator filter includes app execution without changing ownership',async()=>{
+ const {sessionMatchesOwnerFilter}=await import('./ownership.js');
+ const session={ownerNpub:'npub1app',executionOperatorNpub:'npub1operator'};
+ expect(resolveSessionOwnerNpub(session)).toBe('npub1app');
+ expect(sessionMatchesOwnerFilter(session,'npub1operator')).toBe(true);
+ expect(sessionMatchesOwnerFilter(session,'npub1app')).toBe(true);
+ expect(sessionMatchesOwnerFilter(session,'npub1foreign')).toBe(false);
+});

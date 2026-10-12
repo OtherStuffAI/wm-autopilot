@@ -12,7 +12,7 @@
 import Alpine from "/vendor/alpinejs/module.esm.js";
 import { Dexie, ApiSessionStore, SessionAttentionStore } from "../live/db.js";
 import { fetchSessionsApi } from "../services/sessions.js";
-import { resolveSessionOwnerNpub } from "./ownership.js";
+import { resolveSessionOwnerNpub, sessionMatchesOwnerFilter } from "./ownership.js";
 import { sortSessionsForTabs } from "./session-order.js";
 
 /**
@@ -319,7 +319,7 @@ export function initSessionsStore({
       const filter = this.filters.npub;
       if (!filter || filter === "all") return this.items;
       return this.items.filter(
-        (s) => normaliseNpub(resolveSessionOwnerNpub(s)) === filter,
+        (s) => sessionMatchesOwnerFilter(s, filter),
       );
     },
 

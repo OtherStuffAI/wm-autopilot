@@ -54,6 +54,7 @@ export interface PipelineApiContext {
   defaultAgent: string;
   callbackOrigin?: string;
   sharedInstanceAccess?: boolean;
+  installedAppExecutionNpubs?: (ownerNpub: string) => string[];
   resolveLearningTowerContext?: (input: { authContext: RequestAuthContext; ownerNpub: string }) => { towerUrl: string; workspaceId: string } | null;
   loadRegistryForRun?: (input: {
     run: PipelineRunRecord;
@@ -250,6 +251,7 @@ export async function handlePipelineApi(
   if (pathname === "/api/pipelines/runs" && method === "GET") {
     const runs = ctx.store.listRunSummaries({
       ownerNpub,
+      additionalOwnerNpubs: ctx.installedAppExecutionNpubs?.(ownerNpub),
       includeShared: Boolean(ctx.sharedInstanceAccess),
     });
     const includeDefinitionMeta = url.searchParams.get("includeDefinitionMeta") !== "0";
@@ -384,7 +386,7 @@ export async function handlePipelineApi(
   const deliveryMatch = pathname.match(/^\/api\/pipelines\/runs\/([^/]+)\/delivery$/);
   if (deliveryMatch && method === "GET") {
     const run = ctx.store.getRun(decodeURIComponent(deliveryMatch[1]!));
-    if (!run || run.ownerNpub !== ownerNpub) return Response.json({ error: "Pipeline run not found" }, { status: 404 });
+    if (!run || !canAccessPipelineRun(run, ownerNpub, ctx)) return Response.json({ error: "Pipeline run not found" }, { status: 404 });
     return Response.json({ ...runEnvelope(run), delivery: publicDelivery(ctx.store.publicCalls.getDelivery(run.id)) },
       { headers: { "Cache-Control": "no-store" } });
   }

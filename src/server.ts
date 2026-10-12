@@ -282,6 +282,7 @@ import { SchedulerEngine } from "./scheduler/scheduler-engine";
 import { requireSuccessfulPipelineExecution } from "./scheduler/pipeline-execution-result";
 import { createSchedulerApiHandler } from "./scheduler/scheduler-api";
 import { wappStore } from "./wapps/wapp-store";
+import { installedAppExecutionNpubs, installedAppExecutionOwner, installedAppSessionMatches } from "./wapps/execution-owner-access";
 import { backendConnectionStore } from "./agent-chat/backend-connection-store";
 import { workspaceSubscriptionStore } from "./agent-chat/workspace-subscription-store";
 import { TowerGitCredentialBroker, nativeForgejoServersFromEnv } from "./git/tower-git-credential-broker";
@@ -491,6 +492,7 @@ const sessionDispatchInbox = new SessionDispatchInboxCoordinator(
 );
 sessionDispatchInbox.migrateLegacyCallbacks(promptQueueStore);
 const pipelineStore = new PipelineStore();
+sessionBroadcaster.setExecutionOwnerResolver(npub => installedAppExecutionOwner(npub, wappStore.list()));
 const pipelineBindingStore = new PipelineBindingStore();
 const todoApiHandler = createTodoApiHandler({ store: todoStore, projectStore });
 const projectApiHandler = createProjectApiHandler({
@@ -1071,6 +1073,7 @@ const serializeSession = (session: SessionSnapshot) => ({
   ...session,
   lastUpdatedAt: messageStore.getSession(session.id)?.lastUpdatedAt ?? null,
   ownerNpub: resolveSessionOwnerNpub(session.npub ?? null, session.metadata),
+  executionOperatorNpub: installedAppExecutionOwner(resolveSessionOwnerNpub(session.npub ?? null, session.metadata), wappStore.list()),
   agentRuntimeStatus: session.agentRuntimeStatus ?? null,
   identityAlias: generateIdentityAlias(resolveSessionOwnerNpub(session.npub ?? null, session.metadata)),
   origin: session.origin ?? null,
@@ -1164,7 +1167,7 @@ const buildIdentitySummaries = (
     const ownerNpub = resolveSessionOwnerNpub(sessionNpub, metadata);
     const normalized = normaliseNpub(ownerNpub);
     if (!includeAll) {
-      if (!normalized || normalized !== viewerNormalizedNpub) {
+      if (!normalized || normalized !== viewerNormalizedNpub && !installedAppExecutionNpubs(viewerNormalizedNpub, wappStore.list()).includes(normalized)) {
         return;
       }
     }
@@ -1256,7 +1259,8 @@ const sessionBelongsToViewer = (
   if (sharedInstanceAccessEnabled && viewerNormalizedNpub) {
     return true;
   }
-  return sessionOwnerMatchesViewer(sessionNpub, sessionMetadata, viewerNormalizedNpub, viewerIsAdmin);
+  return sessionOwnerMatchesViewer(sessionNpub, sessionMetadata, viewerNormalizedNpub, viewerIsAdmin)
+    || installedAppSessionMatches(sessionNpub, sessionMetadata, viewerNormalizedNpub, wappStore.list());
 };
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -2995,6 +2999,7 @@ const handleApi = createApiRouteHandler({
   },
   pipelineApiContext: {
     store: pipelineStore,
+    installedAppExecutionNpubs: owner => installedAppExecutionNpubs(owner, wappStore.list()),
     resultWebhooks,
     sessionApiContext,
     defaultAgent: config.defaultAgent,

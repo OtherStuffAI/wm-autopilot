@@ -814,15 +814,6 @@ const archivedSessionBelongsToOwner = (
   ownerNpub: string,
   ctx: SessionApiContext,
 ): boolean => {
-  const metadataOwnerNpub =
-    archivedSession.metadata &&
-    typeof archivedSession.metadata === "object" &&
-    typeof archivedSession.metadata.ownerNpub === "string"
-      ? normaliseNpub(archivedSession.metadata.ownerNpub)
-      : null;
-  if (metadataOwnerNpub) {
-    return metadataOwnerNpub === ownerNpub;
-  }
   return ctx.sessionBelongsToViewer(archivedSession.npub, archivedSession.metadata ?? null, ownerNpub, false);
 };
 
@@ -1622,7 +1613,7 @@ export async function handleSessionApi(
       if (filterValue === null) return true;
       const sessionNormalized = resolveSessionOwnerNpub(session.npub ?? null, session.metadata);
       if (filterValue === "__anonymous__") return sessionNormalized === null;
-      return sessionNormalized === filterValue;
+      return sessionNormalized === filterValue || ctx.serializeSession(session).executionOperatorNpub === filterValue;
     });
 
     let identitySummaries = viewerIsAdmin

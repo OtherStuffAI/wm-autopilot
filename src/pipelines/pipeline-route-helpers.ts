@@ -82,6 +82,7 @@ export function canAccessPipelineRun(
     return Boolean(root && canAccessPipelineRun(root, ownerNpub, ctx));
   }
   if (run.ownerNpub === ownerNpub) return true;
+  if (run.ownerNpub && ctx.installedAppExecutionNpubs?.(ownerNpub).includes(run.ownerNpub)) return true;
   if (ctx.store.publicCalls.isPublic(run.id)) return false;
   if (/^learning-(plan|question|lesson|assessment|recall)$/.test(run.name)) return false;
   return Boolean(ctx.sharedInstanceAccess && run.scope === "shared");

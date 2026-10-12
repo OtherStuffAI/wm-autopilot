@@ -14,3 +14,8 @@ export function resolveSessionOwnerNpub(session) {
 
   return ownerNpub;
 }
+
+/** Operator filtering includes installed app execution while retaining its actual owner. */
+export function sessionMatchesOwnerFilter(session, filter) {
+  return resolveSessionOwnerNpub(session) === filter || session?.executionOperatorNpub === filter;
+}

@@ -446,16 +446,17 @@ export class PipelineStore {
     return row ? mapStep(row) : null;
   }
 
-  listRunSummaries(options: { ownerNpub?: string | null; includeShared?: boolean; limit?: number } = {}): PipelineRunSummary[] {
+  listRunSummaries(options: { additionalOwnerNpubs?: string[]; ownerNpub?: string | null; includeShared?: boolean; limit?: number } = {}): PipelineRunSummary[] {
     const limit = options.limit ?? 100;
     let rows: Record<string, unknown>[];
     if (options.ownerNpub) {
+      const owners = [...new Set([options.ownerNpub, ...(options.additionalOwnerNpubs ?? [])])];
       rows = this.db.query(
         runSummarySelectSql(`
-          WHERE owner_npub = ? OR (? = 1 AND scope = 'shared')
+          WHERE owner_npub IN (${owners.map(() => "?").join(",")}) OR (? = 1 AND scope = 'shared')
           ORDER BY started_at DESC LIMIT ?
         `),
-      ).all(options.ownerNpub, options.includeShared ? 1 : 0, limit) as Record<string, unknown>[];
+      ).all(...owners, options.includeShared ? 1 : 0, limit) as Record<string, unknown>[];
     } else {
       rows = this.db.query(runSummarySelectSql(`ORDER BY started_at DESC LIMIT ?`)).all(limit) as Record<string, unknown>[];
     }
