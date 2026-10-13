@@ -4,16 +4,19 @@ import { describe, expect, test } from "bun:test";
 
 const speechSource = readFileSync(new URL("./message-speech.js", import.meta.url), "utf8");
 const conversationSource = readFileSync(new URL("./conversation-window.js", import.meta.url), "utf8");
+const bubbleSource = readFileSync(new URL("./chat-message-bubble.js", import.meta.url), "utf8");
 const clipboardSource = readFileSync(new URL("../utils/clipboard.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 describe("live message speech controls", () => {
   test("renders speech playback in the shared message action group", () => {
-    expect(conversationSource).toContain("attachCopyButton(bubble);");
-    expect(conversationSource).toContain("attachMessageSpeechButton(bubble");
-    expect(conversationSource).toContain("function getSpeechSummary(message)");
-    expect(conversationSource).toContain('element.className = "wm-message-speech-summary"');
-    expect(conversationSource).toContain('element.dataset.testid = "message-speech-summary"');
+    expect(conversationSource).toContain('import { createMessageBubble } from "./chat-message-bubble.js";');
+    expect(conversationSource).toContain("wrapper.append(createMessageBubble(message");
+    expect(bubbleSource).toContain("attachCopyButton(bubble);");
+    expect(bubbleSource).toContain("attachMessageSpeechButton(bubble");
+    expect(bubbleSource).toContain("function getSpeechSummary(message)");
+    expect(bubbleSource).toContain('element.className = "wm-message-speech-summary"');
+    expect(bubbleSource).toContain('element.dataset.testid = "message-speech-summary"');
     expect(clipboardSource).toContain('bubble.querySelector(".wm-message-actions")');
     expect(speechSource).toContain('bubble.querySelector(".wm-message-actions")');
     expect(speechSource).toContain('button.className = "wm-message-speech-play"');

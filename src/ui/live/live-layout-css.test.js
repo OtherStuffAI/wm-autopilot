@@ -38,7 +38,9 @@ describe("live layout CSS", () => {
     expect(rule?.groups?.body).toContain("width: 90vw;");
     expect(rule?.[0]).toContain('#app[data-route="apps"]');
     expect(rule?.[0]).toContain('#app[data-route="scheduler"]');
-    expect(rule?.[0]).toContain('#app[data-route="pipelines"]');
+    const pipelineRule = styles.match(/#app\[data-route="pipelines"\]\s*\{(?<body>[^}]+)\}/);
+    expect(pipelineRule?.groups?.body).toContain("max-width: none;");
+    expect(pipelineRule?.groups?.body).toContain("width: 100%;");
   });
 
   test("keeps the session tab bar in normal flow when split panels lock the viewport", () => {
