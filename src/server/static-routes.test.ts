@@ -95,6 +95,8 @@ describe("createStaticRouteHandler", () => {
       "/live/composer-scroll-controls.js",
       "/live/session-ui-reconciliation.js",
       "/live/working-notes-display.js",
+      "/live/archived-session-loader.js",
+      "/live/archived-session-history.js",
       "/scheduler/form-support.js",
       "/sessions/actions-core.js",
       "/sessions/session-attention.js",

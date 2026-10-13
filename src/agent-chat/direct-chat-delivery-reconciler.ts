@@ -1,3 +1,4 @@
+import { isDirectChatStatus, queueDirectChatStatus } from "./direct-chat-status";
 import { DirectChatEnrichmentStore } from "./direct-chat-enrichment-store.ts";
 import { randomUUID } from 'node:crypto';
 import type { ProcessManager } from '../agents/process-manager';
@@ -35,6 +36,7 @@ interface AgentDirectDeliveryReconcilerDependencies {
   publish?: typeof createFlightDeckPgChannelMessage;
   reconcileActivity?: (record: DirectChatTurnRecord, identity: RuntimeBotIdentity, transport: AgentDirectDeliveryTransport) => Promise<void>;
   terminalizeActivity?: (record: DirectChatTurnRecord, identity: RuntimeBotIdentity, transport: AgentDirectDeliveryTransport) => Promise<void>;
+  readArchivedFinal?: (record: DirectChatTurnRecord) => Promise<{ content: string; createdAt: string } | null>;
   intervalMs?: number;
   activeIntervalMs?: number;
   unavailableIntervalMs?: number;
@@ -101,6 +103,12 @@ export class AgentDirectDeliveryReconciler {
     queueMicrotask(() => void this.processTurnNow(turnId));
   }
 
+  notifyStatus(record: DirectChatTurnRecord, kind: "interrupted" | "recovery"): DirectChatTurnRecord {
+    const notification = queueDirectChatStatus(this.store, record, kind, this.isoNow());
+    this.notify(notification.turnId);
+    return notification;
+  }
+
   async runOnce(): Promise<void> {
     if (this.sweep) return await this.sweep;
     this.sweep = (async () => {
@@ -142,6 +150,9 @@ export class AgentDirectDeliveryReconciler {
     const inspection = await inspectAcceptedFinalResponse(this.deps.manager, record.sessionId, record.prompt ?? '',
       record.sourceMessageIds, record.acceptedAt);
     if (inspection.promptBoundary === "observed") this.enrichmentStore.accepted(record.turnId, record.sessionId);
+    if (!inspection.reply && inspection.sessionState !== "active") {
+      inspection.reply = await this.deps.readArchivedFinal?.(record) ?? null;
+    }
     if (!inspection.reply) {
       const acceptedAt = Date.parse(record.acceptedAt ?? record.createdAt);
       if (inspection.promptBoundary === 'missing' && inspection.runtimeStable
@@ -154,10 +165,13 @@ export class AgentDirectDeliveryReconciler {
       if (inspection.sessionState !== 'active') {
         const errorClass = `session_${inspection.sessionState}`;
         const message = `Accepted Agent Direct session is ${inspection.sessionState} and has no authoritative final response.`;
+        const notification = this.notifyStatus(record, 'interrupted');
         this.store.markFailed(record.turnId, errorClass, message, this.isoNow(), owner);
         this.preserveContinuityForReplay(record);
+        await this.processTurnNow(notification.turnId);
         return this.store.get(record.turnId);
       }
+      if (inspection.interrupted && inspection.runtimeStable) this.notifyStatus(record, 'interrupted');
       this.store.releaseAwaiting(record.turnId, owner, this.after(this.activeIntervalMs));
       return this.store.get(record.turnId);
     }
@@ -177,7 +191,7 @@ export class AgentDirectDeliveryReconciler {
       return this.store.get(record.turnId);
     }
     const candidateAt = record.replyReadyAt ?? '';
-    const evaluation = this.deps.publicationFilter?.evaluate({
+    const evaluation = isDirectChatStatus(record) ? undefined : this.deps.publicationFilter?.evaluate({
       decisionId: record.turnId,
       routingKey: record.routingKey,
       subscriptionId: record.subscriptionId!,
@@ -205,7 +219,7 @@ export class AgentDirectDeliveryReconciler {
             integrityClass: 'profile_vault_identity_mismatch',
           });
         }
-        await this.deps.reconcileActivity?.(record, botIdentity, transport);
+        if (!isDirectChatStatus(record)) await this.deps.reconcileActivity?.(record, botIdentity, transport);
         return (this.deps.publish ?? createFlightDeckPgChannelMessage)({
           subscriptionId: record.subscriptionId, backendBaseUrl: transport.backendBaseUrl, workspaceId: transport.workspaceId, channelId: record.channelId!,
           appNpub: transport.appNpub, botIdentity, body: payload.body, threadId: payload.threadId,
@@ -218,11 +232,11 @@ export class AgentDirectDeliveryReconciler {
       const published = this.store.markPublished(record.turnId, owner, messageId, publishedAt);
       if (!published) return this.store.get(record.turnId);
       await this.deps.withProfileIdentity(published, async (botIdentity) => {
-        await this.deps.terminalizeActivity?.(published, botIdentity, transport);
+        if (!isDirectChatStatus(published)) await this.deps.terminalizeActivity?.(published, botIdentity, transport);
       });
-      this.deps.publicationFilter?.recordPublished({ decisionId: record.turnId, routingKey: record.routingKey,
+      if (!isDirectChatStatus(record)) this.deps.publicationFilter?.recordPublished({ decisionId: record.turnId, routingKey: record.routingKey,
         candidateAt, publishedAt, publishedMessageId: messageId });
-      if (record.subscriptionId && record.agentId && record.sessionId) {
+      if (!isDirectChatStatus(record) && record.subscriptionId && record.agentId && record.sessionId) {
         for (const recordId of record.sourceMessageIds) {
           this.deps.dispatchOutcomeStore?.recordSessionRecovered({
             subscriptionId: record.subscriptionId,
@@ -286,6 +300,7 @@ export class AgentDirectDeliveryReconciler {
   }
 
   private completeIntercept(record: DirectChatTurnRecord | null, suppressed: boolean): void {
+    if (record && isDirectChatStatus(record)) return;
     if (!record || !this.deps.interceptStore) return;
     const intercept = this.deps.interceptStore.getByRoutingKey(record.routingKey);
     if (!intercept) return;

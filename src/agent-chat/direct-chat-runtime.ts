@@ -1,3 +1,4 @@
+import { buildAcceptedDirectChatRecoveryPrompt } from "./direct-chat-recovery-prompt";
 import { DirectChatRequestQueue } from "./direct-chat-request-queue.ts";
 import { randomUUID } from "node:crypto";
 import { DirectChatEnrichmentCoordinator, supplementalContext } from "./direct-chat-enrichment-coordinator.ts";
@@ -71,6 +72,7 @@ interface DirectChatRuntimeDependencies {
   createActivityPublisher?: (context: AgentActivityContext) => AgentActivityPublisher;
   createLifecycleController?: (context: AgentActivityContext, publisher: AgentActivityPublisher) => AgentDirectLifecycleController;
   getArchivedSession?: (sessionId: string) => ArchivedSession | null;
+  rebindSession?: (sourceSessionId: string, targetSessionId: string) => void;
   log?: Pick<Console, 'error' | 'warn'>;
   deliveryReconciler?: AgentDirectDeliveryReconciler;
   sendFinalResponse?: typeof sendPromptAndAwaitFinalResponse;
@@ -468,6 +470,13 @@ export class AgentDirectChatRuntime {
           const sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null,
             delta.at(-1)?.message ?? '');
           const session = sessionResolution.session;
+          if (pending.sessionId !== session.id) {
+            const rebound = sessionResolution.bootstrap
+              ? { ...this.turnStore.get(pending.turnId)!, sessionId: session.id }
+              : this.turnStore.save({ ...this.turnStore.get(pending.turnId)!, sessionId: session.id,
+                  updatedAt: new Date().toISOString() });
+            this.deps.deliveryReconciler?.notifyStatus(rebound, "recovery");
+          }
           for (const recordId of recoverySourceMessageIds) {
             this.recordSessionOutcome(input, agent, recordId, session.id, routingKey);
           }
@@ -493,7 +502,7 @@ export class AgentDirectChatRuntime {
                   recordId, sessionId: session.id, details: status });
               })
             : null;
-          const recoveryPrompt = !sessionResolution.bootstrap && pending.prompt ? pending.prompt : sessionResolution.bootstrap
+          const historicalRecoveryPrompt = !sessionResolution.bootstrap && pending.prompt ? pending.prompt : sessionResolution.bootstrap
             ? buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
                 scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery, supplementalContext: supplementalContext(recoveredEnrichment) })
             : intercept.lastCompletedTurnId
@@ -502,6 +511,9 @@ export class AgentDirectChatRuntime {
                   lastAgentMessageIdPublished: intercept.lastAgentMessageIdPublished })
               : buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
                   scopeId: input.channel.scope_id ?? null, history, nextMessages: delta });
+          const recoveryPrompt = sessionResolution.bootstrap
+            ? buildAcceptedDirectChatRecoveryPrompt(historicalRecoveryPrompt)
+            : historicalRecoveryPrompt;
           if (sessionResolution.bootstrap) {
             this.turnStore.save({ ...this.turnStore.get(pending.turnId)!, sessionId: session.id,
               prompt: recoveryPrompt, state: 'accepted', updatedAt: new Date().toISOString() });
@@ -628,9 +640,7 @@ export class AgentDirectChatRuntime {
             ? { reason: 'previous session did not accept the submitted prompt', detail: error.message }
             : directChatSessionReplacementDecision(error);
           const promptWasAccepted = failedTurn?.state === 'awaiting_reply';
-          const replacementAllowed = replacePromptBoundary || (promptWasAccepted
-            ? replacement?.requiresAcceptedPrompt === true
-            : replacement?.requiresAcceptedPrompt !== true);
+          const replacementAllowed = replacePromptBoundary || !promptWasAccepted;
           if (!replacement || !replacementAllowed) throw error;
           const rejectedSessionId = session.id;
           await this.deps.processManager.stopSession(rejectedSessionId).catch((stopError) => {
@@ -680,7 +690,14 @@ export class AgentDirectChatRuntime {
           this.deps.deliveryReconciler.notify(awaiting.turnId);
           continue;
         }
-        if (awaiting?.state === 'awaiting_reply' && isSessionWaitTimeout(error)) {
+        if (awaiting?.state === 'awaiting_reply' && (this.deps.deliveryReconciler || isSessionWaitTimeout(error))) {
+          // Receipt owns execution. An observer timeout or capacity error must
+          // never stop/replay an accepted turn that may still own live workers.
+          activity?.releaseObservation();
+          if (!isSessionWaitTimeout(error)) {
+            this.deps.deliveryReconciler?.notifyStatus(awaiting, 'interrupted');
+            await activity?.finish('failed', 'Accepted work interrupted; retained for recovery.');
+          }
           if (this.deps.deliveryReconciler && awaiting.leaseOwner === this.deps.deliveryReconciler.runtimeLeaseOwner) {
             this.turnStore.releaseAwaiting(awaiting.turnId, this.deps.deliveryReconciler.runtimeLeaseOwner, new Date().toISOString());
             this.deps.deliveryReconciler.notify(awaiting.turnId);
@@ -688,7 +705,7 @@ export class AgentDirectChatRuntime {
           this.deps.interceptStore.save({ ...intercept, state: 'active', lastDecision: 'pending',
             lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
           for (const recordId of outcomeRecordIds) {
-            if (!intercept.sessionId) continue;
+            if (!intercept.sessionId || !isSessionWaitTimeout(error)) continue;
             this.dispatchOutcomeStore.recordSessionWaitTimeout({ subscriptionId: input.subscription.subscriptionId,
               recordId, agentId: agent.agentId, sessionId: intercept.sessionId,
               receivedAt: input.messages.find((message) => message.id === recordId)?.created_at ?? undefined,
@@ -919,6 +936,7 @@ export class AgentDirectChatRuntime {
         assertDirectChatWorkspaceCompatible(launch.metadata, currentBinding, resumeSource.id);
         const resumed = await this.deps.processManager.createSession(launch.agent, launch.workingDirectory, launch.name,
           launch.origin, undefined, launch.ownerNpub, { ...launch.metadata, ...currentBinding }, live?.model);
+        this.deps.rebindSession?.(resumeSource.id, resumed.id);
         return { session: resumed, bootstrap: false, generation: currentGeneration,
           previousSessionIds: intercept.previousSessionIds ?? [], recovery: null };
       } catch (error) {
@@ -940,6 +958,7 @@ export class AgentDirectChatRuntime {
       subscription.managedByNpub ?? undefined,
       buildDirectChatSessionBinding({ subscription, intercept, agent, scopeId, generation, latestMessage }),
       profile.model ?? undefined);
+    if (previous) this.deps.rebindSession?.(previous, session.id);
     return { session, bootstrap: true, generation, previousSessionIds,
       recovery: previous ? { previousSessionId: previous,
         reason: options?.forceReplacementReason ?? (resumeSource ? 'native resume unavailable' : modelReplacementReason ?? 'session missing') } : null };

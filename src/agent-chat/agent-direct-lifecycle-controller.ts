@@ -138,6 +138,10 @@ export class AgentDirectLifecycleController {
       state === 'failed' ? detail : undefined);
   }
 
+  releaseObservation(): void {
+    this.stopTimers();
+  }
+
   private startTimers(): void {
     if (!this.activityTimer) {
       this.activityTimer = setInterval(() => void this.heartbeat(), AGENT_DIRECT_ACTIVITY_HEARTBEAT_MS);

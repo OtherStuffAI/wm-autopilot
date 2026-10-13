@@ -111,6 +111,9 @@ db.version(10).stores({
   uiPreferences: "key",
 });
 
+// Version 11: durable archived history, keyed by the requested session.
+db.version(11).stores({ sessionHistory: "sessionId,syncedAt" });
+
 /**
  * Message store operations.
  *

@@ -4,7 +4,7 @@ import { readClaudeSessionMessages } from './claude-session-messages';
 import { readCodexSessionMessages } from './codex-session-messages';
 
 export async function resolveAuthoritativeSessionMessages(
-  session: SessionSnapshot,
+  session: Pick<SessionSnapshot, "metadata"> & { agent: string },
   liveMessages: ReplaceMessageInput[],
   options: { requireNative?: boolean; minimumRefreshIntervalMs?: number } = {},
 ): Promise<ReplaceMessageInput[]> {

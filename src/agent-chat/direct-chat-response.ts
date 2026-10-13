@@ -22,6 +22,7 @@ export interface AcceptedFinalInspection {
   sessionState: 'active' | 'stopped' | 'missing';
   promptBoundary?: 'observed' | 'missing' | 'unavailable';
   runtimeStable?: boolean;
+  interrupted?: boolean;
 }
 
 export class PromptBoundaryNotObservedError extends Error {
@@ -153,14 +154,8 @@ export async function sendPromptAndAwaitFinalResponse(
     }
     // Preserve an observed receipt even when the native turn failed before the first poll.
     if (sendFailed) throw sendError;
-    const nextPromptOffset = promptIndex >= 0
-      ? authoritativeMessages.slice(promptIndex + 1).findIndex((message) => message.role === 'user')
-      : -1;
-    const turnMessages = promptIndex < 0
-      ? []
-      : nextPromptOffset >= 0
-        ? authoritativeMessages.slice(promptIndex + 1, promptIndex + 1 + nextPromptOffset)
-        : authoritativeMessages.slice(promptIndex + 1);
+    // Continue/steering belongs to the accepted work until its verified final.
+    const turnMessages = promptIndex < 0 ? [] : authoritativeMessages.slice(promptIndex + 1);
     const finalMessage = findNativeTurnFinal(turnMessages);
     if (finalMessage && (!sdkTurn || sendCompleted) && isDirectChatFinalReady({
       nativeCodexReady: Boolean(nativeCodexReady), agentTransport: session?.metadata?.agentTransport, runtimeStatus,
@@ -213,7 +208,7 @@ export async function inspectAcceptedFinalResponse(
   const nativeCodexReady = session.agent === 'codex'
     && session.metadata?.nativeAgentSession?.agent === 'codex'
     && Boolean(session.metadata.nativeAgentSession.sessionId);
-  const authoritativeMessages = nativeCodexReady
+  const authoritativeMessages = nativeCodexReady && !isNativeSdkTransport(session.metadata?.agentTransport)
     ? await resolveAuthoritativeSessionMessages(session, liveMessages, { requireNative: true })
     : adapter?.deliversPromptsDirectly?.() ? liveMessages : [];
   const boundaryIndex = authoritativeMessages.findLastIndex((message) => {
@@ -238,5 +233,6 @@ export async function inspectAcceptedFinalResponse(
     sessionState: session.status === 'running' || session.status === 'starting' ? 'active' : 'stopped',
     promptBoundary: boundaryIndex >= 0 ? 'observed' : authoritativeMessages.length > 0 ? 'missing' : 'unavailable',
     runtimeStable: runtimeStatus === 'stable',
+    interrupted: turnMessages.findLast((message) => ['assistant', 'agent', 'agent-error'].includes(message.role))?.role === 'agent-error',
   };
 }

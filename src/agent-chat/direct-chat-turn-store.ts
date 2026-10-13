@@ -1,3 +1,4 @@
+import { findInterruptedDirectChatSessionTurn, rebindAcceptedDirectChatSession } from "./direct-chat-session-ownership-store";
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -142,7 +143,7 @@ export class DirectChatTurnStore {
   }
 
   getPending(routingKey: string): DirectChatTurnRecord | null {
-    const row = this.db.query("SELECT * FROM agent_direct_chat_turns WHERE routing_key = ?1 AND state NOT IN ('completed','published','suppressed','integrity_halt','failed') ORDER BY created_at ASC LIMIT 1").get(routingKey);
+    const row = this.db.query("SELECT * FROM agent_direct_chat_turns WHERE routing_key = ?1 AND COALESCE(prompt_type,'') != 'direct_chat_status' AND state NOT IN ('completed','published','suppressed','integrity_halt','failed') ORDER BY created_at ASC LIMIT 1").get(routingKey);
     return row ? this.map(row as Record<string, unknown>) : null;
   }
 
@@ -193,7 +194,18 @@ export class DirectChatTurnStore {
     return this.get(record.turnId)!;
   }
 
+  getInterruptedSessionTurn(sessionId: string, routingKey: string): DirectChatTurnRecord | null {
+    const row = findInterruptedDirectChatSessionTurn(this.db, sessionId, routingKey);
+    return row ? this.map(row) : null;
+  }
+
+  rebindAcceptedSession(turnId: string, sourceId: string, targetId: string): DirectChatTurnRecord | null {
+    const row = rebindAcceptedDirectChatSession(this.db, turnId, sourceId, targetId);
+    return row ? this.map(row) : null;
+  }
+
   freezeReply(turnId: string, body: string, at = new Date().toISOString()): DirectChatTurnRecord {
+    at = new Date(at).toISOString();
     const current = this.get(turnId);
     if (!current) throw new Error(`Unknown Agent Direct delivery ${turnId}.`);
     const payload = buildDirectChatPublicationPayload(current, body);

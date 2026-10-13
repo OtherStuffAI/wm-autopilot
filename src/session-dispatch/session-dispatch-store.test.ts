@@ -19,11 +19,17 @@ describe("SessionDispatchStore", () => {
       nativeDiscoveryNextAttemptAt: null, nativeDiscoveryAttemptCount: 0, nativeDiscoveryLastError: null,
       callbackAttemptCount: 0, callbackNextAttemptAt: null, callbackExpiresAt: null, callbackQueuedAt: null,
       callbackAcknowledgedAt: null, closedAt: null, lastError: null });
+    store.saveWake({ callbackSessionId: "source", inboxFingerprint: "fingerprint", state: "submitted",
+      attemptCount: 5, claimedAt: "2026-01-01T00:02:00.000Z", submittedAt: "2026-01-01T00:02:01.000Z",
+      busyObservedAt: null, leaseExpiresAt: "2026-01-01T00:03:00.000Z", nextRetryAt: null, lastError: null });
     store.rebindSession("source", "replacement");
     store.rebindSession("source", "replacement");
     expect(store.get(created.dispatchId)).toMatchObject({ workerSessionId: "replacement", callbackSessionId: "replacement" });
     expect(store.listUnresolvedCallbacks("replacement")).toHaveLength(1);
     expect(store.listUnresolvedCallbacks("source")).toHaveLength(0);
+    expect(store.getWake("replacement")).toMatchObject({ state: "pending", attemptCount: 0, submittedAt: null,
+      leaseExpiresAt: null });
+    expect(store.getWake("source")).toBeNull();
   });
 
   test("persists optional reporting context and terminal state across reopen", () => {

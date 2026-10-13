@@ -66,7 +66,7 @@ function fixture(options: { publish?: (input: any, attempt: number) => Promise<a
 }
 
 describe('Agent Direct durable delivery reconciler', () => {
-  test('terminalizes missing and stopped sessions without publishing speculative responses', async () => {
+  test('reports missing and stopped sessions truthfully without fabricating a final', async () => {
     for (const sessionState of ['missing', 'stopped'] as const) {
       const f = fixture();
       f.seed();
@@ -76,7 +76,8 @@ describe('Agent Direct durable delivery reconciler', () => {
       await f.make(`boot-${sessionState}`).processTurnNow('turn-1');
 
       expect(f.store.get('turn-1')).toMatchObject({ state: 'failed', lastErrorClass: `session_${sessionState}` });
-      expect(f.calls).toHaveLength(0);
+      expect(f.calls).toHaveLength(1);
+      expect(f.calls[0].body).toContain('Work was interrupted');
     }
   });
 
@@ -93,7 +94,8 @@ describe('Agent Direct durable delivery reconciler', () => {
     expect(f.store.get('turn-2')).toMatchObject({ state: 'failed', lastErrorClass: 'session_missing' });
     expect(f.store.get('turn-1')).toMatchObject({ state: 'awaiting_reply', lastErrorClass: null });
     expect(f.store.getPending(f.routingKey)?.turnId).toBe('turn-1');
-    expect(f.calls).toHaveLength(0);
+    expect(f.calls).toHaveLength(1);
+    expect(f.calls[0].body).toContain('Work was interrupted');
   });
 
   test('requeues an old transport acceptance with no prompt in the idle transcript', async () => {
@@ -404,4 +406,48 @@ describe('Agent Direct durable delivery reconciler', () => {
     expect(health.healthStatus).toBe('degraded');
     expect(health.oldestReplyReadyAgeMs).toBe(120_000);
   });
+});
+
+test('overload then Continue retains accepted work and publishes interruption and final once each', async () => {
+  const f = fixture();
+  f.seed();
+  f.session.messages.push({ role: 'agent-error', content: 'server_overloaded', createdAt: '2026-07-29T00:00:01Z' });
+  const reconciler = f.make('original');
+  await reconciler.processTurnNow('turn-1');
+  await reconciler.runOnce();
+  expect(f.store.get('turn-1')?.state).toBe('awaiting_reply');
+  expect(f.store.getPending(f.routingKey)?.turnId).toBe('turn-1');
+  expect(f.calls).toHaveLength(1);
+  expect(f.calls[0]).toMatchObject({ threadId: 'thread-1', clientRequestId: 'agentdirect:route:turn-1:status:interrupted' });
+  f.session.messages.push({ role: 'user', content: 'Continue', createdAt: '2026-07-29T00:00:02Z' },
+    { role: 'agent-tools', content: 'Awaiting in-flight worker', createdAt: '2026-07-29T00:00:03Z' });
+  f.advance(2_000);
+  await f.make('replacement-observer').runOnce();
+  expect(f.calls).toHaveLength(1);
+  f.session.messages.push({ role: 'assistant', content: 'Verified worker handoff.', createdAt: '2026-07-29T00:00:04Z' });
+  f.advance(2_000);
+  await f.make('replacement-observer').runOnce();
+  await reconciler.runOnce();
+  expect(f.store.get('turn-1')).toMatchObject({ state: 'published' });
+  expect(f.calls).toHaveLength(2);
+  expect(f.calls[1]).toMatchObject({ body: 'Verified worker handoff.', threadId: 'thread-1', clientRequestId: 'agentdirect:route:turn-1' });
+});
+
+test('interruption survives outage, archive and new observer without duplicate final or execution', async () => {
+  const f = fixture({ publish: async (_input, attempt) => {
+    if (attempt === 1) throw Object.assign(new Error('lost response'), { status: 503 });
+    return { message: { id: 'durable-status' }, replayed: true };
+  } });
+  f.seed();
+  f.session.messages.push({ role: 'agent-error', content: 'server_overloaded', createdAt: '2026-07-29T00:00:01Z' });
+  await f.make('before-archive').processTurnNow('turn-1');
+  await f.make('before-archive').runOnce();
+  f.sessions.clear();
+  f.advance(2_000);
+  await f.make('after-archive').runOnce();
+  await f.make('later').runOnce();
+  expect(f.store.get('turn-1')).toMatchObject({ state: 'failed', replyBody: null });
+  expect(f.calls).toHaveLength(2);
+  expect(f.calls[1]).toEqual(f.calls[0]);
+  expect(f.store.get('turn-1:status:interrupted')?.state).toBe('published');
 });

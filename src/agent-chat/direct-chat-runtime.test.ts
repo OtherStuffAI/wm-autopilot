@@ -25,7 +25,7 @@ import {
 const ATHENA_BOT_NPUB = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzqunz0d4';
 
 function fixture(options: {
-  sdkTransport?: "claude-sdk";
+  sdkTransport?: "claude-sdk" | "codex-sdk";
   sendError?: Error;
   publish?: (input: any, attempt: number) => Promise<any>;
   directChat?: AgentDefinitionRecord['directChat'] | null;
@@ -1070,8 +1070,9 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.turnStore.get(seeded.turnId)).toMatchObject({ state: 'failed', lastErrorClass: 'session_missing' });
     expect(f.creates).toHaveLength(1);
     expect(f.creates[0][3].type).toBe('agent-chat');
-    expect(f.published).toHaveLength(1);
-    expect(f.published[0].metadata.source_message_ids).toEqual(['m2']);
+    expect(f.published).toHaveLength(2);
+    expect(f.published[0].body).toContain('Work was interrupted');
+    expect(f.published[1].metadata.source_message_ids).toEqual(['m2']);
     expect(f.interceptStore.getByRoutingKey(seeded.routingKey)).toMatchObject({
       sessionId: 'session-1',
       sessionGeneration: 2,
@@ -1116,8 +1117,9 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.turnStore.get(seeded.turnId)).toMatchObject({ state: 'failed', lastErrorClass: 'session_stopped' });
     expect(f.creates).toHaveLength(1);
     expect(f.creates[0][3].type).toBe('agent-chat');
-    expect(f.published).toHaveLength(1);
-    expect(f.published[0].metadata.source_message_ids).toEqual(['m2']);
+    expect(f.published).toHaveLength(2);
+    expect(f.published[0].body).toContain('Work was interrupted');
+    expect(f.published[1].metadata.source_message_ids).toEqual(['m2']);
     expect(f.interceptStore.getByRoutingKey(seeded.routingKey)).toMatchObject({
       sessionGeneration: 2,
       previousSessionIds: ['dead-session'],
@@ -1145,38 +1147,16 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.prompts).toHaveLength(1); expect(f.interceptStore.listAll()[0]!.lastAgentMessageIdPublished).toBe('agent-message-replayed');
   });
 
-  test('retires an accepted session that times out and replays from chat history in a fresh session', async () => {
-    const f = fixture({
-      timeoutFirstResponse: true,
-      useDeliveryReconciler: true,
-      directChat: {
-        enabled: true,
-        sessionAgent: 'goose',
-        directory: '/Users/example/wingmen/agent-workspace',
-        model: null,
-        idleRetentionMinutes: 60,
-      },
-    });
+  test('retains an accepted manager awaiting a worker after observation timeout', async () => {
+    const f = fixture({ timeoutFirstResponse: true, useDeliveryReconciler: true });
     const m1 = f.message('m1', '@Example Agent finish this after the supervisor wait', true);
     await f.handle([m1], 'm1');
     await f.runtime.waitForIdle();
-    const state = f.interceptStore.listAll()[0]!;
-    expect(f.stops).toEqual(['session-1']);
-    expect(f.creates).toHaveLength(2);
-    expect(f.creates[1][3].type).toBe('agent-chat');
-    expect(state).toMatchObject({
-      sessionId: 'session-2', sessionGeneration: 2, previousSessionIds: ['session-1'], state: 'idle',
-    });
-    expect(f.prompts).toHaveLength(1);
-    expect(f.prompts[0]).toContain('finish this after the supervisor wait');
-    expect(f.published).toHaveLength(1);
-    expect(f.published[0].metadata.session_id).toBe('session-2');
-    expect(f.published[0].metadata.source_message_ids).toEqual(['m1']);
-    expect(f.activities.map((activity) => activity.body).filter(Boolean).join('\n'))
-      .toContain('Retired session-1: Timed out waiting for session session-1 to produce a final response.');
-    expect(f.dispatchOutcomeStore.listPage(['sub1'], { limit: 25, offset: 0 }).rows[0]).toMatchObject({
-      outcome: 'launched', action: 'session', actionId: 'session-2', status: 'running', recordId: 'm1',
-    });
+    expect(f.stops).toHaveLength(0);
+    expect(f.creates).toHaveLength(1);
+    expect(f.published).toHaveLength(0);
+    expect(f.interceptStore.listAll()[0]).toMatchObject({ sessionId: 'session-1', state: 'active' });
+    expect(f.turnStore.listRecoverable()[0]).toMatchObject({ sessionId: 'session-1', state: 'awaiting_reply' });
   });
 
   test('recovers an accepted turn after restart from the existing clean final without resending its prompt', async () => {
@@ -1480,4 +1460,30 @@ describe("Claude SDK Flight Deck publication", () => {
     expect(f.published).toHaveLength(0);
     expect(f.activities.some((activity) => activity.state === "failed" || activity.state === "cancelled")).toBe(true);
   });
+});
+
+
+test("Codex SDK overload retains its received request and Continue publishes the real final once", async () => {
+  const f = fixture({ sdkTransport: "codex-sdk", sendError: new Error("server_overloaded"), useDeliveryReconciler: true });
+  const message = f.message("m1", "@Example Agent do the accepted work", true);
+  await f.handle([message], "m1");
+  await f.runtime.waitForIdle();
+  await f.deliveryReconciler!.runOnce();
+  const turn = f.turnStore.getPending(f.interceptStore.listAll()[0]!.routingKey)!;
+  expect(turn).toMatchObject({ state: "awaiting_reply", sessionId: "session-1", replyBody: null });
+  expect(f.creates).toHaveLength(1);
+  expect(f.stops).toHaveLength(0);
+  expect(f.published).toHaveLength(1);
+  expect(f.published[0].body).toContain("Work was interrupted");
+  const manager = f.sessions.get("session-1");
+  manager.messages.push({ role: "user", content: "Continue", createdAt: new Date().toISOString() },
+    { role: "agent-tools", content: "Reviewing surviving worker", createdAt: new Date().toISOString() },
+    { role: "assistant", content: "Verified terminal handoff", createdAt: new Date().toISOString() });
+  await Bun.sleep(20);
+  await f.deliveryReconciler!.runOnce();
+  await f.deliveryReconciler!.runOnce();
+  expect(f.prompts).toHaveLength(1);
+  expect(f.published).toHaveLength(2);
+  expect(f.published[1].body).toBe("Verified terminal handoff");
+  expect(f.turnStore.get(turn.turnId)?.state).toBe("published");
 });

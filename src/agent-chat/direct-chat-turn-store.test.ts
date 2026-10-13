@@ -80,3 +80,14 @@ describe("Agent Direct immutable publication ownership", () => {
     }
   });
 });
+
+test("same-native recovery reopens interrupted ownership and cannot rewind a frozen final", () => {
+  const f = fixture();
+  f.store.markFailed("turn", "session_missing", "Archived without final", f.at);
+  expect(f.store.getInterruptedSessionTurn("session", "route")?.turnId).toBe("turn");
+  expect(f.store.rebindAcceptedSession("turn", "session", "replacement")).toMatchObject({ state: "awaiting_reply",
+    sessionId: "replacement", clientRequestId: "request", replyBody: null });
+  f.store.freezeReply("turn", "Verified final.");
+  expect(f.store.rebindAcceptedSession("turn", "replacement", "another")).toBeNull();
+  expect(f.store.get("turn")).toMatchObject({ state: "reply_ready", sessionId: "replacement", replyBody: "Verified final." });
+});

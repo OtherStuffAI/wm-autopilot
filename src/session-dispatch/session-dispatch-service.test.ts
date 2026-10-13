@@ -1,3 +1,6 @@
+import { rebindNativeDirectChatRecovery } from "../agent-chat/direct-chat-native-recovery";
+import { DirectChatTurnStore } from "../agent-chat/direct-chat-turn-store";
+import { ChatInterceptStateStore } from "../agent-chat/chat-intercept-state-store";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,7 +44,7 @@ function fixture(options: { supervisorRuntime?: "running" | "stable"; validateCo
   const closedWorkers: string[] = [];
   const service = new SessionDispatchService(store, manager, queue, () => {}, {},
     (id) => { closedWorkers.push(id); }, inbox, requested, options.validateContext);
-  return { store, queue, inbox, sessions, adapters, service, requested, closedWorkers, createSession };
+  return { root, store, queue, inbox, sessions, adapters, service, requested, closedWorkers, createSession };
 }
 
 describe("SessionDispatchService callback inbox", () => {
@@ -270,4 +273,61 @@ describe("native SDK terminal callbacks", () => {
     expect(f.service.getInbox("supervisor").callbacks).toHaveLength(1);
     expect(f.service.get(record.dispatchId, "supervisor")).toMatchObject({ terminalStatus: "failed", terminalMessage: error });
   });
+});
+
+
+test("overload/Continue/archive recovery keeps one worker and transfers its final callback once", async () => {
+  const f = fixture();
+  const parent = f.sessions.get("supervisor")!;
+  parent.metadata.nativeAgentSession = { agent: "codex", sessionId: "native-parent", workingDirectory: "/repo" };
+  const dispatch = await f.service.create({ agent: "claude", prompt: "Work 1", callbackEnabled: true,
+    callbackSessionId: "supervisor", reportingContext: { threadId: "origin-thread" } });
+  let workerStatus = "running";
+  f.adapters.get(dispatch.workerSessionId).fetchStatus = async () => workerStatus;
+  await f.service.checkRunning();
+  expect(f.store.get(dispatch.dispatchId)?.state).toBe("running");
+  const turnStore = new DirectChatTurnStore(join(f.root, "turns.db"));
+  const interceptStore = new ChatInterceptStateStore(join(f.root, "turns.db"));
+  const at = new Date().toISOString();
+  const intercept = interceptStore.upsertMessage({ routingKey: "route", subscriptionId: "sub",
+    agentId: "profile", workspaceOwnerNpub: "npub1owner", workspaceId: "workspace", sourceAppNpub: "app",
+    towerServiceNpub: "tower", channelId: "channel", threadId: "origin-thread", botNpub: "agent", messageId: "m1", at }).record;
+  interceptStore.save({ ...intercept, sessionId: "supervisor", state: "active" });
+  turnStore.save({ turnId: "accepted-turn", routingKey: "route", sourceMessageIds: ["m1"], clientRequestId: "original",
+    replyBody: null, publishedMessageId: null, state: "awaiting_reply", createdAt: at, updatedAt: at,
+    sessionId: "supervisor", prompt: "Accepted work, overload, Continue; awaiting worker", promptType: "direct_chat",
+    threadId: "origin-thread", agentNpub: "agent" });
+  f.queue.addPrompt("supervisor", { content: "Inspect worker, do not repeat accepted side effects" });
+  const archive = { ...parent, archivedAt: new Date().toISOString() };
+  f.sessions.delete("supervisor");
+  const replacement = session("replacement");
+  replacement.metadata = { ...parent.metadata, resumedFromWingmanSessionId: "supervisor" };
+  f.sessions.set("replacement", replacement);
+  const deps = { manager: { getSession: (id: string) => f.sessions.get(id) }, archiveStore: { getArchivedSession: () => archive },
+    dispatchStore: f.store, promptQueueStore: f.queue, turnStore, interceptStore };
+  turnStore.markFailed("accepted-turn", "session_missing", "Archived without a verified final");
+  expect(() => rebindNativeDirectChatRecovery({ ...replacement, npub: "npub1other",
+    metadata: { ...replacement.metadata, ownerNpub: "npub1other" } }, deps)).toThrow("across owners");
+  expect(f.store.get(dispatch.dispatchId)?.callbackSessionId).toBe("supervisor");
+  rebindNativeDirectChatRecovery(replacement, deps);
+  rebindNativeDirectChatRecovery(replacement, deps);
+  expect(turnStore.get("accepted-turn")).toMatchObject({ sessionId: "replacement", state: "awaiting_reply",
+    replyBody: null, prompt: "Accepted work, overload, Continue; awaiting worker" });
+  expect(turnStore.getPending("route")?.turnId).toBe("accepted-turn");
+  expect(turnStore.get("accepted-turn:status:recovery")?.threadId).toBe("origin-thread");
+  expect(f.queue.getSessionQueue("replacement")).toHaveLength(1);
+  expect(f.queue.getSessionQueue("supervisor")).toHaveLength(0);
+  workerStatus = "stable";
+  await f.service.checkRunning();
+  await f.service.checkRunning();
+  const reopened = new SessionDispatchStore(join(f.root, "dispatch.db"));
+  expect(reopened.get(dispatch.dispatchId)).toMatchObject({ workerSessionId: "worker-1", callbackSessionId: "replacement",
+    state: "callback_pending", terminalStatus: "completed", terminalMessage: "Done 1" });
+  expect(f.createSession).toHaveBeenCalledTimes(1);
+  expect(f.service.getInbox("replacement").callbacks).toHaveLength(1);
+  expect(f.requested).toHaveBeenCalledTimes(1);
+  f.service.acknowledge(dispatch.dispatchId, "replacement");
+  f.service.close(dispatch.dispatchId, "replacement");
+  expect(f.service.getInbox("replacement").callbacks).toHaveLength(0);
+  turnStore.close();
 });

@@ -159,9 +159,8 @@ export class SessionDispatchStore {
           callback_session_id, inbox_fingerprint, state, attempt_count, claimed_at, submitted_at,
           busy_observed_at, lease_expires_at, next_retry_at, last_error, created_at, updated_at
         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)`).run(...[
-          targetSessionId, wake.inbox_fingerprint, wake.state, wake.attempt_count, wake.claimed_at,
-          wake.submitted_at, wake.busy_observed_at, wake.lease_expires_at, wake.next_retry_at,
-          wake.last_error, wake.created_at, now,
+          targetSessionId, wake.inbox_fingerprint, "pending", 0, null,
+          null, null, null, null, null, wake.created_at, now,
         ] as any[]);
       }
     })();

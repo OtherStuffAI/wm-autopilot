@@ -12,6 +12,6 @@ export function isDirectChatSessionProtected(
     if (intercept.state === 'pending' || intercept.state === 'active'
       || intercept.state === 'interrupting' || intercept.state === 'interrupt_failed') return true;
     const turn = turnStore.getPending(intercept.routingKey);
-    return turn?.state === 'accepted' || turn?.state === 'reply_ready';
+    return Boolean(turn && turn.sessionId === sessionId);
   });
 }

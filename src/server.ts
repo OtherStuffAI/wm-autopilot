@@ -1,3 +1,5 @@
+import { rebindNativeDirectChatRecovery } from "./agent-chat/direct-chat-native-recovery";
+import { createDirectChatRuntimeServices } from "./agent-chat/direct-chat-runtime-services";
 import { listSchedulerRunIdentities } from "./scheduler/run-identities";
 import { scheduledPipelineLaunchOptions } from "./scheduler/pipeline-launch-options";
 import { createNightWatchRuntimeDeps } from "./server/nightwatch-runtime-deps";
@@ -159,9 +161,7 @@ import { agentProfilePolicyStore } from './agent-chat/agent-profile-policy-store
 import { handleAgentProfileMediaPublicRoute } from './server/agent-profile-media-public-route';
 import { DispatchPipelineRuntime } from './agent-chat/dispatch-pipelines/runtime';
 import { AgentCommentSessionRuntime } from './agent-chat/comment-session-runtime';
-import { AgentChatSessionRuntime } from './agent-chat/session-runtime';
 import { FlightDeckSessionTurnBridge } from './agent-chat/flightdeck-session-turn-bridge';
-import { AgentDirectDeliveryReconciler } from './agent-chat/direct-chat-delivery-reconciler';
 import {
   DuplicateCallbackPublicationDecisionStore,
   DuplicateCallbackPublicationFilter,
@@ -1272,6 +1272,9 @@ manager.on((event) => {
   const sessionOwnerNpub = resolveSessionOwnerNpub(event.session.npub ?? null, event.session.metadata);
 
   if (event.type === "session-started") {
+    rebindNativeDirectChatRecovery(event.session, { manager, archiveStore: sessionArchiveStore,
+      dispatchStore: sessionDispatchStore, promptQueueStore, turnStore: directChatTurnStore,
+      interceptStore: chatInterceptStateStore, getStoredSession: (id) => messageStore.getSession(id) });
     ensureUserWorkspace(sessionOwnerNpub);
     if (sessionOwnerNpub) {
       try {
@@ -1746,35 +1749,37 @@ const directChatProfileIdentityRunner = createDirectChatProfileIdentityRunner({
   agentStore: agentDefinitionStore,
   withBotIdentity: profileBotIdentityRunner,
 });
-const agentDirectDeliveryReconciler = new AgentDirectDeliveryReconciler({
-  manager,
-  store: directChatTurnStore,
-  interceptStore: chatInterceptStateStore,
-  resolveTransport: (record) => workspaceSubscriptionManager.resolveDirectChatTurnTransport({
-    subscriptionId: record.subscriptionId!, backendBaseUrl: record.backendBaseUrl!,
-    towerServiceNpub: record.towerServiceNpub!, workspaceId: record.workspaceId!, sourceAppNpub: record.sourceAppNpub!,
-  }),
-  withProfileIdentity: directChatProfileIdentityRunner,
-  reconcileActivity: createReconciledActivityPublisher(manager),
-  terminalizeActivity: createReconciledActivityPublisher(manager, true),
-  publicationFilter: duplicateCallbackPublicationFilter,
-  dispatchOutcomeStore: flightDeckDispatchOutcomeStore,
-  log: console,
-});
-const agentChatSessionRuntime = new AgentChatSessionRuntime({
-  defaultAgent: config.defaultAgent,
-  processManager: manager,
-  idleRetentionMinutes: 60,
-  turnBridge: flightDeckSessionTurnBridge,
-  directDeliveryReconciler: agentDirectDeliveryReconciler,
-  publicationFilter: duplicateCallbackPublicationFilter,
-  withBotIdentity: profileBotIdentityRunner,
-  enrichDirectChat: createDirectChatEnrichmentService({ store: pipelineStore,
-    getSessionApiContext: () => sessionApiContextRef ?? (() => { throw new Error("Pipeline runtime is not ready"); })(),
-    callbackOrigin: `http://127.0.0.1:${config.port}` }),
-  routePipeline: createPipelineRouterHandler({ store: pipelineStore,
-    getSessionApiContext: () => sessionApiContextRef ?? (() => { throw new Error('Pipeline runtime is not ready'); })(),
-    callbackOrigin: `http://127.0.0.1:${config.port}` }),
+const { deliveryReconciler: agentDirectDeliveryReconciler, sessionRuntime: agentChatSessionRuntime } = createDirectChatRuntimeServices({
+  sessionDispatchStore, promptQueueStore, archiveStore: sessionArchiveStore,
+  delivery: {
+    manager,
+    store: directChatTurnStore,
+    interceptStore: chatInterceptStateStore,
+    resolveTransport: (record) => workspaceSubscriptionManager.resolveDirectChatTurnTransport({
+      subscriptionId: record.subscriptionId!, backendBaseUrl: record.backendBaseUrl!,
+      towerServiceNpub: record.towerServiceNpub!, workspaceId: record.workspaceId!, sourceAppNpub: record.sourceAppNpub!,
+    }),
+    withProfileIdentity: directChatProfileIdentityRunner,
+    reconcileActivity: createReconciledActivityPublisher(manager),
+    terminalizeActivity: createReconciledActivityPublisher(manager, true),
+    publicationFilter: duplicateCallbackPublicationFilter,
+    dispatchOutcomeStore: flightDeckDispatchOutcomeStore,
+    log: console,
+  },
+  runtime: {
+    defaultAgent: config.defaultAgent,
+    processManager: manager,
+    idleRetentionMinutes: 60,
+    turnBridge: flightDeckSessionTurnBridge,
+    publicationFilter: duplicateCallbackPublicationFilter,
+    withBotIdentity: profileBotIdentityRunner,
+    enrichDirectChat: createDirectChatEnrichmentService({ store: pipelineStore,
+      getSessionApiContext: () => sessionApiContextRef ?? (() => { throw new Error("Pipeline runtime is not ready"); })(),
+      callbackOrigin: `http://127.0.0.1:${config.port}` }),
+    routePipeline: createPipelineRouterHandler({ store: pipelineStore,
+      getSessionApiContext: () => sessionApiContextRef ?? (() => { throw new Error('Pipeline runtime is not ready'); })(),
+      callbackOrigin: `http://127.0.0.1:${config.port}` }),
+  },
 });
 workspaceSubscriptionManager.setChatRuntime(agentChatSessionRuntime);
 // NOTE: `agentWorkSessionRuntime` construction, `setAgentWorkRuntime`, and

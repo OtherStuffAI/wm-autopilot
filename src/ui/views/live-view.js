@@ -1,3 +1,5 @@
+import { loadArchivedSessionHistory } from "../live/archived-session-history.js";
+import { loadSelectedArchivedSession, archivedSessionStatusLabel } from "../live/archived-session-loader.js";
 /**
  * Live view renderer — session tabs, logs, conversation, composer, webview split,
  * archived session viewer, and focus snapshot utilities.
@@ -12,7 +14,6 @@ import { createArchivedConversation } from "../live/archived-conversation.js";
 import { showToast } from "../utils/toast.js";
 import { AGENT_OUTPUT_FORMATTING_FLAG_KEY } from "../rendering/agent-output-format.js";
 import {
-  fetchSessionHistoryApi,
   branchConversationApi,
   forkSessionToWorktreeApi,
   removePinnedArtifactApi,
@@ -575,61 +576,13 @@ export function initLiveView(deps) {
 
   // ── Archived sessions ───────────────────────────────────────────
 
-  const loadArchivedSession = async (sessionId) => {
-    if (state.archivedSession.loading) return;
-
-    state.archivedSession = {
-      sessionId,
-      status: null,
-      session: null,
-      messages: [],
-      loading: true,
-      error: null,
-    };
-    render();
-
-    try {
-      const data = await fetchSessionHistoryApi(sessionId);
-      if (!data) {
-        state.archivedSession = {
-          sessionId,
-          status: null,
-          session: null,
-          messages: [],
-          loading: false,
-          error: "Session not found",
-        };
-      } else if (data.status === "live") {
-        state.archivedSession = {
-          sessionId: null,
-          status: null,
-          session: null,
-          messages: [],
-          loading: false,
-          error: null,
-        };
-      } else {
-        state.archivedSession = {
-          sessionId,
-          status: data.status,
-          session: data.session,
-          messages: data.messages || [],
-          loading: false,
-          error: null,
-        };
-      }
-    } catch (error) {
-      state.archivedSession = {
-        sessionId,
-        status: null,
-        session: null,
-        messages: [],
-        loading: false,
-        error: error.message || "Failed to load session",
-      };
-    }
-    render();
-  };
+  const loadArchivedSession = (sessionId) => loadSelectedArchivedSession(sessionId, {
+    getState: () => state.archivedSession,
+    setState: (next) => { state.archivedSession = next; },
+    getSelectedSessionId: () => getSessionIdFromPath(window.location.pathname),
+    fetchHistory: loadArchivedSessionHistory,
+    render,
+  });
 
   const renderArchivedConversation = (messages) => createArchivedConversation({
     conversation: messages,
@@ -1392,14 +1345,14 @@ export function initLiveView(deps) {
     const isLiveSession = routeSessionId && sessionsStore().items.some((s) => s.id === routeSessionId);
 
     if (routeSessionId && !isLiveSession) {
-      if (state.archivedSession.sessionId !== routeSessionId && !state.archivedSession.loading) {
+      if (state.archivedSession.sessionId !== routeSessionId) {
         void loadArchivedSession(routeSessionId);
       }
 
       const main = document.createElement("section");
       main.className = "wm-card wm-live-main wm-live-main-archived";
 
-      if (state.archivedSession.loading) {
+      if (state.archivedSession.loading || state.archivedSession.sessionId !== routeSessionId) {
         const loadingContainer = document.createElement("div");
         loadingContainer.className = "wm-live-loading";
         const loadingText = document.createElement("p");
@@ -1427,7 +1380,9 @@ export function initLiveView(deps) {
 
         const statusBadge = document.createElement("span");
         statusBadge.className = "wm-archived-badge";
-        statusBadge.textContent = state.archivedSession.status === "abandoned" ? "ABANDONED" : "ARCHIVED";
+        statusBadge.textContent = archivedSessionStatusLabel(state.archivedSession.status, state.archivedSession.messages);
+        statusBadge.setAttribute("aria-live", "polite");
+        statusBadge.dataset.testid = "archived-session-status";
 
         const sessionInfo = document.createElement("div");
         sessionInfo.className = "wm-archived-info";
