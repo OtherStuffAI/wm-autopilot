@@ -1,5 +1,9 @@
 # Declarative pipeline display data roles
 
+Agent and `session.completedTurn` steps support optional authenticated public
+activity delivery. See [Agent Step activity webhooks](agent-step-activity-webhooks.md)
+for configuration, signed envelopes, receiver validation, final authority and activation.
+
 `DisplayFieldSpec.role` is an optional, per-step presentation declaration. It does
 not change selectors, executor requests, assignments, conditions, or execution.
 

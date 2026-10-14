@@ -305,6 +305,7 @@ function renderManualEditPanel(state, definition) {
       </label>
       <label class="wm-pipeline-field">
         <span>Workflow steps JSON</span>
+        <small class="wm-muted">Agent and session.completedTurn steps can include activityWebhook with a fixed HTTPS receiver URL and correlation selectors. Progress delivery is optional; final results remain independent.</small>
         <textarea data-action="manual-edit-field" data-field="stepsText" rows="12" spellcheck="false" aria-label="Pipeline workflow steps JSON">${escapeHtml(form.stepsText ?? JSON.stringify(definition.steps ?? [], null, 2))}</textarea>
       </label>
       ${renderManualAgentPromptEditors(form, definition)}

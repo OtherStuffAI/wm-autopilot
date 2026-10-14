@@ -24,7 +24,7 @@ export interface CompletedTurnReceipt {
   sessionId: string | null;
   executionId: string | null;
   nativeSessionId: string | null;
-  status: "queued" | "preparing" | "sending" | "completed" | "uncertain";
+  status: "queued" | "preparing" | "sending" | "completed" | "uncertain" | "abandoned" | "abandoning";
   sequence: number;
   reply: string | null;
   error: string | null;

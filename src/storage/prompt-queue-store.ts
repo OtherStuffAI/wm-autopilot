@@ -1,3 +1,4 @@
+import { supersedeDedicatedPending } from "./dedicated-queue-recovery.ts";
 import { mapQueuedPrompt } from "./prompt-queue-row";
 import { prunePromptQueueHistory } from "./prompt-queue-retention";
 import { randomUUID } from "node:crypto";
@@ -16,7 +17,7 @@ export interface QueuedPrompt {
   dedupeKey: string | null;
   payload: Record<string, unknown> | null;
   revision: string;
-  state: "pending" | "claimed" | "dispatched" | "handled";
+  state: "pending" | "claimed" | "dispatched" | "handled" | "superseded";
   handledAt: string | null;
   handledBy: string | null;
   handledReason: string | null;
@@ -222,6 +223,12 @@ export class PromptQueueStore {
 
   clearSessionQueue(sessionId: string): void {
     this.clearQueue.run(sessionId);
+  }
+
+  /** Internal dedicated-builder operation. Preserve unsent content as superseded,
+   * never call it handled and never alter a claimed delivery. */
+  supersedeDedicatedPending(sessionId: string, bindingId: string): number {
+    return supersedeDedicatedPending(this.db, sessionId, bindingId);
   }
 
   rebindSession(sourceSessionId: string, targetSessionId: string): number {

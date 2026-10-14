@@ -4,6 +4,7 @@ import { PipelineEvidenceStore } from "./pipeline-evidence-store";
 import { preparePreviewMetadata } from "./pipeline-preview-metadata";
 import { PipelineCompositionStore } from "./pipeline-composition-store";
 import { PublicCallStore } from "./public-call-store";
+import { ActivityWebhookStore } from "./activity-webhook-store.ts";
 import { CompletedTurnStore } from "../sessions/completed-turn-store.ts";
 import { IsolatedTurnStore } from "../sessions/isolated-turn-store.ts";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
@@ -139,6 +140,7 @@ function tryDecodeJsonObject(value: unknown): JsonObject {
 }
 
 export class PipelineStore {
+  readonly activityWebhooks: ActivityWebhookStore;
   readonly path: string;
   readonly publicCalls: PublicCallStore;
   readonly completedTurns: CompletedTurnStore;
@@ -154,6 +156,7 @@ export class PipelineStore {
     this.db.run("PRAGMA journal_mode = WAL");
     this.db.run("PRAGMA foreign_keys = ON");
     this.migrate();
+    this.activityWebhooks = new ActivityWebhookStore(this.db);
     this.publicCalls = new PublicCallStore(this.db);
     this.completedTurns = new CompletedTurnStore(this.db);
     this.isolatedTurns = new IsolatedTurnStore(this.db);

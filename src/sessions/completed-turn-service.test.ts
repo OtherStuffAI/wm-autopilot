@@ -194,3 +194,50 @@ test("native recovery rejects intervening prompt, failed completion and mismatch
   expect(() => failed.visit(event("event_msg", { type: "task_complete", error: "failed" }))).toThrow("failed");
   expect(() => failed.visit(event("event_msg", { type: "task_complete", last_agent_message: "different" }))).toThrow("mismatch");
 });
+
+test("pre-send failure with an established binding retries without ambiguous launch recovery or duplicate execution",async()=>{
+ const f=fakeRuntime();let readiness=0;const recoveringFlags:boolean[]=[];
+ const prepare=f.runtime.prepare;f.runtime.prepare=async(binding,request,recovering)=>{recoveringFlags.push(recovering);return prepare(binding,request,recovering)};
+ f.runtime.ready=async()=>{if(readiness++===0)throw Error("Completed-turn session has unrelated queued prompts")};
+ const first=await execute(f.runtime);expect(first.status).toBe("preparing");expect(f.prompts).toEqual([]);
+ const recovered=await execute(f.runtime);expect(recovered.status).toBe("completed");expect(recoveringFlags).toEqual([false,false]);expect(f.launches()).toBe(1);expect(f.prompts).toHaveLength(1);
+ expect((await execute(f.runtime)).receiptId).toBe(recovered.receiptId);expect(f.prompts).toHaveLength(1);
+});
+
+test("scoped abandonment stops an uncertain writer, fences late completion and retires conversation without deleting history",async()=>{
+ const {abandonCompletedTurn}=await import('./completed-turn-abandonment.ts');
+ const f=fakeRuntime();f.runtime.send=async()=>{throw Error('lost native response')};
+ const uncertain=await execute(f.runtime);expect(uncertain.status).toBe('uncertain');
+ let stops=0;f.runtime.abandon=async(row)=>{stops++;return {writerStopped:true,abandonedReceiptId:row.receiptId}};
+ const input={owner:'owner',request:request(),store,runtime:f.runtime};
+ await expect(abandonCompletedTurn({...input,owner:'foreign'})).rejects.toThrow('binding denied');
+ const abandoned=await abandonCompletedTurn(input);expect(abandoned.status).toBe('abandoned');expect(stops).toBe(1);
+ expect((await abandonCompletedTurn(input)).receiptId).toBe(abandoned.receiptId);expect(stops).toBe(1);
+ expect(()=>store.complete(uncertain.receiptId,'old-token','late','native')).toThrow('claim changed');
+ await expect(execute(f.runtime,'successor')).rejects.toThrow('fresh generation');
+ expect(store.request('owner','one')?.prompt).toBe('  exact\nprompt  ');
+});
+test("explicit abandonment revokes an active send claim before stop; failed stop cannot authorize a new writer",async()=>{
+ const {abandonCompletedTurn}=await import('./completed-turn-abandonment.ts');const f=fakeRuntime();
+ const row=store.enqueue('owner',request(),'run','step');store.claim(row.receiptId,'old');store.bind(row.receiptId,'old','session');store.sending(row.receiptId,'old','native',0);store.uncertain(row.receiptId,'old','active send failed');
+ store.claim(row.receiptId,'active');
+ let release!:()=>void;f.runtime.abandon=async()=>{await new Promise<void>(resolve=>{release=resolve});throw Error('writer still active')};
+ const work=abandonCompletedTurn({owner:'owner',request:request(),store,runtime:f.runtime});await new Promise(resolve=>setTimeout(resolve,0));
+ expect(store.get(row.receiptId)?.status).toBe('abandoning');expect(()=>store.complete(row.receiptId,'active','late','native')).toThrow('claim changed');
+ expect(()=>store.enqueue('owner',request('new'),'new-run','new-step')).toThrow('fresh generation');
+ release();await expect(work).rejects.toThrow('writer still active');expect(store.get(row.receiptId)?.status).toBe('abandoning');expect(store.get(row.receiptId)?.output).toBeNull();
+});
+
+test("progress observer and evidence failures cannot interrupt native send or full final receipt", async () => {
+  const fake = fakeRuntime();
+  const final = "Complete answer\n\n" + "answer details ".repeat(3000);
+  fake.runtime.send = async (_id, prompt) => { fake.prompts.push(prompt); return { reply: final, nativeSessionId: "native" }; };
+  let failures = 0;
+  const receipt = await executeCompletedTurn({ store, storeKey: directory, runtime: fake.runtime, owner: "owner", request: request(), runId: "run", stepId: "step",
+    onTurn: () => { throw new Error("Progress disk unavailable"); },
+    onTurnError: () => { failures++; throw new Error("Evidence disk unavailable"); },
+  });
+  expect(receipt).toMatchObject({ status: "completed", reply: final });
+  expect(failures).toBe(1);
+  expect(fake.prompts).toHaveLength(1);
+});

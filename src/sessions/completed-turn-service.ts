@@ -2,6 +2,7 @@ import type { CompletedTurnReceipt, CompletedTurnRequest } from "./completed-tur
 import { CompletedTurnStore, publicTurnReceipt, type TurnBinding, type TurnRecord } from "./completed-turn-store.ts";
 
 export interface CompletedTurnRuntime {
+  abandon?: (row: TurnRecord) => Promise<Record<string,unknown>>;
   authorize: (request: CompletedTurnRequest, owner: string) => Promise<void>;
   prepare: (binding: TurnBinding, request: CompletedTurnRequest, recovering: boolean) => Promise<string | { executionId: string; sessionId: string | null }>;
   ready: (sessionId: string) => Promise<void>;
@@ -22,8 +23,16 @@ export async function executeCompletedTurn(input: {
   runId: string;
   stepId: string;
   onSession?: (row: TurnRecord, sessionId: string | null, executionId: string) => void;
+  onTurn?: (row: TurnRecord) => void;
+  onTurnError?: (error: unknown) => void;
 }): Promise<CompletedTurnReceipt & { blockedBy?: string }> {
   const { store, runtime, owner, request } = input;
+  function observeTurn(row: TurnRecord): void {
+    try { input.onTurn?.(row); }
+    catch (error) {
+      try { input.onTurnError?.(error); } catch { /* Progress evidence must not affect native execution. */ }
+    }
+  }
   if (!owner) throw new Error("Completed turns require an authenticated pipeline owner");
   await runtime.authorize(request, owner);
   const target = store.enqueue(owner, request, input.runId, input.stepId);
@@ -35,7 +44,7 @@ export async function executeCompletedTurn(input: {
   conversations.set(lockKey, tail);
   await previous;
   try {
-    while (store.get(target.receiptId)!.status !== "completed") {
+    while (!["completed","abandoned"].includes(store.get(target.receiptId)!.status)) {
       const head = store.head(owner, request.conversationKey)!;
       const recovering = head.status !== "queued";
       const token = crypto.randomUUID();
@@ -49,13 +58,14 @@ export async function executeCompletedTurn(input: {
       }, 5_000);
       try {
         if (head.status === "sending" || head.status === "uncertain") {
+          observeTurn(head);
           const evidence = await runtime.recover(head);
           if (!evidence) throw new Error("Native completed-turn outcome uncertain; no prompt was replayed");
           store.complete(head.receiptId, token, evidence.reply, evidence.nativeSessionId, evidence.output);
         } else {
           const binding = store.binding(owner, request.conversationKey)!;
           // Use the head's immutable launch configuration, even when draining an older request.
-          const prepared = await runtime.prepare(binding, JSON.parse(head.requestJson) as CompletedTurnRequest, recovering);
+          const prepared = await runtime.prepare(binding, JSON.parse(head.requestJson) as CompletedTurnRequest, recovering && !head.executionId);
           const { executionId, sessionId } = typeof prepared === "string" ? { executionId: prepared, sessionId: prepared } : prepared;
           store.bind(head.receiptId, token, executionId, sessionId);
           input.onSession?.(head, sessionId, executionId);
@@ -64,6 +74,7 @@ export async function executeCompletedTurn(input: {
           if (leaseError) throw leaseError;
           store.renew(head.receiptId, token);
           store.sending(head.receiptId, token, checkpoint.nativeSessionId, checkpoint.count);
+          observeTurn(store.get(head.receiptId)!);
           const completed = await runtime.send(executionId, head.prompt);
           if (leaseError) throw leaseError;
           if (checkpoint.nativeSessionId && completed.nativeSessionId !== checkpoint.nativeSessionId) {

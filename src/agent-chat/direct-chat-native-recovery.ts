@@ -33,6 +33,9 @@ export function rebindNativeDirectChatRecovery(target: SessionSnapshot, deps: {
     || source.metadata.nativeAgentSession.sessionId !== target.metadata?.nativeAgentSession?.sessionId) {
     throw new Error("Native recovery session identity does not match its source.");
   }
+  // Dedicated builders have their own durable turn queue. Leave ordinary work
+  // on its original session as evidence rather than transplanting it.
+  if (source.metadata?.role === "completed-turn" || target.metadata?.role === "completed-turn") return;
   deps.dispatchStore.rebindSession(sourceId, target.id);
   deps.promptQueueStore.rebindSession(sourceId, target.id);
   for (const intercept of deps.interceptStore.listAll()) {

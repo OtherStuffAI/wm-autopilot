@@ -246,3 +246,13 @@ test("retries once on the default model when Codex rejects the selected model", 
   expect(fallbacks).toEqual(["gpt-bogus-9"]);
   expect((await adapter.fetchMessages()).filter((message) => message.role === "user")).toHaveLength(1);
 });
+
+test("disposal aborts and awaits native stream settlement before confirming a stopped writer",async()=>{
+ const stream=createControlledStream();let aborted=false;
+ const thread={id:'stop-thread',runStreamed:mock(async(_content:string,options:any)=>{options.signal.addEventListener('abort',()=>{aborted=true});return {events:stream.events}})};
+ mock.module('@openai/codex-sdk',()=>({Codex:class{startThread(){return thread}}}));
+ const adapter=new CodexAdapter({id:'stop-session',port:3700,agent:'codex',host:'127.0.0.1',workingDirectory:'/tmp',env:{}});await adapter.waitForReady({timeoutMs:1000,pollIntervalMs:10});
+ const turn=adapter.sendCompletedMessage('work');const outcome=turn.catch(error=>error);await flush();let stopped=false;
+ const disposal=adapter.dispose().then(()=>{stopped=true});await flush();expect(aborted).toBe(true);expect(stopped).toBe(false);
+ stream.end();await disposal;await outcome;expect(stopped).toBe(true);await expect(adapter.sendCompletedMessage('late')).rejects.toThrow('not ready');
+});

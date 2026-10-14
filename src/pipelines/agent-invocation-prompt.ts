@@ -31,5 +31,6 @@ Completion contract:
 - status must be "ok", "needs_input", or "error"; result must be a JSON object.
 - Use "error" only when the step itself cannot be completed. For transport/auth/probe failures, fix the request and retry until HTTP 200.
 - If selected input includes documentUrl and the step asks for document edits, use that reference directly.
+- After the completion webhook succeeds, provide the complete user-facing final answer in your normal final response. Do not substitute a short transport acknowledgement for the answer. Autopilot retains that final response independently of the structured callback result.
 - Do not include full document text in result; return concise summary fields, changed sections/lines, comment IDs, and status metadata only.`;
 }

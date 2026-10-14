@@ -3,24 +3,32 @@ import { createHash } from "node:crypto";
 import type { PipelineStore } from "./pipeline-store";
 import { runEnvelope } from "./public-call-contract";
 import { postResultWebhook } from "./result-webhook-http";
+import { ActivityWebhookDelivery } from "./activity-webhook-delivery.ts";
+import type { ActivityWebhookMonitor } from "./activity-webhook-monitor.ts";
 
 export class ResultWebhookService {
+  readonly activities: ActivityWebhookDelivery;
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
   constructor(private readonly store: PipelineStore, readonly pubkey: string,
     private readonly sign: (event: EventTemplate) => ReturnType<typeof finalizeEvent>,
     private readonly transport = postResultWebhook,
     private readonly now = Date.now,
-    private readonly log: (error: unknown) => void = () => {}) {}
+    private readonly log: (error: unknown) => void = () => {},
+    private readonly activityMonitor?: ActivityWebhookMonitor) {
+    this.activities = new ActivityWebhookDelivery(store.activityWebhooks, sign, transport, now, log);
+  }
 
   start(): void {
     if (this.timer) return;
+    this.activities.start();
+    this.activityMonitor?.start();
     this.timer = setInterval(() => { void this.tick().catch(this.log); }, 1000);
     this.timer.unref();
     void this.tick().catch(this.log);
   }
 
-  stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; }
+  stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; this.activities.stop(); this.activityMonitor?.stop(); }
 
   async tick(): Promise<void> {
     if (this.busy) return;

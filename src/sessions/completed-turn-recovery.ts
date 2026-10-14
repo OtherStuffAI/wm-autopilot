@@ -3,7 +3,7 @@ import { readCodexJsonlRecords } from "../agents/codex-jsonl-reader.ts";
 
 export interface NativeTurnContext { nativeSessionId: string; directory: string; }
 
-async function readNative(context: NativeTurnContext, visit: (record: Record<string, unknown>) => void): Promise<void> {
+export async function readNative(context: NativeTurnContext, visit: (record: Record<string, unknown>) => void): Promise<void> {
   const path = await findCodexSessionFileForReading({ codexHome: resolveCodexHome(), sessionId: context.nativeSessionId, workingDirectory: context.directory });
   if (!path) throw new Error("Bound native conversation transcript unavailable");
   await readCodexJsonlRecords(path, visit);

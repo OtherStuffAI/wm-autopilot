@@ -57,6 +57,9 @@ export function createCompletedTurnRuntime(ctx: SessionApiContext): CompletedTur
         adapter(id);
         return id;
       }
+      if (ctx.promptQueueStore.getSessionQueue(id).some((item) => item.state === "claimed")) {
+        throw new Error("Completed-turn session has unresolved ordinary delivery");
+      }
       const launch = resolveNativeResumeLaunch(existing, ctx.isAgentType, binding.owner);
       if (recovering) {
         const resumedCandidates = ctx.messageStore.listSessions().filter((session) =>
@@ -94,12 +97,44 @@ export function createCompletedTurnRuntime(ctx: SessionApiContext): CompletedTur
     ctx.messageStore.recordSession({ ...session, runtimeStatus: session.agentRuntimeStatus ?? null });
   }
   return {
+    abandon: async (row) => {
+      if(!row.sessionId)throw new Error("Abandonment session unavailable");
+      const original=source(row.sessionId);
+      const request=JSON.parse(row.requestJson) as CompletedTurnRequest;
+      authorized(original,request,row.owner);
+      const archived=[];
+      if(ctx.sessionArchiveStore?.listArchivedSessions)for(let offset=0;;offset+=200){
+        const page=ctx.sessionArchiveStore.listArchivedSessions({limit:200,offset});archived.push(...page);if(page.length<200)break;
+      }
+      const all=[...ctx.manager.listSessions(),...ctx.messageStore.listSessions(),...archived];
+      const nativeId=original.metadata?.nativeAgentSession?.sessionId;
+      const related=all.filter(s=>s.metadata?.bindingId===completedTurnBindingId(row.owner,row.conversationKey) || (nativeId && s.metadata?.nativeAgentSession?.sessionId===nativeId));
+      for(const session of related)authorized(session,request,row.owner);
+      const ids=new Set([row.sessionId,...related.map(s=>s.id)]);
+      for(const id of ids){
+        const live=ctx.manager.getSession(id);
+        if(!live)continue;
+        // Drain the SDK stream before manager stop, whose general cleanup is
+        // best effort. A failed disposal cannot authorize a fresh writer.
+        const active=ctx.manager.getAdapter(id);
+        if(active)await active.dispose();
+        await ctx.manager.stopSession(id);
+        if(ctx.manager.getSession(id)?.status!=="stopped" || ctx.manager.getAdapter(id))throw new Error("Builder stop not confirmed");
+        record(id);
+      }
+      return {writerStopped:true,stoppedSessionIds:[...ids],abandonedReceiptId:row.receiptId,historyPreserved:true};
+    },
     authorize: async (request, owner) => {
       if (request.sessionId) authorized(source(request.sessionId), request, owner);
     },
     prepare,
     ready: async (id) => {
-      if (ctx.promptQueueStore.getQueueCount(id)) throw new Error("Completed-turn session has unrelated queued prompts");
+      const session = source(id);
+      if (session.metadata?.role !== "completed-turn" || !session.metadata.bindingId) throw new Error("Dedicated queue binding missing");
+      if (ctx.promptQueueStore.getQueueCount(id)) {
+        if (!ctx.promptQueueStore.supersedeDedicatedPending) throw new Error("Dedicated queue recovery unavailable");
+        ctx.promptQueueStore.supersedeDedicatedPending(id, session.metadata.bindingId);
+      }
       adapter(id);
       await waitForSessionPromptReadiness({ getSession: (sessionId) => ctx.manager.getSession(sessionId) ?? null,
         getAdapter: (sessionId) => ctx.manager.getAdapter(sessionId), sessionId: id, host: ctx.agentHost,

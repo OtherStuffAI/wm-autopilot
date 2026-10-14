@@ -163,7 +163,7 @@ test("a live resumed agent child waits for callback, retains session and parent 
   let live = true; let creates = 0; let stops = 0;
   const ctx = { manager: { getSession: () => live ? { id: "live-session", status: "running", agentRuntimeStatus: "stable" } : null,
     getAdapter: () => null, createSession: async () => { creates++; throw new Error("do not recreate"); }, updateSessionMetadata() {}, stopSession: async () => { stops++; live = false; return true; } },
-    syncSessionMessages: async () => {}, scheduleSessionArchive() {} };
+    messageStore: { listSessionMessages: () => [] }, syncSessionMessages: async () => {}, scheduleSessionArchive() {} };
   const input = { ...runner(parentDef, []), sessionApiContext: ctx as never };
   const pending = resumeDeclarativePipeline(input, p.id);
   await Bun.sleep(40); expect(store.getRun(p.id)!.status).toBe("running");
@@ -237,7 +237,7 @@ const parent = make("process-parent", [{ name: "child", type: "pipeline", pipeli
 const session = { id: "fake-process-agent", agent: "goose", status: "running", port: 1, workingDirectory: "/tmp", command: [], logs: [], startedAt: new Date().toISOString() };
 const adapter = { fetchStatus: async () => "stable", getPromptReadiness: async () => ({ state: "ready", reason: "fixture", observedAt: Date.now(), retryAfterMs: 1 }), deliversPromptsDirectly: () => true, waitForReady: async () => {}, sendMessage: async () => { process.exit(0); } };
 await runDeclarativePipeline({ store, definition: parent, registry: { finish: input => input }, input: { source: 7, agent: { profileId: "original", botNpub: "npub1original" } }, ownerNpub: "npub1owner", ownerAlias: "owner", callbackOrigin: "http://localhost", initiatingAgentProfileId: "piper", initiatingAgentNpub: "npub1piper", defaultAgent: "goose", resolveChildDefinition: async () => child,
- sessionApiContext: { manager: { createSession: async (...args) => { if (args[6].agentChatBotNpub !== "npub1piper" || args[5] !== "npub1owner") throw new Error("lost authority"); return session; }, getSession: () => session, getAdapter: () => adapter }, isAgentType: value => value === "goose", messageStore: { recordSession() {} }, syncSessionMessages: async () => {} }
+ sessionApiContext: { manager: { createSession: async (...args) => { if (args[6].agentChatBotNpub !== "npub1piper" || args[5] !== "npub1owner") throw new Error("lost authority"); return session; }, getSession: () => session, getAdapter: () => adapter }, isAgentType: value => value === "goose", messageStore: { recordSession() {}, listSessionMessages: () => [] }, syncSessionMessages: async () => {} }
 });
 process.exit(2);
 `;
@@ -251,7 +251,7 @@ process.exit(2);
   const c = store.getRun(link.childRunId)!; const agent = store.getStep(c.activeStepId!)!;
   expect(agent.wingmanSessionId).toBe("fake-process-agent"); expect(p.status).toBe("running");
   await acceptAgentCallback({ store, runId: c.id, stepId: agent.id, token: agent.callbackToken, payload: { runId: c.id, stepId: agent.id, status: "ok", result: { exact: true } } });
-  await resumeRunningPipelineRuns({ store, sessionApiContext: { manager: { getSession: () => null } } as never, loadRegistryForRun: async () => ({ finish: input => ({ judgment: input.judgment }) }) } as never, "http://localhost");
+  await resumeRunningPipelineRuns({ store, sessionApiContext: { manager: { getSession: () => null }, messageStore: { listSessionMessages: () => [] } } as never, loadRegistryForRun: async () => ({ finish: input => ({ judgment: input.judgment }) }) } as never, "http://localhost");
   expect(store.getRun(p.id)!.status).toBe("ok"); expect(store.getRun(p.id)!.result!.answer).toEqual({ judgment: { exact: true } });
   expect(store.composition.children(p.id)).toHaveLength(1); expect(store.listSteps(c.id)).toHaveLength(2);
 }, 10_000);
@@ -271,7 +271,7 @@ test("recovered successful callback finalizes a surviving agent before completin
   await acceptAgentCallback({ store, runId: c.id, stepId: cs.id, token: "token", payload: { runId: c.id, stepId: cs.id, status: "ok", result: {} } });
   let stopped = false;
   const ctx = { manager: { getSession: () => stopped ? null : { status: "running", agentRuntimeStatus: "stable" }, getAdapter: () => null,
-    updateSessionMetadata() {}, stopSession: async () => { stopped = true; return true; } }, syncSessionMessages: async () => {}, scheduleSessionArchive() {} };
+    updateSessionMetadata() {}, stopSession: async () => { stopped = true; return true; } }, messageStore: { listSessionMessages: () => [] }, syncSessionMessages: async () => {}, scheduleSessionArchive() {} };
   const run = await resumeDeclarativePipeline({ ...runner(parentDef, []), sessionApiContext: ctx as never }, p.id);
   expect(run!.status).toBe("ok"); expect(stopped).toBe(true);
 });

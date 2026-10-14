@@ -31,6 +31,7 @@ export class CompletedTurnStore {
       status TEXT NOT NULL, reply TEXT, error TEXT, claimToken TEXT, leaseUntil INTEGER NOT NULL DEFAULT 0,
       UNIQUE(owner, requestId), UNIQUE(owner, conversationKey, sequence),
       FOREIGN KEY(owner, conversationKey) REFERENCES completed_turn_bindings(owner, conversationKey));`);
+    db.exec(`CREATE TABLE IF NOT EXISTS completed_turn_retirements(owner TEXT NOT NULL,conversationKey TEXT NOT NULL,receiptId TEXT NOT NULL,PRIMARY KEY(owner,conversationKey));`);
     db.exec(`CREATE TABLE IF NOT EXISTS completed_turn_deletions(owner TEXT NOT NULL,conversationKey TEXT NOT NULL,requestJson TEXT NOT NULL,receiptId TEXT NOT NULL UNIQUE,sessionId TEXT NOT NULL,receiptJson TEXT,PRIMARY KEY(owner,conversationKey));`);
   }
 
@@ -66,6 +67,7 @@ export class CompletedTurnStore {
         if (existing.fingerprint !== fingerprint) throw new Error("Completed-turn request idempotency conflict");
         return this.get(existing.receiptId)!;
       }
+      if(this.db.query('SELECT 1 FROM completed_turn_retirements WHERE owner=? AND conversationKey=?').get(owner,request.conversationKey))throw Error('Abandoned conversation requires a fresh generation');
       const sequence = (this.db.query("SELECT MAX(sequence) AS maximum FROM completed_turn_receipts WHERE owner=? AND conversationKey=?")
         .get(owner, request.conversationKey) as { maximum: number | null }).maximum ?? 0;
       const receiptId = crypto.randomUUID();
@@ -104,13 +106,13 @@ export class CompletedTurnStore {
     return row ? { ...row, output: row.outputJson ? JSON.parse(row.outputJson) : null } : null;
   }
   head(owner: string, key: string): TurnRecord | null {
-    return this.db.query("SELECT * FROM completed_turn_receipts WHERE owner=? AND conversationKey=? AND status!='completed' ORDER BY sequence LIMIT 1")
+    return this.db.query("SELECT * FROM completed_turn_receipts WHERE owner=? AND conversationKey=? AND status NOT IN ('completed','abandoned') ORDER BY sequence LIMIT 1")
       .get(owner, key) as TurnRecord | null;
   }
   claim(id: string, token: string, at = Date.now()): boolean {
     return this.db.query(`UPDATE completed_turn_receipts SET
       status=CASE WHEN status='queued' THEN 'preparing' ELSE status END, claimToken=?,leaseUntil=?,error=NULL
-      WHERE receiptId=? AND status!='completed' AND leaseUntil<=?`)
+      WHERE receiptId=? AND status NOT IN ('completed','abandoned','abandoning') AND leaseUntil<=?`)
       .run(token, at + 30_000, id, at).changes === 1;
   }
   renew(id: string, token: string): void {
@@ -135,6 +137,25 @@ export class CompletedTurnStore {
   uncertain(id: string, token: string, error: string): void {
     this.db.query("UPDATE completed_turn_receipts SET error=?,leaseUntil=0,claimToken=NULL,status=CASE WHEN status='sending' THEN 'uncertain' ELSE status END WHERE receiptId=? AND claimToken=? AND status!='completed'")
       .run(error, id, token);
+  }
+  claimAbandonment(id:string,token:string):boolean {
+    return this.db.transaction(()=>{
+      const row=this.get(id)!;
+      if(row.status==='abandoning' && row.leaseUntil>Date.now())return false;
+      if(!['preparing','sending','uncertain','abandoning'].includes(row.status))return false;
+      // Explicit scoped cancellation revokes the old execution's claim before
+      // stopping it. A late completion can no longer commit this receipt.
+      this.db.query("INSERT OR IGNORE INTO completed_turn_retirements VALUES(?,?,?)").run(row.owner,row.conversationKey,id);
+      return this.db.query("UPDATE completed_turn_receipts SET status='abandoning',claimToken=?,leaseUntil=? WHERE receiptId=? AND status NOT IN ('completed','abandoned')").run(token,Date.now()+30_000,id).changes===1;
+    }).immediate();
+  }
+  abandon(id:string,token:string,evidence:Record<string,unknown>):void {
+    this.db.transaction(()=>{
+      const row=this.get(id)!;
+      if(row.claimToken!==token || row.status!=='abandoning')throw Error('Abandonment claim changed');
+      this.db.query("INSERT OR IGNORE INTO completed_turn_retirements VALUES(?,?,?)").run(row.owner,row.conversationKey,id);
+      this.db.query("UPDATE completed_turn_receipts SET status='abandoned',outputJson=?,error=NULL,leaseUntil=0,claimToken=NULL WHERE owner=? AND conversationKey=? AND status!='completed'").run(JSON.stringify(evidence),row.owner,row.conversationKey);
+    }).immediate();
   }
   complete(id: string, token: string, reply: string, nativeId: string, output: Record<string, unknown> | null = null): void {
     if (!reply.trim() || !nativeId) throw new Error("Native completed-turn evidence missing");

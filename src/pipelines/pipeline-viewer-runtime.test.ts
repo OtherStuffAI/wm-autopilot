@@ -122,7 +122,7 @@ function callbackSessionContext(): SessionApiContext {
     getSession: (id: string) => sessions.get(id) ?? null, getAdapter: () => adapter, updateSessionMetadata: (id: string) => sessions.get(id),
     stopSession: async () => true,
   }, agentHost: "localhost", buildAgentUrl: (host: string, port: number, path: string) => new URL(`http://${host}:${port}${path}`),
-  messageStore: { recordSession() {} }, syncSessionMessages: async () => {}, scheduleSessionArchive() {}, isAgentType: (value: string) => value === "codex" } as unknown as SessionApiContext;
+  messageStore: { recordSession() {}, listSessionMessages: () => [] }, syncSessionMessages: async () => {}, scheduleSessionArchive() {}, isAgentType: (value: string) => value === "codex" } as unknown as SessionApiContext;
 }
 
 test("explicit agent IDs in nested loops and parallel items retain stable keys parents and distinct items", async () => {

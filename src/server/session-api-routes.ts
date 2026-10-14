@@ -127,6 +127,7 @@ export interface SessionApiContext {
     getNextQueuedPrompt: (sessionId: string) => { content: string } | null;
     removeNextPrompt: (sessionId: string) => void;
     getQueueCount: (sessionId: string) => number;
+    supersedeDedicatedPending?: (sessionId: string, bindingId: string) => number;
   };
   artifactsStore: {
     listBySession: (sessionId: string) => unknown[];

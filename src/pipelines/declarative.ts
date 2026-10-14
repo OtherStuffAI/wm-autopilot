@@ -1,4 +1,5 @@
 import type { JsonObject } from "./pipeline-store";
+import type { ActivityWebhookSpec } from "./activity-webhook-contract.ts";
 
 export type SelectorSpec =
   | string
@@ -84,6 +85,7 @@ export type DeclarativeStep =
       description?: string;
       display?: StepDisplaySpec;
       type: "code";
+      activityWebhook?: ActivityWebhookSpec;
       function: string;
       input?: SelectorSpec;
       assign?: string;
@@ -96,6 +98,7 @@ export type DeclarativeStep =
       description?: string;
       display?: StepDisplaySpec;
       type: "agent";
+      activityWebhook?: ActivityWebhookSpec;
       prompt: string;
       input?: SelectorSpec;
       assign?: string;

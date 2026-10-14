@@ -114,6 +114,7 @@ Pipeline declaration rules:
 - Every step must take an object and finish with an object.
 - Use existing code step functions from ${functionsPath} when possible.
 - Agent steps are allowed when human judgment or unstructured interpretation is needed.
+- Optional activityWebhook on agent and session.completedTurn steps uses a literal public HTTPS:443 URL and correlation selectors from the immutable authenticated root input. Read docs/agent-step-activity-webhooks.md before enabling it; progress never replaces final results.
 - Agent step results must be assigned into the pipeline object, then parsed by a later code step when useful.
 - Prefer clear step names and add "description" fields to steps so the UI can explain the flow.
 - Keep file paths absolute when an agent step needs a directory.

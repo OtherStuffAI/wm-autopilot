@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,6 +18,8 @@ import { Nip98ReplayCache, verifyNip98Request } from "../auth/nip98-verifier.ts"
 import { AccessActions } from "../auth/access-control.ts";
 import type { PipelineApiContext } from "../pipelines/pipeline-api-routes.ts";
 import { createHash } from "node:crypto";
+import { ActivityWebhookMonitor } from "../pipelines/activity-webhook-monitor.ts";
+import { ActivityWebhookDelivery } from "../pipelines/activity-webhook-delivery.ts";
 
 let directory: string;
 let previousCodexHome: string | undefined;
@@ -39,6 +42,8 @@ function fixture() {
   const launches: Array<{ nativeId: string | undefined }> = [];
   let gate: Promise<void> | null = null;
   let fail = false;
+  let reply = "safe final";
+  let onStarted: ((session: SessionSnapshot, file: string) => Promise<void>) | null = null;
   const adapter = {
     getPromptReadiness: async () => ({ state: "ready", reason: "test", retryAfterMs: 1, observedAt: Date.now() }),
     sendCompletedMessage: async (prompt: string) => {
@@ -50,13 +55,14 @@ function fixture() {
       session.metadata!.nativeAgentSession = { agent: "codex", sessionId: nativeId, workingDirectory: directory, capturedAt: new Date().toISOString(), source: "adapter" };
       const file = join(directory, "sessions", `rollout-${nativeId}.jsonl`);
       if (prompts.length === 1) writeFileSync(file, JSON.stringify({ type: "session_meta", payload: { id: nativeId, cwd: directory } }) + "\n");
+      appendFileSync(file, JSON.stringify({ timestamp: new Date().toISOString(), type: "event_msg", payload: { type: "user_message", message: prompt } }) + "\n");
+      if (onStarted) await onStarted(session, file);
       appendFileSync(file, [
-        { type: "event_msg", payload: { type: "user_message", message: prompt } },
-        { type: "event_msg", payload: { type: "agent_message", phase: "final_answer", message: "safe final" } },
-        { type: "event_msg", payload: { type: "task_complete", last_agent_message: "safe final" } },
+        { type: "event_msg", payload: { type: "agent_message", phase: "final_answer", message: reply } },
+        { type: "event_msg", payload: { type: "task_complete", last_agent_message: reply } },
       ].map((row) => JSON.stringify(row)).join("\n") + "\n");
       if (fail) throw new Error("Response lost after completion");
-      return "safe final";
+      return reply;
     },
   };
   const ctx = {
@@ -74,10 +80,10 @@ function fixture() {
     },
     sessionArchiveStore: { getArchivedSession: (id: string) => archives.get(id) },
     messageStore: { getSession: (id: string) => sessions.get(id), listSessions: () => [...sessions.values()], recordSession: () => {} },
-    syncSessionMessages: async () => {}, promptQueueStore: { getQueueCount: () => 0 },
+    syncSessionMessages: async () => {}, promptQueueStore: { getQueueCount: () => 0, getSessionQueue: () => [] },
   } as unknown as SessionApiContext;
   const request = (id = "one") => parseCompletedTurnRequest({ conversationKey: "conversation", projectId: "project", requestId: id, prompt: `  ${id}\nexact  `, directory });
-  return { ctx, sessions, archives, launches, prompts, request, setGate: (value: Promise<void> | null) => { gate = value; }, setFail: (value: boolean) => { fail = value; } };
+  return { ctx, sessions, archives, launches, prompts, request, setGate: (value: Promise<void> | null) => { gate = value; }, setFail: (value: boolean) => { fail = value; }, setStarted: (value: typeof onStarted) => { onStarted = value; }, setReply: (value: string) => { reply = value; } };
 }
 function definition(): PipelineDefinitionRecord {
   return { id: "native", slug: "native", name: "native", scope: "shared", ownerAlias: null, path: null,
@@ -265,4 +271,148 @@ test("explicit source-lookup recovery resumes the archived native request once w
   const repeat = await run("two", true);
   expect(repeat.result).toMatchObject({ status: "completed", receiptId: prepared.receiptId, sequence: 2 });
   expect(f.prompts).toHaveLength(2);
+});
+
+
+test("real completedTurn path emits active public progress, preserves full reply through failure, and isolates native follow-up", async () => {
+  const f = fixture();
+  const fullReply = "Complete final answer\n\n" + "answer detail ".repeat(3000);
+  f.setReply(fullReply);
+  const store = new PipelineStore(join(directory, "activity-runs.sqlite"));
+  const monitor = new ActivityWebhookMonitor(store, f.ctx);
+  const key = generateSecretKey();
+  let at = Date.now();
+  const delivered: string[] = [];
+  const delivery = new ActivityWebhookDelivery(store.activityWebhooks, event => finalizeEvent(event, key), async (_url, body) => { delivered.push(body); return 503; }, () => at);
+  const def = definition();
+  (def.spec.steps[0] as Extract<import("../pipelines/declarative.ts").DeclarativeStep, { type: "code" }>).activityWebhook = {
+    url: "https://receiver.example/activity", correlation: { requestId: "$.requestId", projectId: "$.projectId", workshopId: "$.workshopId", nativeRequestId: "$.nativeRequestId", generation: "$.activityGeneration" },
+  };
+  (def.spec.steps[0] as Extract<import("../pipelines/declarative.ts").DeclarativeStep, { type: "code" }>).input = {
+    pick: { conversationKey: "$.conversationKey", requestId: "$.nativeRequestId", projectId: "$.projectId", prompt: "$.prompt", directory: "$.directory" },
+  };
+  let turn = 0;
+  f.setStarted(async (_session, file) => {
+    turn++;
+    const timestamp = new Date().toISOString();
+    appendFileSync(file, [
+      { timestamp, type: "event_msg", payload: { type: "agent_message", phase: "commentary", message: `Public turn ${turn}` } },
+      { timestamp, type: "response_item", payload: { type: "function_call", arguments: "PRIVATE ARGS" } },
+      { timestamp, type: "response_item", payload: { type: "function_call_output", output: "PRIVATE OUTPUT" } },
+      { timestamp, type: "response_item", payload: { type: "function_call", arguments: "PRIVATE ARGS" } },
+      { timestamp, type: "event_msg", payload: { type: "agent_message", message: "PRIVATE REASONING" } },
+    ].map(row => JSON.stringify(row)).join("\n") + "\n");
+    await monitor.tick();
+    const bound = store.activityWebhooks.active().at(-1)!;
+    expect(store.getRun(bound.runId)?.completedAt).toBeNull();
+    expect(store.completedTurns.get(bound.receiptId!)?.status).toBe("sending");
+    expect(store.activityWebhooks.list(bound.turnId).map(item => JSON.parse(item.body).content)).toEqual([`Public turn ${turn}`, "Using tools"]);
+    for (let attempt = 0; attempt < 3; attempt++) { await delivery.tick(); at += 10_000; }
+  });
+  const run = (id: string) => runDeclarativePipeline({ store, definition: def, registry: {}, input: { ...f.request(id), requestId: "original-request", nativeRequestId: id, activityGeneration: id === "one" ? "1" : "2", workshopId: "workshop" },
+    ownerNpub: "npub1owner", ownerAlias: null, sessionApiContext: f.ctx, callbackOrigin: "https://example.com" });
+  const first = await run("one");
+  await monitor.tick();
+  const second = await run("two");
+  await monitor.tick();
+  expect(first.result).toMatchObject({ status: "completed", reply: fullReply });
+  expect(second.result).toMatchObject({ status: "completed", reply: fullReply, sessionId: first.result!.sessionId });
+  const firstEvents = store.activityWebhooks.list(first.result!.receiptId as string);
+  const secondEvents = store.activityWebhooks.list(second.result!.receiptId as string);
+  expect(firstEvents.map(item => JSON.parse(item.body).type)).toEqual(["commentary", "tools", "completed"]);
+  expect(secondEvents.map(item => JSON.parse(item.body).content)).toEqual(["Public turn 2", "Using tools", "Completed"]);
+  expect(JSON.parse(firstEvents[0]!.body).correlation).toEqual({ requestId: "original-request", projectId: "project", workshopId: "workshop", nativeRequestId: "one", generation: "1" });
+  expect(JSON.parse(secondEvents[0]!.body).correlation).toEqual({ requestId: "original-request", projectId: "project", workshopId: "workshop", nativeRequestId: "two", generation: "2" });
+  expect(JSON.parse(secondEvents[0]!.body)).toMatchObject({ runId: second.result!.runId, stepId: second.result!.stepId, sessionId: second.result!.sessionId, turnId: second.result!.receiptId });
+  expect(second.result!.executionId).toBe(second.result!.sessionId);
+  expect(firstEvents[0]).toMatchObject({ status: "failed", attempts: 3 });
+  expect(delivered.join(" ")).not.toContain("PRIVATE");
+  expect(store.activityWebhooks.active()).toHaveLength(0);
+  await run("two");
+  expect(f.prompts).toHaveLength(2);
+  expect(store.activityWebhooks.list(second.result!.receiptId as string)).toHaveLength(3);
+  f.setStarted(null);
+  const disabled = await runDeclarativePipeline({ store, definition: definition(), registry: {}, input: { ...f.request("three") },
+    ownerNpub: "npub1owner", ownerAlias: null, sessionApiContext: f.ctx, callbackOrigin: "https://example.com" });
+  expect(disabled.result).toMatchObject({ status: "completed", reply: fullReply });
+  expect(store.activityWebhooks.list(disabled.result!.receiptId as string)).toHaveLength(0);
+});
+
+
+test("missing declared activity correlation fails before launching or sending native work", async () => {
+  const f = fixture();
+  const store = new PipelineStore(join(directory, "bad-activity.sqlite"));
+  const def = definition();
+  (def.spec.steps[0] as Extract<import("../pipelines/declarative.ts").DeclarativeStep, { type: "code" }>).activityWebhook = {
+    url: "https://receiver.example/activity", correlation: { requestId: "$.missing" },
+  };
+  const result = await runDeclarativePipeline({ store, definition: def, registry: {}, input: { ...f.request() },
+    ownerNpub: "npub1owner", ownerAlias: null, sessionApiContext: f.ctx, callbackOrigin: "https://example.com" });
+  expect(result.status).toBe("error");
+  expect(result.error).toContain("Missing trusted activity correlation");
+  expect(f.launches).toHaveLength(0);
+  expect(f.prompts).toHaveLength(0);
+});
+
+test("scoped native abandonment disposes and stops only matching dedicated sessions, preserving transcript and refusing foreign association",async()=>{
+ const f=fixture(),store=new PipelineStore(join(directory,'abandon.sqlite'));
+ f.setFail(true);
+ const run=(input:any,owner='npub1owner')=>runDeclarativePipeline({store,definition:definition(),registry:{},input,ownerNpub:owner,ownerAlias:null,sessionApiContext:f.ctx,callbackOrigin:'https://example.com'});
+ const first=await run({...f.request()});expect(first.result?.status).toBe('uncertain');
+ let disposals=0,stops=0;
+ const originalAdapter=f.ctx.manager.getAdapter;
+ (f.ctx.manager as any).getAdapter=(id:string)=>{const adapter=originalAdapter.call(f.ctx.manager,id);return adapter?{...adapter,dispose:async()=>{disposals++}}:null};
+ (f.ctx.manager as any).listSessions=()=>[...f.sessions.values()];
+ (f.ctx.manager as any).stopSession=async(id:string)=>{stops++;f.sessions.get(id)!.status='stopped';return f.sessions.get(id)};
+ const foreign={...f.sessions.get('session-1')!,id:'foreign',npub:'npub1foreign',metadata:{...f.sessions.get('session-1')!.metadata,ownerNpub:'npub1foreign'}} as SessionSnapshot;
+ f.sessions.set('foreign',foreign);
+ const denied=await run({...f.request(),abandonUncertain:true});expect(denied.status).toBe('error');expect(stops).toBe(0);expect(disposals).toBe(0);
+ f.sessions.delete('foreign');
+ const stopped=await run({...f.request(),abandonUncertain:true});expect(stopped.result).toMatchObject({status:'abandoned',output:{writerStopped:true,historyPreserved:true}});
+ expect(stops).toBe(1);expect(disposals).toBe(1);expect(f.prompts).toHaveLength(1);
+ const duplicate=await run({...f.request(),abandonUncertain:true});expect(duplicate.result?.status).toBe('abandoned');expect(stops).toBe(1);
+ expect(await Bun.file(join(directory,'sessions','rollout-native-conversation.jsonl')).exists()).toBe(true);
+});
+
+
+test("recovery before activity binding uses original captured destination rather than a newer definition", async () => {
+  const f = fixture(); f.setFail(true);
+  const store = new PipelineStore(join(directory, "activity-recovery.sqlite"));
+  const original = definition();
+  const originalStep = original.spec.steps[0] as Extract<import("../pipelines/declarative.ts").DeclarativeStep, { type: "code" }>;
+  originalStep.activityWebhook = { url: "https://original.example/activity", correlation: { requestId: "$.requestId" } };
+  const execute = (def: PipelineDefinitionRecord) => runDeclarativePipeline({ store, definition: def, registry: {}, input: { ...f.request() },
+    ownerNpub: "npub1owner", ownerAlias: null, sessionApiContext: f.ctx, callbackOrigin: "https://example.com" });
+  const failed = await execute(original);
+  expect(failed.status).toBe("error");
+  // Simulate a host dying after the native send claim but before the progress binding is written.
+  const db = new Database(store.path);
+  db.run("DELETE FROM pipeline_activity_deliveries"); db.run("DELETE FROM pipeline_activity_turns"); db.close();
+  const newer = definition();
+  (newer.spec.steps[0] as typeof originalStep).activityWebhook = { url: "https://new.example/activity", correlation: {} };
+  const recovered = await execute(newer);
+  expect(recovered.result).toMatchObject({ status: "completed", reply: "safe final", runId: failed.id });
+  expect(f.prompts).toHaveLength(1);
+  const binding = store.activityWebhooks.active()[0]!;
+  expect(binding.destination).toEqual({ url: "https://original.example/activity", correlation: { requestId: "one" } });
+  expect(binding.runId).toBe(failed.id);
+});
+
+test("native resume excludes stale ordinary queue transfer; dedicated readiness audits unsent prompts and blocks claimed work",async()=>{
+ const {PromptQueueStore}=await import('../storage/prompt-queue-store.ts');
+ const {rebindNativeDirectChatRecovery}=await import('../agent-chat/direct-chat-native-recovery.ts');
+ const f=fixture(),store=new PipelineStore(join(directory,'queue-collision.sqlite')),queue=new PromptQueueStore(join(directory,'ordinary.sqlite'));
+ f.ctx.promptQueueStore=queue;
+ const run=(id:string)=>runDeclarativePipeline({store,definition:definition(),registry:{},input:{...f.request(id)},ownerNpub:'npub1owner',ownerAlias:null,sessionApiContext:f.ctx,callbackOrigin:'https://example.com'});
+ await run('one');f.sessions.get('session-1')!.status='stopped';queue.addPrompt('session-1',{content:'stale ordinary instruction'});
+ const create=f.ctx.manager.createSession;let transfers=0;
+ (f.ctx.manager as any).createSession=async(...args:any[])=>{
+  const target=await (create as any)(...args);
+  rebindNativeDirectChatRecovery(target,{manager:f.ctx.manager,archiveStore:f.ctx.sessionArchiveStore!,getStoredSession:id=>f.sessions.get(id) as any,dispatchStore:{rebindSession:()=>{transfers++;return 0}},promptQueueStore:queue,turnStore:{} as any,interceptStore:{listAll:()=>{throw Error('Dedicated builder must not transfer direct chat')},save:()=>{}}});return target;
+ };
+ expect((await run('two')).result?.status).toBe('completed');expect(transfers).toBe(0);expect(queue.getQueueCount('session-1')).toBe(1);expect(queue.getQueueCount('session-2')).toBe(0);
+ queue.addPrompt('session-2',{content:'unsent stale continuation'});
+ expect((await run('three')).result?.status).toBe('completed');expect(queue.getQueueCount('session-2')).toBe(0);expect(queue.getHandledPrompts('session-2')).toEqual([]);
+ queue.addPrompt('session-2',{content:'ambiguous ordinary delivery'});queue.claimNextPrompt('session-2');
+ const blocked=await run('four');expect(blocked.result).toMatchObject({status:'preparing',error:'Completed-turn session has unresolved ordinary delivery'});expect(f.prompts).toHaveLength(3);expect(queue.getQueueCount('session-2')).toBe(1);
 });

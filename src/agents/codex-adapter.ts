@@ -1,3 +1,4 @@
+import { CodexTurnLifecycle } from "./codex-turn-lifecycle.ts";
 import { recordCodexSdkActivity } from "./codex-sdk-activity";
 import { NativeSdkActivity } from "./native-sdk-contract";
 /**
@@ -64,7 +65,7 @@ export class CodexAdapter implements AgentAdapter {
    */
   private pendingAssistant: CollectedMessage | null = null;
   private readonly workingDirectory: string;
-  private currentAbort: AbortController | null = null;
+  private readonly turnLifecycle = new CodexTurnLifecycle();
 
   /** Listeners registered via onEvent() for raw ThreadEvent bridging */
   private eventListeners: Array<(event: ThreadEvent) => void> = [];
@@ -193,8 +194,7 @@ export class CodexAdapter implements AgentAdapter {
     }
 
     this.setState("busy");
-    const abortController = new AbortController();
-    this.currentAbort = abortController;
+    const abortController = this.turnLifecycle.begin();
 
     const turnId = crypto.randomUUID();
     let assistantCreatedAt: string | null = null;
@@ -254,9 +254,7 @@ export class CodexAdapter implements AgentAdapter {
       // or discarded on error/abort. Either way the in-flight bubble is no longer
       // pending and must not linger in fetchMessages().
       this.pendingAssistant = null;
-      if (this.currentAbort === abortController) {
-        this.currentAbort = null;
-      }
+      this.turnLifecycle.finish(abortController);
       this.setState("ready");
     }
   }
@@ -276,11 +274,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   async interruptCurrentTurn(): Promise<boolean> {
-    if (!this.currentAbort) {
-      return false;
-    }
-    this.currentAbort.abort();
-    return true;
+    return this.turnLifecycle.interrupt();
   }
 
   getEventsUrl(): URL | null {
@@ -318,11 +312,7 @@ export class CodexAdapter implements AgentAdapter {
   async dispose(): Promise<void> {
     this.setState("disposed");
 
-    // Abort any in-flight turn
-    if (this.currentAbort) {
-      this.currentAbort.abort();
-      this.currentAbort = null;
-    }
+    await this.turnLifecycle.dispose();
 
     this.eventListeners = [];
     this.streamListeners.clear();

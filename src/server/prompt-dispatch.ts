@@ -169,7 +169,7 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
 
   function shouldAutoDispatchSession(session: SessionSnapshot | null): boolean {
     if (!session) return false;
-    return session.status === "running";
+    return session.status === "running" && session.metadata?.role !== "completed-turn";
   }
 
   function getPromptStartupTimeoutMs(agent: AgentType): number {
@@ -220,6 +220,9 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
     beforeSend?: () => boolean;
     onSending?: () => void;
   }): Promise<{ messages: unknown[]; deliveryMs: number; messageSyncMs: number; turnObserved: boolean }> {
+    if (input.session.metadata?.role === "completed-turn") {
+      throw new QueueDispatchError("Dedicated builders accept only managed completed turns", 409);
+    }
     restartDrainGate.assertPromptExecutionAllowed();
     const initialCount = ctx.messageStore.listSessionMessages(input.session.id).length;
     const deliveryStartedAt = Date.now();
@@ -267,6 +270,9 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
   }
 
   async function dispatchQueuedPromptWithClaim(session: SessionSnapshot, userNpub: string | null) {
+    if (session.metadata?.role === "completed-turn") {
+      throw new QueueDispatchError("Dedicated builders accept only managed completed turns", 409);
+    }
     const dispatchStartedAt = Date.now();
     let readinessMs = 0;
     let deliveryMs = 0;
@@ -366,6 +372,9 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
   }
 
   async function dispatchInboxWake(session: SessionSnapshot, claim: DispatchInboxWakeClaim): Promise<void> {
+    if (session.metadata?.role === "completed-turn") {
+      throw new QueueDispatchError("Dedicated builders accept only managed completed turns", 409);
+    }
     const dispatchStartedAt = Date.now();
     let readinessMs = 0;
     let deliveryMs = 0;

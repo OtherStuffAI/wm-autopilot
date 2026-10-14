@@ -1,4 +1,5 @@
 import { inheritPipelineInvocation } from "./pipeline-run-authority";
+import { validateActivityWebhookSteps } from "./activity-webhook-contract.ts";
 import type { DeclarativePipeline, DeclarativeStep } from "./declarative";
 import { assignOutput, selectInput } from "./declarative";
 import { listPipelineDefinitions, selectLatestPipelineDefinitions, type PipelineDefinitionRecord } from "./pipeline-loader";
@@ -12,6 +13,7 @@ const DEFAULT_CHILD_TIMEOUT_MS = 10 * 60_000;
 type ChildStep = Extract<DeclarativeStep, { type: "pipeline" }>;
 
 export function validateChildPipelineSteps(spec: DeclarativePipeline): void {
+  validateActivityWebhookSteps(spec);
   function visit(steps: DeclarativeStep[], nested = false): void {
     for (const step of steps) {
       if (step.type === "pipeline") {

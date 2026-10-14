@@ -854,6 +854,7 @@ describe("runDeclarativePipeline", () => {
       },
       messageStore: {
         recordSession() {},
+        listSessionMessages: () => [{ role: "user", content: "Current prompt" }, { role: "agent", content: "Complete final answer" }],
       },
       async syncSessionMessages() {},
       scheduleSessionArchive() {},
@@ -894,7 +895,7 @@ describe("runDeclarativePipeline", () => {
     });
 
     expect(run.status).toBe("ok");
-    expect(run.result?.agentRaw).toEqual({ answer: "native adapter delivered" });
+    expect(run.result?.agentRaw).toEqual({ answer: "native adapter delivered", finalResponse: "Complete final answer" });
     const requestRef = store.evidence.list(run.id).find(ref => ref.kind === "executor_request")!;
     expect(requestRef.scope).toBe("agent_invocation_prompt_persistent_session_not_full_conversation");
     const archivedRequest = store.evidence.get(run.id, requestRef.id)!.value as { prompt: string };
@@ -991,6 +992,7 @@ describe("runDeclarativePipeline", () => {
       },
       messageStore: {
         recordSession() {},
+        listSessionMessages: () => [],
       },
       async syncSessionMessages() {},
       scheduleSessionArchive() {},
@@ -1129,6 +1131,7 @@ describe("runDeclarativePipeline", () => {
       },
       messageStore: {
         recordSession() {},
+        listSessionMessages: () => [],
       },
       async syncSessionMessages() {},
       scheduleSessionArchive() {},
@@ -1507,7 +1510,7 @@ describe("runDeclarativePipeline", () => {
       updateSessionMetadata: () => replacement,
       stopSession: async () => { replacementLive = false; return true; },
     }, agentHost: "localhost", buildAgentUrl: (host: string, port: number, path: string) => new URL(`http://${host}:${port}${path}`),
-    messageStore: { recordSession() {} }, syncSessionMessages: async () => {}, scheduleSessionArchive() {},
+    messageStore: { recordSession() {}, listSessionMessages: () => [] }, syncSessionMessages: async () => {}, scheduleSessionArchive() {},
     isAgentType: (value: string) => value === "codex" } as unknown as SessionApiContext;
 
     const resumed = await resumeDeclarativePipeline({ store, sessionApiContext, definition, registry: builtinPipelineFunctions,

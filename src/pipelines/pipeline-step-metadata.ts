@@ -16,6 +16,7 @@ export function buildPipelineStepMetadata(step: DeclarativeStep, options: {
     input: inputSelector,
     assign: "assign" in step ? step.assign ?? null : null,
     when: step.when ?? null,
+    activityWebhook: "activityWebhook" in step ? step.activityWebhook ?? null : null,
     parent: options.parent ?? null,
     executor: buildExecutorMetadata(step),
   });

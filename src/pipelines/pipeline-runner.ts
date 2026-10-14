@@ -3,6 +3,9 @@ import type { PipelineSecretAuthority } from "../secrets/secret-authority";
 import { executeSecretPipelineFunction, secretPipelineFunctions } from "../secrets/secret-runtime";
 import { blockMissingPipelineHistory } from "./pipeline-history-resume";
 import { completedTurnFunctionName, executeCompletedTurnFunction } from "./completed-turn-function.ts";
+import { resolveActivityWebhook, type ActivityWebhookSpec } from "./activity-webhook-contract.ts";
+import { bindActivityWebhook } from "./activity-webhook-binding.ts";
+import { retainAgentFinalResponse } from "./agent-final-response.ts";
 import { buildAgentPrompt } from "./agent-invocation-prompt";
 import { runClassifierStep } from "./classifier-executor";
 import { prepareClassifierInput } from "./classifier-input";
@@ -296,7 +299,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       ? await executeConversationDeletionFunction({store,sessionApiContext:input.sessionApiContext,ownerNpub:input.ownerNpub,request})
       : step.function === completedTurnFunctionName
       ? await executeCompletedTurnFunction({ store, sessionApiContext: input.sessionApiContext, runId: input.runId,
-        stepId: stepRecord.id, ownerNpub: input.ownerNpub, request })
+        stepId: stepRecord.id, ownerNpub: input.ownerNpub, request, activityWebhook: step.activityWebhook })
       : secretPipelineFunctions[step.function]
       ? await executeSecretPipelineFunction(step.function, request, store, input.runId)
       : await fn!(request);
@@ -480,6 +483,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
             stepId: childRecord.id,
             selectedInput,
             prompt: childStep.prompt,
+            activityWebhook: childStep.activityWebhook,
             callbackToken: token,
             agent: resolveStringTemplate(input.current, childStep.agent),
             model: resolveStringTemplate(input.current, childStep.model) ?? resolvePipelineAgentModel(pipelineAuthorityInput(input.store, input.runId)),
@@ -636,7 +640,8 @@ async function executePipelineStep(input: PipelineRunnerInput & {
   const activeStep = getActiveStep(store, input.runId, stepName, "agent");
   if (activeStep?.status === "ok") {
     await finalizeRecoveredPipelineAgentSession({ ctx: input.sessionApiContext, store, runId: input.runId, step: activeStep });
-    const raw = activeStep.output ?? activeStep.result ?? {};
+    const stored = activeStep.output ?? activeStep.result ?? {};
+    const raw = activeStep.wingmanSessionId ? retainAgentFinalResponse(input.sessionApiContext, activeStep.wingmanSessionId, stored, { store, runId: input.runId, stepId: activeStep.id }) : stored;
     const current = assignOutput(input.current, raw, step.assign);
     store.completeStep({
       id: activeStep.id,
@@ -677,6 +682,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       stepId: stepRecord.id,
       selectedInput: selected,
       prompt: step.prompt,
+      activityWebhook: step.activityWebhook,
       callbackToken: token,
       agent: resolveStringTemplate(input.current, step.agent),
       model: resolveStringTemplate(input.current, step.model) ?? resolvePipelineAgentModel(pipelineAuthorityInput(input.store, input.runId)),
@@ -841,6 +847,7 @@ export async function acceptAgentCallback(input: {
 }
 
 async function runOrResumeAgentStep(input: PipelineRunnerInput & {
+  activityWebhook?: ActivityWebhookSpec;
   runId: string;
   stepId: string;
   stepName: string;
@@ -853,6 +860,7 @@ async function runOrResumeAgentStep(input: PipelineRunnerInput & {
   callbackTimeoutMs: number;
 }): Promise<JsonObject> {
   const latest = input.store.getStep(input.stepId);
+  resolveActivityWebhook(input.store, input.runId, input.activityWebhook);
   if (latest?.status === "ok") {
     if (latest.wingmanSessionId && input.sessionApiContext.manager.getSession(latest.wingmanSessionId)) {
       await finalizePipelineAgentSession({
@@ -864,7 +872,7 @@ async function runOrResumeAgentStep(input: PipelineRunnerInput & {
         callbackStatus: "ok",
       }).catch(() => undefined);
     }
-    return latest.output ?? latest.result ?? {};
+    return latest.wingmanSessionId ? retainAgentFinalResponse(input.sessionApiContext, latest.wingmanSessionId, latest.output ?? latest.result ?? {}, { store: input.store, runId: input.runId, stepId: input.stepId }) : latest.output ?? latest.result ?? {};
   }
   if (latest?.status === "error") throw new Error(latest.error ?? "Agent step failed");
   if (latest?.status === "cancelled") throw new PipelineCancelled(input.runId);
@@ -889,12 +897,13 @@ async function runOrResumeAgentStep(input: PipelineRunnerInput & {
     if (result.status === "error") throw new Error(result.error ?? "Agent step failed");
     if (result.status === "cancelled") throw new PipelineCancelled(input.runId);
     if (result.status === "needs_input") throw new PipelineHalt("needs_input", result.result ?? {}, "Agent step needs input");
-    return result.result ?? {};
+    return retainAgentFinalResponse(input.sessionApiContext, latest.wingmanSessionId, result.result ?? {}, { store: input.store, runId: input.runId, stepId: input.stepId });
   }
   return runAgentStep(input);
 }
 
 async function runAgentStep(input: PipelineRunnerInput & {
+  activityWebhook?: ActivityWebhookSpec;
   runId: string;
   stepId: string;
   stepName: string;
@@ -991,6 +1000,8 @@ async function runAgentStep(input: PipelineRunnerInput & {
         kind: "executor_request", scope: "agent_invocation_prompt_persistent_session_not_full_conversation",
         value: { prompt, agent: session.agent, model: input.model ?? null, sessionId: session.id, type: "user" },
         secrets: [input.callbackToken] });
+      bindActivityWebhook({ store: input.store, spec: input.activityWebhook, turnId: `${input.stepId}:${session.id}`,
+        runId: input.runId, stepId: input.stepId, sessionId: session.id, receiptId: null, checkpoint: 0, prompt });
       const delivered = await deliverSessionAgentMessage({
         agentHost: sessionCtx.agentHost,
         buildAgentUrl: sessionCtx.buildAgentUrl,
@@ -1048,7 +1059,8 @@ async function runAgentStep(input: PipelineRunnerInput & {
   if (result.status === "needs_input") {
     throw new PipelineHalt("needs_input", result.result ?? {}, "Agent step needs input");
   }
-  return result.result ?? {};
+  const sessionId = input.store.getStep(input.stepId)?.wingmanSessionId;
+  return sessionId ? retainAgentFinalResponse(sessionCtx, sessionId, result.result ?? {}, { store: input.store, runId: input.runId, stepId: input.stepId }) : result.result ?? {};
 }
 
 function resolvePipelineAgentProfileBinding(input: JsonObject): PipelineAgentProfileBinding | Record<string, never> {

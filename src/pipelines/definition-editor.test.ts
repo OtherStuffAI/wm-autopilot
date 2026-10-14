@@ -28,7 +28,9 @@ describe("manual pipeline definition edits", () => {
       default: true,
       tags: ["Review", "content", "review"],
       input: { documentUrl: "file.md" },
-      steps: [{ name: "critic-pass", type: "agent", prompt: "Review it." }],
+      steps: [{ name: "critic-pass", type: "agent", prompt: "Review it.", activityWebhook: {
+        url: "https://receiver.example/activity", correlation: { requestId: "$.requestId" },
+      } }],
     });
 
     expect(result.targetPath).toBe(join(tempDir, "content-review.v3.json"));
@@ -41,6 +43,7 @@ describe("manual pipeline definition edits", () => {
     expect(spec.tags).toEqual(["content", "review"]);
     expect(spec.input).toEqual({ documentUrl: "file.md" });
     expect(spec.steps).toHaveLength(1);
+    expect(spec.steps[0].activityWebhook).toEqual({ url: "https://receiver.example/activity", correlation: { requestId: "$.requestId" } });
   });
 
   test("rejects invalid edited steps", async () => {
@@ -53,6 +56,11 @@ describe("manual pipeline definition edits", () => {
       input: {},
       steps: [{ type: "agent", prompt: "Missing name." }],
     })).rejects.toThrow("steps[0].name is required");
+    await expect(writeManualDefinitionVersion(makeDefinition(sourcePath), {
+      name: "Unsafe activity", input: {}, steps: [{ name: "agent", type: "agent", prompt: "Review", activityWebhook: {
+        url: "http://receiver.example/activity", correlation: {},
+      } }],
+    })).rejects.toThrow("canonical literal HTTPS");
   });
 });
 
