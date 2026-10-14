@@ -12,6 +12,6 @@ describe("terminal-view composition", () => {
 
   test("fails closed in the view when terminal setup is incomplete", () => {
     expect(source).toContain('state.config?.terminalConfigured !== true');
-    expect(source).toContain('Set a terminal PIN in System settings');
+    expect(source).toContain('Set a terminal PIN in Terminal access settings');
   });
 });

@@ -37,7 +37,7 @@ export function initTerminalView(deps) {
       return renderAccessMessage("Admin Access Required", "The web terminal is restricted to the configured Autopilot admin.");
     }
     if (state.config?.terminalConfigured !== true) {
-      return renderAccessMessage("Terminal Disabled", "Set a terminal PIN in System settings before opening the web terminal.");
+      return renderAccessMessage("Terminal Disabled", "Set a terminal PIN in Terminal access settings before opening the web terminal.");
     }
 
     const wrapper = document.createElement("section");
