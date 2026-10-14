@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import type { SessionSnapshot } from "../agents/process-manager.ts";
 import type { SessionApiContext } from "../server/session-api-routes.ts";
 import { createCompletedTurnRuntime, completedTurnBindingId } from "./completed-turn-runtime.ts";
-import {beginClaudeTurn,completeClaudeTurn} from "./claude-turn-journal.ts";
-import {beginGooseTurn,completeGooseTurn} from "./goose-turn-journal.ts";
+import {beginClaudeTurn,completeClaudeTurn,recoverClaudeTurn,claudeTurnCheckpoint} from "./claude-turn-journal.ts";
+import {beginGooseTurn,completeGooseTurn,recoverGooseTurn,gooseTurnCheckpoint} from "./goose-turn-journal.ts";
 import { parseCompletedTurnRequest } from "./completed-turn-contract.ts";
 import { PipelineStore } from "../pipelines/pipeline-store.ts";
 import { runDeclarativePipeline, resumeDeclarativePipeline } from "../pipelines/pipeline-runner.ts";
@@ -476,4 +476,15 @@ test("Claude completed-turn runtime resumes native history and recovers durable 
  await expect(runtime.authorize({...f.request(),agent:"codex",sessionId:resumed},"owner")).rejects.toThrow("migration");
  await expect(runtime.authorize({...f.request(),sessionId:resumed},"foreign")).rejects.toThrow("ownership");
  expect(()=>parseCompletedTurnRequest({...f.request(),executionProfile:"isolated-codex"})).toThrow("Codex SDK");
+});
+
+
+test("Claude and Goose terminal journals remain separate with both root overrides",()=>{
+ const context={nativeSessionId:"shared-test-native",directory};
+ const goose=beginGooseTurn(context,"Goose prompt");completeGooseTurn(context,goose,"Goose final");
+ const claude=beginClaudeTurn(context,"Claude prompt");completeClaudeTurn(context,claude,"Claude final");
+ expect(recoverClaudeTurn(context,0,"Claude prompt")).toBe("Claude final");
+ expect(recoverGooseTurn(context,0,"Goose prompt")).toBe("Goose final");
+ expect(claudeTurnCheckpoint(context)).toBe(1);expect(gooseTurnCheckpoint(context)).toBe(1);
+ expect(process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR).not.toBe(process.env.WINGMAN_GOOSE_TURN_JOURNAL_DIR);
 });

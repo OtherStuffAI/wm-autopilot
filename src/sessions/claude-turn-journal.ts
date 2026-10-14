@@ -7,7 +7,7 @@ export interface ClaudeTurnContext {nativeSessionId:string;directory:string}
 interface Journal {schema:1;nativeSessionId:string;directory:string;turns:Array<{id:string;prompt:string;reply:string|null}>}
 function location(c:ClaudeTurnContext) {
  if(!c.nativeSessionId||!isAbsolute(c.directory))throw Error('Invalid Claude journal binding');
- const root=process.env.WINGMAN_GOOSE_TURN_JOURNAL_DIR||join(homedir(),'.wingmen','runtime','claude-completed-turns');
+ const root=process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR||join(homedir(),'.wingmen','runtime','claude-completed-turns');
  return {root,path:join(root,createHash('sha256').update(JSON.stringify([c.nativeSessionId,c.directory])).digest('hex')+'.json')};
 }
 function read(c:ClaudeTurnContext):Journal {
