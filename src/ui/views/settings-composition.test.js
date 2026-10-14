@@ -46,7 +46,7 @@ describe('Settings page composition', () => {
   });
 
   test('composes user management before port-allocation tools in Access', () => {
-    expect(settingsView).toContain("createSettingsGrid(\n      'access'");
+    expect(settingsView).toMatch(/createSettingsGrid\(\s*'access'/);
     expect(settingsView).toContain('renderAdminUsersPanel()');
     expect(settingsView).toContain('renderAssignedPortsSection({ allocationActions: true })');
     expect(adminUsersPanels.indexOf('const userManagementCard = buildAdminUserManagementCard();'))

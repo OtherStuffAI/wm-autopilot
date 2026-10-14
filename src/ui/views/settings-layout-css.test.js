@@ -19,7 +19,7 @@ describe('Settings route layout', () => {
     expect(styles).toMatch(/\.wm-settings-grid\s*\{[^}]*display:\s*grid;[^}]*repeat\(auto-fit,/);
     expect(styles).toMatch(/\.wm-settings-grid--credentials\s*\{[^}]*min\(100%, 19rem\)/);
     expect(styles).toMatch(/\.wm-settings-grid--hosting-boundary,[\s\S]*?min\(100%, 25rem\)/);
-    expect(styles).toMatch(/\.wm-settings-grid--access\s*>\s*\.wm-admin-users--listing\s*\{[^}]*grid-row:\s*span 2;/);
+    expect(styles).toMatch(/\.wm-settings-grid--access\s*>\s*\.wm-admin-users--listing\s*\{[^}]*grid-column:\s*1 \/ -1;/);
   });
 
   test('collapses to the existing mobile picker and removes desktop canvas spacing', () => {

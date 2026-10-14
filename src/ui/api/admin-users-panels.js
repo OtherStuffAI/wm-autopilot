@@ -5,7 +5,7 @@
  * Depends on: state, admin API module functions, utility helpers (via DI).
  */
 
-import { applyAvatarImage } from "../utils/avatar.js";
+import { createAdminUserIdentity } from "./admin-user-identity.js";
 
 export function initAdminUsersPanels(deps) {
   const {
@@ -238,21 +238,19 @@ export function initAdminUsersPanels(deps) {
 
       const nicknameValue =
         typeof user.nickname === "string" && user.nickname.trim().length > 0 ? user.nickname.trim() : null;
-      const name = document.createElement("strong");
-      const alias = typeof user.alias === "string" && user.alias.length > 0 ? user.alias : null;
-      name.textContent = nicknameValue ?? alias ?? (user.npub ? abbreviateNpub(user.npub) : "Unknown user");
-
-      const meta = document.createElement("span");
-      meta.className = "wm-admin-users__meta";
-      const safeAlias = alias ? `alias: ${alias}` : null;
-      const safeNickname = nicknameValue ? `nickname: ${nicknameValue}` : null;
-      const normalizedNpub = typeof user.normalizedNpub === "string" && user.normalizedNpub.length > 0 ? user.normalizedNpub : null;
-      const safeNpub = normalizedNpub ?? user.npub ?? "";
-      const metaParts = [];
-      if (safeNickname) metaParts.push(safeNickname);
-      if (safeAlias) metaParts.push(safeAlias);
-      metaParts.push(`npub: ${safeNpub}`);
-      meta.textContent = metaParts.join(" \u2022 ");
+      const { name, identity } = createAdminUserIdentity({
+        user, avatar, abbreviateNpub,
+        onLabel(label) {
+          selectionCheckbox.setAttribute("aria-label", `Select ${label}`);
+          row.setAttribute("aria-label", `User ${label}`);
+          row.querySelector('[data-testid="admin-user-allowed-toggle"]')?.setAttribute("aria-label", `Toggle normal access for ${label}`);
+          row.querySelector('[data-testid="admin-user-admin-toggle"]')?.setAttribute("aria-label", `Toggle admin access for ${label}`);
+          row.querySelector('[data-testid="admin-user-delete"]')?.setAttribute("aria-label", `Delete ${label}`);
+          row.querySelector(".wm-admin-users__nickname input")?.setAttribute("aria-label", `Admin nickname for ${label}`);
+        },
+      });
+      row.dataset.testid = "admin-user-row";
+      row.setAttribute("role", "group");
 
       const status = document.createElement("span");
       status.className = "wm-admin-users__status";
@@ -275,6 +273,7 @@ export function initAdminUsersPanels(deps) {
       nicknameLabel.textContent = "Admin nickname";
       const nicknameInput = document.createElement("input");
       nicknameInput.type = "text";
+      nicknameInput.setAttribute("aria-label", `Admin nickname for ${name.textContent}`);
       nicknameInput.placeholder = "Add a short handle (only visible to admins)";
       const draftNickname =
         (state.adminUsers.nicknameDrafts instanceof Map && key ? state.adminUsers.nicknameDrafts.get(key) : undefined) ??
@@ -295,8 +294,7 @@ export function initAdminUsersPanels(deps) {
 
       nicknameForm.append(nicknameField, nicknameSave);
 
-      applyAvatarImage(avatar, user.pictureUrl, nicknameValue ?? alias ?? user.npub ?? "?");
-      details.append(name, meta, status, nicknameForm);
+      details.append(name, identity, status, nicknameForm);
 
       const actions = document.createElement("div");
       actions.className = "wm-admin-users__actions";
@@ -343,6 +341,8 @@ export function initAdminUsersPanels(deps) {
       deleteBtn.type = "button";
       deleteBtn.className = "wm-admin-users__delete-btn";
       deleteBtn.textContent = "Delete";
+      deleteBtn.dataset.testid = "admin-user-delete";
+      deleteBtn.setAttribute("aria-label", `Delete ${name.textContent}`);
       deleteBtn.disabled = userPending || state.adminUsers.loading;
       deleteBtn.addEventListener("click", () => {
         if (deleteBtn.disabled) return;

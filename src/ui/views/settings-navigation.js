@@ -10,6 +10,7 @@ export const SETTINGS_NAVIGATION = Object.freeze([
   { id: 'hosting', group: 'Server', label: 'App Hosting' },
   { id: 'restart', group: 'Server', label: 'Restart', adminOnly: true },
   { id: 'system', group: 'Server', label: 'Server configuration', adminOnly: true },
+  { id: 'terminal', group: 'Server', label: 'Terminal access', adminOnly: true },
   { id: 'access', group: 'Server', label: 'Users & Access', adminOnly: true },
   { id: 'signingPolicies', group: 'Advanced', label: 'Signing Policies', adminOnly: true },
   { id: 'billing', group: 'Server', label: 'Billing', adminOnly: true },

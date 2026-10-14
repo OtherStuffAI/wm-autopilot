@@ -14,6 +14,7 @@ export const SETTINGS_PAGE_PATHS = Object.freeze({
   restart: '/settings/restart',
   system: '/settings/system',
   access: '/settings/access',
+  terminal: '/settings/terminal',
   signingPolicies: '/settings/signing-policies',
   billing: '/settings/billing',
   appearance: '/settings/appearance',
@@ -26,6 +27,7 @@ export const ADMIN_SETTINGS_PAGE_IDS = new Set([
   'restart',
   'system',
   'access',
+  'terminal',
   'signingPolicies',
   'billing',
   'appearance',
@@ -35,6 +37,7 @@ export const ADMIN_SETTINGS_PAGE_IDS = new Set([
 
 function legacyAdminDestination(hash) {
   const anchor = String(hash || '').replace(/^#/, '').toLowerCase();
+  if (anchor.includes('terminal')) return 'terminal';
   if (anchor.includes('billing')) return 'billing';
   if (anchor.includes('brand') || anchor.includes('appearance')) return 'appearance';
   if (anchor.includes('feature')) return 'flags';
@@ -83,6 +86,9 @@ export function resolveSettingsRoute(pathname, { hash = '', isAdmin = false } = 
     pageId = 'workspaces';
     subscriptionId = legacyId ? decodeURIComponent(legacyId) : null;
     canonicalPath = getWorkspaceSettingsPath(subscriptionId || '', 'overview');
+  } else if (['/settings/access', '/settings/users', '/settings/system'].includes(path) && /terminal/i.test(hash)) {
+    pageId = 'terminal';
+    canonicalPath = SETTINGS_PAGE_PATHS.terminal;
   } else if (path === '/settings/users') {
     pageId = 'access';
     canonicalPath = SETTINGS_PAGE_PATHS.access;

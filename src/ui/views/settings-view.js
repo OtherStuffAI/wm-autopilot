@@ -39,6 +39,7 @@ const PAGE_COPY = Object.freeze({
   hosting: ['App Hosting', 'Instance routing defaults and the web app ports assigned to your account.'],
   restart: ['Restart', 'Restart Autopilot with one consistent session recovery policy.'],
   system: ['Server configuration', 'Installation-wide defaults, optional services, and deployment maintenance.'],
+  terminal: ['Terminal access', 'Set or replace the terminal PIN, then open the terminal console.'],
   access: ['Users & Access', 'Approved users, nicknames, access state and administrator port allocation.'],
   billing: ['Billing', 'Team credit allocation, markup and recent usage.'],
   appearance: ['Appearance', 'Autopilot name, branding and accent colour.'],
@@ -300,12 +301,13 @@ export function initSettingsView(deps) {
 
   function renderAccessPage() {
     if (!state.adminUsers.initialized && !state.adminUsers.loading && !state.adminUsers.error) void fetchAdminUsers();
-    return createPage('access', createSettingsGrid(
-      'access',
-      renderAdminUsersPanel(),
-      createTerminalSecuritySection({ configured: state.config?.terminalConfigured === true, onSaved: refreshConfig, notify: showToast }),
-      renderAssignedPortsSection({ allocationActions: true }),
-    ));
+    return createPage('access',
+      createDestinationLink('Terminal access — set or replace PIN', '/settings/terminal', 'settings-access-open-terminal'),
+      createSettingsGrid(
+        'access',
+        renderAdminUsersPanel(),
+        renderAssignedPortsSection({ allocationActions: true }),
+      ));
   }
 
   function renderAppearancePage() {
@@ -361,6 +363,10 @@ export function initSettingsView(deps) {
       restart: renderRestartPage,
       system: renderSystemPage,
       access: renderAccessPage,
+      terminal: () => createPage('terminal',
+        createTerminalSecuritySection({ configured: state.config?.terminalConfigured === true, onSaved: refreshConfig, notify: showToast }),
+        createDestinationLink('Open Terminal console', '/terminal', 'settings-terminal-open-console'),
+      ),
       billing: () => createPage('billing', createTeamBillingSection()),
       appearance: renderAppearancePage,
       flags: renderFlagsPage,

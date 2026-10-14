@@ -24,7 +24,7 @@ export function createTerminalSecuritySection({ configured, onSaved, notify }) {
   pin.type = 'password';
   pin.inputMode = 'numeric';
   pin.autocomplete = 'new-password';
-  pin.pattern = '\\d{5}';
+  pin.pattern = '[0-9]{5}';
   pin.maxLength = 5;
   pin.required = true;
   pin.setAttribute('aria-label', pinLabel.textContent);
@@ -38,7 +38,7 @@ export function createTerminalSecuritySection({ configured, onSaved, notify }) {
   confirmation.type = 'password';
   confirmation.inputMode = 'numeric';
   confirmation.autocomplete = 'new-password';
-  confirmation.pattern = '\\d{5}';
+  confirmation.pattern = '[0-9]{5}';
   confirmation.maxLength = 5;
   confirmation.required = true;
   confirmation.setAttribute('aria-label', 'Confirm terminal PIN');

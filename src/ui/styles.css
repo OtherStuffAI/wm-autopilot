@@ -3025,11 +3025,13 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 }
 
 .wm-settings-grid--access > .wm-admin-users--listing {
-  grid-row: span 2;
+  grid-column: 1 / -1;
 }
 
 .wm-settings-grid--access .wm-admin-users__item {
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto 44px minmax(0, 1fr);
+  align-items: start;
 }
 
 .wm-settings-grid--access .wm-admin-users__details,
@@ -3049,7 +3051,52 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) #app[data-r
 }
 
 .wm-settings-grid--access .wm-admin-users__actions {
-  margin-left: auto;
+  grid-column: 3;
+  margin-left: 0;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.wm-settings-grid--access .wm-admin-users__selection {
+  width: auto;
+}
+
+.wm-settings-grid--access .wm-admin-users__delete-btn {
+  width: auto;
+}
+
+.wm-admin-users__identity {
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+.wm-admin-users__identity summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.wm-admin-users__identity code {
+  display: block;
+  overflow-wrap: anywhere;
+  user-select: all;
+  margin: 0.5rem 0;
+}
+
+.wm-settings-page [data-testid="terminal-security-settings"] {
+  max-width: 40rem;
+}
+
+@media (max-width: 480px) {
+  .wm-settings-grid--access .wm-admin-users__item {
+    gap: 0.65rem;
+    padding: 0.75rem;
+  }
+
+  .wm-settings-grid--access .wm-admin-users__details,
+  .wm-settings-grid--access .wm-admin-users__actions {
+    grid-column: 1 / -1;
+  }
 }
 
 .wm-settings-managed-card {

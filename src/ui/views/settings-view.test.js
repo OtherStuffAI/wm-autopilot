@@ -75,3 +75,18 @@ describe('settings route helpers', () => {
     expect(getSettingsPathForTab('signingPolicies')).toBe('/settings/signing-policies');
   });
 });
+
+
+describe('Terminal settings destinations', () => {
+  test('exposes PIN settings only to administrators and keeps legacy links usable', () => {
+    expect(getSettingsNavigationItems(true).find((item) => item.id === 'terminal')?.label).toBe('Terminal access');
+    expect(getSettingsNavigationItems(false).some((item) => item.id === 'terminal')).toBe(false);
+    expect(resolveSettingsRoute('/settings/terminal').accessDenied).toBe(true);
+    expect(resolveSettingsRoute('/settings/terminal', { isAdmin: true }).pageId).toBe('terminal');
+    for (const path of ['/settings/access', '/settings/users', '/settings/system', '/settings/admin']) {
+      expect(resolveSettingsRoute(path, { hash: '#terminal-security-title', isAdmin: true }).canonicalPath).toBe('/settings/terminal');
+    }
+    expect(resolveSettingsRoute('/settings/access', { isAdmin: true }).pageId).toBe('access');
+    expect(getSettingsPathForTab('terminal')).toBe('/settings/terminal');
+  });
+});
