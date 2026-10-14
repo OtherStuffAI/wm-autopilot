@@ -341,3 +341,45 @@ test("UTF-8 summary byte boundary continues all recent records without duplicate
     rmSync(f.cacheRoot, { recursive: true, force: true });
   }
 });
+
+test("deleted partitions remain excluded while revocation, restoration and regrant stay truthful", async () => {
+  const f = fixture([
+    pagePayload([
+      change("scope", "scope", "1"),
+      change("channel", "channel", "1"),
+      change("retained", "task", "1", { state: "in_progress" }),
+    ]),
+    pagePayload([], true),
+    pagePayload([], true),
+  ]);
+  try {
+    const initial = await f.run();
+    const cache = new RecordSyncCache(initial.cache.path, ["https://tower.test", "workspace", "app", "viewer"]);
+    try {
+      for (const [family, kind, resource] of [["task", "channel", "channel"], ["message", "channel", "channel"], ["task", "scope", "scope"], ["doc", "channel", "unknown"]]) {
+        cache.db.query("INSERT INTO access VALUES(?,?,?,?,?,?)").run(initial.cache.generation, family, kind, resource, "", "lost");
+      }
+      expect(cache.authority()).toEqual({ unavailable: 4, deletedPartitions: 0 });
+      cache.db.query("UPDATE rows SET operation='delete',payload=NULL WHERE family='scope'").run();
+      expect(cache.authority()).toEqual({ unavailable: 1, deletedPartitions: 3 });
+      expect(cache.review(initial.since).rows.some(r => r.id === "retained")).toBe(false);
+      cache.db.query("UPDATE rows SET operation='delete',payload=NULL WHERE family='channel'").run();
+      expect(cache.authority()).toEqual({ unavailable: 1, deletedPartitions: 3 });
+      // Restoration invalidates the deletion classification; grants alone restore read authority.
+      cache.db.query("UPDATE rows SET operation='upsert' WHERE family IN ('scope','channel')").run();
+      expect(cache.authority()).toEqual({ unavailable: 4, deletedPartitions: 0 });
+      cache.db.query("UPDATE access SET status='granted'").run();
+      expect(cache.authority()).toEqual({ unavailable: 0, deletedPartitions: 0 });
+      expect(cache.review(initial.since).rows.some(r => r.id === "retained")).toBe(true);
+      cache.db.query("UPDATE access SET status='lost'").run();
+    } finally { cache.close(); }
+    const sync = await f.run({ syncOnly: true });
+    const review = await f.run({ reviewOnly: true });
+    expect(sync.coverage.unavailablePartitions).toBe(4);
+    expect(sync.coverage.unavailablePartitions).toBe(review.coverage.unavailablePartitions);
+    expect(sync.coverage.deletedPartitions).toBe(review.coverage.deletedPartitions);
+    expect(sync.review.started).toBe(false);
+    expect(sync.complete).toBe(false);
+    expect(review.complete).toBe(false);
+  } finally { rmSync(f.cacheRoot, { recursive: true, force: true }); }
+});

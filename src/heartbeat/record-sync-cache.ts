@@ -1,5 +1,5 @@
 import { initializeRecordCache } from "./record-cache-schema.ts";
-import { readCacheReview, readCacheCounts } from "./record-cache-review.ts";
+import { readCacheReview, readCacheCounts, readCacheAuthority } from "./record-cache-review.ts";
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
@@ -379,6 +379,9 @@ export class RecordSyncCache {
   }
   counts(): Record<string, number> {
     return readCacheCounts(this.db, this.state().generation);
+  }
+  authority() {
+    return readCacheAuthority(this.db, this.state());
   }
   review(since: string, maxBytes = 262_144, maxRows = 200, cursor?: string) {
     return this.db.transaction(() => readCacheReview(

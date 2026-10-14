@@ -278,7 +278,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
       ? {
           rows: [],
           truncated: false,
-          unavailable: 0,
+          ...cache.authority(),
           nextCursor: null,
           total: 0,
           delivered: 0,
@@ -337,6 +337,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
         ),
         outsideCoverage: ["directory", "approvals", "graph", "wapp_activity"],
         unavailablePartitions: review.unavailable,
+        deletedPartitions: review.deletedPartitions,
         downloadedCounts: cache.counts(),
         reviewTruncated: review.truncated,
       },

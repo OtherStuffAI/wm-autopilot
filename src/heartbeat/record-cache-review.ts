@@ -21,6 +21,7 @@ export interface CacheReview {
   rows: JsonRecord[];
   truncated: boolean;
   unavailable: number;
+  deletedPartitions: number;
   nextCursor: string | null;
   since: string;
   total: number;
@@ -29,6 +30,27 @@ export interface CacheReview {
 const AUTHORITY = `NOT EXISTS(SELECT 1 FROM access a WHERE a.generation=r.generation AND a.family=r.family AND a.status='lost'
   AND (a.resource_kind='' OR a.resource_kind=r.resource_kind)
   AND (a.kind='workspace' OR (a.kind='channel' AND a.resource=r.channel) OR (a.kind='scope' AND a.resource=r.scope)))`;
+/** Classify loss only from explicit current-generation canonical tombstones.
+ * This changes coverage reporting, never the authority filter on retained rows.
+ */
+export function readCacheAuthority(db: Database, s: CacheState) {
+  const counts = db.query(`SELECT
+    count(*) AS lost,
+    coalesce(sum(CASE WHEN a.kind IN ('channel','scope') AND (
+      EXISTS(SELECT 1 FROM rows d WHERE d.generation=a.generation
+        AND d.family=a.kind AND d.id=a.resource AND d.operation='delete')
+      OR (a.kind='channel' AND EXISTS(SELECT 1 FROM rows c JOIN rows d
+        ON d.generation=c.generation AND d.family='scope' AND d.id=c.scope
+        AND d.operation='delete'
+        WHERE c.generation=a.generation AND c.family='channel' AND c.id=a.resource))
+    ) THEN 1 ELSE 0 END),0) AS deleted
+    FROM access a WHERE a.generation=? AND a.status='lost'`)
+    .get(s.generation) as { lost: number; deleted: number };
+  return {
+    unavailable: s.available ? counts.lost - counts.deleted : Math.max(1, counts.lost - counts.deleted),
+    deletedPartitions: counts.deleted,
+  };
+}
 function reviewFence(s: CacheState): string {
   return JSON.stringify([
     s.generation,
@@ -83,7 +105,7 @@ export function readCacheReview(
   const empty = {
     rows: [],
     truncated: false,
-    unavailable: 1,
+    ...readCacheAuthority(db, s),
     nextCursor: null,
     since,
     total: 0,
@@ -130,13 +152,7 @@ export function readCacheReview(
       delivered: 0,
     };
   }
-  const lost = (
-    db
-      .query(
-        "SELECT count(*) AS n FROM access WHERE generation=? AND status='lost'",
-      )
-      .get(s.generation) as { n: number }
-  ).n;
+  const authority = readCacheAuthority(db, s);
   const rows: JsonRecord[] = [];
   let bytes = 2;
   let truncated = false;
@@ -187,7 +203,7 @@ export function readCacheReview(
   return {
     rows,
     truncated,
-    unavailable: lost,
+    ...authority,
     since: session.since,
     total: session.total,
     delivered: p.delivered,

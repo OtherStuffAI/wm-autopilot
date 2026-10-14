@@ -121,3 +121,13 @@ code. Alternatively, an authorized scheduler edit can install the generated
 prompt while the host remains running. Preserve workspace/app/bot/subscription
 context and the shared cache path. Rick owns live review, acceptance and handoff;
 source fixtures do not establish schedule activation or live completeness.
+
+Authority coverage is assessed identically during sync-only and indexed review.
+`coverage.unavailablePartitions` counts genuine or uncertain current-generation
+access losses. `coverage.deletedPartitions` separately counts lost partitions
+whose canonical channel or scope has an explicit tombstone, including channel
+partitions under an explicitly deleted scope. Silence or a missing record is
+never deletion evidence. Restoration removes the deletion classification, and
+regrant removes the loss. This classification does not authorize retained
+content: lost partitions remain excluded from summaries. Sync-only still does
+not start or complete a review, even when all losses are known deletions.
