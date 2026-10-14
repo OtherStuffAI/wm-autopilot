@@ -192,7 +192,10 @@ test("native recovery rejects intervening prompt, failed completion and mismatch
   failed.visit(event("event_msg", { type: "user_message", message: "exact" }));
   failed.visit(event("event_msg", { type: "agent_message", phase: "final_answer", message: "reply" }));
   expect(() => failed.visit(event("event_msg", { type: "task_complete", error: "failed" }))).toThrow("failed");
-  expect(() => failed.visit(event("event_msg", { type: "task_complete", last_agent_message: "different" }))).toThrow("mismatch");
+  const mismatch = new NativeTurnRecovery(0, "exact");
+  mismatch.visit(event("event_msg", { type: "user_message", message: "exact" }));
+  mismatch.visit(event("event_msg", { type: "agent_message", phase: "final_answer", message: "reply" }));
+  expect(() => mismatch.visit(event("event_msg", { type: "task_complete", last_agent_message: "different" }))).toThrow("mismatch");
 });
 
 test("pre-send failure with an established binding retries without ambiguous launch recovery or duplicate execution",async()=>{

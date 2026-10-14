@@ -187,6 +187,26 @@ from the local final transcript after the existing completion grace/sync; agents
 are instructed to produce the full final answer after callback success. Missing
 transcript evidence is surfaced and never replaced with commentary or reasoning.
 
+## Native transcript compatibility
+
+Checkpoint capture, completion recovery and public activity use the same logical
+request reader. Modern `response_item` user messages marked `user.text` and
+`item_completed/UserMessage` represent requests; replayed `agents_md.instructions`
+and `environments.environment_context` blocks do not. Unannotated response input
+is ignored; its authoritative `UserMessage` item can establish the request. Legacy `event_msg/user_message` remains
+supported. User mirrors within a native turn count once; repeated identical
+requests in distinct turns count separately. The saved ordinal and exact prompt
+bytes must both match; readers never search forward for a matching prompt.
+
+Explicit native turn IDs exclude foreign/replayed items and close the bound
+projection when another turn starts. Public `AgentMessage` item mirrors and
+assistant response items deduplicate by item ID, with bounded text/time matching
+for legacy mirrors. Only explicit `commentary` phases and opaque tool groups
+enter progress; command contents, tool input/output and reasoning remain private.
+Native completion still requires the correlated terminal event and complete final
+answer. Existing ambiguous saved checkpoints are not rewritten or inferred from
+matching historical prompts; missing/inconsistent evidence is surfaced.
+
 ## Activation and acceptance
 
 1. Validate and commit source. Build with
@@ -208,7 +228,7 @@ transcript evidence is surfaced and never replaced with commentary or reasoning.
 Focused source validation:
 
 ```sh
-bun test ./src/agents/bound-turn-activity.test.ts ./src/pipelines/activity-webhook.test.ts ./src/sessions/completed-turn-runtime.test.ts
+bun test ./src/agents/native-turn-records.test.ts ./src/agents/bound-turn-activity.test.ts ./src/pipelines/activity-webhook.test.ts ./src/sessions/completed-turn-runtime.test.ts
 bun test ./src/pipelines/pipeline-runner.test.ts ./src/pipelines/result-webhooks.test.ts ./src/pipelines/child-pipeline.test.ts
 bun run typecheck
 git diff --check

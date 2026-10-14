@@ -57,4 +57,26 @@ describe("path-based managed app proxy", () => {
       search: "?v=4",
     });
   });
+  test("preserves authenticated upgrade headers and query after stripping the app prefix", async () => {
+    let captured: unknown;
+    const response = await handlePathBasedAppRequest(
+      new Request("https://host.example.test/host/app/api/v1/events?workshopId=own&cursor=a%2Fb", {
+        headers: { upgrade: "websocket", origin: "https://host.example.test", cookie: "app_session=generic", "sec-websocket-protocol": "events" },
+      }),
+      "/host/app/api/v1/events",
+      { upgrade: (_request, options) => { captured = options.data; return true; } },
+      {
+        resolveAlias: async () => ({ success: true, appId: "app", port: 4123 }),
+        proxyRequest: async () => { throw new Error("HTTP proxy must not handle upgrades"); },
+      },
+    );
+    expect(response).toBeNull();
+    expect(captured).toMatchObject({
+      targetUrl: "ws://127.0.0.1:4123/api/v1/events?workshopId=own&cursor=a%2Fb",
+      originHeader: "https://host.example.test",
+      cookieHeader: "app_session=generic",
+      protocols: ["events"],
+    });
+  });
+
 });

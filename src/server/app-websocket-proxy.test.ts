@@ -20,6 +20,7 @@ describe("app websocket proxy", () => {
       headers: {
         cookie: "levelup_session=opaque-token",
         authorization: "Bearer must-not-forward",
+        origin: "https://brandname.com",
         "sec-websocket-protocol": "chat, superchat",
       },
     });
@@ -36,6 +37,7 @@ describe("app websocket proxy", () => {
       targetUrl: "ws://127.0.0.1:4123/socket",
       protocols: ["chat", "superchat"],
       cookieHeader: "levelup_session=opaque-token",
+      originHeader: "https://brandname.com",
       upstreamOpen: false,
       queue: [],
     });
@@ -45,12 +47,13 @@ describe("app websocket proxy", () => {
     expect(buildAppWebSocketOptions({
       protocols: ["chat", "superchat"],
       cookieHeader: "levelup_session=opaque-token",
+      originHeader: "https://brandname.com",
     })).toEqual({
       protocols: ["chat", "superchat"],
-      headers: { cookie: "levelup_session=opaque-token" },
+      headers: { cookie: "levelup_session=opaque-token", origin: "https://brandname.com" },
     });
 
-    expect(buildAppWebSocketOptions({ protocols: [], cookieHeader: null })).toEqual({});
+    expect(buildAppWebSocketOptions({ protocols: [], cookieHeader: null, originHeader: null })).toEqual({});
   });
 
   test("carries the browser cookie through a real proxy connection", async () => {

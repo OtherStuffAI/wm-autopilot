@@ -1,3 +1,4 @@
+import { inputRecords, messageRecords, toolRecords, completeRecord, type TranscriptFormat } from "../agents/__tests__/native-turn-fixtures.ts";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, appendFileSync, writeFileSync } from "node:fs";
@@ -35,7 +36,7 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 
-function fixture() {
+function fixture(format: TranscriptFormat = "legacy") {
   const sessions = new Map<string, SessionSnapshot>();
   const archives = new Map<string, SessionSnapshot>();
   const prompts: string[] = [];
@@ -55,12 +56,11 @@ function fixture() {
       session.metadata!.nativeAgentSession = { agent: "codex", sessionId: nativeId, workingDirectory: directory, capturedAt: new Date().toISOString(), source: "adapter" };
       const file = join(directory, "sessions", `rollout-${nativeId}.jsonl`);
       if (prompts.length === 1) writeFileSync(file, JSON.stringify({ type: "session_meta", payload: { id: nativeId, cwd: directory } }) + "\n");
-      appendFileSync(file, JSON.stringify({ timestamp: new Date().toISOString(), type: "event_msg", payload: { type: "user_message", message: prompt } }) + "\n");
+      const turnId = `turn-${prompts.length}`;
+      appendFileSync(file, inputRecords(format, prompt, turnId).map(row => JSON.stringify(row)).join("\n") + "\n");
       if (onStarted) await onStarted(session, file);
-      appendFileSync(file, [
-        { type: "event_msg", payload: { type: "agent_message", phase: "final_answer", message: reply } },
-        { type: "event_msg", payload: { type: "task_complete", last_agent_message: reply } },
-      ].map((row) => JSON.stringify(row)).join("\n") + "\n");
+      appendFileSync(file, [...messageRecords(format, reply, turnId, "final_answer"), completeRecord(reply, format === "legacy" ? undefined : turnId)]
+        .map((row) => JSON.stringify(row)).join("\n") + "\n");
       if (fail) throw new Error("Response lost after completion");
       return reply;
     },
@@ -108,8 +108,8 @@ test("pipeline glue reuses native conversation and native-resumes stopped owned 
   expect(store.listSteps(third.id)[0]?.wingmanSessionId).toBe("session-2");
 });
 
-test("pipeline error preserves uncertainty and later invocation recovers exact completion without replay", async () => {
-  const f = fixture();
+test.each(["legacy", "modern", "mixed"] as const)("%s pipeline recovers exact completion without replay", async format => {
+  const f = fixture(format);
   f.setFail(true);
   const store = new PipelineStore(join(directory, "runs.sqlite"));
   const input = { store, definition: definition(), registry: {}, input: { ...f.request() },
@@ -274,8 +274,8 @@ test("explicit source-lookup recovery resumes the archived native request once w
 });
 
 
-test("real completedTurn path emits active public progress, preserves full reply through failure, and isolates native follow-up", async () => {
-  const f = fixture();
+test.each(["legacy", "modern", "mixed"] as const)("%s real completedTurn emits public progress, keeps full reply on failure, isolates follow-up", async format => {
+  const f = fixture(format);
   const fullReply = "Complete final answer\n\n" + "answer detail ".repeat(3000);
   f.setReply(fullReply);
   const store = new PipelineStore(join(directory, "activity-runs.sqlite"));
@@ -294,13 +294,9 @@ test("real completedTurn path emits active public progress, preserves full reply
   let turn = 0;
   f.setStarted(async (_session, file) => {
     turn++;
-    const timestamp = new Date().toISOString();
     appendFileSync(file, [
-      { timestamp, type: "event_msg", payload: { type: "agent_message", phase: "commentary", message: `Public turn ${turn}` } },
-      { timestamp, type: "response_item", payload: { type: "function_call", arguments: "PRIVATE ARGS" } },
-      { timestamp, type: "response_item", payload: { type: "function_call_output", output: "PRIVATE OUTPUT" } },
-      { timestamp, type: "response_item", payload: { type: "function_call", arguments: "PRIVATE ARGS" } },
-      { timestamp, type: "event_msg", payload: { type: "agent_message", message: "PRIVATE REASONING" } },
+      ...messageRecords(format, `Public turn ${turn}`, `turn-${turn}`),
+      ...toolRecords(`turn-${turn}`),
     ].map(row => JSON.stringify(row)).join("\n") + "\n");
     await monitor.tick();
     const bound = store.activityWebhooks.active().at(-1)!;
@@ -319,6 +315,7 @@ test("real completedTurn path emits active public progress, preserves full reply
   expect(second.result).toMatchObject({ status: "completed", reply: fullReply, sessionId: first.result!.sessionId });
   const firstEvents = store.activityWebhooks.list(first.result!.receiptId as string);
   const secondEvents = store.activityWebhooks.list(second.result!.receiptId as string);
+  expect(store.completedTurns.get(second.result!.receiptId as string)?.checkpoint).toBe(1);
   expect(firstEvents.map(item => JSON.parse(item.body).type)).toEqual(["commentary", "tools", "completed"]);
   expect(secondEvents.map(item => JSON.parse(item.body).content)).toEqual(["Public turn 2", "Using tools", "Completed"]);
   expect(JSON.parse(firstEvents[0]!.body).correlation).toEqual({ requestId: "original-request", projectId: "project", workshopId: "workshop", nativeRequestId: "one", generation: "1" });

@@ -5,6 +5,7 @@ export interface AppProxyWebSocketData {
   targetUrl: string;
   protocols: string[];
   cookieHeader: string | null;
+  originHeader: string | null;
   upstream?: WebSocket;
   upstreamOpen: boolean;
   queue: Array<string | Buffer>;
@@ -27,11 +28,15 @@ export function buildAppWebSocketTargetUrl(request: Request, targetPort: number)
 }
 
 export function buildAppWebSocketOptions(
-  data: Pick<AppProxyWebSocketData, "protocols" | "cookieHeader">,
+  data: Pick<AppProxyWebSocketData, "protocols" | "cookieHeader" | "originHeader">,
 ): Bun.WebSocketOptions {
+  const headers: Record<string, string> = {};
+  if (data.cookieHeader) headers.cookie = data.cookieHeader;
+  // Preserve the browser origin for app authorization; never invent a trusted origin.
+  if (data.originHeader) headers.origin = data.originHeader;
   return {
     ...(data.protocols.length > 0 ? { protocols: data.protocols } : {}),
-    ...(data.cookieHeader ? { headers: { cookie: data.cookieHeader } } : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
   };
 }
 
@@ -47,6 +52,7 @@ export function handleAppWebSocketUpgrade(
       targetUrl,
       protocols: parseWebSocketProtocols(request),
       cookieHeader: request.headers.get("cookie"),
+      originHeader: request.headers.get("origin"),
       upstreamOpen: false,
       queue: [],
     },
