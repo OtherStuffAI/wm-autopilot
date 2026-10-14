@@ -83,6 +83,18 @@ describe("SessionCapabilityIssuer", () => {
     expect(saved.find(record => record.sessionId === "session-b")?.policy.operations).toContain("wallet.read");
     expect(saved.find(record => record.sessionId === "session-b")?.policy.operations).toContain("wallet.spend");
 
+    const legacySession={...sessions.get("session-b")!,id:"legacy-completed",metadata:{role:"completed-turn"}} as SessionSnapshot;
+    sessions.set(legacySession.id,legacySession);
+    issuer.issue({sessionId:legacySession.id,ownerNpub});
+    const legacyPolicy=saved.find(record=>record.sessionId===legacySession.id)!.policy;
+    expect(legacyPolicy).toEqual(saved.find(record=>record.sessionId==="session-b")!.policy);
+    expect(legacyPolicy.operations).toContain("nip98.sign");
+    expect(legacyPolicy.wallet).toEqual(walletGrant);
+    const unrelatedSession={...legacySession,id:"other-client",metadata:{role:"other-app",nativeProjectTools:true}} as SessionSnapshot;
+    sessions.set(unrelatedSession.id,unrelatedSession);
+    issuer.issue({sessionId:unrelatedSession.id,ownerNpub});
+    expect(saved.find(record=>record.sessionId===unrelatedSession.id)!.policy).toEqual(legacyPolicy);
+
     const projectSession={...sessions.get("session-a")!,id:"project-session",metadata:{role:"completed-turn",nativeProjectTools:true}} as SessionSnapshot;
     sessions.set(projectSession.id,projectSession);
     issuer.issue({sessionId:projectSession.id,ownerNpub});
@@ -92,7 +104,7 @@ describe("SessionCapabilityIssuer", () => {
     expect(narrow.policy.wallet).toBeUndefined();
     expect(narrow.policy.nostr).toBeUndefined();
 
-    expect(broker.listActiveCapabilities().filter(c=>c.sessionId!=="project-session").map((capability) => ({
+    expect(broker.listActiveCapabilities().filter(c=>["session-a","session-b"].includes(c.sessionId)).map((capability) => ({
       sessionId: capability.sessionId,
       policyMode: capability.policyMode,
     }))).toEqual([

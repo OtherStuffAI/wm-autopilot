@@ -4,6 +4,8 @@ import { loadPipelineFunctionRegistry } from './function-loader.ts';
 import { assertPipelineFunctionPins } from './pipeline-function-pins.ts';
 import { completedTurnBindingId } from '../sessions/completed-turn-runtime.ts';
 
+const activeInvocations=new Set<string>();
+
 /** Tools are installed by the immutable pipeline, never named by participant input. */
 export async function invokeNativeProjectTool(store: PipelineStore, session: SessionSnapshot,
   tool: string, args: JsonObject, load = loadPipelineFunctionRegistry): Promise<JsonObject> {
@@ -18,18 +20,23 @@ export async function invokeNativeProjectTool(store: PipelineStore, session: Ses
   if (!run || run.status !== 'running' || run.ownerNpub !== turn.owner || run.activeStepId !== turn.stepId || step?.status !== 'running' ||
     !snapshot || definitionStep?.type!=='code' || definitionStep.function!=='session.completedTurn' || JSON.stringify(definitionStep.agentTools)!==JSON.stringify(tools) ||
     !tools || !Object.hasOwn(tools,tool) || !snapshot.context.functionHashes?.[tools[tool]!]) throw Error('native_tool_grant_denied');
-  const {registry} = await load(run.ownerAlias,{});
-  assertPipelineFunctionPins(snapshot.context.functionHashes,registry);
-  const handler = registry[tools[tool]!];
-  if (!handler) throw Error('native_tool_unavailable');
-  const currentRun=store.getRun(turn.runId);
-  if(store.completedTurns.activeForSession(session.id)?.receiptId!==turn.receiptId||currentRun?.status!=='running'||currentRun.activeStepId!==turn.stepId)throw Error('native_tool_lease_changed');
-  // Native correlation and saved run input are broker-owned. No caller paths,
-  // project IDs, run IDs, generation or authority can override them.
-  const result = await handler({args, input:run.input, nativeReceipt:{receiptId:turn.receiptId,requestId:turn.requestId,
-    projectId:turn.projectId,conversationKey:turn.conversationKey,runId:turn.runId,stepId:turn.stepId,sessionId:turn.sessionId,
-    executionId:turn.executionId,nativeSessionId:session.metadata?.nativeAgentSession?.sessionId,sequence:turn.sequence,invocationRunId:turn.runId,invocationStepId:turn.stepId}});
-  store.addEvent({runId:turn.runId,stepId:turn.stepId,level:'info',type:'native_project_tool',message:`Agent called ${tool}`,
-    data:{tool,receiptId:turn.receiptId}});
-  return result as JsonObject;
+  const invocationKey=JSON.stringify([store.path,turn.receiptId,tool]);
+  if(activeInvocations.has(invocationKey))throw Error('native_tool_in_progress');
+  activeInvocations.add(invocationKey);
+  try {
+    const {registry} = await load(run.ownerAlias,{});
+    assertPipelineFunctionPins(snapshot.context.functionHashes,registry);
+    const handler = registry[tools[tool]!];
+    if (!handler) throw Error('native_tool_unavailable');
+    const currentRun=store.getRun(turn.runId);
+    if(store.completedTurns.activeForSession(session.id)?.receiptId!==turn.receiptId||currentRun?.status!=='running'||currentRun.activeStepId!==turn.stepId)throw Error('native_tool_lease_changed');
+    // Native correlation and saved run input are broker-owned. No caller paths,
+    // project IDs, run IDs, generation or authority can override them.
+    const result = await handler({args, input:run.input, nativeReceipt:{receiptId:turn.receiptId,requestId:turn.requestId,
+      projectId:turn.projectId,conversationKey:turn.conversationKey,runId:turn.runId,stepId:turn.stepId,sessionId:turn.sessionId,
+      executionId:turn.executionId,nativeSessionId:session.metadata?.nativeAgentSession?.sessionId,sequence:turn.sequence,invocationRunId:turn.runId,invocationStepId:turn.stepId}});
+    store.addEvent({runId:turn.runId,stepId:turn.stepId,level:'info',type:'native_project_tool',message:`Agent called ${tool}`,
+      data:{tool,receiptId:turn.receiptId}});
+    return result as JsonObject;
+  }finally{activeInvocations.delete(invocationKey);}
 }

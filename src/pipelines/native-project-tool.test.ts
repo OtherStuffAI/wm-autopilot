@@ -1,4 +1,5 @@
 import {test,expect} from 'bun:test';
+import {Database} from 'bun:sqlite';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {PipelineStore} from './pipeline-store.ts';
 import {parseCompletedTurnRequest} from '../sessions/completed-turn-contract.ts';
@@ -7,25 +8,57 @@ import {invokeNativeProjectTool} from './native-project-tool.ts';
 import {runtimeFunctionHash,pipelineFunctionHashes} from './pipeline-function-pins.ts';
 import type {SessionSnapshot} from '../agents/process-manager.ts';
 
-test('native tool resolves only immutable pinned handler and active own turn; caller cannot choose authority',async()=>{
+function fixture(operation:((input:any)=>Promise<any>)=async input=>({published:true,correlation:input.nativeReceipt,request:input.input})){
  const root=mkdtempSync('/private/tmp/native-tool-'),store=new PipelineStore(root+'/pipelines.sqlite');
- try{
-  const owner='owner',request=parseCompletedTurnRequest({conversationKey:'conversation',requestId:'request',projectId:'project',directory:root,prompt:'Build and publish'});
-  const handler=Object.assign(async (input:any)=>({published:true,correlation:input.nativeReceipt,request:input.input}),{[runtimeFunctionHash]:'pinned-hash'});
-  const definition:any={id:'definition',name:'test',scope:'user',ownerAlias:'owner',path:null,spec:{name:'test',version:1,steps:[{name:'Native turn',type:'code',function:'session.completedTurn',agentTools:{publish:'app.publish'}}]}};
-  const run=store.createRun({definitionId:'definition',name:'test',scope:'user',ownerNpub:owner,ownerAlias:'owner',input:{projectId:'project',requestId:'request',generation:4}});
-  const step=store.createStep({runId:run.id,stepIndex:0,name:'Native turn',kind:'code',input:{},metadata:{agentTools:{publish:'app.publish'}}});
-  store.setRunActiveStep(run.id,step.id);
-  store.composition.pin(run.id,definition,{functionHashes:pipelineFunctionHashes(definition,{'app.publish':handler})});
-  const row=store.completedTurns.enqueue(owner,request,run.id,step.id);store.completedTurns.claim(row.receiptId,'claim');store.completedTurns.bind(row.receiptId,'claim','execution','session');store.completedTurns.sending(row.receiptId,'claim','native',0);
-  const session={id:'session',npub:owner,workingDirectory:root,metadata:{role:'completed-turn',nativeProjectTools:true,bindingId:completedTurnBindingId(owner,'conversation'),nativeAgentSession:{agent:'codex',sessionId:'native',workingDirectory:root}},agent:'codex'} as SessionSnapshot;
-  const load:any=async()=>({registry:{'app.publish':handler},records:[]});
-  const result:any=await invokeNativeProjectTool(store,session,'publish',{requestId:'foreign',directory:'/elsewhere'},load);
-  expect(result.correlation.requestId).toBe('request');expect(result.correlation.invocationRunId).toBe(run.id);expect(result.correlation.nativeSessionId).toBe('native');expect(result.request.generation).toBe(4);
-  await expect(invokeNativeProjectTool(store,{...session,id:'foreign'},'publish',{},load)).rejects.toThrow('turn_denied');
-  await expect(invokeNativeProjectTool(store,session,'other',{},load)).rejects.toThrow('grant_denied');
-  await expect(invokeNativeProjectTool(store,{...session,npub:'other'},'publish',{},load)).rejects.toThrow('turn_denied');
-  await expect(invokeNativeProjectTool(store,session,'publish',{},async()=>({registry:{},records:[]}))).rejects.toThrow('Pinned');
-  store.cancelRun(run.id);await expect(invokeNativeProjectTool(store,session,'publish',{},load)).rejects.toThrow('grant_denied');
- }finally{rmSync(root,{recursive:true,force:true});}
+ const owner='owner',request=parseCompletedTurnRequest({conversationKey:'conversation',requestId:'request',projectId:'project',directory:root,prompt:'Build and publish'});
+ const handler=Object.assign(operation,{[runtimeFunctionHash]:'pinned-hash'});
+ const definition:any={id:'definition',name:'test',scope:'user',ownerAlias:'owner',path:null,spec:{name:'test',version:1,steps:[{name:'Native turn',type:'code',function:'session.completedTurn',agentTools:{publish:'app.publish'}}]}};
+ const run=store.createRun({definitionId:'definition',name:'test',scope:'user',ownerNpub:owner,ownerAlias:'owner',input:{projectId:'project',requestId:'request',generation:4}});
+ const step=store.createStep({runId:run.id,stepIndex:0,name:'Native turn',kind:'code',input:{},metadata:{agentTools:{publish:'app.publish'}}});
+ store.setRunActiveStep(run.id,step.id);store.composition.pin(run.id,definition,{functionHashes:pipelineFunctionHashes(definition,{'app.publish':handler})});
+ const row=store.completedTurns.enqueue(owner,request,run.id,step.id);store.completedTurns.claim(row.receiptId,'claim');store.completedTurns.bind(row.receiptId,'claim','execution','session');store.completedTurns.sending(row.receiptId,'claim','native',0);
+ const session={id:'session',npub:owner,workingDirectory:root,metadata:{role:'completed-turn',nativeProjectTools:true,bindingId:completedTurnBindingId(owner,'conversation'),nativeAgentSession:{agent:'codex',sessionId:'native',workingDirectory:root}},agent:'codex'} as SessionSnapshot;
+ const load:any=async()=>({registry:{'app.publish':handler},records:[]});
+ return {store,row,run,step,session,handler,load,definition,expire(){const db=new Database(store.path);try{db.run('UPDATE completed_turn_receipts SET leaseUntil=0 WHERE receiptId=?',[row.receiptId]);}finally{db.close();}},close(){rmSync(root,{recursive:true,force:true});}};
+}
+
+test('native tool resolves immutable pinned handler and own turn; opt-in, foreign authority and missing/changed pins fail closed',async()=>{
+ const f=fixture();try{
+  const result:any=await invokeNativeProjectTool(f.store,f.session,'publish',{requestId:'foreign',directory:'/elsewhere'},f.load);
+  expect(result.correlation.requestId).toBe('request');expect(result.correlation.invocationRunId).toBe(f.run.id);expect(result.correlation.nativeSessionId).toBe('native');expect(result.request.generation).toBe(4);
+  await expect(invokeNativeProjectTool(f.store,{...f.session,id:'foreign'},'publish',{},f.load)).rejects.toThrow('turn_denied');
+  await expect(invokeNativeProjectTool(f.store,f.session,'other',{},f.load)).rejects.toThrow('grant_denied');
+  await expect(invokeNativeProjectTool(f.store,{...f.session,npub:'other'},'publish',{},f.load)).rejects.toThrow('turn_denied');
+  await expect(invokeNativeProjectTool(f.store,{...f.session,metadata:{...f.session.metadata!,nativeProjectTools:undefined}},'publish',{},f.load)).rejects.toThrow('turn_denied');
+  await expect(invokeNativeProjectTool(f.store,f.session,'publish',{},async()=>({registry:{},records:[]}))).rejects.toThrow('Pinned');
+  const changed=Object.assign(async()=>({}),{[runtimeFunctionHash]:'changed-hash'});
+  await expect(invokeNativeProjectTool(f.store,f.session,'publish',{},async()=>({registry:{'app.publish':changed},records:[]}))).rejects.toThrow('Pinned');
+  expect(()=>pipelineFunctionHashes(f.definition,{})).toThrow('must be hash pinned');
+  f.store.cancelRun(f.run.id);await expect(invokeNativeProjectTool(f.store,f.session,'publish',{},f.load)).rejects.toThrow('grant_denied');
+ }finally{f.close();}
+});
+test('expired and completed native turns cannot invoke a pinned tool',async()=>{
+ const expired=fixture(),completed=fixture();try{
+  expired.expire();await expect(invokeNativeProjectTool(expired.store,expired.session,'publish',{},expired.load)).rejects.toThrow('turn_denied');
+  completed.store.completedTurns.complete(completed.row.receiptId,'claim','Ordinary final','native');
+  await expect(invokeNativeProjectTool(completed.store,completed.session,'publish',{},completed.load)).rejects.toThrow('turn_denied');
+ }finally{expired.close();completed.close();}
+});
+test('same turn/tool concurrent invocation is refused without a second handler; completed call releases the slot',async()=>{
+ let release!:()=>void,entered!:()=>void,calls=0;
+ const gate=new Promise<void>(resolve=>release=resolve),started=new Promise<void>(resolve=>entered=resolve);
+ const f=fixture(async()=>{calls++;entered();await gate;return {ok:true};});try{
+  const first=invokeNativeProjectTool(f.store,f.session,'publish',{},f.load);await started;
+  await expect(invokeNativeProjectTool(f.store,f.session,'publish',{},f.load)).rejects.toThrow('in_progress');expect(calls).toBe(1);
+  release();expect(await first).toEqual({ok:true});expect(await invokeNativeProjectTool(f.store,f.session,'publish',{},f.load)).toEqual({ok:true});expect(calls).toBe(2);
+ }finally{release();f.close();}
+});
+test('expiry during asynchronous module loading is rechecked before effects and releases the invocation slot',async()=>{
+ let release!:()=>void,entered!:()=>void;
+ const gate=new Promise<void>(resolve=>release=resolve),started=new Promise<void>(resolve=>entered=resolve);
+ let calls=0;const f=fixture(async()=>{calls++;return {ok:true};});try{
+  const invocation=invokeNativeProjectTool(f.store,f.session,'publish',{},async()=>{entered();await gate;return f.load();});
+  await started;f.expire();release();await expect(invocation).rejects.toThrow('lease_changed');expect(calls).toBe(0);
+  f.store.completedTurns.renew(f.row.receiptId,'claim');expect(await invokeNativeProjectTool(f.store,f.session,'publish',{},f.load)).toEqual({ok:true});
+ }finally{release();f.close();}
 });

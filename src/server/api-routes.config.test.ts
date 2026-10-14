@@ -958,3 +958,18 @@ describe("createApiRouteHandler config defaults", () => {
   });
   }
 });
+
+test('project-tool rejects a spoofed body sessionId using the real capability broker before the handler',async()=>{
+ const {CapabilityBroker}=await import('../signing/capability-broker.ts');
+ const ownerNpub='npub1owner',bot={id:'test-bot',displayName:'Test',encryptedToUser:'fixture',encryptedEscrow:'fixture',escrowUuid:'fixture',isActive:1 as const,createdAt:'test',updatedAt:'test',userNpub:ownerNpub,botNpub:'npub1bot',botPubkeyHex:'ab'.repeat(32)};
+ const sessions=new Map(['session-a','session-b'].map(id=>[id,{id,npub:ownerNpub,status:'running',metadata:{agentProfileId:'builder',agentChatBotNpub:bot.botNpub}}]));
+ const broker=new CapabilityBroker({botKeyStore:{getActiveKeyForUser:()=>bot,getActiveKeyForBotNpub:()=>bot},keyVault:{withKey:async()=>{throw Error('No signing key is needed');}},getSession:id=>sessions.get(id) as any});
+ const capability=broker.issueSessionCapability({sessionId:'session-a',ownerNpub,profileId:'builder',botNpub:bot.botNpub,policy:{operations:['identity.read','capability.refresh']}});
+ let calls=0;
+ const handler=createHandler({requestIp:'127.0.0.1',capabilityBrokerApiHandler:(request:Request,url:URL,method:string)=>broker.handle(request,url,method),wingmanMcpApiHandler:async()=>{calls++;return Response.json({ok:true});}});
+ const url=new URL('http://localhost:3000/api/mcp/wingman/project-tool');
+ async function invoke(sessionId:string){return handler(new Request(url,{method:'POST',headers:{authorization:'Bearer '+capability.token,'x-wingman-capability-nonce':crypto.randomUUID()},body:JSON.stringify({sessionId,tool:'napplet.publish',args:{validation:['Actual check']}})}),url,'POST',anonymousAuth);}
+ expect((await invoke('session-b')).status).toBe(403);expect(calls).toBe(0);
+ expect((await invoke('session-a')).status).toBe(200);expect(calls).toBe(1);
+ expect((await invoke('session-b')).status).toBe(403);expect(calls).toBe(1);
+});

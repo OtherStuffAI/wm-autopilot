@@ -18,7 +18,9 @@ belong to the supplied session. The dispatcher requires a dedicated scoped nativ
 session, one sending turn with an active lease, matching owner/cwd/binding,
 matching active run/step, immutable tool configuration and unchanged function
 hashes. It supplies native correlation and the saved run input to the handler;
-caller arguments cannot replace execution authority. The app handler owns business
+caller arguments cannot replace execution authority. Concurrent calls to the same
+turn/tool are refused before the handler; success or failure releases the slot.
+The app handler owns durable replay safety across process recovery, business
 validation, publishing, replay receipts and failure recovery.
 
 A request with `operation: "capabilities"` and `sessionId` returns the generic
@@ -28,7 +30,9 @@ for the current native launcher. Handler output is ordinary typed tool feedback;
 the native final answer remains independent.
 
 New tool-enabled native sessions carry `nativeProjectTools:true` under the
-completed-turn role. Their capability contains identity/refresh only, without
+completed-turn role. Both the role and explicit flag are required for the narrow
+policy and wallet exclusion; existing completed-turn clients retain their complete
+configured policy. Tool-enabled capabilities contain identity/refresh only, without
 Tower reads/writes, signing, encryption, wallets or host administration. Legacy
 completed-turn sessions retain their earlier recovery capabilities. An existing
 live unscoped session cannot silently acquire tool authority; stop and native
