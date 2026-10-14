@@ -2,6 +2,7 @@ import { isAbsolute } from "node:path";
 import { validateSnapshot, PROJECT_PROFILE, type ProjectFile } from "../isolation/project-profile.ts";
 
 export interface CompletedTurnRequest {
+  agent?: "codex" | "goose";
   conversationKey: string;
   requestId: string;
   projectId: string;
@@ -43,7 +44,8 @@ export function parseCompletedTurnRequest(input: Record<string, unknown>): Compl
   if (input.executionProfile !== undefined && input.executionProfile !== null && !isolated) throw new Error("Unsupported completed-turn execution profile; builder execution is gated");
   const directory = isolated && input.directory === undefined ? "/workspace" : text("directory", 4096);
   if (!isAbsolute(directory)) throw new Error("session.completedTurn directory must be absolute");
-  if (input.agent !== undefined && input.agent !== "codex") throw new Error("Native completed turns currently require Codex SDK");
+  if (input.agent !== undefined && input.agent !== "codex" && input.agent !== "goose") throw new Error("Unsupported completed-turn agent");
+  if (isolated && input.agent === "goose") throw new Error("Isolated completed turns require Codex SDK");
   if (isolated) {
     if (directory !== "/workspace" || input.sessionId) throw new Error("Isolated completed turns require /workspace and no Wingman session ID");
     validateSnapshot(input.projectFiles as ProjectFile[]);
@@ -54,6 +56,7 @@ export function parseCompletedTurnRequest(input: Record<string, unknown>): Compl
     throw new Error("Invalid isolated completed-turn deadline");
   }
   return {
+    ...(input.agent === "goose" ? {agent: "goose" as const} : {}),
     conversationKey: text("conversationKey", 200), requestId: text("requestId", 200),
     projectId: text("projectId", 200), prompt: text("prompt", 250_000), directory,
     sessionId: input.sessionId === undefined || input.sessionId === null ? null : text("sessionId", 200),

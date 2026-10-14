@@ -1031,6 +1031,7 @@ export class ProcessManager {
           ? session.metadata.nativeAgentSession.sessionId
           : undefined,
         gooseCli: agent === "goose" ? resolveWrappedAgentCli(session.command) : undefined,
+        gooseCompletedTurn: session.metadata.role === "completed-turn",
         gooseProvider: agent === "goose"
           ? configuredOpenRouterModels !== null
             ? DEFAULT_GOOSE_PROVIDER
@@ -1198,6 +1199,7 @@ export class ProcessManager {
         ? session.metadata.nativeAgentSession.sessionId
         : undefined,
       gooseCli: input.agent === "goose" ? resolveWrappedAgentCli(session.command) : undefined,
+      gooseCompletedTurn: session.metadata.role === "completed-turn",
       gooseProvider: input.agent === "goose"
         ? getConfiguredOpenRouterModels(instanceSettingsService.getAppValue(MODEL_PROVIDERS_SETTING_KEY)) !== null
           ? DEFAULT_GOOSE_PROVIDER

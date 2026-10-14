@@ -5,14 +5,17 @@ import { join } from "node:path";
 
 import type { AdapterStreamEvent } from "./agent-adapter";
 import { GooseAdapter } from "./goose-adapter";
+import {gooseTurnCheckpoint,recoverGooseTurn} from "../sessions/goose-turn-journal";
 
 let testDir = "";
 let fakeCli = "";
 let rpcLog = "";
 const adapters: GooseAdapter[] = [];
+let previousJournalRoot:string|undefined;
 
 beforeEach(() => {
   testDir = mkdtempSync(join(tmpdir(), "wingman-goose-acp-"));
+  previousJournalRoot=process.env.WINGMAN_GOOSE_TURN_JOURNAL_DIR;process.env.WINGMAN_GOOSE_TURN_JOURNAL_DIR=join(testDir,"journal");
   fakeCli = join(testDir, "goose");
   rpcLog = join(testDir, "rpc.jsonl");
   writeFileSync(fakeCli, FAKE_GOOSE_ACP_SERVER);
@@ -21,6 +24,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await Promise.all(adapters.splice(0).map((adapter) => adapter.dispose()));
+  if(previousJournalRoot===undefined)delete process.env.WINGMAN_GOOSE_TURN_JOURNAL_DIR;else process.env.WINGMAN_GOOSE_TURN_JOURNAL_DIR=previousJournalRoot;
   rmSync(testDir, { recursive: true, force: true });
 });
 
@@ -54,6 +58,18 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 2_000): Promise<v
 }
 
 describe("Goose ACP profile", () => {
+  test("completed turns persist correlated final prose and reject nonterminal stops",async()=>{
+    const adapter=createAdapter();await adapter.waitForReady();
+    const c={nativeSessionId:adapter.getSessionId()!,directory:testDir};
+    expect(await adapter.sendCompletedMessage("question")).toBe("final");
+    expect(recoverGooseTurn(c,0,"question")).toBe("final");
+    const checkpoint=gooseTurnCheckpoint(c);
+    expect(await adapter.sendCompletedMessage("question")).toBe("final");
+    expect(recoverGooseTurn(c,checkpoint,"question")).toBe("final");
+    await expect(adapter.sendCompletedMessage("nonterminal")).rejects.toThrow("finish normally");
+    expect(recoverGooseTurn(c,2,"nonterminal")).toBeNull();
+    await expect(adapter.sendCompletedMessage("retry")).rejects.toThrow("replay refused");
+  });
   test("negotiates protocol 0 and creates a ready native session", async () => {
     const nativeIds: string[] = [];
     const adapter = createAdapter({ onNativeSessionId: (id: string) => nativeIds.push(id) });
@@ -332,7 +348,7 @@ lines.on("line", (line) => {
   send({ jsonrpc: "2.0", method: "session/update", params: { update: {
     sessionUpdate: "agent_message_chunk", messageId: "answer-1", content: { type: "text", text: "final" },
   } } });
-  const respond = () => send({ jsonrpc: "2.0", id, result: { stopReason: "end_turn" } });
+  const respond = () => send({ jsonrpc: "2.0", id, result: { stopReason: params.prompt[0].text === "nonterminal" ? "max_tokens" : "end_turn" } });
   if (params.prompt[0].text === "hold") setTimeout(respond, 75);
   else respond();
 });

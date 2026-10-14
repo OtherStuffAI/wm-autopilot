@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import type { SessionSnapshot } from "../agents/process-manager.ts";
 import type { SessionApiContext } from "../server/session-api-routes.ts";
 import { createCompletedTurnRuntime, completedTurnBindingId } from "./completed-turn-runtime.ts";
+import {beginGooseTurn,completeGooseTurn} from "./goose-turn-journal.ts";
 import { parseCompletedTurnRequest } from "./completed-turn-contract.ts";
 import { PipelineStore } from "../pipelines/pipeline-store.ts";
 import { runDeclarativePipeline, resumeDeclarativePipeline } from "../pipelines/pipeline-runner.ts";
@@ -24,19 +25,22 @@ import { ActivityWebhookDelivery } from "../pipelines/activity-webhook-delivery.
 
 let directory: string;
 let previousCodexHome: string | undefined;
+let previousGooseJournal: string|undefined;
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "completed-runtime-"));
   previousCodexHome = process.env.CODEX_HOME;
   process.env.CODEX_HOME = directory;
+  previousGooseJournal=process.env.WINGMAN_GOOSE_TURN_JOURNAL_DIR;process.env.WINGMAN_GOOSE_TURN_JOURNAL_DIR=join(directory,"journal");
   mkdirSync(join(directory, "sessions"));
 });
 afterEach(() => {
   if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
   else process.env.CODEX_HOME = previousCodexHome;
+  if(previousGooseJournal===undefined)delete process.env.WINGMAN_GOOSE_TURN_JOURNAL_DIR;else process.env.WINGMAN_GOOSE_TURN_JOURNAL_DIR=previousGooseJournal;
   rmSync(directory, { recursive: true, force: true });
 });
 
-function fixture(format: TranscriptFormat = "legacy") {
+function fixture(format: TranscriptFormat = "legacy",agent:"codex"|"goose"="codex") {
   const sessions = new Map<string, SessionSnapshot>();
   const archives = new Map<string, SessionSnapshot>();
   const prompts: string[] = [];
@@ -53,7 +57,11 @@ function fixture(format: TranscriptFormat = "legacy") {
       const id = [...sessions.keys()].at(-1)!;
       const session = sessions.get(id)!;
       const nativeId = session.metadata?.nativeAgentSession?.sessionId ?? "native-conversation";
-      session.metadata!.nativeAgentSession = { agent: "codex", sessionId: nativeId, workingDirectory: directory, capturedAt: new Date().toISOString(), source: "adapter" };
+      session.metadata!.nativeAgentSession = { agent, sessionId: nativeId, workingDirectory: directory, capturedAt: new Date().toISOString(), source: "adapter" };
+      if(agent==="goose"){
+        const context={nativeSessionId:nativeId,directory};const turn=beginGooseTurn(context,prompt);completeGooseTurn(context,turn,reply);
+        if(fail)throw Error("Response lost after completion");return reply;
+      }
       const file = join(directory, "sessions", `rollout-${nativeId}.jsonl`);
       if (prompts.length === 1) writeFileSync(file, JSON.stringify({ type: "session_meta", payload: { id: nativeId, cwd: directory } }) + "\n");
       const turnId = `turn-${prompts.length}`;
@@ -66,14 +74,14 @@ function fixture(format: TranscriptFormat = "legacy") {
     },
   };
   const ctx = {
-    agentHost: "localhost", isAgentType: (agent: string) => agent === "codex",
+    agentHost: "localhost", isAgentType: (agent: string) => agent === "codex" || agent === "goose",
     manager: {
       getSession: (id: string) => sessions.get(id),
       getAdapter: (id: string) => sessions.get(id)?.status === "running" ? adapter : null,
-      createSession: async (_agent: string, cwd: string, name: string, _origin: unknown, _target: unknown, owner: string, metadata: SessionSnapshot["metadata"]) => {
+      createSession: async (_agent: string, cwd: string, name: string, _origin: unknown, _target: unknown, owner: string, metadata: SessionSnapshot["metadata"],model?:string) => {
         launches.push({ nativeId: metadata?.nativeAgentSession?.sessionId });
         const id = `session-${launches.length}`;
-        const session = { id, agent: "codex", status: "running", workingDirectory: cwd, npub: owner, metadata, name, startedAt: new Date().toISOString(), port: 0 } as SessionSnapshot;
+        const session = { id, agent, model, status: "running", workingDirectory: cwd, npub: owner, metadata, name, startedAt: new Date().toISOString(), port: 0 } as SessionSnapshot;
         sessions.set(id, session);
         return session;
       },
@@ -82,7 +90,7 @@ function fixture(format: TranscriptFormat = "legacy") {
     messageStore: { getSession: (id: string) => sessions.get(id), listSessions: () => [...sessions.values()], recordSession: () => {} },
     syncSessionMessages: async () => {}, promptQueueStore: { getQueueCount: () => 0, getSessionQueue: () => [] },
   } as unknown as SessionApiContext;
-  const request = (id = "one") => parseCompletedTurnRequest({ conversationKey: "conversation", projectId: "project", requestId: id, prompt: `  ${id}\nexact  `, directory });
+  const request = (id = "one") => parseCompletedTurnRequest({ ...(agent==="goose"?{agent,model:"z-ai/glm-5.3"}:{}), conversationKey: "conversation", projectId: "project", requestId: id, prompt: `  ${id}\nexact  `, directory });
   return { ctx, sessions, archives, launches, prompts, request, setGate: (value: Promise<void> | null) => { gate = value; }, setFail: (value: boolean) => { fail = value; }, setStarted: (value: typeof onStarted) => { onStarted = value; }, setReply: (value: string) => { reply = value; } };
 }
 function definition(): PipelineDefinitionRecord {
@@ -426,4 +434,23 @@ test('native project tools upgrade an idle dedicated session by scoped resume, p
  expect(f.sessions.get(resumed)?.metadata?.nativeProjectTools).toBe(true);
  expect(f.sessions.get(resumed)?.metadata?.nativeAgentSession?.sessionId).toBe('native-conversation');
  expect(f.sessions.get(first)?.status).toBe('stopped');expect(f.launches).toHaveLength(2);
+});
+
+test("Goose completed-turn runtime resumes native history and recovers durable terminal without replay",async()=>{
+ const f=fixture("legacy","goose"),runtime=createCompletedTurnRuntime(f.ctx,{projectTools:true});
+ const binding={owner:"owner",conversationKey:"conversation",config:"",sessionId:null,executionId:null};
+ const first=await runtime.prepare(binding,f.request(),false);expect(f.sessions.get(first)?.agent).toBe("goose");
+ expect(f.sessions.get(first)?.metadata?.agentTransport).toBe("goose-acp");
+ const sent=await runtime.send(first,f.request().prompt);expect(sent.reply).toBe("safe final");
+ const checkpoint=await runtime.checkpoint(first);expect(checkpoint.count).toBe(1);
+ f.sessions.get(first)!.status="stopped";
+ const resumed=await runtime.prepare({...binding,sessionId:first},f.request("two"),false);
+ expect(f.launches[1]?.nativeId).toBe(sent.nativeSessionId);
+ await expect(runtime.authorize({...f.request(),sessionId:resumed,model:"foreign"},"owner")).rejects.toThrow("model binding");
+ await runtime.send(resumed,f.request("two").prompt);
+ const row:any={sessionId:resumed,checkpoint:1,nativeSessionId:sent.nativeSessionId,requestJson:JSON.stringify(f.request("two")),conversationKey:"conversation",requestId:"two",projectId:"project",owner:"owner",prompt:f.request("two").prompt};
+ expect(await runtime.recover(row)).toEqual({reply:"safe final",nativeSessionId:sent.nativeSessionId});expect(f.prompts).toHaveLength(2);
+ await expect(runtime.authorize({...f.request(),agent:"codex",sessionId:resumed},"owner")).rejects.toThrow("migration");
+ await expect(runtime.authorize({...f.request(),sessionId:resumed},"foreign")).rejects.toThrow("ownership");
+ expect(()=>parseCompletedTurnRequest({...f.request(),executionProfile:"isolated-codex"})).toThrow("Codex SDK");
 });

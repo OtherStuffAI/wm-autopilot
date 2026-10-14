@@ -1,8 +1,8 @@
 # Generic completed native turns
 
 `session.completedTurn` is a generic pipeline code function for a dedicated,
-owner-bound native Codex conversation. It sends the exact prompt and awaits the
-adapter's successful native `turn.completed`. Ordinary session message APIs keep
+owner-bound native Codex or Goose conversation. It sends the exact prompt and
+awaits Codex `turn.completed` or Goose ACP `end_turn` with a correlated final answer. Ordinary session message APIs keep
 their submission semantics. This function does not use Flight Deck dispatch,
 model-generated callback instructions or ordinary prompt-queue acceptance as
 completion. The persistent conversation is left available for subsequent turns.
@@ -38,8 +38,8 @@ not evidence that generated artifacts are valid or safe to promote.
 
 Inputs require nonempty `conversationKey`, `requestId`, `projectId`, exact `prompt`
 and absolute `directory`. Optional `model` and `sessionId` must remain consistent.
-Only `agent: "codex"` is supported. The authenticated pipeline owner comes from
-the runner, never the input. Directory/model/project are immutable for a
+`agent: "codex"` (the compatibility default) and `agent: "goose"` are supported. Goose uses native ACP and the managed OpenRouter provider. The authenticated pipeline owner comes from
+the runner, never the input. Agent/directory/model/project are immutable for a
 conversation key. Request IDs are owner-scoped, durable and never automatically
 expired; reusing one with changed input fails. WApps must not expose directory,
 session or conversation selection to untrusted browsers.
@@ -151,3 +151,28 @@ WINGMAN_ISOLATION_NATIVE_TEST_IMAGE=sha256:<reviewed-image-id> bun test ./src/se
 
 This test explicitly skips if the image is unavailable. A skip is pending runtime
 evidence, never a passing acceptance result.
+
+## Goose terminal recovery
+
+Goose completion evidence is a trusted adapter journal under
+`~/.wingmen/runtime/goose-completed-turns/`, outside project directories and Git.
+It binds the exact native conversation ID and working directory; each turn
+records the exact prompt before send. Only a definitive ACP `end_turn` and a
+nonempty assistant answer from that exact local turn produce a terminal record.
+Writes use a private temporary file, file fsync, atomic rename and directory
+fsync. Recovery selects the first turn after the durable checkpoint and compares
+the exact prompt; it never infers completion from model prose or chat history.
+
+A crash after publication but before terminal journaling can leave a published
+app with an uncertain final-message receipt. Publication remains durable and
+independent. Recovery refuses replay when no terminal evidence exists. Explicit
+owned abandonment and a new generation are required to proceed after unresolved
+execution. The journal is retained with native history; no automatic expiry is
+introduced.
+
+Dedicated Goose completed turns force the managed OpenRouter credential and
+host, rejecting missing OpenRouter credentials rather than reusing another
+provider's generic environment values. A stopped conversation resumes the same
+native Goose ID with the pinned model; model drift fails explicitly. Existing
+Codex conversations cannot be resumed as Goose: the WApp must establish a new
+generation and supply inert history/current source while preserving files.

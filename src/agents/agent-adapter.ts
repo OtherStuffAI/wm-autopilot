@@ -65,6 +65,8 @@ export interface AdapterSessionContext {
   gooseCli?: string;
   /** Configured Goose provider used when no session-specific override exists. */
   gooseProvider?: string;
+  /** Dedicated completed-turn sessions use the managed OpenRouter provider. */
+  gooseCompletedTurn?: boolean;
   /** Pi ACP session ID for session resume. */
   piSessionId?: string;
   /** Configured Pi executable used by the Pi ACP bridge. */

@@ -53,7 +53,7 @@ export class CompletedTurnStore {
   enqueue(owner: string, request: CompletedTurnRequest, runId: string, stepId: string): TurnRecord {
     if (!owner) throw new Error("Completed turns require an authenticated pipeline owner");
     if(this.db.query('SELECT 1 FROM completed_turn_deletions WHERE owner=? AND conversationKey=?').get(owner,request.conversationKey))throw Error('Deleted conversation requires a new generation');
-    const config = JSON.stringify({ directory: request.directory, model: request.model, projectId: request.projectId, executionProfile: request.executionProfile });
+    const config = JSON.stringify({ ...(request.agent === "goose" ? {agent:"goose"} : {}), directory: request.directory, model: request.model, projectId: request.projectId, executionProfile: request.executionProfile });
     const fingerprint = JSON.stringify(request);
     return this.db.transaction(() => {
       this.db.query("INSERT OR IGNORE INTO completed_turn_bindings (owner,conversationKey,config,sessionId) VALUES (?, ?, ?, ?)")

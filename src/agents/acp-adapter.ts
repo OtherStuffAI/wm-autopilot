@@ -94,6 +94,10 @@ export class AcpAdapter implements AgentAdapter {
   deliversPromptsDirectly(): boolean { return true; }
 
   async sendMessage(content: string, _type = "user"): Promise<void> {
+    await this.sendPrompt(content);
+  }
+
+  protected async sendPrompt(content: string): Promise<AcpResponse> {
     await this.waitForReady();
     const sessionId = this.requireSessionId();
     const turnNumber = this.eventNormalizer.beginTurn({ expectUserEcho: true });
@@ -116,6 +120,7 @@ export class AcpAdapter implements AgentAdapter {
         prompt: [{ type: "text", text: content }],
       }, { timeoutMs: null });
       this.assertSuccess(response, "session/prompt");
+      return response;
     } catch (error) {
       this.fail(error);
       throw this.failure;

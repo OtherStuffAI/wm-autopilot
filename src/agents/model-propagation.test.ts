@@ -48,3 +48,9 @@ describe("runtime model propagation", () => {
     ]);
   });
 });
+
+test("completed Goose provider ignores stale generic credentials and pins managed OpenRouter host",()=>{
+ const context:any={id:"test",agent:"goose",host:"localhost",port:1,gooseCompletedTurn:true,model:"z-ai/glm-5.3",env:{OPENROUTER_API_KEY:"managed",OPENROUTER_HOST:"http://localhost:1234/scoped",GOOSE_PROVIDER:"other",GOOSE_PROVIDER__API_KEY:"foreign",GOOSE_PROVIDER__HOST:"https://foreign"}};
+ const env=buildGooseRuntimeEnv(context);expect(env.GOOSE_PROVIDER).toBe("openrouter");expect(env.GOOSE_MODEL).toBe("z-ai/glm-5.3");expect(env.GOOSE_PROVIDER__API_KEY).toBe("managed");expect(env.GOOSE_PROVIDER__HOST).toBe("http://localhost:1234/scoped");
+ expect(()=>buildGooseRuntimeEnv({...context,env:{OPENROUTER_API_KEY:"",GOOSE_PROVIDER__API_KEY:"foreign"}})).toThrow("managed OpenRouter");
+});

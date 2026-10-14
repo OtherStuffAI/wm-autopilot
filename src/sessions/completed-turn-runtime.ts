@@ -4,6 +4,7 @@ import type { SessionApiContext } from "../server/session-api-routes.ts";
 import { waitForSessionPromptReadiness } from "../server/session-readiness.ts";
 import { resolveSessionOwnerNpub } from "./session-ownership.ts";
 import { resolveNativeResumeLaunch, type NativeResumeSourceSession } from "./native-resume-launch.ts";
+import {gooseTurnCheckpoint, recoverGooseTurn} from "./goose-turn-journal.ts";
 import { nativeTurnCheckpoint, recoverNativeTurn } from "./completed-turn-recovery.ts";
 import type { CompletedTurnRequest } from "./completed-turn-contract.ts";
 import type { CompletedTurnRuntime } from "./completed-turn-service.ts";
@@ -15,17 +16,19 @@ export function completedTurnBindingId(owner: string, key: string): string {
 
 /** Only an owned dedicated native session may participate; no submission adapter fallback. */
 export function createCompletedTurnRuntime(ctx: SessionApiContext, options:{projectTools?:boolean}={}): CompletedTurnRuntime {
-  function source(id: string): NativeResumeSourceSession {
+  function source(id: string): NativeResumeSourceSession & {model?:string|null} {
     const session = ctx.manager.getSession(id) ?? ctx.messageStore.getSession(id) ?? ctx.sessionArchiveStore?.getArchivedSession(id);
     if (!session) throw new Error("Completed-turn bound session unavailable");
     return session;
   }
-  function authorized(session: NativeResumeSourceSession, request: CompletedTurnRequest, owner: string): void {
+  function authorized(session: NativeResumeSourceSession & {model?:string|null}, request: CompletedTurnRequest, owner: string): void {
     if (resolveSessionOwnerNpub(session.npub ?? null, session.metadata) !== owner) throw new Error("Completed-turn session ownership denied");
-    if (session.agent !== "codex" || session.workingDirectory !== request.directory ||
-      session.metadata?.agentTransport !== "codex-sdk" || session.metadata?.role !== "completed-turn" ||
+    const agent=request.agent??"codex";
+    if(agent==="goose" && request.model && session.model!==request.model)throw Error("Completed-turn Goose model binding conflict");
+    if (session.agent !== agent || session.workingDirectory !== request.directory ||
+      session.metadata?.agentTransport !== (agent==="goose"?"goose-acp":"codex-sdk") || session.metadata?.role !== "completed-turn" ||
       session.metadata?.bindingId !== completedTurnBindingId(owner, request.conversationKey)) {
-      throw new Error("Completed turns require the matching dedicated Codex SDK conversation");
+      throw new Error("Completed turns require the matching dedicated native conversation; agent migration requires a new generation");
     }
   }
   function adapter(id: string): AgentAdapter & { sendCompletedMessage: (prompt: string) => Promise<string> } {
@@ -36,10 +39,10 @@ export function createCompletedTurnRuntime(ctx: SessionApiContext, options:{proj
   function nativeContext(id: string) {
     const session = source(id);
     const native = session.metadata?.nativeAgentSession;
-    if (native?.agent !== "codex" || !native.sessionId || native.workingDirectory !== session.workingDirectory) {
+    if (native?.agent !== session.agent || !["codex","goose"].includes(session.agent) || !native.sessionId || native.workingDirectory !== session.workingDirectory) {
       throw new Error("Bound native conversation reference missing or inconsistent");
     }
-    return { nativeSessionId: native.sessionId, directory: session.workingDirectory! };
+    return { agent:session.agent, nativeSessionId: native.sessionId, directory: session.workingDirectory! };
   }
   async function prepare(binding: TurnBinding, request: CompletedTurnRequest, recovering: boolean): Promise<string> {
     let id = binding.sessionId;
@@ -90,14 +93,16 @@ export function createCompletedTurnRuntime(ctx: SessionApiContext, options:{proj
       const resumed = await ctx.manager.createSession(launch.agent, launch.workingDirectory, launch.name, launch.origin,
         undefined, binding.owner, { ...launch.metadata, ...(options.projectTools?{nativeProjectTools:true}:{}), nextAction: "none", autoStop: false }, request.model ?? undefined);
       record(resumed.id);
+      authorized(source(resumed.id),request,binding.owner);
       return resumed.id;
     }
-    const created = await ctx.manager.createSession("codex", request.directory, "Native completed-turn conversation", null,
+    const created = await ctx.manager.createSession(request.agent??"codex", request.directory, "Native completed-turn conversation", null,
       undefined, binding.owner, {
-        AGENT: true, agentTransport: "codex-sdk", role: "completed-turn", nextAction: "none", autoStop: false,
+        AGENT: true, agentTransport: request.agent==="goose"?"goose-acp":"codex-sdk", role: "completed-turn", nextAction: "none", autoStop: false,
         ...(options.projectTools?{nativeProjectTools:true}:{}), ownerNpub: binding.owner, bindingId: completedTurnBindingId(binding.owner, binding.conversationKey),
       }, request.model ?? undefined);
     record(created.id);
+    authorized(source(created.id),request,binding.owner);
     return created.id;
   }
   function record(id: string): void {
@@ -153,7 +158,7 @@ export function createCompletedTurnRuntime(ctx: SessionApiContext, options:{proj
       const native = source(id).metadata?.nativeAgentSession;
       if (!native?.sessionId) return { nativeSessionId: null, count: 0 };
       const context = nativeContext(id);
-      return { nativeSessionId: context.nativeSessionId, count: await nativeTurnCheckpoint(context) };
+      return { nativeSessionId: context.nativeSessionId, count: context.agent==="goose"?gooseTurnCheckpoint(context):await nativeTurnCheckpoint(context) };
     },
     send: async (id, prompt) => {
       const reply = await adapter(id).sendCompletedMessage(prompt);
@@ -165,8 +170,9 @@ export function createCompletedTurnRuntime(ctx: SessionApiContext, options:{proj
     recover: async (row) => {
       if (!row.sessionId || row.checkpoint === null) throw new Error("Completed-turn recovery checkpoint unavailable");
       const session = source(row.sessionId);
-      const binding: CompletedTurnRequest = { conversationKey: row.conversationKey, requestId: row.requestId,
-        projectId: row.projectId, prompt: row.prompt, directory: session.workingDirectory!, sessionId: row.sessionId, model: null,
+      const captured=JSON.parse(row.requestJson) as CompletedTurnRequest;
+      const binding: CompletedTurnRequest = { ...(captured.agent?{agent:captured.agent}:{}), conversationKey: row.conversationKey, requestId: row.requestId,
+        projectId: row.projectId, prompt: row.prompt, directory: captured.directory, sessionId: row.sessionId, model: captured.model,
         executionProfile: null, projectFiles: null, durationMs: null };
       authorized(session, binding, row.owner);
       const liveAdapter = ctx.manager.getAdapter(row.sessionId);
@@ -175,7 +181,7 @@ export function createCompletedTurnRuntime(ctx: SessionApiContext, options:{proj
       }
       const context = nativeContext(row.sessionId);
       if (row.nativeSessionId && row.nativeSessionId !== context.nativeSessionId) throw new Error("Completed-turn native conversation changed");
-      const reply = await recoverNativeTurn(context, row.checkpoint, row.prompt);
+      const reply = context.agent==="goose"?recoverGooseTurn(context,row.checkpoint,row.prompt):await recoverNativeTurn(context, row.checkpoint, row.prompt);
       return reply === null ? null : { reply, nativeSessionId: context.nativeSessionId };
     },
   };

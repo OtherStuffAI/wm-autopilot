@@ -202,7 +202,7 @@ export function createWingmanMcpApiHandler(deps: WingmanMcpApiDependencies) {
       if (url.pathname === '/api/mcp/wingman/project-tool' && method === 'POST') {
         const body = await request.json() as {sessionId?:string;operation?:string;tool?:string;args?:JsonObject};
         const session = body.sessionId ? deps.getSession(body.sessionId) : null;
-        if(session&&body.operation==='capabilities'&&Object.keys(body).sort().join(',')==='operation,sessionId')return Response.json({protocol:'native-project-tools-v1',callableDuringTurn:true,hostFilesystemIsolation:false});
+        if(session&&body.operation==='capabilities'&&Object.keys(body).sort().join(',')==='operation,sessionId')return Response.json({protocol:'native-project-tools-v1',callableDuringTurn:true,hostFilesystemIsolation:false,completedTurnAgents:['codex','goose'],gooseProvider:'openrouter'});
         if (!session || !deps.pipelineStore || typeof body.tool !== 'string' || !body.args || Array.isArray(body.args) || typeof body.args !== 'object') return jsonError('Invalid native tool call',400);
         if(Object.keys(body).sort().join(',')!=='args,sessionId,tool'||Buffer.byteLength(JSON.stringify(body.args))>65536)return jsonError('Invalid native tool arguments',400);
         return Response.json(await invokeNativeProjectTool(deps.pipelineStore,session,body.tool,body.args));
