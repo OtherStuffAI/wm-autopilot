@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { Options, Query, SDKMessage, WarmQuery, startup } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeAdapter } from "./claude-adapter";
 import type { AdapterSessionContext, AdapterStreamEvent } from "./agent-adapter";
+import {claudeTurnCheckpoint,recoverClaudeTurn} from "../sessions/claude-turn-journal";
 import { findNativeTurnFinal } from "./native-sdk-contract";
 
 const roots: string[] = [];
@@ -232,3 +233,33 @@ describe("Claude SDK model fallback", () => {
     expect(f.calls).toHaveLength(1);
   });
 });
+
+
+test("dedicated Claude completion durably records only definitive success and refuses uncertain replay",async()=>{
+ const f=fixture();process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR=join(f.context.workingDirectory!,"journal");
+ try{
+  await f.adapter.waitForReady();const turn=f.adapter.sendCompletedMessage("exact prompt");await flush();
+  f.streams[0]!.emit({...success("safe final"),session_id:"preallocated"});
+  expect(await turn).toBe("safe final");
+  const context={nativeSessionId:"preallocated",directory:f.context.workingDirectory!};
+  expect(claudeTurnCheckpoint(context)).toBe(1);expect(recoverClaudeTurn(context,0,"exact prompt")).toBe("safe final");
+  const failed=f.adapter.sendCompletedMessage("budget prompt");const rejection=failed.catch(error=>error);await flush();
+  f.streams[1]!.emit({type:"result",subtype:"error_max_budget_usd",is_error:true,errors:["budget exceeded"],session_id:"preallocated"});expect((await rejection).message).toContain("budget");
+  expect(recoverClaudeTurn(context,1,"budget prompt")).toBeNull();
+  await expect(f.adapter.sendCompletedMessage("budget prompt")).rejects.toThrow("uncertain");expect(f.prompts).toHaveLength(2);
+ }finally{await f.adapter.dispose();delete process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR;}
+});
+for(const failure of ["error_max_turns","error_during_execution","error_max_structured_output_retries","cancel","dispose","identity","eof"]){
+ test(`dedicated Claude ${failure} never writes trusted completion or retries`,async()=>{
+  const f=fixture();process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR=join(f.context.workingDirectory!,"journal");
+  try{
+   await f.adapter.waitForReady();const turn=f.adapter.sendCompletedMessage("one prompt");const rejection=turn.catch(error=>error);await flush();
+   if(failure==="cancel")await f.adapter.interruptCurrentTurn();
+   else if(failure==="dispose")await f.adapter.dispose();
+   else if(failure==="eof")f.streams[0]!.query.close();
+   else if(failure==="identity")f.streams[0]!.emit(success("wrong identity"));
+   else f.streams[0]!.emit({type:"result",subtype:failure,is_error:true,errors:["failed"],session_id:"preallocated"});
+   expect(await rejection).toBeInstanceOf(Error);expect(recoverClaudeTurn({nativeSessionId:"preallocated",directory:f.context.workingDirectory!},0,"one prompt")).toBeNull();expect(f.prompts).toHaveLength(1);
+  }finally{await f.adapter.dispose();delete process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR;}
+ });
+}

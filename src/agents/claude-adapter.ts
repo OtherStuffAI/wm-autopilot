@@ -10,6 +10,8 @@ import { buildClaudeSdkOptions, sanitizeClaudeSdkError } from "./claude-sdk-opti
 import { NativeSdkActivity } from "./native-sdk-contract";
 import { isModelUnavailableError } from "../settings/harness-models";
 
+import { beginClaudeTurn, completeClaudeTurn } from "../sessions/claude-turn-journal";
+
 type State = "initializing" | "ready" | "busy" | "failed" | "disposed";
 
 /** Autopilot owns lifecycle; the official SDK owns only its Claude subprocess. */
@@ -22,6 +24,7 @@ export class ClaudeAdapter implements AgentAdapter {
   private failure: Error | null = null;
   private sessionId: string | null;
   private resume: boolean;
+  private activeTurn: Promise<string> | null = null;
   private runningModel: string | null = null;
   /** Selected model; cleared once if Claude reports it unavailable. */
   private model: string | undefined;
@@ -105,17 +108,36 @@ export class ClaudeAdapter implements AgentAdapter {
     }
   }
 
-  private async runTurn(content: string): Promise<void> {
+  /** Completed-turn calls never retry or substitute a configured model. */
+  async sendCompletedMessage(content: string): Promise<string> {
+    return this.runTurn(content, true);
+  }
+
+  private async runTurn(content: string, durable = false): Promise<string> {
+    if (this.activeTurn) throw new Error("Claude SDK already has an active turn");
+    const turn = this.executeTurn(content,durable);
+    this.activeTurn = turn;
+    try { return await turn; } finally { if(this.activeTurn===turn)this.activeTurn=null; }
+  }
+
+  private async executeTurn(content: string, durable: boolean): Promise<string> {
     if (this.state === "busy") throw new Error("Claude SDK already has an active turn");
     await this.waitForReady();
     // Another caller may have claimed the warm process while readiness awaited.
     if (!this.warm) throw new Error("Claude SDK is not ready for a new turn");
     const warm = this.warm;
-    this.warm = null;
     const controller = this.abortController!;
     const turnId = randomUUID();
     const redact = (text: string) => sanitizeClaudeSdkError(new Error(text), this.context.env).message;
     const normalizer = new ClaudeEventNormalizer(this.activity, turnId, redact);
+    let journalId: string | null = null;
+    if (durable) {
+      if (!this.sessionId) throw new Error("Claude completed turn requires a preallocated native identity");
+      if (!this.context.workingDirectory) throw new Error("Claude completed turn requires a directory");
+      journalId = beginClaudeTurn({nativeSessionId:this.sessionId,directory:this.context.workingDirectory!},content);
+    }
+    this.warm = null;
+    const journalSessionId = this.sessionId;
     this.setState("busy");
     this.activity.upsert(`${turnId}:user`, "user", redact(content));
     try {
@@ -124,9 +146,11 @@ export class ClaudeAdapter implements AgentAdapter {
         await this.query.setPermissionMode("default");
       }
       let completed = false;
+      let reply = "";
       for await (const message of this.query) {
         if (controller.signal.aborted) throw new Error("Agent turn interrupted.");
         if (message.type === "system" && message.subtype === "init") {
+          if (durable && message.session_id !== journalSessionId) throw new Error("Claude native identity changed");
           this.captureSession(message.session_id);
           this.runningModel = message.model;
           const wingman = message.mcp_servers.find((server) => server.name === "wingman");
@@ -134,14 +158,17 @@ export class ClaudeAdapter implements AgentAdapter {
         }
         if (message.type === "result") {
           if (message.origin?.kind === "task-notification") continue;
+          if (durable && message.session_id !== journalSessionId) throw new Error("Claude terminal native identity changed");
           this.captureSession(message.session_id);
-          normalizer.complete(message);
+          reply = normalizer.complete(message);
+          if (journalId) completeClaudeTurn({nativeSessionId:journalSessionId!,directory:this.context.workingDirectory!},journalId,reply);
           completed = true;
           break;
         }
         normalizer.accept(message);
       }
       if (!completed) throw new Error("Native completed assistant output missing");
+      return reply;
     } catch (error) {
       const failure = controller.signal.aborted
         ? Object.assign(new Error("Agent turn interrupted."), { code: "agent_turn_interrupted" })
@@ -191,6 +218,7 @@ export class ClaudeAdapter implements AgentAdapter {
     this.warm?.close();
     this.warm = null;
     this.listeners.clear();
+    await this.activeTurn?.catch(() => {});
   }
 
   private reconcilePermissionMode(): void {

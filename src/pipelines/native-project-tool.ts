@@ -13,7 +13,7 @@ export async function invokeNativeProjectTool(store: PipelineStore, session: Ses
   if (!turn || session.metadata?.role !== 'completed-turn' || session.metadata?.nativeProjectTools!==true || session.metadata?.bindingId !== completedTurnBindingId(turn.owner,turn.conversationKey) ||
     session.npub !== turn.owner || session.workingDirectory !== JSON.parse(turn.requestJson).directory) throw Error('native_tool_turn_denied');
   const native=session.metadata.nativeAgentSession,agent=JSON.parse(turn.requestJson).agent??"codex";
-  if(!["codex","goose"].includes(agent)||session.agent!==agent||session.metadata.agentTransport!==(agent==="goose"?"goose-acp":"codex-sdk")||!native||native.agent!==agent||native.workingDirectory!==session.workingDirectory||!native.sessionId||(turn.nativeSessionId&&turn.nativeSessionId!==native.sessionId))throw Error('native_tool_lineage_denied');
+  if(!["codex","goose","claude"].includes(agent)||session.agent!==agent||session.metadata.agentTransport!==(agent==="goose"?"goose-acp":agent==="claude"?"claude-sdk":"codex-sdk")||!native||native.agent!==agent||native.workingDirectory!==session.workingDirectory||!native.sessionId||(turn.nativeSessionId&&turn.nativeSessionId!==native.sessionId))throw Error('native_tool_lineage_denied');
   const run = store.getRun(turn.runId), step = store.getStep(turn.stepId), snapshot = store.composition.snapshot(turn.runId);
   const tools = step?.metadata?.agentTools as Record<string,string> | undefined;
   const definitionStep=step&&snapshot?.definition.spec.steps[step.stepIndex];

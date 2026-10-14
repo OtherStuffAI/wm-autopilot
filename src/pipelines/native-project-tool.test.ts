@@ -8,16 +8,16 @@ import {invokeNativeProjectTool} from './native-project-tool.ts';
 import {runtimeFunctionHash,pipelineFunctionHashes} from './pipeline-function-pins.ts';
 import type {SessionSnapshot} from '../agents/process-manager.ts';
 
-function fixture(operation:((input:any)=>Promise<any>)=async input=>({published:true,correlation:input.nativeReceipt,request:input.input}),agent:"codex"|"goose"="codex"){
+function fixture(operation:((input:any)=>Promise<any>)=async input=>({published:true,correlation:input.nativeReceipt,request:input.input}),agent:"codex"|"goose"|"claude"="codex"){
  const root=mkdtempSync('/private/tmp/native-tool-'),store=new PipelineStore(root+'/pipelines.sqlite');
- const owner='owner',request=parseCompletedTurnRequest({conversationKey:'conversation',requestId:'request',projectId:'project',...(agent==='goose'?{agent,model:'z-ai/glm-5.3'}:{}),directory:root,prompt:'Build and publish'});
+ const owner='owner',request=parseCompletedTurnRequest({conversationKey:'conversation',requestId:'request',projectId:'project',...(agent==='goose'?{agent,model:'z-ai/glm-5.3'}:agent==='claude'?{agent}:{}),directory:root,prompt:'Build and publish'});
  const handler=Object.assign(operation,{[runtimeFunctionHash]:'pinned-hash'});
  const definition:any={id:'definition',name:'test',scope:'user',ownerAlias:'owner',path:null,spec:{name:'test',version:1,steps:[{name:'Native turn',type:'code',function:'session.completedTurn',agentTools:{publish:'app.publish'}}]}};
  const run=store.createRun({definitionId:'definition',name:'test',scope:'user',ownerNpub:owner,ownerAlias:'owner',input:{projectId:'project',requestId:'request',generation:4}});
  const step=store.createStep({runId:run.id,stepIndex:0,name:'Native turn',kind:'code',input:{},metadata:{agentTools:{publish:'app.publish'}}});
  store.setRunActiveStep(run.id,step.id);store.composition.pin(run.id,definition,{functionHashes:pipelineFunctionHashes(definition,{'app.publish':handler})});
  const row=store.completedTurns.enqueue(owner,request,run.id,step.id);store.completedTurns.claim(row.receiptId,'claim');store.completedTurns.bind(row.receiptId,'claim','execution','session');store.completedTurns.sending(row.receiptId,'claim','native',0);
- const session={id:'session',npub:owner,workingDirectory:root,metadata:{agentTransport:agent==='goose'?'goose-acp':'codex-sdk',role:'completed-turn',nativeProjectTools:true,bindingId:completedTurnBindingId(owner,'conversation'),nativeAgentSession:{agent,sessionId:'native',workingDirectory:root}},agent} as SessionSnapshot;
+ const session={id:'session',npub:owner,workingDirectory:root,metadata:{agentTransport:agent==='goose'?'goose-acp':agent==='claude'?'claude-sdk':'codex-sdk',role:'completed-turn',nativeProjectTools:true,bindingId:completedTurnBindingId(owner,'conversation'),nativeAgentSession:{agent,sessionId:'native',workingDirectory:root}},agent} as SessionSnapshot;
  const load:any=async()=>({registry:{'app.publish':handler},records:[]});
  return {store,row,run,step,session,handler,load,definition,expire(){const db=new Database(store.path);try{db.run('UPDATE completed_turn_receipts SET leaseUntil=0 WHERE receiptId=?',[row.receiptId]);}finally{db.close();}},close(){rmSync(root,{recursive:true,force:true});}};
 }
@@ -65,6 +65,14 @@ test('expiry during asynchronous module loading is rechecked before effects and 
 
 test('Goose publication invokes the genuine pinned tool dispatcher with exact saved native lineage',async()=>{
  const f=fixture(undefined,'goose');try{
+  const result:any=await invokeNativeProjectTool(f.store,f.session,'publish',{validation:['Actual build check']},f.load);
+  expect(result.published).toBe(true);expect(result.correlation.nativeSessionId).toBe('native');expect(result.correlation.receiptId).toBe(f.row.receiptId);
+  for(const session of [{...f.session,agent:'codex'},{...f.session,metadata:{...f.session.metadata,agentTransport:'codex-sdk'}},{...f.session,metadata:{...f.session.metadata,nativeAgentSession:{...f.session.metadata!.nativeAgentSession!,agent:'codex'}}}])await expect(invokeNativeProjectTool(f.store,session as SessionSnapshot,'publish',{},f.load)).rejects.toThrow('lineage_denied');
+ }finally{f.close()}
+});
+
+test('Claude publication invokes the genuine pinned tool dispatcher with exact saved native lineage',async()=>{
+ const f=fixture(undefined,'claude');try{
   const result:any=await invokeNativeProjectTool(f.store,f.session,'publish',{validation:['Actual build check']},f.load);
   expect(result.published).toBe(true);expect(result.correlation.nativeSessionId).toBe('native');expect(result.correlation.receiptId).toBe(f.row.receiptId);
   for(const session of [{...f.session,agent:'codex'},{...f.session,metadata:{...f.session.metadata,agentTransport:'codex-sdk'}},{...f.session,metadata:{...f.session.metadata,nativeAgentSession:{...f.session.metadata!.nativeAgentSession!,agent:'codex'}}}])await expect(invokeNativeProjectTool(f.store,session as SessionSnapshot,'publish',{},f.load)).rejects.toThrow('lineage_denied');

@@ -82,3 +82,23 @@ privacy-preserving evidence paths.
 Only the bundled `default-definitions/do-and-review.json` example is annotated.
 The deployed/shared definition keeps its path-based identity. Existing historical
 runs keep their pinned original metadata, and other definitions are not migrated.
+
+
+### Native completed-turn engines
+
+`session.completedTurn` accepts `agent: "codex" | "claude" | "goose"`. Omitting
+`agent` keeps the existing Codex request fingerprint. `model: null` uses the
+configured harness default for Codex or Claude; it does not snapshot an exact
+provider model. Goose builder requests supply their pinned model explicitly.
+Engine changes require a new conversation generation, preserving project files
+and visible history rather than converting provider-native transcripts.
+
+Claude completed turns use the official SDK and owned `claude-sdk` native
+resume. Only a root successful result with nonempty final text becomes a
+completed receipt. Cancellation, EOF, budget/turn limits, execution errors and
+native identity changes leave an uncertain turn that cannot be replayed.
+Completed-turn calls do not use ordinary chat's unavailable-model retry.
+Trusted terminal evidence is recorded outside project roots in
+`~/.wingmen/runtime/claude-completed-turns/` using private, fsynced atomic files.
+Publication retains the immutable saved agent, transport and native session
+lineage, and invokes the pinned project handler separately from the final reply.
