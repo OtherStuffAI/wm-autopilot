@@ -301,11 +301,7 @@ import {
 } from "./server/bootstrap/warm-restart";
 import type { WarmRestartMarker } from "./server/bootstrap/warm-restart";
 import { recordControlledRestartRecovery } from "./server/controlled-restart";
-import { resolveTerminalConfig } from "./terminal/terminal-config";
-import { TerminalSessionManager } from "./terminal/terminal-session-manager";
-import { TerminalTicketStore } from "./terminal/terminal-ticket-store";
-import { TerminalPinService } from "./terminal/terminal-pin-service";
-import { TerminalPinRateLimiter } from "./terminal/terminal-pin-rate-limiter";
+import { createTerminalRuntime } from "./terminal/terminal-runtime";
 import { reconcileAppsWithPM2 } from "./server/bootstrap/pm2-reconcile";
 import { autostartApps } from "./server/bootstrap/app-autostart";
 import { cleanupOrphanedAgentProcesses } from "./server/bootstrap/pm2-agent-cleanup";
@@ -2740,17 +2736,14 @@ const billingApiContext: BillingApiContext = {
 // Used to provide request IP resolution to the API route handler without a
 // forward-reference issue (the server const is defined after handleApi).
 const serverRef: { current: { requestIP: (req: Request) => { address: string; port: number } | null } | null } = { current: null };
-const terminalConfig = resolveTerminalConfig({ defaultCwd: projectRootPath });
-const terminalTickets = new TerminalTicketStore({ ttlMs: terminalConfig.ticketTtlMs });
-const terminalSessions = new TerminalSessionManager(terminalConfig);
-const terminalPinService = new TerminalPinService(instanceSettingsStore);
-const terminalPinRateLimiter = new TerminalPinRateLimiter();
-const terminalWebSocketContext = {
+const {
+  config: terminalConfig,
   tickets: terminalTickets,
   sessions: terminalSessions,
   pinService: terminalPinService,
-  isAdminNpub: isConfiguredAdminNpub,
-};
+  rateLimiter: terminalPinRateLimiter,
+  websocketContext: terminalWebSocketContext,
+} = createTerminalRuntime(projectRootPath, new URL(config.baseUrl).origin, instanceSettingsStore, isConfiguredAdminNpub);
 const remoteInstructRoutesContext: RemoteInstructRoutesContext = {
   promptPath: join(projectRootPath, "data", "remote-instruct.md"),
   config: {

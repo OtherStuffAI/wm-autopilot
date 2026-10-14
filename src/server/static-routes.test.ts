@@ -72,6 +72,7 @@ describe("createStaticRouteHandler", () => {
     expect(dispatchResponse?.headers.get("content-type")).toBe("application/javascript; charset=utf-8");
 
     for (const pathname of [
+      "/terminal/connection.js",
       "/pipelines/child-run-links.js",
       "/pipelines/viewer-mount.js",
       "/pipelines/viewer-view.js",

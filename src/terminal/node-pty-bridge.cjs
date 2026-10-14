@@ -31,7 +31,10 @@ function handleMessage(message) {
     terminal.onExit(({ exitCode, signal }) => {
       send({ type: 'exit', code: exitCode, signal: signal ?? null });
       terminal = null;
+      process.stdin.pause();
+      process.stdout.write('', () => process.exit(0));
     });
+    send({ type: 'ready' });
     return;
   }
   if (message.type === 'input' && terminal && typeof message.data === 'string') {
@@ -59,6 +62,9 @@ process.stdin.on('data', (chunk) => {
     }
   }
 });
+
+process.stdin.on('end', () => process.exit(0));
+process.on('SIGTERM', () => process.exit(0));
 
 process.on('exit', () => {
   if (terminal) {

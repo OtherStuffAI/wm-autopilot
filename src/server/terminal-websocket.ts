@@ -1,4 +1,5 @@
 import type { ServerWebSocket } from "bun";
+import { hasTerminalOrigin } from "../terminal/terminal-origin";
 import type { RequestAuthContext } from "../auth/request-context";
 import { getEffectiveOwnerNpub } from "../auth/effective-owner";
 import type { TerminalSessionManager } from "../terminal/terminal-session-manager";
@@ -9,9 +10,12 @@ export interface TerminalWebSocketData {
   kind: "terminal";
   connectionId: string;
   npub: string;
+  state?: "starting" | "ready" | "closed";
 }
 
 export interface TerminalWebSocketContext {
+  publicOrigin: string;
+  reportFailure?: (phase: string, reason: string) => void;
   tickets: TerminalTicketStore;
   sessions: TerminalSessionManager;
   pinService: TerminalPinService;
@@ -33,18 +37,26 @@ export async function handleTerminalWebSocketUpgrade(
     return null;
   }
 
+  const reject = (status: number, error: string) => {
+    ctx.reportFailure?.("upgrade", error);
+    return Response.json({ error, phase: "upgrade" }, { status });
+  };
+  if (!hasTerminalOrigin(request, ctx.publicOrigin)) {
+    return reject(403, "Terminal origin rejected");
+  }
+
   const npub = getEffectiveOwnerNpub(authContext);
   if (!authContext.session || !npub || !ctx.isAdminNpub(npub)) {
-    return Response.json({ error: "Authentication required" }, { status: 401 });
+    return reject(401, "Authentication required");
   }
 
   if (!ctx.pinService.isConfigured()) {
-    return Response.json({ error: "Terminal is not configured" }, { status: 503 });
+    return reject(503, "Terminal is not configured");
   }
 
   const ticket = url.searchParams.get("ticket");
   if (!ctx.tickets.consume(ticket, npub)) {
-    return Response.json({ error: "Invalid terminal ticket" }, { status: 403 });
+    return reject(403, "Invalid terminal ticket");
   }
 
   const upgraded = server.upgrade(request, {
@@ -57,12 +69,13 @@ export async function handleTerminalWebSocketUpgrade(
   if (upgraded) {
     return undefined;
   }
-  return Response.json({ error: "WebSocket upgrade failed" }, { status: 400 });
+  return reject(400, "WebSocket upgrade failed");
 }
 
 export function createTerminalWebSocketHandler(ctx: TerminalWebSocketContext) {
   const sendError = (ws: ServerWebSocket<TerminalWebSocketData>, message: string) => {
-    ws.sendText(JSON.stringify({ type: "error", message }));
+    ctx.reportFailure?.("shell", message);
+    if (ws.data.state !== "closed") ws.sendText(JSON.stringify({ type: "error", phase: "shell", message }));
   };
 
   return {
@@ -77,18 +90,29 @@ export function createTerminalWebSocketHandler(ctx: TerminalWebSocketContext) {
       }
       if (!payload || typeof payload !== "object") return;
       const record = payload as Record<string, unknown>;
+      if (ws.data.state === "closed") return;
       if (record.type === "start") {
+        if (ws.data.state) {
+          sendError(ws, "Terminal shell has already been started");
+          return;
+        }
+        ws.data.state = "starting";
         try {
           await ctx.sessions.start(ws.data.connectionId, ws, {
             cols: typeof record.cols === "number" ? record.cols : undefined,
             rows: typeof record.rows === "number" ? record.rows : undefined,
           });
+          if ((ws.data.state as string) === "closed") return;
+          ws.data.state = "ready";
           ws.sendText(JSON.stringify({ type: "ready" }));
         } catch (error) {
           sendError(ws, error instanceof Error ? error.message : String(error));
+          ctx.sessions.close(ws.data.connectionId);
+          if ((ws.data.state as string) !== "closed") ws.close(1011, "Terminal shell startup failed");
         }
         return;
       }
+      if (ws.data.state !== "ready") return;
       if (record.type === "input") {
         ctx.sessions.write(ws.data.connectionId, record.data);
         return;
@@ -99,6 +123,7 @@ export function createTerminalWebSocketHandler(ctx: TerminalWebSocketContext) {
     },
     close(ws: ServerWebSocket<TerminalWebSocketData>) {
       if (ws.data?.kind === "terminal") {
+        ws.data.state = "closed";
         ctx.sessions.close(ws.data.connectionId);
       }
     },

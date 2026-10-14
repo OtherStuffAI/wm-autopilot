@@ -1,7 +1,11 @@
 import { Terminal } from "/vendor/@xterm/xterm/lib/xterm.mjs";
 import { FitAddon } from "/vendor/@xterm/addon-fit/lib/addon-fit.mjs";
 
-let socket = null;
+import { bindTerminalConnection } from "./connection.js";
+
+let connection = null;
+let attempt = 0;
+let authController = null;
 let terminal = null;
 let fitAddon = null;
 let resizeObserver = null;
@@ -18,9 +22,7 @@ function cleanupTerminal() {
 }
 
 function sendJson(payload) {
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(payload));
-  }
+  connection?.send(payload);
 }
 
 function buildTerminalTheme() {
@@ -67,10 +69,11 @@ function terminalWsUrl(ticket) {
 }
 
 export function disconnectTerminalClient() {
-  if (socket && socket.readyState !== WebSocket.CLOSED && socket.readyState !== WebSocket.CLOSING) {
-    socket.close();
-  }
-  socket = null;
+  attempt += 1;
+  authController?.abort();
+  authController = null;
+  connection?.stop();
+  connection = null;
   cleanupTerminal();
 }
 
@@ -87,54 +90,40 @@ export async function fetchTerminalStatus() {
 
 export async function connectTerminalClient({ pin, container, onStatus }) {
   disconnectTerminalClient();
+  const currentAttempt = attempt;
   onStatus?.("Authenticating terminal access...");
-  const authResponse = await fetch("/api/terminal/auth", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ pin }),
-  });
-  const authPayload = await authResponse.json().catch(() => ({}));
+  const controller = new AbortController();
+  authController = controller;
+  const authTimeout = setTimeout(() => controller.abort(), 15_000);
+  let authResponse;
+  let authPayload;
+  try {
+    authResponse = await fetch("/api/terminal/auth", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    authPayload = await authResponse.json().catch(() => ({}));
+  } catch {
+    if (currentAttempt !== attempt) return;
+    throw new Error("Terminal PIN/ticket request failed or timed out. Check sign-in and server availability, then reconnect.");
+  } finally {
+    clearTimeout(authTimeout);
+    if (authController === controller) authController = null;
+  }
+  if (currentAttempt !== attempt) return;
   if (!authResponse.ok) {
-    throw new Error(authPayload.error || "Terminal authentication failed");
+    throw new Error(`Terminal PIN/ticket authentication failed: ${authPayload.message || authPayload.error || "Check sign-in and PIN"}`);
   }
 
+  if (typeof authPayload.ticket !== "string" || !authPayload.ticket) {
+    throw new Error("Terminal authentication returned no ticket. Check the server terminal configuration.");
+  }
   const term = openTerminal(container);
-  term.writeln("Opening shell...");
-  onStatus?.("Connecting...");
+  term.writeln("Opening terminal connection...");
+  onStatus?.("Connecting WebSocket...");
 
-  socket = new WebSocket(terminalWsUrl(authPayload.ticket));
-  socket.addEventListener("open", () => {
-    sendJson({ type: "start", cols: term.cols, rows: term.rows });
-  });
-  socket.addEventListener("message", (event) => {
-    let payload;
-    try {
-      payload = JSON.parse(event.data);
-    } catch {
-      return;
-    }
-    if (payload.type === "ready") {
-      onStatus?.("Connected");
-      term.focus();
-    } else if (payload.type === "output") {
-      term.write(payload.data || "");
-    } else if (payload.type === "exit") {
-      term.writeln("");
-      term.writeln(`[process exited${typeof payload.code === "number" ? `: ${payload.code}` : ""}]`);
-      onStatus?.("Session ended");
-    } else if (payload.type === "error") {
-      term.writeln("");
-      term.writeln(`[terminal error] ${payload.message || "Unknown error"}`);
-      onStatus?.(payload.message || "Terminal error");
-    }
-  });
-  socket.addEventListener("close", () => {
-    onStatus?.("Disconnected");
-  });
-  socket.addEventListener("error", () => {
-    onStatus?.("Connection error");
-  });
+  const socket = new WebSocket(terminalWsUrl(authPayload.ticket));
+  connection = bindTerminalConnection({ socket, terminal: term, onStatus, isCurrent: () => currentAttempt === attempt });
 }

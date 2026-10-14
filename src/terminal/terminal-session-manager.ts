@@ -1,4 +1,6 @@
-import { spawn as spawnChild, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn as spawnChild } from "node:child_process";
+import { validateTerminalLaunch } from "./terminal-launch";
+import { NodePtySession } from "./node-pty-session";
 import type { IPty } from "node-pty";
 import type { TerminalConfig } from "./terminal-config";
 import { ensureNodePtyMacHelperExecutable } from "./node-pty-helper";
@@ -11,7 +13,8 @@ export interface TerminalSocket {
 
 interface TerminalSession {
   pty?: IPty;
-  bridge?: ChildProcessWithoutNullStreams;
+  bridge?: NodePtySession;
+  cancelled?: boolean;
 }
 
 export interface TerminalStartOptions {
@@ -32,6 +35,7 @@ export class TerminalSessionManager {
   async checkAvailability(): Promise<{ available: boolean; error: string | null }> {
     if (this.availability) return this.availability;
     try {
+      await validateTerminalLaunch(this.config);
       if (this.config.ptyMode === "bridge") {
         await this.checkBridgeAvailability();
       } else {
@@ -52,31 +56,51 @@ export class TerminalSessionManager {
     const cols = normalizeDimension(options.cols, 80, 20, 300);
     const rows = normalizeDimension(options.rows, 24, 8, 120);
 
-    if (this.config.ptyMode === "bridge") {
-      await this.startBridgeSession(connectionId, socket, cols, rows);
-      return;
+    const session: TerminalSession = {};
+    this.sessions.set(connectionId, session);
+    try {
+      const launchConfig = await validateTerminalLaunch(this.config);
+      if (session.cancelled) throw new Error("Terminal startup cancelled");
+      if (this.config.ptyMode === "bridge") {
+        const bridge = new NodePtySession({ onEnd: () => {
+          session.cancelled = true;
+          if (this.sessions.get(connectionId) === session) this.sessions.delete(connectionId);
+        } });
+        session.bridge = bridge;
+        await ensureNodePtyMacHelperExecutable();
+        if (session.cancelled) throw new Error("Terminal startup cancelled");
+        await bridge.start(launchConfig, socket, cols, rows);
+        if (session.cancelled) throw new Error("Terminal shell exited during startup");
+        return;
+      }
+
+      const ptyModule = await this.loadPtyModule();
+      if (session.cancelled) throw new Error("Terminal startup cancelled");
+      const pty = ptyModule.spawn(launchConfig.shell, [], {
+        name: "xterm-256color",
+        cols,
+        rows,
+        cwd: this.config.cwd,
+        env: {
+          ...process.env,
+          TERM: "xterm-256color",
+        },
+      });
+
+      session.pty = pty;
+      pty.onData((data) => {
+        if (session.cancelled) return;
+        socket.sendText(JSON.stringify({ type: "output", data }));
+      });
+      pty.onExit(({ exitCode, signal }) => {
+        if (session.cancelled) return;
+        socket.sendText(JSON.stringify({ type: "exit", code: exitCode, signal: signal ?? null }));
+        if (this.sessions.get(connectionId) === session) this.sessions.delete(connectionId);
+      });
+    } catch (error) {
+      if (this.sessions.get(connectionId) === session) this.close(connectionId);
+      throw error;
     }
-
-    const ptyModule = await this.loadPtyModule();
-    const pty = ptyModule.spawn(this.config.shell, [], {
-      name: "xterm-256color",
-      cols,
-      rows,
-      cwd: this.config.cwd,
-      env: {
-        ...process.env,
-        TERM: "xterm-256color",
-      },
-    });
-
-    this.sessions.set(connectionId, { pty });
-    pty.onData((data) => {
-      socket.sendText(JSON.stringify({ type: "output", data }));
-    });
-    pty.onExit(({ exitCode, signal }) => {
-      socket.sendText(JSON.stringify({ type: "exit", code: exitCode, signal: signal ?? null }));
-      this.sessions.delete(connectionId);
-    });
   }
 
   write(connectionId: string, data: unknown): void {
@@ -86,9 +110,7 @@ export class TerminalSessionManager {
       session.pty.write(data);
       return;
     }
-    if (session?.bridge?.stdin.writable) {
-      session.bridge.stdin.write(`${JSON.stringify({ type: "input", data })}\n`);
-    }
+    session?.bridge?.write(data);
   }
 
   resize(connectionId: string, cols: unknown, rows: unknown): void {
@@ -96,8 +118,8 @@ export class TerminalSessionManager {
     if (!session || typeof cols !== "number" || typeof rows !== "number") return;
     const normalizedCols = normalizeDimension(cols, 80, 20, 300);
     const normalizedRows = normalizeDimension(rows, 24, 8, 120);
-    if (session.bridge?.stdin.writable) {
-      session.bridge.stdin.write(`${JSON.stringify({ type: "resize", cols: normalizedCols, rows: normalizedRows })}\n`);
+    if (session.bridge) {
+      session.bridge.resize(normalizedCols, normalizedRows);
       return;
     }
     if (!session.pty) return;
@@ -115,52 +137,13 @@ export class TerminalSessionManager {
     const session = this.sessions.get(connectionId);
     if (!session) return;
     this.sessions.delete(connectionId);
+    session.cancelled = true;
     try {
       session.pty?.kill();
-      session.bridge?.kill();
+      session.bridge?.close();
     } catch {
       // The PTY may already be gone.
     }
-  }
-
-  private async startBridgeSession(
-    connectionId: string,
-    socket: TerminalSocket,
-    cols: number,
-    rows: number,
-  ): Promise<void> {
-    await ensureNodePtyMacHelperExecutable();
-    const bridgePath = new URL("./node-pty-bridge.cjs", import.meta.url).pathname;
-    const bridge = spawnChild(process.env.TMAN_NODE_BIN || "node", [bridgePath], {
-      cwd: this.config.cwd,
-      env: {
-        ...process.env,
-        TERM: "xterm-256color",
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    this.sessions.set(connectionId, { bridge });
-
-    let stdoutBuffer = "";
-    bridge.stdout.setEncoding("utf8");
-    bridge.stdout.on("data", (chunk) => {
-      stdoutBuffer = processBridgeChunk(stdoutBuffer + chunk, socket);
-    });
-    bridge.stderr.setEncoding("utf8");
-    bridge.stderr.on("data", (chunk) => {
-      socket.sendText(JSON.stringify({ type: "error", message: String(chunk).trim() }));
-    });
-    bridge.on("exit", (code, signal) => {
-      socket.sendText(JSON.stringify({ type: "exit", code: code ?? null, signal: signal ?? null }));
-      this.sessions.delete(connectionId);
-    });
-    bridge.stdin.write(`${JSON.stringify({
-      type: "start",
-      shell: this.config.shell,
-      cwd: this.config.cwd,
-      cols,
-      rows,
-    })}\n`);
   }
 
   private async checkBridgeAvailability(): Promise<void> {
@@ -203,32 +186,4 @@ export class TerminalSessionManager {
 function normalizeDimension(value: unknown, fallback: number, minimum: number, maximum: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.min(Math.max(Math.trunc(value), minimum), maximum);
-}
-
-function processBridgeChunk(input: string, socket: TerminalSocket): string {
-  const lines = input.split("\n");
-  const remainder = lines.pop() ?? "";
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    try {
-      const payload = JSON.parse(line) as Record<string, unknown>;
-      if (payload.type === "output" && typeof payload.data === "string") {
-        socket.sendText(JSON.stringify({
-          type: "output",
-          data: Buffer.from(payload.data, "base64").toString("utf8"),
-        }));
-      } else if (payload.type === "exit") {
-        socket.sendText(JSON.stringify({
-          type: "exit",
-          code: typeof payload.code === "number" ? payload.code : null,
-          signal: typeof payload.signal === "number" || typeof payload.signal === "string" ? payload.signal : null,
-        }));
-      } else if (payload.type === "error" && typeof payload.message === "string") {
-        socket.sendText(JSON.stringify({ type: "error", message: payload.message }));
-      }
-    } catch {
-      socket.sendText(JSON.stringify({ type: "error", message: "Invalid terminal bridge message" }));
-    }
-  }
-  return remainder;
 }

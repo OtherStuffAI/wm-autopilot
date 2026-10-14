@@ -84,6 +84,7 @@ export function initTerminalView(deps) {
     connectButton.type = "submit";
     connectButton.className = "wm-button";
     connectButton.textContent = "Connect";
+    connectButton.setAttribute("aria-label", "Connect terminal");
     connectButton.dataset.testid = "terminal-connect-button";
     authForm.append(pinLabel, pinInput, connectButton);
 
@@ -97,6 +98,7 @@ export function initTerminalView(deps) {
     disconnectButton.type = "button";
     disconnectButton.className = "wm-button secondary";
     disconnectButton.textContent = "Disconnect";
+    disconnectButton.setAttribute("aria-label", "Disconnect terminal");
     disconnectButton.dataset.testid = "terminal-disconnect-button";
     disconnectButton.addEventListener("click", () => {
       disconnectTerminalClient();
@@ -119,7 +121,10 @@ export function initTerminalView(deps) {
         await connectTerminalClient({
           pin,
           container: terminalSurface,
-          onStatus: (message) => setStatus(wrapper, message),
+          onStatus: (message, details) => {
+            setStatus(wrapper, message, details?.state ?? "info");
+            if (details?.final) connectButton.disabled = false;
+          },
         });
       } catch (error) {
         setStatus(wrapper, error instanceof Error ? error.message : "Terminal connection failed", "error");
@@ -130,6 +135,7 @@ export function initTerminalView(deps) {
 
     fetchTerminalStatus()
       .then((terminalStatus) => {
+        if (status.dataset.state !== "loading") return;
         if (terminalStatus.available) {
           setStatus(wrapper, `Ready: ${terminalStatus.shell} in ${terminalStatus.cwd}`, "ready");
           return;
@@ -138,6 +144,7 @@ export function initTerminalView(deps) {
         setStatus(wrapper, terminalStatus.error || "Terminal unavailable", "error");
       })
       .catch((error) => {
+        if (status.dataset.state !== "loading") return;
         connectButton.disabled = true;
         setStatus(wrapper, error instanceof Error ? error.message : "Terminal unavailable", "error");
       });
