@@ -8,6 +8,14 @@ export function pipelineFunctionHashes(definition: PipelineDefinitionRecord, reg
   const hashes: Record<string, string> = {};
   function visit(steps: DeclarativeStep[]): void {
     for (const step of steps) {
+      if (step.type === "code" && step.agentTools) {
+        if(step.function!=='session.completedTurn'||typeof step.agentTools!=='object'||Array.isArray(step.agentTools)||!Object.keys(step.agentTools).length||Object.keys(step.agentTools).length>16||Object.entries(step.agentTools).some(([name,value])=>!/^[a-zA-Z][a-zA-Z0-9._-]{0,79}$/.test(name)||typeof value!=='string'||!value))throw new Error('Invalid native project tool definition');
+        for (const name of Object.values(step.agentTools)) {
+          const hash = (registry[name] as unknown as Record<symbol, unknown> | undefined)?.[runtimeFunctionHash];
+          if (typeof hash !== "string") throw new Error(`Agent tool function must be hash pinned: ${name}`);
+          hashes[name] = hash;
+        }
+      }
       const functionName = step.type === "code" ? step.function : step.type === "classifier" ? step.inputFunction : undefined;
       if (functionName) {
         const hash = (registry[functionName] as unknown as Record<symbol, unknown> | undefined)?.[runtimeFunctionHash];

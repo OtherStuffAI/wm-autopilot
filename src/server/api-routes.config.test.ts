@@ -899,7 +899,8 @@ describe("createApiRouteHandler config defaults", () => {
     expect(migrationCalls).toBe(1);
   });
 
-  test("binds the Flight Deck MCP helper to the caller's session capability", async () => {
+  for(const routePath of ['flightdeck','project-tool']){
+  test(`binds ${routePath} to the caller's session capability`, async () => {
     let helperCalls = 0;
     const handler = createHandler({
       requestIp: "127.0.0.1",
@@ -915,7 +916,7 @@ describe("createApiRouteHandler config defaults", () => {
         return Response.json({ ok: true });
       },
     });
-    const url = new URL("http://localhost:3000/api/mcp/wingman/flightdeck");
+    const url = new URL(`http://localhost:3000/api/mcp/wingman/${routePath}`);
     const response = await handler(new Request(url, {
       method: "POST",
       headers: {
@@ -929,7 +930,7 @@ describe("createApiRouteHandler config defaults", () => {
     expect(helperCalls).toBe(1);
   });
 
-  test("does not call the Flight Deck helper when capability validation denies a cross-session token", async () => {
+  test(`does not call ${routePath} when capability validation denies a cross-session token`, async () => {
     let helperCalls = 0;
     const handler = createHandler({
       requestIp: "127.0.0.1",
@@ -942,7 +943,7 @@ describe("createApiRouteHandler config defaults", () => {
         return Response.json({ ok: true });
       },
     });
-    const url = new URL("http://localhost:3000/api/mcp/wingman/flightdeck");
+    const url = new URL(`http://localhost:3000/api/mcp/wingman/${routePath}`);
     const response = await handler(new Request(url, {
       method: "POST",
       headers: {
@@ -955,4 +956,5 @@ describe("createApiRouteHandler config defaults", () => {
     expect(response.status).toBe(403);
     expect(helperCalls).toBe(0);
   });
+  }
 });

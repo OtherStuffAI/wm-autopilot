@@ -25,6 +25,7 @@ export interface SessionMetadata {
   nextActionTemplate?: string;
   bindingType?: SessionBindingType;
   bindingId?: string;
+  nativeProjectTools?: boolean;
   flowId?: string;
   flowRunId?: string;
   pipelineRunId?: string;
@@ -265,6 +266,7 @@ export const normaliseSessionMetadata = (
     sessionGeneration: Number.isFinite(sessionGeneration) && sessionGeneration > 0 ? Math.floor(sessionGeneration) : undefined,
     bindingType,
     bindingId: bindingId || undefined,
+    nativeProjectTools: role==='completed-turn' && metadata?.nativeProjectTools===true ? true : undefined,
     flowId: flowId || undefined,
     flowRunId: flowRunId || undefined,
     pipelineRunId: pipelineRunId || undefined,

@@ -86,6 +86,7 @@ export type DeclarativeStep =
       display?: StepDisplaySpec;
       type: "code";
       activityWebhook?: ActivityWebhookSpec;
+      agentTools?: Record<string, string>;
       function: string;
       input?: SelectorSpec;
       assign?: string;

@@ -20,7 +20,7 @@ export async function executeCompletedTurnFunction(input: {
   resolveActivityWebhook(input.store, input.runId, input.activityWebhook);
   const runtime = request.executionProfile === "isolated-codex"
     ? createIsolatedCompletedTurnRuntime(input.store.isolatedTurns, isolatedTurnConfiguration())
-    : createCompletedTurnRuntime(input.sessionApiContext);
+    : createCompletedTurnRuntime(input.sessionApiContext,{projectTools:!!input.store.getStep(input.stepId)?.metadata?.agentTools});
   if(input.request.abandonUncertain===true){
     const receipt=await abandonCompletedTurn({owner:input.ownerNpub??'',request,store:input.store.completedTurns,runtime});
     input.store.addEvent({runId:input.runId,stepId:input.stepId,level:'info',type:'completed_turn_abandoned',message:'Dedicated builder stopped; saved history preserved',data:{receiptId:receipt.receiptId,status:receipt.status}});

@@ -714,7 +714,7 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
       if (!isLocalhostRequest(request, ctx)) {
         return Response.json({ error: "Forbidden" }, { status: 403 });
       }
-      if (pathname === "/api/mcp/wingman/flightdeck") {
+      if (pathname === "/api/mcp/wingman/flightdeck" || pathname === '/api/mcp/wingman/project-tool') {
         if (!ctx.capabilityBrokerApiHandler) {
           return Response.json({ error: "Capability broker is not configured" }, { status: 503 });
         }

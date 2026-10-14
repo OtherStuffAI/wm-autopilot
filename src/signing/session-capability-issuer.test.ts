@@ -83,7 +83,16 @@ describe("SessionCapabilityIssuer", () => {
     expect(saved.find(record => record.sessionId === "session-b")?.policy.operations).toContain("wallet.read");
     expect(saved.find(record => record.sessionId === "session-b")?.policy.operations).toContain("wallet.spend");
 
-    expect(broker.listActiveCapabilities().map((capability) => ({
+    const projectSession={...sessions.get("session-a")!,id:"project-session",metadata:{role:"completed-turn",nativeProjectTools:true}} as SessionSnapshot;
+    sessions.set(projectSession.id,projectSession);
+    issuer.issue({sessionId:projectSession.id,ownerNpub});
+    const narrow=saved.find(record=>record.sessionId===projectSession.id)!;
+    expect(narrow.policy.operations).toEqual(["identity.read","capability.refresh"]);
+    expect(narrow.policy.nip98).toBeUndefined();
+    expect(narrow.policy.wallet).toBeUndefined();
+    expect(narrow.policy.nostr).toBeUndefined();
+
+    expect(broker.listActiveCapabilities().filter(c=>c.sessionId!=="project-session").map((capability) => ({
       sessionId: capability.sessionId,
       policyMode: capability.policyMode,
     }))).toEqual([

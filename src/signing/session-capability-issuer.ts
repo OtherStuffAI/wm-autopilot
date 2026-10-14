@@ -86,7 +86,13 @@ export class SessionCapabilityIssuer {
       mode: this.deps.getSigningMode(),
     });
     const resolved = this.deps.registry.resolve({ profileId, workspaceId }, baseline);
-    const wallet = this.deps.getWalletPolicy?.(record.botNpub);
+    // Dedicated project builders have no authority over Tower records, wallets,
+    // other sessions or arbitrary signing. Their installed tools run in custody.
+    if (boundSession.metadata?.role === 'completed-turn' && boundSession.metadata?.nativeProjectTools===true) {
+      resolved.policy = {operations:['identity.read','capability.refresh'],maxCallsPerMinute:60};
+      resolved.policyRefs = [];
+    }
+    const wallet = boundSession.metadata?.nativeProjectTools===true ? undefined : this.deps.getWalletPolicy?.(record.botNpub);
     if (wallet) {
       resolved.policy.wallet = wallet;
       if (wallet.readMethods.length) resolved.policy.operations.push("wallet.read");

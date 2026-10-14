@@ -84,6 +84,12 @@ export class CompletedTurnStore {
     return row ? this.get(row.receiptId) : null;
   }
 
+  activeForSession(sessionId: string): TurnRecord | null {
+    const rows = this.db.query("SELECT receiptId FROM completed_turn_receipts WHERE sessionId=? AND status='sending' AND claimToken IS NOT NULL AND leaseUntil>?").all(sessionId, Date.now()) as {receiptId:string}[];
+    if (rows.length !== 1) return null;
+    return this.get(rows[0]!.receiptId);
+  }
+
   /** Explicit recovery only for the known source lookup failure BEFORE any launch/send. */
   recoverMissingPreparation(owner: string, request: CompletedTurnRequest): void {
     this.db.transaction(() => {

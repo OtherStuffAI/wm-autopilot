@@ -413,3 +413,17 @@ test("native resume excludes stale ordinary queue transfer; dedicated readiness 
  queue.addPrompt('session-2',{content:'ambiguous ordinary delivery'});queue.claimNextPrompt('session-2');
  const blocked=await run('four');expect(blocked.result).toMatchObject({status:'preparing',error:'Completed-turn session has unresolved ordinary delivery'});expect(f.prompts).toHaveLength(3);expect(queue.getQueueCount('session-2')).toBe(1);
 });
+
+test('native project tools upgrade an idle dedicated session by scoped resume, preserving the native thread and prior turn',async()=>{
+ const f=fixture(),legacy=createCompletedTurnRuntime(f.ctx),binding={owner:'npub1owner',conversationKey:'conversation',config:'',sessionId:null,executionId:null};
+ const first=await legacy.prepare(binding,f.request(),false);await legacy.send(first,f.request().prompt);
+ const oldAdapter=f.ctx.manager.getAdapter(first)!;let disposed=0,stopped=0;
+ oldAdapter.dispose=async()=>{disposed++;};
+ f.ctx.manager.stopSession=async id=>{stopped++;const session=f.sessions.get(id)!;session.status='stopped';return session;};
+ const runtime=createCompletedTurnRuntime(f.ctx,{projectTools:true});
+ const resumed=await runtime.prepare({...binding,sessionId:first},f.request('two'),false);
+ expect(disposed).toBe(1);expect(stopped).toBe(1);expect(f.prompts).toHaveLength(1);
+ expect(f.sessions.get(resumed)?.metadata?.nativeProjectTools).toBe(true);
+ expect(f.sessions.get(resumed)?.metadata?.nativeAgentSession?.sessionId).toBe('native-conversation');
+ expect(f.sessions.get(first)?.status).toBe('stopped');expect(f.launches).toHaveLength(2);
+});

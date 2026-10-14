@@ -14,7 +14,7 @@ export function completedTurnBindingId(owner: string, key: string): string {
 }
 
 /** Only an owned dedicated native session may participate; no submission adapter fallback. */
-export function createCompletedTurnRuntime(ctx: SessionApiContext): CompletedTurnRuntime {
+export function createCompletedTurnRuntime(ctx: SessionApiContext, options:{projectTools?:boolean}={}): CompletedTurnRuntime {
   function source(id: string): NativeResumeSourceSession {
     const session = ctx.manager.getSession(id) ?? ctx.messageStore.getSession(id) ?? ctx.sessionArchiveStore?.getArchivedSession(id);
     if (!session) throw new Error("Completed-turn bound session unavailable");
@@ -54,8 +54,17 @@ export function createCompletedTurnRuntime(ctx: SessionApiContext): CompletedTur
       authorized(existing, request, binding.owner);
       const live = ctx.manager.getSession(id);
       if (live && live.status !== "stopped" && live.status !== "error") {
-        adapter(id);
-        return id;
+        if(options.projectTools && existing.metadata?.nativeProjectTools!==true){
+          const active=adapter(id);
+          if((await active.getPromptReadiness?.())?.state!=='ready'||ctx.promptQueueStore.getSessionQueue(id).some(item=>item.state==='claimed'))throw new Error('Native project scope upgrade requires an idle dedicated session');
+          await active.dispose();await ctx.manager.stopSession(id);record(id);
+          if(ctx.manager.getSession(id)?.status!=='stopped'||ctx.manager.getAdapter(id))throw new Error('Native project scope upgrade stop not confirmed');
+          // Resume the same native thread below with a freshly issued narrow
+          // session capability. Never mutate a live broad capability in place.
+        }else{
+          adapter(id);
+          return id;
+        }
       }
       if (ctx.promptQueueStore.getSessionQueue(id).some((item) => item.state === "claimed")) {
         throw new Error("Completed-turn session has unresolved ordinary delivery");
@@ -79,14 +88,14 @@ export function createCompletedTurnRuntime(ctx: SessionApiContext): CompletedTur
         return candidate.id;
       }
       const resumed = await ctx.manager.createSession(launch.agent, launch.workingDirectory, launch.name, launch.origin,
-        undefined, binding.owner, { ...launch.metadata, nextAction: "none", autoStop: false }, request.model ?? undefined);
+        undefined, binding.owner, { ...launch.metadata, ...(options.projectTools?{nativeProjectTools:true}:{}), nextAction: "none", autoStop: false }, request.model ?? undefined);
       record(resumed.id);
       return resumed.id;
     }
     const created = await ctx.manager.createSession("codex", request.directory, "Native completed-turn conversation", null,
       undefined, binding.owner, {
         AGENT: true, agentTransport: "codex-sdk", role: "completed-turn", nextAction: "none", autoStop: false,
-        ownerNpub: binding.owner, bindingId: completedTurnBindingId(binding.owner, binding.conversationKey),
+        ...(options.projectTools?{nativeProjectTools:true}:{}), ownerNpub: binding.owner, bindingId: completedTurnBindingId(binding.owner, binding.conversationKey),
       }, request.model ?? undefined);
     record(created.id);
     return created.id;
