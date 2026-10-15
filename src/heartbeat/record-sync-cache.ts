@@ -1,3 +1,4 @@
+import { assertFamilyCompatibility } from "./record-family-compatibility.ts";
 import { initializeRecordCache } from "./record-cache-schema.ts";
 import { readCacheReview, readCacheCounts, readCacheAuthority } from "./record-cache-review.ts";
 import { Database } from "bun:sqlite";
@@ -193,12 +194,7 @@ export class RecordSyncCache {
           );
         if (p.client_id !== s.clientId || p.next_cursor === s.cursor)
           throw new Error("Duplicate/stale page cursor");
-        if (
-          s.families.length &&
-          JSON.stringify([...s.families].sort()) !==
-            JSON.stringify([...p.families].sort())
-        )
-          throw new Error("Advertised families changed; repair required");
+        assertFamilyCompatibility(s, p, bounded);
         if (
           p.mode === "snapshot" &&
           (s.snapshotDone || (s.snapshotId && p.snapshot_id !== s.snapshotId))

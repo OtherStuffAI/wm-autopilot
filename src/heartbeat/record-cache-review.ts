@@ -60,6 +60,8 @@ function reviewFence(s: CacheState): string {
     s.available,
     s.certified,
     s.handoverDone,
+    [...s.families].sort(),
+    [...s.partitions].sort(),
   ]);
 }
 function position(db: Database, cursor: string): ReviewPosition {

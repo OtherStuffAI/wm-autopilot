@@ -131,3 +131,25 @@ never deletion evidence. Restoration removes the deletion classification, and
 regrant removes the loss. This classification does not authorize retained
 content: lost partitions remain excluded from summaries. Sync-only still does
 not start or complete a review, even when all losses are known deletions.
+
+## Advertised family changes
+
+A completed snapshot proves coverage only for its `partitions_complete` families.
+A later bounded delta may add advertised families: the cache retains their rows,
+access changes and exact acknowledgement intents using the existing client and
+generation. It does not infer historical bootstrap coverage from an advertisement
+or a handover certificate. Added families remain in `coverage.unfinishedFamilies`,
+and terminal catch-up reports a coverage error with `syncComplete=false` until
+that bootstrap is proven. Review-only reports the same gap. A delta's
+`partitions_complete` cannot replace the saved snapshot coverage.
+
+Family removals, additions during incomplete snapshots, and additions without
+the bounded extension fail before committing or acknowledging the page. A
+changed snapshot keyset could otherwise skip newly introduced earlier families.
+Family and partition coverage also fence indexed review continuations.
+
+The current Tower contract supplies family bootstrap proof at snapshot completion
+only. Recovery for an already downloaded cache needs a backend-supported additive
+family bootstrap/certificate or an explicit contract proving historical replay;
+operators must not reset the cache or mark a family complete manually. Continuing
+delta download preserves progress but does not resolve that coverage gap.

@@ -1,3 +1,4 @@
+import { unfinishedFamilies } from "./record-family-compatibility.ts";
 import { join } from "node:path";
 import {
   capabilityClientContextFromEnv,
@@ -268,6 +269,9 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
   try {
     const state = cache.state();
     const since = new Date(start - options.hours * 3_600_000).toISOString();
+    const unfinished = unfinishedFamilies(state);
+    if (state.handoverDone && unfinished.length)
+      errors.push(`Snapshot coverage unavailable for advertised families: ${unfinished.join(", ")}`);
     const syncComplete =
       state.certified &&
       state.available &&
@@ -332,9 +336,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
         handoverThrough: state.through,
         advertisedFamilies: state.families,
         completedFamilies: state.partitions,
-        unfinishedFamilies: state.families.filter(
-          (family) => !state.partitions.includes(family),
-        ),
+        unfinishedFamilies: unfinished,
         outsideCoverage: ["directory", "approvals", "graph", "wapp_activity"],
         unavailablePartitions: review.unavailable,
         deletedPartitions: review.deletedPartitions,
