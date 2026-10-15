@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { runHeartbeatWake, type HeartbeatWakeOptions } from "./heartbeat-wake.ts";
@@ -87,7 +88,11 @@ export async function recoverHeartbeatFamilies(
   if (initial.result.syncComplete || !onlyFamilyGap(initial.result)) return { outcome: initial.outcome, result: initial.result };
   const primaryPath = initial.result.cache.path;
   const generation = initial.result.cache.generation;
-  const supplementRoot = join(`${primaryPath}.family-bootstrap`, generation);
+  const familySet = createHash("sha256").update(JSON.stringify({
+    advertised: [...initial.result.coverage.advertisedFamilies].sort(),
+    missing: [...initial.result.coverage.unfinishedFamilies].sort(),
+  })).digest("hex");
+  const supplementRoot = join(`${primaryPath}.family-bootstrap`, generation, familySet);
   // Hold the primary writer lease during each supplementary wake. Release only
   // between bounded wakes; every reacquisition checks the retained generation.
   const supplementary = await runHeartbeatCatchUp({ ...options, cacheRoot: supplementRoot }, maxWakes,

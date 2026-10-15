@@ -157,9 +157,10 @@ bun clis/heartbeat-wake.ts --recover-families --hours 12 --max-wakes 100 --outpu
 
 Supply the same workspace/Tower/app/cache targeting flags as the ordinary wake.
 Recovery creates one durable supplementary v2 client/cache under
-`<primary-cache-path>.family-bootstrap/<primary-generation>/`. It downloads a
+`<primary-cache-path>.family-bootstrap/<primary-generation>/<family-set-hash>/`. It downloads a
 full bounded snapshot and handover with normal per-page acknowledgements, holding
-the primary writer lease during each supplementary wake. Budget limits and failed
+the primary writer lease during each supplementary wake. The hash pins sorted
+advertised and missing families so future additions get their own bootstrap. Budget limits and failed
 acknowledgements preserve this cache for the next explicit invocation; rerunning
 resumes the same supplementary client, rather than creating clients repeatedly.
 

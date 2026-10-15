@@ -159,3 +159,35 @@ test("explicit recovery never replaces primary identity on server reset errors",
     expect(r.result.errors.join(" ")).toContain("history_pruned");
   } finally { rmSync(f.cacheRoot,{recursive:true,force:true}); }
 });
+
+test("a future family addition gets a distinct durable supplementary bootstrap", async () => {
+  const { recoverHeartbeatFamilies } = await import("./record-family-recovery.ts");
+  const next=[...expanded,"future_family"];
+  const primary=fixture([pagePayload(),pagePayload([],true),
+    pagePayload([],true,{families:expanded}),pagePayload([],true,{families:expanded}),
+    pagePayload([],true,{families:next}),pagePayload([],true,{families:next})]);
+  const first=fixture([pagePayload([change("pin","personal_pin","2")],false,{families:expanded,partitions_complete:expanded}),pagePayload([],true,{families:expanded})]);
+  const second=fixture([pagePayload([change("future","future_family","3")],false,{families:next,partitions_complete:next}),pagePayload([],true,{families:next})]);
+  try {
+    const before=await primary.run();
+    const clients=new Map<string,typeof fetch>([[before.cache.clientId,primary.context.fetch]]);
+    const roots=new Set<string>();
+    const multiplex=(async (input:Parameters<typeof fetch>[0],init?:RequestInit) => {
+      const url=new URL(String(input));
+      const id=url.pathname.split("/clients/")[1]?.split("/")[0] ?? url.searchParams.get("client_id");
+      if (id && !clients.has(id)) clients.set(id,clients.size===1 ? first.context.fetch : second.context.fetch);
+      return (id ? clients.get(id)! : primary.context.fetch)(input,init);
+    }) as typeof fetch;
+    const options={hours:12,workspaceId:"workspace",towerUrl:"https://tower.test",appNpub:"app",cacheRoot:primary.cacheRoot,context:{...primary.context,fetch:multiplex}};
+    for (let i=0;i<2;i++) {
+      const r=await recoverHeartbeatFamilies(options,3,(wake,phase) => {if(phase==="supplement") roots.add(wake.cache.path);});
+      expect(r.outcome).toBe("certified");
+      expect(r.result.cache.clientId).toBe(before.cache.clientId);
+      expect(r.result.coverage.unfinishedFamilies).toEqual([]);
+      expect(r.result.coverage.downloadedCounts.personal_pin).toBe(1);
+      if(i===1) expect(r.result.coverage.downloadedCounts.future_family).toBe(1);
+    }
+    expect(roots.size).toBe(2);
+    expect(clients.size).toBe(3);
+  } finally { for(const f of [primary,first,second]) rmSync(f.cacheRoot,{recursive:true,force:true}); }
+});
