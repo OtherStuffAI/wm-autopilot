@@ -106,4 +106,26 @@ describe("UserSettingsStore", () => {
 
     expect(row?.value.startsWith("enc::")).toBe(true);
   });
+
+  test("preserves sensitive settings encrypted with an old secret and omits them at runtime", () => {
+    const originalSecret = Bun.env.IDENTITY_SESSION_SECRET;
+    Bun.env.IDENTITY_SESSION_SECRET = "OldUserSettingSecret_With-Numbers123!AndSymbols@2026";
+    const store = new UserSettingsStore(dbPath);
+    store.set("npub1user", "openai_api_key", "old-encrypted-secret");
+    store.set("npub1user", "display_name", "Pete");
+
+    try {
+      Bun.env.IDENTITY_SESSION_SECRET = "NewUserSettingSecret_With-Numbers456!AndSymbols@2026";
+      expect(store.get("npub1user", "openai_api_key")).toBeNull();
+      expect(store.getAll("npub1user")).toEqual({ display_name: "Pete" });
+      const db = new Database(dbPath, { readonly: true });
+      const row = db
+        .query<{ value: string }, [string, string]>("SELECT value FROM user_settings WHERE npub = ?1 AND key = ?2")
+        .get("npub1user", "openai_api_key");
+      db.close();
+      expect(row?.value.startsWith("enc::")).toBe(true);
+    } finally {
+      Bun.env.IDENTITY_SESSION_SECRET = originalSecret;
+    }
+  });
 });

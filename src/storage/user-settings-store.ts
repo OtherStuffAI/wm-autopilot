@@ -11,7 +11,12 @@ import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { databaseFile } from "./message-store";
-import { decryptSettingValue, encryptSettingValue, isEncryptedSettingValue } from "./setting-value-crypto";
+import {
+  decryptSettingValue,
+  encryptSettingValue,
+  isEncryptedSettingValue,
+  SettingValueDecryptionError,
+} from "./setting-value-crypto";
 
 // ============================================================
 // Store Implementation
@@ -35,7 +40,13 @@ class UserSettingsStore {
       )
       .get(npub, key);
     if (!row) return null;
-    return this.decodeValue(npub, key, row.value);
+    try {
+      return this.decodeValue(npub, key, row.value);
+    } catch (error) {
+      if (!(error instanceof SettingValueDecryptionError)) throw error;
+      console.warn(`[user-settings] preserving unreadable encrypted value for ${key}; treating it as unavailable`);
+      return null;
+    }
   }
 
   set(npub: string, key: string, value: string): void {
@@ -84,7 +95,12 @@ class UserSettingsStore {
       .all(npub);
     const result: Record<string, string> = {};
     for (const row of rows) {
-      result[row.key] = this.decodeValue(npub, row.key, row.value);
+      try {
+        result[row.key] = this.decodeValue(npub, row.key, row.value);
+      } catch (error) {
+        if (!(error instanceof SettingValueDecryptionError)) throw error;
+        console.warn(`[user-settings] preserving unreadable encrypted value for ${row.key}; omitting it from runtime settings`);
+      }
     }
     return result;
   }
