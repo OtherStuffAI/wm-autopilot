@@ -64,7 +64,19 @@ if [[ -n "${codex_workspace}" ]]; then
     } >> "${codex_config}"
   fi
   if [[ "$(id -u)" -eq 0 ]]; then
-    chown wingman:wingman "${codex_home}" "${codex_config}"
+    # Older production containers could create Codex login, transcript and
+    # executable-alias files as root before Autopilot dropped privileges. A
+    # top-level chown leaves those descendants unreadable by the wingman
+    # runtime and causes native Codex turns to fail with EACCES or missing
+    # bearer authentication. Only repair explicitly managed persistent roots.
+    case "${codex_home}" in
+      /home/wingman/*|/app/data/*|/app/tmp/*)
+        chown -R wingman:wingman "${codex_home}"
+        ;;
+      *)
+        chown wingman:wingman "${codex_home}" "${codex_config}"
+        ;;
+    esac
   fi
 fi
 
