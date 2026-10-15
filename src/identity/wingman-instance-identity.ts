@@ -3,6 +3,7 @@ import { bytesToHex } from "@noble/hashes/utils";
 
 import { getBotDisplayName } from "./bot-identity-publisher";
 import { sharedStateStore, type SharedStateStore } from "../storage/shared-state-store";
+import { SettingValueDecryptionError } from "../storage/setting-value-crypto";
 
 export interface WingmanInstanceIdentity {
   nsec: string;
@@ -75,7 +76,21 @@ export function loadWingmanInstanceIdentity(
     return identity;
   }
 
-  const stored = store.get(WINGMAN_PRIV_SHARED_STATE_KEY);
+  let stored: string | null;
+  try {
+    stored = store.get(WINGMAN_PRIV_SHARED_STATE_KEY);
+  } catch (error) {
+    if (!(error instanceof SettingValueDecryptionError)) throw error;
+    if (env.WINGMAN_ROTATE_UNREADABLE_IDENTITY !== "1") throw error;
+    const quarantineKey = `${WINGMAN_PRIV_SHARED_STATE_KEY}.unreadable.${Date.now()}`;
+    if (!store.quarantine(WINGMAN_PRIV_SHARED_STATE_KEY, quarantineKey)) {
+      throw new Error("Unable to preserve the unreadable Wingman identity before rotation");
+    }
+    console.warn(
+      `[identity] preserved an unreadable encrypted instance identity as ${quarantineKey}; rotating to a new internal identity`,
+    );
+    stored = null;
+  }
   if (stored) {
     const identity = buildWingmanInstanceIdentity(
       decodeWingmanPriv(stored),

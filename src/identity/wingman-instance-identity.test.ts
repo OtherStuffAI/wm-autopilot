@@ -77,6 +77,26 @@ describe("Wingman instance identity", () => {
     expect(store.get("wingman_priv")).toBe(identity?.nsec);
   });
 
+  test("rotates an unreadable identity only when explicitly enabled and preserves its ciphertext", () => {
+    const originalSecret = Bun.env.IDENTITY_SESSION_SECRET;
+    Bun.env.IDENTITY_SESSION_SECRET = "OldIdentitySecret_With-Numbers123!AndSymbols@2026";
+    store.set("wingman_priv", nip19.nsecEncode(generateSecretKey()));
+
+    try {
+      Bun.env.IDENTITY_SESSION_SECRET = "NewIdentitySecret_With-Numbers456!AndSymbols@2026";
+      expect(() => loadWingmanInstanceIdentity({}, store)).toThrow(
+        "Encrypted instance setting could not be decrypted",
+      );
+
+      const identity = loadWingmanInstanceIdentity({ WINGMAN_ROTATE_UNREADABLE_IDENTITY: "1" }, store);
+      expect(identity?.source).toBe("generated");
+      expect(store.get("wingman_priv")).toBe(identity?.nsec);
+      expect(store.listKeys().filter((key) => key.startsWith("wingman_priv.unreadable."))).toHaveLength(1);
+    } finally {
+      Bun.env.IDENTITY_SESSION_SECRET = originalSecret;
+    }
+  });
+
   test("throws when WINGMAN_PRIV is present but invalid", () => {
     expect(() => loadWingmanInstanceIdentity({ WINGMAN_PRIV: "not-an-nsec" }, store)).toThrow(
       "WINGMAN_PRIV",

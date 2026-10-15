@@ -44,6 +44,34 @@ class SharedStateStore {
     return decryptSettingValue(row.value);
   }
 
+  has(key: string): boolean {
+    const normalizedKey = normalizeSharedStateKey(key);
+    if (!normalizedKey) return false;
+    const row = this.db
+      .query<{ count: number }, [string]>("SELECT COUNT(*) AS count FROM shared_state WHERE key = ?1")
+      .get(normalizedKey);
+    return (row?.count ?? 0) > 0;
+  }
+
+  listKeys(): string[] {
+    return this.db
+      .query<{ key: string }, []>("SELECT key FROM shared_state ORDER BY key")
+      .all()
+      .map((row) => row.key);
+  }
+
+  quarantine(key: string, quarantineKey: string): boolean {
+    const normalizedKey = normalizeSharedStateKey(key);
+    const normalizedQuarantineKey = normalizeSharedStateKey(quarantineKey);
+    if (!normalizedKey || !normalizedQuarantineKey || normalizedKey === normalizedQuarantineKey) {
+      throw new Error("Distinct shared state and quarantine keys are required");
+    }
+    const result = this.db
+      .query("UPDATE shared_state SET key = ?1, updated_at = ?2 WHERE key = ?3")
+      .run(normalizedQuarantineKey, new Date().toISOString(), normalizedKey);
+    return result.changes > 0;
+  }
+
   set(key: string, value: string): SharedStateRecord {
     const normalizedKey = normalizeSharedStateKey(key);
     if (!normalizedKey) {
