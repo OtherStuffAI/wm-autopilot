@@ -1080,6 +1080,7 @@ export class ProcessManager {
           `botKey=${botKeyLookupMs}ms mcp=${mcpInjectMs}ms gitea=${giteaInjectMs}ms billing=${billingInjectMs}ms spawn=${spawnMs}ms`,
       );
     } catch (error) {
+      console.error(`[manager] session ${id} (${agent}:${port}) launch failed`, error);
       session.status = "error";
       if (session.process && agentTransport === "agentapi") {
         await stopManagedSubprocess(session.process).catch(() => {});
