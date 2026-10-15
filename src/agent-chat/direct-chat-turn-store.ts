@@ -1,5 +1,7 @@
+import { directChatPublicationPayloadHash, buildDirectChatPublicationPayload } from "./direct-chat-publication-payload";
+export { directChatPublicationPayloadHash, buildDirectChatPublicationPayload } from "./direct-chat-publication-payload";
+import { freshSessionSnapshot, captureFreshHumanCutoff, retireDirectChatWork } from "./direct-chat-work-cutoff";
 import { findInterruptedDirectChatSessionTurn, rebindAcceptedDirectChatSession } from "./direct-chat-session-ownership-store";
-import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { Database } from 'bun:sqlite';
@@ -99,16 +101,6 @@ const deliveryColumns: Record<string, string> = {
   last_error_class: 'TEXT', received_at: 'TEXT', accepted_at: 'TEXT', reply_ready_at: 'TEXT', published_at: 'TEXT',
 };
 
-export function directChatPublicationPayloadHash(payload: DirectChatPublicationPayload): string {
-  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
-}
-
-export function buildDirectChatPublicationPayload(record: DirectChatTurnRecord, body: string): DirectChatPublicationPayload {
-  if (!record.threadId || !record.agentNpub) throw new Error(`Agent Direct delivery ${record.turnId} lacks immutable thread/agent binding.`);
-  return { body, threadId: record.threadId, metadata: { source: 'autopilot_session', session_id: record.sessionId ?? null,
-    turn_id: record.turnId, prompt_type: 'direct_chat', source_message_ids: record.sourceMessageIds, agent_npub: record.agentNpub } };
-}
-
 export class DirectChatTurnStore {
   private readonly db: Database;
 
@@ -132,9 +124,17 @@ export class DirectChatTurnStore {
     this.backfillBindings();
     this.requeueLegacySubscriptionSignerHalts();
   }
-
   close(): void {
     this.db.close();
+  }
+  freshSessionSnapshot<T>(sessionId: string, triggerId: string, capture: () => T): T {
+    return freshSessionSnapshot(this.db, sessionId, triggerId, capture);
+  }
+  captureFreshHumanCutoff(sessionId: string, routingKey: string): string[] {
+    return captureFreshHumanCutoff(this.db, sessionId, routingKey);
+  }
+  retireForFreshHumanTrigger(sessionId: string, triggerId: string, routingKey: string, snapshot?: string[]): void {
+    retireDirectChatWork(this.db, sessionId, triggerId, routingKey, snapshot);
   }
 
   get(turnId: string): DirectChatTurnRecord | null {
@@ -178,9 +178,10 @@ export class DirectChatTurnStore {
         last_error=excluded.last_error,last_error_class=excluded.last_error_class,received_at=COALESCE(agent_direct_chat_turns.received_at,excluded.received_at),
         accepted_at=COALESCE(agent_direct_chat_turns.accepted_at,excluded.accepted_at),reply_ready_at=COALESCE(agent_direct_chat_turns.reply_ready_at,excluded.reply_ready_at),
         published_at=COALESCE(agent_direct_chat_turns.published_at,excluded.published_at)
-      WHERE agent_direct_chat_turns.publication_payload_json IS NULL
+      WHERE (agent_direct_chat_turns.publication_payload_json IS NULL
         OR (agent_direct_chat_turns.state='reply_ready' AND agent_direct_chat_turns.lease_owner IS NULL
-          AND excluded.state IN ('completed','suppressed'))`)
+          AND excluded.state IN ('completed','suppressed')))
+        AND COALESCE(agent_direct_chat_turns.last_error_class,'') != 'fresh_human_supersession'`)
       .run(record.turnId, record.routingKey, JSON.stringify(record.sourceMessageIds), record.clientRequestId, record.replyBody,
         record.publishedMessageId, record.state, record.createdAt, record.updatedAt, record.subscriptionId ?? null,
         record.backendBaseUrl ?? null, record.towerServiceNpub ?? null, record.workspaceId ?? null, record.sourceAppNpub ?? null,

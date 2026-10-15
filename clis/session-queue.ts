@@ -28,7 +28,7 @@ export async function runSessionQueueCli(argv: string[], deps: SessionQueueCliDe
   let payload: unknown;
   if (action === "list" && positional.length === 1) {
     payload = await request(base, "GET", path);
-  } else if (["acknowledge", "reconcile"].includes(action!) && positional.length === 2) {
+  } else if (["acknowledge", "consume", "reconcile"].includes(action!) && positional.length === 2) {
     const revision = flags.get("--revision");
     const reason = flags.get("--reason");
     if (!revision || !/^[1-9][0-9]*$/.test(revision) || !reason?.trim()) {
@@ -44,7 +44,7 @@ export async function runSessionQueueCli(argv: string[], deps: SessionQueueCliDe
     }
     payload = await request(base, "POST", `${path}/${encodeURIComponent(positional[1]!)}/${action}`, body);
   } else {
-    throw new Error("Usage: wingman session queue list | acknowledge <item-id> --revision <revision> --reason <text> [--session <id>]");
+    throw new Error("Usage: wingman session queue list | consume | acknowledge <item-id> --revision <revision> --reason <text> [--session <id>]");
   }
   (deps.stdout ?? console.log)(JSON.stringify(payload, null, 2));
   return 0;

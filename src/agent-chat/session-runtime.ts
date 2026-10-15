@@ -44,6 +44,7 @@ interface AgentChatSessionRuntimeDependencies {
   archiveStore?: Pick<SessionArchiveStore, 'getArchivedSession'>;
   turnBridge?: FlightDeckSessionTurnBridge;
   directDeliveryReconciler?: AgentDirectDeliveryReconciler;
+  retireSessionWork?: (sessionId: string, triggerId: string, routingKey: string) => string[] | void;
   rebindSession?: (sourceSessionId: string, targetSessionId: string) => void;
   dispatchOutcomeStore?: FlightDeckDispatchOutcomeStore;
   publicationFilter?: DuplicateCallbackPublicationFilter;
@@ -84,6 +85,7 @@ export class AgentChatSessionRuntime {
       agentStore: agentDefinitionStore, interceptStore: this.interceptStore,
       deliveryReconciler: deps.directDeliveryReconciler,
       rebindSession: deps.rebindSession,
+      retireSessionWork: deps.retireSessionWork,
       withBotIdentity: deps.withBotIdentity,
       publicationFilter: deps.publicationFilter,
       dispatchOutcomeStore: this.dispatchOutcomeStore,

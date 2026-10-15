@@ -30,3 +30,13 @@ test("reconcile carries exact version and claim identity and requires explicit r
   expect(call.slice(1)).toEqual(["POST", "/api/sessions/self/queue/id/reconcile", { revision: "2", reason: "receiver inspected; accept duplicate risk", claimToken: "token", resolution: "retry" }]);
   await expect(runSessionQueueCli(["reconcile", "id", "--revision", "2", "--reason", "no decision"], deps)).rejects.toThrow();
 });
+
+test("consume explicitly incorporates the exact read revision without exposing raw signing", async () => {
+  const calls: unknown[] = [];
+  await runSessionQueueCli(["consume", "item", "--revision", "3", "--reason", "Incorporated current steering"], {
+    env: { SESSION_ID: "self" }, stdout: () => {},
+    request: async (...args) => { calls.push(args); return {}; },
+  });
+  expect(calls).toEqual([["http://127.0.0.1:3600", "POST", "/api/sessions/self/queue/item/consume",
+    { revision: "3", reason: "Incorporated current steering" }]]);
+});

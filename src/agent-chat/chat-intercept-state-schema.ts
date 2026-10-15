@@ -23,7 +23,7 @@ export function initialiseChatInterceptStateSchema(db: Database): void {
     ['previous_session_ids_json', "TEXT NOT NULL DEFAULT '[]'"], ['tower_service_npub', "TEXT NOT NULL DEFAULT ''"],
     ['workspace_id', "TEXT NOT NULL DEFAULT ''"], ['last_event_cursor_seen', 'TEXT'],
     ['last_human_message_id_delivered', 'TEXT'], ['last_agent_message_id_published', 'TEXT'], ['last_completed_turn_id', 'TEXT'],
-    ['native_history_checkpoint_message_id', 'TEXT'],
+    ['native_history_checkpoint_message_id', 'TEXT'], ['fresh_start_message_id', 'TEXT'],
   ];
   for (const [column, definition] of migrations) {
     if (!hasColumn(db, column)) db.exec(`ALTER TABLE chat_intercept_state ADD COLUMN ${column} ${definition}`);

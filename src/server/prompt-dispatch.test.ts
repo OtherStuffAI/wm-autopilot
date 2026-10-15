@@ -616,3 +616,26 @@ test("overlapping direct deliveries cannot clear another attempt's lock", async 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("accepted native pickup shrinks pending before its long-running turn completes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "queue-pickup-"));
+  try {
+    const queue = new PromptQueueStore(join(root, "queue.db"));
+    const first = queue.addPrompt("session-1", { content: "First native instruction" })!;
+    const second = queue.addPrompt("session-1", { content: "Later independent instruction" })!;
+    const f = buildEngine({ promptQueueStore: queue });
+    let listener: ((event: any) => void) | undefined;
+    let finish!: () => void;
+    const completion = new Promise<void>(resolve => { finish = resolve; });
+    Object.assign(f.adapter, { deliversPromptsDirectly: () => true,
+      subscribeToEvents: (next: typeof listener) => { listener = next; return () => { listener = undefined; }; },
+      sendMessage: async (content: string) => {
+        listener?.({ type: "message", message: { role: "user", content } });
+        await completion;
+      } });
+    await f.engine.dispatchNextQueuedPromptForSession(f.session, "npub1owner");
+    expect(queue.getSessionQueue("session-1").map(row => row.id)).toEqual([second.id]);
+    expect(queue.getSessionQueue("session-1").some(row => row.id === first.id)).toBe(false);
+    finish();
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

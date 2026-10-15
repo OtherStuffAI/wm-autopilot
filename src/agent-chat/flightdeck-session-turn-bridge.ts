@@ -56,9 +56,21 @@ export class FlightDeckSessionTurnBridge {
     publicationFilter?: DuplicateCallbackPublicationFilter;
     log?: Pick<Console, 'error'> }) {}
 
+  generation(sessionId: string): number { return this.store.generation(sessionId); }
+  captureFreshHumanCutoff(sessionId: string): string[] { return this.store.captureFreshHumanCutoff(sessionId); }
+  retireForFreshHumanTrigger(sessionId: string, triggerId: string, snapshot?: string[]): void {
+    this.store.retireForFreshHumanTrigger(sessionId, triggerId, snapshot);
+  }
+
+  private isRetired(record: FlightDeckSessionTurnRecord): boolean {
+    const latest = this.store.get(record.turnId);
+    return latest?.state === 'suppressed' && Boolean(latest.lastError?.startsWith('Superseded by fresh human trigger'));
+  }
+
   accept(input: { session: SessionSnapshot; prompt: string; promptType: string; boundaryIdentity: string;
-    sourceMessageIds?: string[]; acceptedAt?: string; turnId?: string; clientRequestId?: string }): FlightDeckSessionTurnRecord | null {
+    sourceMessageIds?: string[]; generation?: number; acceptedAt?: string; turnId?: string; clientRequestId?: string }): FlightDeckSessionTurnRecord | null {
     if (input.session.metadata?.sessionClass !== 'flightdeck_chat') return null;
+    if (input.generation !== undefined && input.generation !== this.generation(input.session.id)) return null;
     resolveFlightDeckSessionBinding(input.session, this.deps.resolveDelivery(input.session));
     const turnId = input.turnId ?? buildFlightDeckSessionTurnId(input.session.id, input.boundaryIdentity);
     const existing = this.store.get(turnId);
@@ -73,11 +85,11 @@ export class FlightDeckSessionTurnBridge {
   }
 
   observe(record: FlightDeckSessionTurnRecord): void {
-    if (record.state === 'completed') return;
+    if (record.state === 'completed' || this.isRetired(record)) return;
     const prior = this.running.get(record.sessionId) ?? Promise.resolve();
     const work = prior.catch(() => undefined).then(async () => {
       const latest = this.store.get(record.turnId) ?? record;
-      if (latest.state !== 'completed') await this.process(latest);
+      if (latest.state !== 'completed' && latest.state !== 'suppressed') await this.process(latest);
     }).finally(() => {
       if (this.running.get(record.sessionId) === work) this.running.delete(record.sessionId);
     });
@@ -87,7 +99,7 @@ export class FlightDeckSessionTurnBridge {
   }
 
   async publishKnownFinal(record: FlightDeckSessionTurnRecord, content: string, createdAt: string): Promise<string | null> {
-    if (record.state === 'completed' || record.state === 'suppressed') return record.publishedMessageId;
+    if (record.state === 'completed' || record.state === 'suppressed' || this.isRetired(record)) return record.publishedMessageId;
     const ready = this.store.save({ ...record, replyBody: content, finalMessageIdentity: finalIdentity(content, createdAt),
       replyCreatedAt: createdAt, state: 'reply_ready', lastError: null, updatedAt: new Date().toISOString() });
     return await this.publish(ready);
@@ -124,12 +136,13 @@ export class FlightDeckSessionTurnBridge {
     try {
       const reply = await awaitAcceptedFinalResponse(this.deps.manager, session.id, record.prompt, record.sourceMessageIds,
         { acceptedAt: record.createdAt,
-          onPoll: () => this.publishActivity(record, 'commentary', () => activity.publishLatestCommentary(this.deps.manager)) });
+          onPoll: () => { if (this.isRetired(record)) throw new Error('Turn superseded by fresh human trigger'); return this.publishActivity(record, 'commentary', () => activity.publishLatestCommentary(this.deps.manager)); } });
       await this.publishActivity(record, 'commentary', () => activity.publishLatestCommentary(this.deps.manager));
       await this.publishKnownFinal(record, reply.content, reply.createdAt);
       await this.publishActivity(record, 'completed', () => activity.publish('completed'));
     } catch (error) {
       const latest = this.store.get(record.turnId) ?? record;
+      if (latest.state === 'suppressed') return;
       this.store.save({ ...latest, state: 'failed', lastError: error instanceof Error ? error.message : String(error), updatedAt: new Date().toISOString() });
       await this.publishActivity(record, 'commentary', () => activity.publishLatestCommentary(this.deps.manager));
       await this.publishActivity(record, 'failed', () => activity.publish('failed'));
@@ -138,6 +151,7 @@ export class FlightDeckSessionTurnBridge {
   }
 
   private async publishActivity(record: FlightDeckSessionTurnRecord, phase: string, publish: () => Promise<void>): Promise<void> {
+    if (this.isRetired(record)) return;
     try {
       await publish();
     } catch (error) {
@@ -149,7 +163,7 @@ export class FlightDeckSessionTurnBridge {
   }
 
   private async publish(record: FlightDeckSessionTurnRecord): Promise<string | null> {
-    if (record.state === 'completed' || record.state === 'suppressed') return record.publishedMessageId;
+    if (record.state === 'completed' || record.state === 'suppressed' || this.isRetired(record)) return record.publishedMessageId;
     const session = this.deps.manager.getSession(record.sessionId);
     if (!session) throw new Error(`Flight Deck turn ${record.turnId} has no session ${record.sessionId}.`);
     const binding = resolveFlightDeckSessionBinding(session, this.deps.resolveDelivery(session));

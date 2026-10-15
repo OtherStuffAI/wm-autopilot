@@ -42,3 +42,8 @@ restart, smoke-test capacity failure, Continue, a surviving dispatched worker,
 archive/native resume, an interrupted notice, a verified final, publication retry,
 and rapid switching between live and archived sessions. Verify originating-thread
 records and dispatch ownership; screenshots alone are insufficient evidence.
+
+
+## New human input supersedes an inactive session's old work
+
+Under Pete's 2026-10-15 policy, a newly verified and authorised human message for an inactive bound session retires prior queued instructions and arrived callback notifications before rehydration. The persisted exact-item cutoff and fresh-message instruction floor protect new/concurrent arrivals. Old accepted publication observers are also retired, so an obsolete callback cannot adopt the new human final. Conversation/thread history remains context; supersession does not prove old worker success or cancel workers. Automatic recovery without a new human trigger retains the existing receipt/reconciliation rules. See [session prompt queue](session-prompt-queue.md) for the consume CLI/API, crash boundaries and activation tests.

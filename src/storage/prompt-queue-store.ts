@@ -1,3 +1,5 @@
+import { initialisePromptQueueSchema } from "./prompt-queue-schema";
+import { retireSessionWork } from "./session-work-cutoff";
 import { supersedeDedicatedPending } from "./dedicated-queue-recovery.ts";
 import { mapQueuedPrompt } from "./prompt-queue-row";
 import { prunePromptQueueHistory } from "./prompt-queue-retention";
@@ -53,7 +55,7 @@ export class PromptQueueStore {
     this.db = new Database(databasePath);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
-    this.db.transaction(() => this.initialise()).immediate();
+    this.db.transaction(() => initialisePromptQueueSchema(this.db)).immediate();
     for (const row of this.db.query("SELECT DISTINCT session_id FROM prompt_queue").all() as Array<{ session_id: string }>) {
       this.pruneHistory(row.session_id);
     }
@@ -231,6 +233,29 @@ export class PromptQueueStore {
     return supersedeDedicatedPending(this.db, sessionId, bindingId);
   }
 
+  /** Retire interrupted work, without claiming completion or changing delivery evidence. */
+  captureFreshHumanCutoff(sessionId: string): Array<{ id: string; revision: string }> {
+    return this.getSessionQueue(sessionId).map(({ id, revision }) => ({ id, revision }));
+  }
+
+  retireForFreshHumanTrigger(sessionId: string, triggerId: string, snapshot?: Array<{ id: string; revision: string }>): void {
+    retireSessionWork(this.db, "prompts", sessionId, triggerId, "prompt_queue", (cutoff, at) => {
+      this.db.query(`UPDATE prompt_queue SET state='superseded', revision=revision+1,
+        handled_at=?, handled_by='fresh-human-trigger', handled_reason=?
+        WHERE session_id=? AND rowid<=? AND state IN ('pending','claimed')
+          AND (? IS NULL OR EXISTS (SELECT 1 FROM json_each(?) entry
+            WHERE json_extract(entry.value,'$.id')=prompt_queue.id
+              AND CAST(json_extract(entry.value,'$.revision') AS TEXT)=CAST(prompt_queue.revision AS TEXT)))`)
+        .run(at, `Superseded by fresh human trigger ${triggerId}; completion unverified`, sessionId, cutoff, snapshot ? JSON.stringify(snapshot) : null, snapshot ? JSON.stringify(snapshot) : null);
+    });
+    this.reorderQueue(sessionId);
+  }
+
+  /** Explicit incorporation boundary; listing alone never consumes. */
+  consumePrompt(sessionId: string, id: string, revision: string, actor: string, reason: string): QueuedPrompt {
+    return this.acknowledgePrompt(sessionId, id, revision, actor, reason);
+  }
+
   rebindSession(sourceSessionId: string, targetSessionId: string): number {
     if (!sourceSessionId || !targetSessionId || sourceSessionId === targetSessionId) return 0;
     const result = this.db.query("UPDATE prompt_queue SET session_id = ?1 WHERE session_id = ?2")
@@ -353,41 +378,6 @@ export class PromptQueueStore {
     tx();
   }
 
-  private initialise() {
-    this.db.exec(`CREATE TABLE IF NOT EXISTS prompt_queue_recovery (
-      session_id TEXT, item_id TEXT, revision TEXT, delivery_id TEXT, actor TEXT, reason TEXT, resolution TEXT, created_at TEXT
-    )`);
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS prompt_queue (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        content TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        queue_order INTEGER NOT NULL,
-        type TEXT,
-        dedupe_key TEXT,
-        payload_json TEXT,
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_prompt_queue_session_order 
-      ON prompt_queue(session_id, queue_order);
-    `);
-    const columns = this.db.query("PRAGMA table_info(prompt_queue)").all() as Array<{ name: string }>;
-    const names = new Set(columns.map((column) => column.name));
-    for (const [name, definition] of Object.entries({
-      revision: "INTEGER NOT NULL DEFAULT 1", state: "TEXT NOT NULL DEFAULT 'pending'",
-      handled_at: "TEXT", handled_by: "TEXT", handled_reason: "TEXT", claim_token: "TEXT", delivery_state: "TEXT", delivery_id: "TEXT", delivery_updated_at: "TEXT",
-    })) {
-      if (!names.has(name)) this.db.exec(`ALTER TABLE prompt_queue ADD COLUMN ${name} ${definition}`);
-    }
-    if (!names.has("type")) this.db.exec("ALTER TABLE prompt_queue ADD COLUMN type TEXT");
-    if (!names.has("dedupe_key")) this.db.exec("ALTER TABLE prompt_queue ADD COLUMN dedupe_key TEXT");
-    if (!names.has("payload_json")) this.db.exec("ALTER TABLE prompt_queue ADD COLUMN payload_json TEXT");
-    this.db.exec("DROP INDEX IF EXISTS idx_prompt_queue_dedupe");
-    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_queue_dedupe
-      ON prompt_queue(session_id, dedupe_key) WHERE dedupe_key IS NOT NULL AND state IN ('pending', 'claimed')`);
-  }
 
   private mapPrompt = mapQueuedPrompt;
 }

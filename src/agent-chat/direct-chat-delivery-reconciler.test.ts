@@ -451,3 +451,20 @@ test('interruption survives outage, archive and new observer without duplicate f
   expect(f.calls[1]).toEqual(f.calls[0]);
   expect(f.store.get('turn-1:status:interrupted')?.state).toBe('published');
 });
+
+test('a leased old publication cannot send after supersession while activity is awaited', async () => {
+  let entered!: () => void;
+  let release!: () => void;
+  const enteredActivity = new Promise<void>(resolve => { entered = resolve; });
+  const activityGate = new Promise<void>(resolve => { release = resolve; });
+  const f = fixture({ reconcileActivity: async () => { entered(); await activityGate; } });
+  f.seed();
+  f.store.freezeReply('turn-1', 'Old callback final', '2026-07-29T00:00:00.000Z');
+  const publication = f.make('old-observer').processTurnNow('turn-1');
+  await enteredActivity;
+  f.store.retireForFreshHumanTrigger('session-1', 'fresh-human', f.routingKey);
+  release();
+  await publication;
+  expect(f.calls).toHaveLength(0);
+  expect(f.store.get('turn-1')).toMatchObject({ state: 'suppressed', lastErrorClass: 'fresh_human_supersession' });
+});

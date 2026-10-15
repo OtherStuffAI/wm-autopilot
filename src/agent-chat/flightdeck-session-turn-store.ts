@@ -1,3 +1,4 @@
+import { retireSessionWork, sessionWorkGeneration } from "../storage/session-work-cutoff";
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { Database } from 'bun:sqlite';
@@ -49,6 +50,22 @@ export class FlightDeckSessionTurnStore {
     }
   }
 
+  generation(sessionId: string): number { return sessionWorkGeneration(this.db, "publications", sessionId); }
+
+  captureFreshHumanCutoff(sessionId: string): string[] {
+    return (this.db.query("SELECT turn_id FROM flightdeck_session_turn_publications WHERE session_id=? AND state NOT IN ('completed','suppressed')")
+      .all(sessionId) as Array<{ turn_id: string }>).map(row => row.turn_id);
+  }
+
+  retireForFreshHumanTrigger(sessionId: string, triggerId: string, snapshot?: string[]): void {
+    retireSessionWork(this.db, "publications", sessionId, triggerId, "flightdeck_session_turn_publications", (cutoff, at) => {
+      this.db.query(`UPDATE flightdeck_session_turn_publications SET state='suppressed',last_error=?,updated_at=?
+        WHERE session_id=? AND rowid<=? AND state NOT IN ('completed','suppressed')
+          AND (? IS NULL OR turn_id IN (SELECT value FROM json_each(?)))`)
+        .run(`Superseded by fresh human trigger ${triggerId}; no completion claim`, at, sessionId, cutoff, snapshot ? JSON.stringify(snapshot) : null, snapshot ? JSON.stringify(snapshot) : null);
+    });
+  }
+
   get(turnId: string): FlightDeckSessionTurnRecord | null {
     const row = this.db.query('SELECT * FROM flightdeck_session_turn_publications WHERE turn_id = ?1').get(turnId);
     return row ? this.map(row as Record<string, unknown>) : null;
@@ -68,11 +85,12 @@ export class FlightDeckSessionTurnStore {
         trigger_message_id=COALESCE(excluded.trigger_message_id, trigger_message_id),
         final_message_identity=excluded.final_message_identity,
         reply_created_at=COALESCE(reply_created_at, excluded.reply_created_at), published_message_id=excluded.published_message_id,
-        state=excluded.state, last_error=excluded.last_error, updated_at=excluded.updated_at`)
+        state=excluded.state, last_error=excluded.last_error, updated_at=excluded.updated_at
+      WHERE flightdeck_session_turn_publications.state != 'suppressed'`)
       .run(record.turnId, record.sessionId, record.prompt, record.promptType, JSON.stringify(record.sourceMessageIds),
         record.clientRequestId, record.replyBody, record.triggerMessageId, record.finalMessageIdentity, record.replyCreatedAt,
         record.publishedMessageId, record.state, record.lastError, record.createdAt, record.updatedAt);
-    return record;
+    return this.get(record.turnId)!;
   }
 
   private map(row: Record<string, unknown>): FlightDeckSessionTurnRecord {

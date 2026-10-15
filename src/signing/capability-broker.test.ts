@@ -965,9 +965,11 @@ test("broker restricts queue capabilities to exact-session list and acknowledgem
     for (const [path, method, status] of [
       ["/api/sessions/session-a/queue", "GET", 200],
       ["/api/sessions/session-a/queue/item/acknowledge", "POST", 200],
+      ["/api/sessions/session-a/queue/item/consume", "POST", 200],
       ["/api/sessions/session-a/queue/item/reconcile", "POST", 200],
       ["/api/sessions/session-b/queue", "GET", 403],
       ["/api/sessions/session-b/queue/item/acknowledge", "POST", 403],
+      ["/api/sessions/session-b/queue/item/consume", "POST", 403],
       ["/api/sessions/session-b/queue/item/reconcile", "POST", 403],
       ["/api/sessions/session-a/queue/next", "POST", 403],
       ["/api/sessions/session-a/queue/item", "DELETE", 403],

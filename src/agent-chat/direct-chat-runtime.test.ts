@@ -183,7 +183,7 @@ function fixture(options: {
       reason: 'verified',
     },
   });
-  return { runtime, makeRuntime, handle, message, prompts, captures, creates, stops, published, activities, agentStore, interceptStore,
+  return { manager, runtime, makeRuntime, handle, message, prompts, captures, creates, stops, published, activities, agentStore, interceptStore,
     turnStore, enrichmentStore, dispatchOutcomeStore, publicationDecisionStore, sessions, archivedSessions, subscription, channel, botIdentity,
     deliveryReconciler };
 }
@@ -1486,4 +1486,47 @@ test("Codex SDK overload retains its received request and Continue publishes the
   expect(f.published).toHaveLength(2);
   expect(f.published[1].body).toBe("Verified terminal handoff");
   expect(f.turnStore.get(turn.turnId)?.state).toBe("published");
+});
+
+test('fresh human intake discards stopped accepted work and answers only the new question with history preserved', async () => {
+  const f = fixture({ useDeliveryReconciler: true, finalContent: 'Here is the substantive answer to your new question.' });
+  const old = f.message('m1', 'Old interrupted instruction', true);
+  await f.handle([old], 'm1');
+  await f.runtime.waitForIdle();
+  const intercept = f.interceptStore.listAll()[0]!;
+  const originalTurn = f.turnStore.get(buildDirectChatTurnId(intercept.routingKey, ['m1']))!;
+  // A distinct old accepted item must not block the fresh human intake.
+  f.turnStore.save({ ...originalTurn, turnId: 'interrupted', clientRequestId: 'interrupted-client',
+    state: 'awaiting_reply', publicationPayload: null, payloadHash: null, replyBody: null, publishedMessageId: null });
+  f.sessions.get(intercept.sessionId).status = 'stopped';
+  const fresh = f.message('m2', 'Why are notifications missing now?', true);
+  await f.handle([old, fresh], 'm2');
+  await f.runtime.waitForIdle();
+  expect(f.turnStore.get('interrupted')).toMatchObject({ state: 'suppressed', lastErrorClass: 'fresh_human_supersession' });
+  expect(f.prompts).toHaveLength(2);
+  expect(f.prompts[1]?.split('# Prompt')[1]).toContain('Why are notifications missing now?');
+  expect(f.prompts[1]?.split('# Prompt')[1]).not.toContain('Old interrupted instruction');
+  expect(f.sessions.get(intercept.sessionId).messages[0].content).toContain('Old interrupted instruction');
+  expect(f.published.at(-1).metadata.source_message_ids).toEqual(['m2']);
+  expect(f.published.at(-1).body).toBe('Here is the substantive answer to your new question.');
+});
+
+test('fresh human reactivates a live idle native session without replaying an old accepted turn', async () => {
+  const f = fixture({ useDeliveryReconciler: true });
+  const old = f.message('m1', 'Old request', true);
+  await f.handle([old], 'm1');
+  await f.runtime.waitForIdle();
+  const intercept = f.interceptStore.listAll()[0]!;
+  const previous = f.turnStore.get(buildDirectChatTurnId(intercept.routingKey, ['m1']))!;
+  f.turnStore.save({ ...previous, turnId: 'old-idle', clientRequestId: 'old-idle-client',
+    state: 'awaiting_reply', publicationPayload: null, payloadHash: null, replyBody: null, publishedMessageId: null });
+  const manager = f.manager as any;
+  const adapter = manager.getAdapter(intercept.sessionId);
+  manager.getAdapter = () => adapter;
+  const fresh = f.message('m2', 'A new question for the idle session', true);
+  await f.handle([old, fresh], 'm2');
+  await f.runtime.waitForIdle();
+  expect(f.creates).toHaveLength(1);
+  expect(f.turnStore.get('old-idle')).toMatchObject({ state: 'suppressed', lastErrorClass: 'fresh_human_supersession' });
+  expect(f.published.at(-1).metadata.source_message_ids).toEqual(['m2']);
 });

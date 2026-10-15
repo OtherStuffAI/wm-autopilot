@@ -4,7 +4,7 @@ export function permitsSessionQueueSigning(pathname: string, method: string, ses
   if (!queuePath) return true;
   const selfPath = `/api/sessions/${encodeURIComponent(sessionId)}/queue`;
   return (pathname === selfPath && method === "GET")
-    || (pathname.startsWith(`${selfPath}/`) && /^[^/]+\/(?:acknowledge|reconcile)$/.test(queuePath[2] ?? "") && method === "POST" && Boolean(bodyHash));
+    || (pathname.startsWith(`${selfPath}/`) && /^[^/]+\/(?:acknowledge|consume|reconcile)$/.test(queuePath[2] ?? "") && method === "POST" && Boolean(bodyHash));
 }
 
 export function isSessionQueueSigningPath(pathname: string): boolean {

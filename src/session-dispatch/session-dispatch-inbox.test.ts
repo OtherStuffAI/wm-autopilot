@@ -157,3 +157,28 @@ test("definite wake rejection releases its exact uncertain boundary for bounded 
   f.advance(2);
   expect(f.inbox.claimForStableSession("supervisor")?.attemptCount).toBe(2);
 });
+
+test("fresh-human cutoff retires arrived callbacks and accepted wakes, preserving new arrivals and running workers", () => {
+  const f = fixture();
+  const old = f.addCallback();
+  const running = f.store.update(f.addCallback().dispatchId, { state: "running", terminalFingerprint: null, terminalStatus: null });
+  const claim = f.inbox.claimForStableSession("supervisor")!;
+  f.inbox.markDeliveryUncertain(claim);
+  f.inbox.markSubmitted(claim);
+  f.store.retireForFreshHumanTrigger("supervisor", "human-1");
+  expect(f.inbox.inspect("supervisor").callbacks).toEqual([]);
+  expect(f.store.get(old.dispatchId)).toMatchObject({ state: "superseded", callbackAcknowledgedAt: null, closedAt: null });
+  expect(f.store.get(running.dispatchId)?.state).toBe("running");
+  const fresh = f.addCallback();
+  const reopened = new SessionDispatchStore(f.path);
+  reopened.retireForFreshHumanTrigger("supervisor", "human-1");
+  expect(reopened.listUnresolvedCallbacks("supervisor").map(r => r.dispatchId)).toEqual([fresh.dispatchId]);
+  const newClaim = f.inbox.claimForStableSession("supervisor")!;
+  expect(f.inbox.validateClaim(claim)).toBe(false);
+  f.inbox.markSubmitted(claim);
+  f.inbox.markSubmissionFailed(claim, "late failure");
+  expect(f.inbox.validateClaim(newClaim)).toBe(true);
+  reopened.retireForFreshHumanTrigger("supervisor", "human-2");
+  expect(f.inbox.validateClaim(newClaim)).toBe(false);
+  expect(f.inbox.hasUnresolved("supervisor")).toBe(false);
+});

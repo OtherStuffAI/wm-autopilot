@@ -98,3 +98,28 @@ test("retention keeps a newer dispatched receipt ahead of older handled records"
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("consume shrinks pending during active work; inspection is inert and stale revisions conflict", async () => {
+  const root = mkdtempSync(join(tmpdir(), "queue-consume-api-"));
+  try {
+    const store = new PromptQueueStore(join(root, "queue.db"));
+    const item = store.addPrompt("session", { content: "New steering" })!;
+    const next = store.addPrompt("session", { content: "Independent work" })!;
+    const context = { promptQueueStore: store, queueDispatchInFlight: new Set() } as unknown as SessionApiContext;
+    const session = { id: "session", status: "running", agentRuntimeStatus: "running" } as SessionSnapshot;
+    const auth = { capabilitySessionId: "session" } as RequestAuthContext;
+    const parts = ["", "api", "sessions", "session", "queue", item.id, "consume"];
+    const request = (revision: string) => new Request(`http://localhost${parts.join("/")}`, {
+      method: "POST", body: JSON.stringify({ revision, reason: "Incorporated steering into active work" }),
+    });
+    await handleQueueRoutes(new Request("http://localhost"), "GET", parts.slice(0, 5), "session", session, auth, context);
+    expect(store.getQueueCount("session")).toBe(2);
+    store.updatePromptContent("session", item.id, "Edited steering");
+    expect((await handleQueueRoutes(request("1"), "POST", parts, "session", session, auth, context)).status).toBe(409);
+    const response = await handleQueueRoutes(request("2"), "POST", parts, "session", session, auth, context);
+    expect(response.status).toBe(200);
+    expect((await response.json()).queue.prompts.map((p: { id: string }) => p.id)).toEqual([next.id]);
+    expect(store.getHandledPrompts("session")[0]?.handledBy).toBe("session:session");
+    expect((await handleQueueRoutes(request("2"), "POST", parts, "session", session, auth, context)).status).toBe(200);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

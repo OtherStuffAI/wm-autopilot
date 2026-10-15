@@ -15,6 +15,7 @@ export interface DispatchInboxWakePolicy {
 }
 
 export interface DispatchInboxWakeClaim {
+  generation: number;
   callbackSessionId: string;
   inboxFingerprint: string;
   attemptCount: number;
@@ -104,7 +105,7 @@ export class SessionDispatchInboxCoordinator {
 
     const claimed = this.store.claimWake(callbackSessionId, fingerprint, now.toISOString(),
       this.addMs(now, this.value("leaseMs")).toISOString());
-    return claimed ? { callbackSessionId, inboxFingerprint: fingerprint,
+    return claimed ? { callbackSessionId, generation: this.store.generation(callbackSessionId), inboxFingerprint: fingerprint,
       attemptCount: claimed.attemptCount, prompt: DISPATCH_INBOX_WAKE_PROMPT } : null;
   }
 
@@ -120,6 +121,7 @@ export class SessionDispatchInboxCoordinator {
   }
 
   validateClaim(claim: DispatchInboxWakeClaim): boolean {
+    if (claim.generation !== this.store.generation(claim.callbackSessionId)) return false;
     this.reconcileHandledCallbacks(claim.callbackSessionId);
     const wake = this.store.getWake(claim.callbackSessionId);
     return wake?.state === "claimed" && wake.inboxFingerprint === claim.inboxFingerprint
@@ -134,18 +136,21 @@ export class SessionDispatchInboxCoordinator {
   }
 
   releaseRejectedDelivery(claim: DispatchInboxWakeClaim): void {
+    if (claim.generation !== this.store.generation(claim.callbackSessionId)) return;
     const wake = this.store.getWake(claim.callbackSessionId);
     if (!wake || wake.state !== "blocked" || wake.inboxFingerprint !== claim.inboxFingerprint || wake.attemptCount !== claim.attemptCount) return;
     this.store.saveWake({ ...wake, state: "claimed", lastError: null });
   }
 
   markSubmitted(claim: DispatchInboxWakeClaim): void {
+    if (claim.generation !== this.store.generation(claim.callbackSessionId)) return;
     const wake = this.store.getWake(claim.callbackSessionId);
     if (!wake || !["claimed", "blocked"].includes(wake.state) || wake.inboxFingerprint !== claim.inboxFingerprint || wake.attemptCount !== claim.attemptCount) return;
     this.store.saveWake({ ...wake, state: "submitted", submittedAt: this.now().toISOString(), lastError: null });
   }
 
   markSubmissionFailed(claim: DispatchInboxWakeClaim, error: string): void {
+    if (claim.generation !== this.store.generation(claim.callbackSessionId)) return;
     const wake = this.store.getWake(claim.callbackSessionId);
     if (!wake || wake.state !== "claimed" || wake.inboxFingerprint !== claim.inboxFingerprint || wake.attemptCount !== claim.attemptCount) return;
     this.recordFailedAttempt(wake, error, this.now());

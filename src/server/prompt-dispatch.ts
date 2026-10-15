@@ -224,6 +224,7 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
       throw new QueueDispatchError("Dedicated builders accept only managed completed turns", 409);
     }
     restartDrainGate.assertPromptExecutionAllowed();
+    const publicationGeneration = ctx.flightDeckTurnBridge?.generation(input.session.id);
     const initialCount = ctx.messageStore.listSessionMessages(input.session.id).length;
     const deliveryStartedAt = Date.now();
     const sentAtMs = Date.now();
@@ -249,7 +250,7 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
     input.onAccepted?.();
     void ctx.manager.captureAgentapiCodexSessionIdFromPrompt?.(input.session.id, input.content, { sentAtMs });
     const flightDeckTurn = ctx.flightDeckTurnBridge?.accept({ session: input.session, prompt: input.content,
-      promptType: input.promptType, boundaryIdentity: input.boundaryIdentity, acceptedAt: input.acceptedAt });
+      promptType: input.promptType, generation: publicationGeneration, boundaryIdentity: input.boundaryIdentity, acceptedAt: input.acceptedAt });
     if (flightDeckTurn) ctx.flightDeckTurnBridge?.observe(flightDeckTurn);
     const messageSyncStartedAt = Date.now();
     const messages = await waitForMessageUpdate(input.session.id, initialCount);

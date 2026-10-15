@@ -198,3 +198,27 @@ describe('Flight Deck-bound session turn bridge', () => {
     expect(f.publish).not.toHaveBeenCalled();
   });
 });
+
+test('fresh-human cutoff cancels an accepted wake observer and rejects its late acceptance generation', async () => {
+  const f = fixture();
+  f.setMessages([{ role: 'user', content: 'internal callback envelope', createdAt: new Date().toISOString() }]);
+  const generation = f.bridge.generation(f.session.id);
+  const old = f.bridge.accept({ session: f.session, prompt: 'internal callback envelope', promptType: 'dispatch_inbox_wake', boundaryIdentity: 'old' })!;
+  f.bridge.observe(old);
+  await Bun.sleep(10);
+  f.bridge.retireForFreshHumanTrigger(f.session.id, 'fresh-human');
+  f.setMessages([{ role: 'user', content: 'Fresh question', createdAt: new Date().toISOString() },
+    { role: 'assistant', content: 'Substantive fresh answer', createdAt: new Date().toISOString() }]);
+  expect(f.bridge.accept({ session: f.session, prompt: 'late old wake', promptType: 'dispatch_inbox_wake', boundaryIdentity: 'late', generation })).toBeNull();
+  const fresh = f.bridge.accept({ session: f.session, prompt: 'Fresh question', promptType: 'direct_chat', boundaryIdentity: 'fresh' })!;
+  f.bridge.observe(fresh);
+  await f.bridge.waitForIdle();
+  await f.bridge.publishKnownFinal(old, 'Duplicate callback', new Date().toISOString());
+  f.store.save({ ...old, state: 'accepted' });
+  expect(f.store.get(old.turnId)?.state).toBe('suppressed');
+  expect(f.publish).toHaveBeenCalledTimes(1);
+  expect(f.publish.mock.calls[0]?.[0].body).toBe('Substantive fresh answer');
+  f.bridge.recover();
+  await f.bridge.waitForIdle();
+  expect(f.publish).toHaveBeenCalledTimes(1);
+});

@@ -24,7 +24,7 @@ export async function handleQueueRoutes(
     return Response.json({ id, queue: readQueue() });
   }
 
-  if (method === "POST" && parts.length === 7 && ["acknowledge", "reconcile"].includes(parts[6]!)) {
+  if (method === "POST" && parts.length === 7 && ["acknowledge", "consume", "reconcile"].includes(parts[6]!)) {
     if (ownedSession.status !== "running") return Response.json({ error: "Active session required" }, { status: 409 });
     if (parts[6] === "reconcile" && ctx.queueDispatchInFlight.has(id)) {
       return Response.json({ error: "Delivery attempt is still active; wait for its outcome before reconciling" }, { status: 409 });
@@ -46,6 +46,8 @@ export async function handleQueueRoutes(
         return Response.json({ error: "Exact claimToken and resolution accepted|retry required" }, { status: 400 });
       const prompt = parts[6] === "reconcile"
         ? ctx.promptQueueStore.reconcileClaim(id, parts[5]!, payload.revision, payload.claimToken as string, payload.resolution as string, actor, payload.reason)
+        : parts[6] === "consume"
+        ? ctx.promptQueueStore.consumePrompt(id, parts[5]!, payload.revision, actor, payload.reason)
         : ctx.promptQueueStore.acknowledgePrompt(id, parts[5]!, payload.revision, actor, payload.reason);
       return Response.json({ id, prompt, queue: readQueue() });
     } catch (error) {

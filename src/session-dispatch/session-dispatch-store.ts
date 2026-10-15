@@ -1,9 +1,10 @@
+import { retireSessionWork, sessionWorkGeneration } from "../storage/session-work-cutoff";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 
-export type DispatchState = "creating" | "running" | "callback_pending" | "callback_delivered" | "acknowledged" | "closed" | "failed";
+export type DispatchState = "creating" | "running" | "callback_pending" | "callback_delivered" | "acknowledged" | "closed" | "failed" | "superseded";
 export type TerminalStatus = "completed" | "failed" | "cancelled" | "stopped";
 export type CallbackWakeState = "pending" | "claimed" | "submitted" | "blocked" | "resolved";
 
@@ -49,6 +50,12 @@ export interface CallbackWakeRecord {
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DispatchNotificationCutoff {
+  callbacks: Array<{ dispatchId: string; fingerprint: string | null }>;
+  wakeFingerprint: string | null;
+  wakeAttemptCount: number | null;
 }
 
 type Row = Record<string, unknown>;
@@ -164,6 +171,33 @@ export class SessionDispatchStore {
         ] as any[]);
       }
     })();
+  }
+
+  generation(sessionId: string): number { return sessionWorkGeneration(this.db, "callbacks", sessionId); }
+
+  /** Only arrived notifications are retired; running workers remain untouched. */
+  captureFreshHumanCutoff(sessionId: string): DispatchNotificationCutoff {
+    const wake = this.getWake(sessionId);
+    return { callbacks: this.listUnresolvedCallbacks(sessionId).map(record => ({ dispatchId: record.dispatchId, fingerprint: record.terminalFingerprint })),
+      wakeFingerprint: wake?.inboxFingerprint ?? null, wakeAttemptCount: wake?.attemptCount ?? null };
+  }
+
+  retireForFreshHumanTrigger(sessionId: string, triggerId: string, snapshot?: DispatchNotificationCutoff): void {
+    retireSessionWork(this.db, "callbacks", sessionId, triggerId, "session_dispatches", (cutoff, at) => {
+      this.db.query(`UPDATE session_dispatches SET state='superseded', updated_at=?,
+        callback_next_attempt_at=NULL, callback_expires_at=NULL, last_error=?
+        WHERE callback_session_id=? AND rowid<=? AND terminal_fingerprint IS NOT NULL
+          AND state IN ('callback_pending','callback_delivered')
+          AND (? IS NULL OR EXISTS (SELECT 1 FROM json_each(?) entry
+            WHERE json_extract(entry.value,'$.dispatchId')=session_dispatches.dispatch_id
+              AND json_extract(entry.value,'$.fingerprint')=session_dispatches.terminal_fingerprint))`)
+        .run(at, `Notification superseded by fresh human trigger ${triggerId}; worker result not reviewed`, sessionId, cutoff, snapshot ? JSON.stringify(snapshot.callbacks) : null, snapshot ? JSON.stringify(snapshot.callbacks) : null);
+      this.db.query(`UPDATE session_dispatch_callback_wakes SET state='resolved', claimed_at=NULL,
+        submitted_at=NULL,busy_observed_at=NULL,lease_expires_at=NULL,next_retry_at=NULL,last_error=?,updated_at=?
+        WHERE callback_session_id=? AND (? IS NULL OR (inbox_fingerprint=? AND attempt_count=?))`)
+        .run(`Superseded by fresh human trigger ${triggerId}`, at, sessionId,
+          snapshot ? "snapshot" : null, snapshot?.wakeFingerprint ?? null, snapshot?.wakeAttemptCount ?? null);
+    });
   }
 
   list(filters: { callbackSessionId?: string; state?: DispatchState; ownerNpub?: string | null } = {}): SessionDispatch[] {

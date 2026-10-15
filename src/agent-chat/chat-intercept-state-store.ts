@@ -89,11 +89,11 @@ class ChatInterceptStateStore {
          channel_id, thread_id, target_bot_npub, last_message_id_seen, last_event_cursor_seen,
          last_human_message_id_delivered, native_history_checkpoint_message_id,
          last_agent_message_id_published, last_completed_turn_id, pending_message_count,
-         state, last_decision, last_activity_at, created_at, updated_at
+         state, last_decision, last_activity_at, created_at, updated_at, fresh_start_message_id
        ) VALUES (
          ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
          ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-         ?22, ?23, ?24, ?25, ?26
+         ?22, ?23, ?24, ?25, ?26, ?27
        )
        ON CONFLICT(routing_key) DO UPDATE SET
          subscription_id = excluded.subscription_id,
@@ -119,7 +119,8 @@ class ChatInterceptStateStore {
          state = excluded.state,
          last_decision = excluded.last_decision,
          last_activity_at = excluded.last_activity_at,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at,
+         fresh_start_message_id = excluded.fresh_start_message_id`,
     ).run(
       record.routingKey,
       record.subscriptionId,
@@ -147,6 +148,7 @@ class ChatInterceptStateStore {
       record.lastActivityAt,
       record.createdAt,
       record.updatedAt,
+      record.freshStartMessageId ?? null,
     );
 
     return this.getByRoutingKey(record.routingKey) ?? record;
@@ -223,6 +225,7 @@ class ChatInterceptStateStore {
       lastEventCursorSeen: input.eventCursor ?? existing?.lastEventCursorSeen ?? null,
       lastHumanMessageIdDelivered: existing?.lastHumanMessageIdDelivered ?? null,
       nativeHistoryCheckpointMessageId: existing?.nativeHistoryCheckpointMessageId ?? null,
+      freshStartMessageId: existing?.freshStartMessageId ?? null,
       lastAgentMessageIdPublished: existing?.lastAgentMessageIdPublished ?? null,
       lastCompletedTurnId: existing?.lastCompletedTurnId ?? null,
       pendingMessageCount: nextCount,
@@ -272,6 +275,7 @@ class ChatInterceptStateStore {
            last_event_cursor_seen,
            last_human_message_id_delivered,
            native_history_checkpoint_message_id,
+           fresh_start_message_id,
            last_agent_message_id_published,
            last_completed_turn_id,
            pending_message_count,
@@ -310,6 +314,7 @@ class ChatInterceptStateStore {
            last_event_cursor_seen,
            last_human_message_id_delivered,
            native_history_checkpoint_message_id,
+           fresh_start_message_id,
            last_agent_message_id_published,
            last_completed_turn_id,
            pending_message_count,
@@ -345,6 +350,7 @@ class ChatInterceptStateStore {
       lastMessageIdSeen: typeof row.last_message_id_seen === 'string' ? row.last_message_id_seen : null,
       lastEventCursorSeen: typeof row.last_event_cursor_seen === 'string' ? row.last_event_cursor_seen : null,
       lastHumanMessageIdDelivered: typeof row.last_human_message_id_delivered === 'string' ? row.last_human_message_id_delivered : null,
+      freshStartMessageId: typeof row.fresh_start_message_id === 'string' ? row.fresh_start_message_id : null,
       nativeHistoryCheckpointMessageId: typeof row.native_history_checkpoint_message_id === 'string' ? row.native_history_checkpoint_message_id : null,
       lastAgentMessageIdPublished: typeof row.last_agent_message_id_published === 'string' ? row.last_agent_message_id_published : null,
       lastCompletedTurnId: typeof row.last_completed_turn_id === 'string' ? row.last_completed_turn_id : null,

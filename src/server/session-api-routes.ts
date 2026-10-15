@@ -120,6 +120,7 @@ export interface SessionApiContext {
     getSessionQueue: (id: string) => import("../storage/prompt-queue-store").QueuedPrompt[];
     getHandledPrompts: (id: string) => unknown[];
     reconcileClaim: (sessionId: string, id: string, revision: string, token: string, resolution: string, actor: string, reason: string) => unknown;
+    consumePrompt: (sessionId: string, id: string, revision: string, actor: string, reason: string) => unknown;
     acknowledgePrompt: (sessionId: string, id: string, revision: string, actor: string, reason: string) => unknown;
     addPrompt: (id: string, options: { content: string }) => unknown;
     updatePromptContent: (sessionId: string, promptId: string, content: string) => boolean;

@@ -1,3 +1,4 @@
+import { prepareFreshHumanSession, FreshHumanIntakeCoordinator, afterFreshHumanBoundary, assertCurrentHumanTurn } from "./fresh-human-session";
 import { buildAcceptedDirectChatRecoveryPrompt } from "./direct-chat-recovery-prompt";
 import { DirectChatRequestQueue } from "./direct-chat-request-queue.ts";
 import { randomUUID } from "node:crypto";
@@ -72,6 +73,7 @@ interface DirectChatRuntimeDependencies {
   createActivityPublisher?: (context: AgentActivityContext) => AgentActivityPublisher;
   createLifecycleController?: (context: AgentActivityContext, publisher: AgentActivityPublisher) => AgentDirectLifecycleController;
   getArchivedSession?: (sessionId: string) => ArchivedSession | null;
+  retireSessionWork?: (sessionId: string, triggerId: string, routingKey: string) => string[] | void;
   rebindSession?: (sourceSessionId: string, targetSessionId: string) => void;
   log?: Pick<Console, 'error' | 'warn'>;
   deliveryReconciler?: AgentDirectDeliveryReconciler;
@@ -132,6 +134,7 @@ function withMvpDirectChatDefault(agent: AgentDefinitionRecord): AgentDefinition
 
 export class AgentDirectChatRuntime {
   private readonly running = new Map<string, Promise<void>>();
+  private readonly freshIntake = new FreshHumanIntakeCoordinator();
   private readonly queued = new DirectChatRequestQueue();
   private readonly deliveryWaiters = new Map<string, Promise<void>>();
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -216,6 +219,7 @@ export class AgentDirectChatRuntime {
       const routingKey = buildDirectChatRoutingKey({ towerServiceNpub: input.subscription.towerServiceNpub || input.subscription.backendBaseUrl,
         workspaceId: input.subscription.workspaceId || workspaceIdentity, channelId: input.channel.id, threadId, agentNpub: agent.botNpub });
       const cursor = input.event.cursor ?? (input.event.row_version != null ? String(input.event.row_version) : null);
+      const beforeIntake = this.deps.interceptStore.getByRoutingKey(routingKey);
       const upsert = this.deps.interceptStore.upsertMessage({
         routingKey, subscriptionId: input.subscription.subscriptionId, agentId: agent.agentId,
         workspaceOwnerNpub: workspaceIdentity, sourceAppNpub: input.subscription.sourceAppNpub,
@@ -223,6 +227,10 @@ export class AgentDirectChatRuntime {
         channelId: input.channel.id, threadId, botNpub: agent.botNpub, messageId: eventMessage.messageId,
         messageRevision: revisionDispatch?.revision ?? null, eventCursor: cursor,
       });
+      if (!upsert.wasDuplicate && !authoredByAgent && agent.directChat?.handlerMode !== 'pipeline_router') {
+        await this.freshIntake.prepare({ manager: this.deps.processManager, interceptStore: this.deps.interceptStore,
+          turnStore: this.turnStore, retireSessionWork: this.deps.retireSessionWork }, beforeIntake?.lastDecision === 'failed' ? { ...upsert.record, lastDecision: 'failed' } : upsert.record, eventMessage.messageId);
+      }
       if (upsert.wasDuplicate && !this.turnStore.getPending(routingKey)) continue;
       handled = true;
       if (agent.directChat?.handlerMode === 'pipeline_router') {
@@ -383,6 +391,10 @@ export class AgentDirectChatRuntime {
       let outcomeRecordIds = input.event.entity_id ? [input.event.entity_id] : [];
       let activeTurnId: string | null = null;
       try {
+        if (intercept.state === 'pending' && intercept.freshStartMessageId) {
+          prepareFreshHumanSession({ manager: this.deps.processManager, interceptStore: this.deps.interceptStore,
+            turnStore: this.turnStore, retireSessionWork: this.deps.retireSessionWork }, intercept, intercept.freshStartMessageId);
+        }
         const pending = this.turnStore.getPending(routingKey);
         activeTurnId = pending?.turnId ?? null;
         const pendingAwaiting = (pending?.state === 'accepted' && (Boolean(pending.prompt) || this.enrichment.store.get(pending.turnId)?.mode !== 'pipeline_enrichment')) || pending?.state === 'awaiting_reply';
@@ -410,11 +422,11 @@ export class AgentDirectChatRuntime {
                 .some((undeliveredMessage) => undeliveredMessage.messageId === message.messageId))
           : selectUndeliveredActionableMessages(history, intercept, agent.botNpub, [input.subscription.wsKeyNpub ?? '']);
         const revisionDispatch = messageRevisionDispatch(input.event);
-        const delta = pendingAwaiting
+        const delta = afterFreshHumanBoundary(history, pendingAwaiting
           ? undelivered
           : revisionDispatch
             ? history.filter((message) => message.messageId === input.event.entity_id)
-          : undelivered.filter((message) => isAgentDirectMessageEligible(input.channel, message, agent.botNpub));
+          : undelivered.filter((message) => isAgentDirectMessageEligible(input.channel, message, agent.botNpub)), intercept);
         if (delta.length === 0) continue;
         if (pendingAwaiting && pending) {
           // A pre-session failure has no transcript for the delivery reconciler
@@ -521,19 +533,21 @@ export class AgentDirectChatRuntime {
           const recovered = sessionResolution.bootstrap
             ? await this.sendFinalResponse(this.deps.processManager, session.id, recoveryPrompt, {
                 onAccepted: () => {
+                  assertCurrentHumanTurn(this.turnStore, pending.turnId);
                   this.enrichment.store.accepted(pending.turnId, session.id);
                   this.turnStore.save({ ...this.turnStore.get(pending.turnId)!, state: 'awaiting_reply',
                     acceptedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
                 },
-                onPoll: () => activity?.commentary(),
+                onPoll: () => { assertCurrentHumanTurn(this.turnStore, pending.turnId); return activity?.commentary(); },
               })
             : await awaitAcceptedFinalResponse(
                 this.deps.processManager,
                 session.id,
                 recoveryPrompt,
                 recoverySourceMessageIds,
-                { acceptedAt: pending.createdAt, onPoll: () => activity?.commentary() },
+                { acceptedAt: pending.createdAt, onPoll: () => { assertCurrentHumanTurn(this.turnStore, pending.turnId); return activity?.commentary(); } },
               );
+          assertCurrentHumanTurn(this.turnStore, pending.turnId);
           this.enrichment.store.accepted(pending.turnId, session.id);
           for (const recordId of recoverySourceMessageIds) {
             this.recordRecoveredSessionOutcome(input, agent, recordId, session.id, routingKey, 'final_turn');
@@ -584,6 +598,7 @@ export class AgentDirectChatRuntime {
         let sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null,
           delta.at(-1)?.message ?? '');
         let session = sessionResolution.session;
+        assertCurrentHumanTurn(this.turnStore, turnId);
         await activity.working(session.id);
         intercept = this.deps.interceptStore.save({ ...intercept, sessionId: session.id,
           sessionGeneration: sessionResolution.generation, previousSessionIds: sessionResolution.previousSessionIds,
@@ -604,6 +619,7 @@ export class AgentDirectChatRuntime {
               lastAgentMessageIdPublished: intercept.lastAgentMessageIdPublished, supplementalContext: supplementalContext(enrichmentResult) });
         const acceptedHistoryCheckpointMessageId = history.at(-1)?.messageId ?? null;
         const onAccepted = () => {
+            assertCurrentHumanTurn(this.turnStore, turnId);
             this.enrichment.store.accepted(turnId, session.id);
             for (const recordId of sourceMessageIds) {
               this.recordSessionOutcome(input, agent, recordId, session.id, routingKey);
@@ -628,10 +644,11 @@ export class AgentDirectChatRuntime {
         this.turnStore.save({ ...this.turnStore.get(turnId)!, sessionId: session.id, prompt,
           leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS + 60000).toISOString() : null,
           updatedAt: new Date().toISOString() });
+        assertCurrentHumanTurn(this.turnStore, turnId);
         let reply;
         try {
           reply = await this.sendFinalResponse(this.deps.processManager, session.id, prompt, {
-            onAccepted, onPoll: () => activity?.commentary(),
+            onAccepted, onPoll: () => { assertCurrentHumanTurn(this.turnStore, turnId); return activity?.commentary(); },
           });
         } catch (error) {
           const failedTurn = this.turnStore.get(turnId);
@@ -664,9 +681,10 @@ export class AgentDirectChatRuntime {
             leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS + 60000).toISOString() : null,
             updatedAt: new Date().toISOString() });
           reply = await this.sendFinalResponse(this.deps.processManager, session.id, prompt, {
-            onAccepted, onPoll: () => activity?.commentary(),
+            onAccepted, onPoll: () => { assertCurrentHumanTurn(this.turnStore, turnId); return activity?.commentary(); },
           });
         }
+        assertCurrentHumanTurn(this.turnStore, turnId);
         for (const recordId of sourceMessageIds) {
           this.recordRecoveredSessionOutcome(input, agent, recordId, session.id, routingKey, 'final_turn');
         }
@@ -678,6 +696,10 @@ export class AgentDirectChatRuntime {
       } catch (error) {
         const awaiting = activeTurnId ? this.turnStore.get(activeTurnId) : null;
         // A late waiter error cannot downgrade an authoritative delivery.
+        if (awaiting?.lastErrorClass === 'fresh_human_supersession') {
+          activity?.releaseObservation();
+          continue;
+        }
         if (awaiting && ['published', 'completed', 'suppressed'].includes(awaiting.state)) {
           await activity?.finish('completed');
           continue;
@@ -828,6 +850,7 @@ export class AgentDirectChatRuntime {
       towerServiceNpub: input.subscription.towerServiceNpub, workspaceId: input.subscription.workspaceId,
       sourceAppNpub: input.subscription.sourceAppNpub, channelId: intercept.channelId, threadId: intercept.threadId,
       agentId: agent.agentId, agentNpub: intercept.botNpub, sessionId: intercept.sessionId, promptType: 'direct_chat' });
+    if (record.lastErrorClass === 'fresh_human_supersession') return false;
     record = this.deps.deliveryReconciler
       ? freezeOrResumeDirectChatReply(this.turnStore, turnId, body, candidateAt, this.log)
       : this.turnStore.freezeReply(turnId, body, candidateAt);

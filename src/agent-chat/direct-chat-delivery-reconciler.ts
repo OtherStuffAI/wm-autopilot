@@ -149,6 +149,7 @@ export class AgentDirectDeliveryReconciler {
     }
     const inspection = await inspectAcceptedFinalResponse(this.deps.manager, record.sessionId, record.prompt ?? '',
       record.sourceMessageIds, record.acceptedAt);
+    if (this.store.get(record.turnId)?.lastErrorClass === "fresh_human_supersession") return this.store.get(record.turnId);
     if (inspection.promptBoundary === "observed") this.enrichmentStore.accepted(record.turnId, record.sessionId);
     if (!inspection.reply && inspection.sessionState !== "active") {
       inspection.reply = await this.deps.readArchivedFinal?.(record) ?? null;
@@ -220,6 +221,7 @@ export class AgentDirectDeliveryReconciler {
           });
         }
         if (!isDirectChatStatus(record)) await this.deps.reconcileActivity?.(record, botIdentity, transport);
+        if (this.store.get(record.turnId)?.lastErrorClass === 'fresh_human_supersession') return {};
         return (this.deps.publish ?? createFlightDeckPgChannelMessage)({
           subscriptionId: record.subscriptionId, backendBaseUrl: transport.backendBaseUrl, workspaceId: transport.workspaceId, channelId: record.channelId!,
           appNpub: transport.appNpub, botIdentity, body: payload.body, threadId: payload.threadId,
