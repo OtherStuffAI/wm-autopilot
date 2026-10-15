@@ -3,13 +3,22 @@ import type { SessionSnapshot } from '../agents/process-manager.ts';
 import { loadPipelineFunctionRegistry } from './function-loader.ts';
 import { assertPipelineFunctionPins } from './pipeline-function-pins.ts';
 import { completedTurnBindingId } from '../sessions/completed-turn-runtime.ts';
+import { activeCompletedTurnClaim } from '../sessions/active-completed-turn-claims.ts';
+import type { TurnRecord } from '../sessions/completed-turn-store.ts';
 
 const activeInvocations=new Set<string>();
+
+function activeTurnForInvocation(store: PipelineStore, sessionId: string): TurnRecord | null {
+  const claim = activeCompletedTurnClaim(store.path, sessionId);
+  if (!claim) return store.completedTurns.activeForSession(sessionId);
+  if (!store.completedTurns.renewSendingClaim(claim.receiptId, claim.claimToken)) return null;
+  return store.completedTurns.activeForSession(sessionId, claim.claimToken);
+}
 
 /** Tools are installed by the immutable pipeline, never named by participant input. */
 export async function invokeNativeProjectTool(store: PipelineStore, session: SessionSnapshot,
   tool: string, args: JsonObject, load = loadPipelineFunctionRegistry): Promise<JsonObject> {
-  const turn = store.completedTurns.activeForSession(session.id);
+  const turn = activeTurnForInvocation(store, session.id);
   if (!turn || session.metadata?.role !== 'completed-turn' || session.metadata?.nativeProjectTools!==true || session.metadata?.bindingId !== completedTurnBindingId(turn.owner,turn.conversationKey) ||
     session.npub !== turn.owner || session.workingDirectory !== JSON.parse(turn.requestJson).directory) throw Error('native_tool_turn_denied');
   const native=session.metadata.nativeAgentSession,agent=JSON.parse(turn.requestJson).agent??"codex";
@@ -29,7 +38,7 @@ export async function invokeNativeProjectTool(store: PipelineStore, session: Ses
     const handler = registry[tools[tool]!];
     if (!handler) throw Error('native_tool_unavailable');
     const currentRun=store.getRun(turn.runId);
-    if(store.completedTurns.activeForSession(session.id)?.receiptId!==turn.receiptId||currentRun?.status!=='running'||currentRun.activeStepId!==turn.stepId)throw Error('native_tool_lease_changed');
+    if(activeTurnForInvocation(store,session.id)?.receiptId!==turn.receiptId||currentRun?.status!=='running'||currentRun.activeStepId!==turn.stepId)throw Error('native_tool_lease_changed');
     // Native correlation and saved run input are broker-owned. No caller paths,
     // project IDs, run IDs, generation or authority can override them.
     const result = await handler({args, input:run.input, nativeReceipt:{receiptId:turn.receiptId,requestId:turn.requestId,

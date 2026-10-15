@@ -84,8 +84,10 @@ export class CompletedTurnStore {
     return row ? this.get(row.receiptId) : null;
   }
 
-  activeForSession(sessionId: string): TurnRecord | null {
-    const rows = this.db.query("SELECT receiptId FROM completed_turn_receipts WHERE sessionId=? AND status='sending' AND claimToken IS NOT NULL AND leaseUntil>?").all(sessionId, Date.now()) as {receiptId:string}[];
+  activeForSession(sessionId: string, claimToken?: string): TurnRecord | null {
+    const rows = (claimToken
+      ? this.db.query("SELECT receiptId FROM completed_turn_receipts WHERE sessionId=? AND status='sending' AND claimToken=? AND leaseUntil>?").all(sessionId, claimToken, Date.now())
+      : this.db.query("SELECT receiptId FROM completed_turn_receipts WHERE sessionId=? AND status='sending' AND claimToken IS NOT NULL AND leaseUntil>?").all(sessionId, Date.now())) as {receiptId:string}[];
     if (rows.length !== 1) return null;
     return this.get(rows[0]!.receiptId);
   }
@@ -125,6 +127,11 @@ export class CompletedTurnStore {
     const result = this.db.query("UPDATE completed_turn_receipts SET leaseUntil=? WHERE receiptId=? AND claimToken=? AND status!='completed'")
       .run(Date.now() + 30_000, id, token);
     if (result.changes !== 1) throw new Error("Completed-turn lease changed");
+  }
+  /** Refresh an elapsed tool lease only for the exact in-process sending claim. */
+  renewSendingClaim(id: string, token: string, at = Date.now()): boolean {
+    return this.db.query("UPDATE completed_turn_receipts SET leaseUntil=? WHERE receiptId=? AND claimToken=? AND status='sending'")
+      .run(at + 30_000, id, token).changes === 1;
   }
   bind(id: string, token: string, executionId: string, sessionId: string | null = executionId): void {
     this.db.transaction(() => {

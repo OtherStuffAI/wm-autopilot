@@ -7,6 +7,7 @@ import {completedTurnBindingId} from '../sessions/completed-turn-runtime.ts';
 import {invokeNativeProjectTool} from './native-project-tool.ts';
 import {runtimeFunctionHash,pipelineFunctionHashes} from './pipeline-function-pins.ts';
 import type {SessionSnapshot} from '../agents/process-manager.ts';
+import {registerActiveCompletedTurnClaim} from '../sessions/active-completed-turn-claims.ts';
 
 function fixture(operation:((input:any)=>Promise<any>)=async input=>({published:true,correlation:input.nativeReceipt,request:input.input}),agent:"codex"|"goose"|"claude"="codex"){
  const root=mkdtempSync('/private/tmp/native-tool-'),store=new PipelineStore(root+'/pipelines.sqlite');
@@ -43,6 +44,15 @@ test('expired and completed native turns cannot invoke a pinned tool',async()=>{
   completed.store.completedTurns.complete(completed.row.receiptId,'claim','Ordinary final','native');
   await expect(invokeNativeProjectTool(completed.store,completed.session,'publish',{},completed.load)).rejects.toThrow('turn_denied');
  }finally{expired.close();completed.close();}
+});
+test('the exact in-process sender may refresh an elapsed lease but a replaced recovery claim remains fenced',async()=>{
+ const active=fixture(),recovered=fixture();let releaseActive=()=>{},releaseRecovered=()=>{};try{
+  releaseActive=registerActiveCompletedTurnClaim(active.store.path,active.session.id,active.row.receiptId,'claim');
+  active.expire();expect(await invokeNativeProjectTool(active.store,active.session,'publish',{},active.load)).toEqual(expect.objectContaining({published:true}));
+  releaseRecovered=registerActiveCompletedTurnClaim(recovered.store.path,recovered.session.id,recovered.row.receiptId,'claim');
+  recovered.expire();expect(recovered.store.completedTurns.claim(recovered.row.receiptId,'recovery')).toBe(true);
+  await expect(invokeNativeProjectTool(recovered.store,recovered.session,'publish',{},recovered.load)).rejects.toThrow('turn_denied');
+ }finally{releaseActive();releaseRecovered();active.close();recovered.close();}
 });
 test('same turn/tool concurrent invocation is refused without a second handler; completed call releases the slot',async()=>{
  let release!:()=>void,entered!:()=>void,calls=0;
