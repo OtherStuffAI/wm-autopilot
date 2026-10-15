@@ -60,6 +60,7 @@ function resolveFreshRestartLaunch(
     branchedFromWingmanSessionId: undefined,
     branchConversationMode: undefined,
     branchConversationMessageCount: undefined,
+    explicitlyClosedAt: undefined,
     ownerNpub,
     createdByNpub: actorNpub ?? sourceMetadata.createdByNpub,
     lastManagedByNpub: actorNpub ?? undefined,

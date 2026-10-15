@@ -61,6 +61,7 @@ import {
 import type { WorkspaceDelegationStore } from "../storage/workspace-delegation-store";
 import type { NightWatchStartOptions } from "../nightwatch/nightwatch-start-config";
 import { closeStaleStableAutoSessions } from "../sessions/bulk-close-auto-sessions";
+import { markSessionExplicitlyClosed } from "../sessions/explicit-session-close";
 import type { DocumentDirectStore } from "../agent-chat/document-direct-runtime";
 import { resolveSessionTargetFile, resolveStoredSessionTargetFile } from "../security/filesystem-boundary";
 
@@ -1246,6 +1247,7 @@ export async function handleSessionApi(
 
     if (method === "DELETE" && parts.length === 4) {
       if (!ownedSession) return Response.json({ error: "Not found" }, { status: 404 });
+      markSessionExplicitlyClosed(ctx.manager, resolvedId);
       const session = await ctx.manager.stopSession(resolvedId);
       if (!session) return Response.json({ error: "Not found" }, { status: 404 });
       ctx.scheduleSessionArchive(resolvedId, ctx.manager);
@@ -1471,6 +1473,7 @@ export async function handleSessionApi(
       ctx.manager.updateSessionMetadata(resolvedId, {
         lastManagedByNpub: authContext.subjectNpub ?? authContext.npub ?? undefined,
       });
+      markSessionExplicitlyClosed(ctx.manager, resolvedId);
       const session = await ctx.manager.stopSession(resolvedId);
       if (!session) return Response.json({ error: "Not found" }, { status: 404 });
       ctx.scheduleSessionArchive(resolvedId, ctx.manager);
@@ -1914,6 +1917,7 @@ export async function handleSessionApi(
       if (!isAuthorizedCaller(authContext) && !isAgentManagedByMetadataOrOrigin(liveOwnedSession.metadata, liveOwnedSession.origin)) {
         return Response.json({ error: "Agents can only stop sessions with metadata.AGENT=true" }, { status: 403 });
       }
+      markSessionExplicitlyClosed(ctx.manager, resolvedId);
       const session = await ctx.manager.stopSession(resolvedId);
       if (!session) return Response.json({ error: "Not found" }, { status: 404 });
       ctx.scheduleSessionArchive(resolvedId, ctx.manager);

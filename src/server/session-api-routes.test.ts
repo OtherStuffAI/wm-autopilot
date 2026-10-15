@@ -67,6 +67,9 @@ const buildCtx = (overrides?: Partial<SessionApiContext>): SessionApiContext => 
     }),
     getSession: (id: string) => (id === "session-1" ? baseSession : undefined),
     listSessions: () => [baseSession],
+    updateSessionMetadata: (id: string, metadata: Record<string, unknown>) => id === "session-1"
+      ? { ...baseSession, metadata: { ...baseSession.metadata, ...metadata } }
+      : null,
     stopSession: async (id: string) => (id === "session-1" ? baseSession : null),
     getAdapter: () => null,
   } as any,
@@ -1743,6 +1746,9 @@ describe("handleSessionApi", () => {
       manager: {
         getSession: (id: string) => (id === "session-1" ? nonAgentSession : undefined),
         listSessions: () => [nonAgentSession],
+        updateSessionMetadata: (id: string, metadata: Record<string, unknown>) => id === "session-1"
+          ? { ...nonAgentSession, metadata: { ...nonAgentSession.metadata, ...metadata } }
+          : null,
         stopSession: async (id: string) => (id === "session-1" ? nonAgentSession : null),
       } as any,
       serializeSession: (session) => ({ id: session.id, metadata: session.metadata }),
@@ -2113,6 +2119,9 @@ describe("handleSessionApi", () => {
       manager: {
         getSession: (id: string) => (id === "session-1" ? stoppedSession : undefined),
         listSessions: () => [stoppedSession],
+        updateSessionMetadata: (id: string, metadata: Record<string, unknown>) => id === "session-1"
+          ? { ...stoppedSession, metadata: { ...stoppedSession.metadata, ...metadata } }
+          : null,
         stopSession: async (id: string) => (id === "session-1" ? stoppedSession : null),
       } as any,
       serializeSession: (session) => ({ id: session.id, metadata: session.metadata }),

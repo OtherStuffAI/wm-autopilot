@@ -12,6 +12,7 @@ import {
 } from "../sessions/restart-recovery-eligibility";
 import { restartDrainGate } from "../agents/session-admission";
 import {
+  clearWarmRestartMarker,
   type WarmRestartMarker,
   writeWarmRestartMarker,
 } from "./bootstrap/warm-restart";
@@ -41,7 +42,7 @@ export interface ControlledRestartSession {
   eligible: boolean;
   forced: boolean;
   queueCount: number;
-  recoveryStatus: "pending" | "restored" | "failed" | "not-eligible";
+  recoveryStatus: "pending" | "restored" | "failed" | "closed" | "not-eligible";
   replacementSessionId?: string;
   failure?: string;
 }
@@ -277,6 +278,7 @@ export async function requestControlledRestart(input: ControlledRestartRequest):
       operation.affectedSessionIds,
       input,
     );
+    await clearWarmRestartMarker(input.markerPath);
     operation.status = "failed";
     operation.failure = { phase: "stopping", message: `Failed to stop sessions: ${stopFailures.join(", ")}; rollback failures: ${rollbackFailures.join(", ") || "none"}` };
     await persist(input.operationPath, operation);
@@ -292,7 +294,12 @@ export async function requestControlledRestart(input: ControlledRestartRequest):
     operation.status = "restart-requested";
     finishPhase(operation, "restart-requested", "succeeded");
     await persist(input.operationPath, operation);
-    return Response.json({ status: operation.status, operationId, operation }, { status: 202 });
+    return Response.json({
+      status: operation.status,
+      operationId,
+      sessions: operation.affectedSessionIds,
+      operation,
+    }, { status: 202 });
   } catch (error) {
     restartDrainGate.leave(operationId);
     const rollbackFailures = await restoreAfterRejectedRestart(
@@ -301,6 +308,7 @@ export async function requestControlledRestart(input: ControlledRestartRequest):
       operation.affectedSessionIds,
       input,
     );
+    await clearWarmRestartMarker(input.markerPath);
     operation.status = "failed";
     operation.failure = { phase: "restart-requested", message: `${safeError(error)}; rollback failures: ${rollbackFailures.join(", ") || "none"}` };
     finishPhase(operation, "restart-requested", "failed", operation.failure.message);
@@ -333,7 +341,12 @@ async function restoreAfterRejectedRestart(
 
 export async function recordControlledRestartRecovery(
   operationPath: string,
-  outcome: { failed: string[]; resumedSessions?: Array<{ sourceSessionId: string; sessionId: string }>; freshSessions?: Array<{ sourceSessionId: string; sessionId: string }> } | null,
+  outcome: {
+    failed: string[];
+    resumedSessions?: Array<{ sourceSessionId: string; sessionId: string }>;
+    freshSessions?: Array<{ sourceSessionId: string; sessionId: string }>;
+    closedSessionIds?: string[];
+  } | null,
 ): Promise<ControlledRestartOperation | null> {
   const operation = await loadControlledRestartOperation(operationPath);
   if (!operation || operation.status === "complete" || operation.status === "partial") return operation;
@@ -344,12 +357,16 @@ export async function recordControlledRestartRecovery(
     ...(outcome?.freshSessions ?? []).map((entry) => [entry.sourceSessionId, entry.sessionId] as const),
   ]);
   const failed = new Set(outcome?.failed ?? operation.affectedSessionIds);
+  const explicitlyClosed = new Set(outcome?.closedSessionIds ?? []);
   for (const session of operation.sessions) {
     if (!session.eligible || session.recoveryStatus === "restored") continue;
     const replacement = replacements.get(session.id);
     if (replacement) {
       session.recoveryStatus = "restored";
       session.replacementSessionId = replacement;
+      delete session.failure;
+    } else if (explicitlyClosed.has(session.id)) {
+      session.recoveryStatus = "closed";
       delete session.failure;
     } else if (failed.has(session.id)) {
       session.recoveryStatus = "failed";

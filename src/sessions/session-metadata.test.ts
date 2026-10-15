@@ -3,6 +3,13 @@ import { describe, expect, test } from "bun:test";
 import { normaliseSessionMetadata } from "./session-metadata";
 
 describe("normaliseSessionMetadata", () => {
+  test("retains only valid explicit close timestamps", () => {
+    expect(normaliseSessionMetadata({
+      explicitlyClosedAt: "2026-10-15T07:44:00Z",
+    }).explicitlyClosedAt).toBe("2026-10-15T07:44:00.000Z");
+    expect(normaliseSessionMetadata({ explicitlyClosedAt: "not-a-date" }).explicitlyClosedAt).toBeUndefined();
+  });
+
   test("preserves valid resolved skill revision audit metadata", () => {
     expect(normaliseSessionMetadata({ resolvedSkillRevisions: [{ skillId: "source:skill", revisionId: "revision-1", digest: "a".repeat(64) }] }).resolvedSkillRevisions).toEqual([
       { skillId: "source:skill", revisionId: "revision-1", digest: "a".repeat(64) },

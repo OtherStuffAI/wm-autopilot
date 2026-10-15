@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { warmRestartState } from "./bootstrap/warm-restart";
 import { handleSystemRoutes, type SystemRoutesContext } from "./system-routes";
 import type { RequestAuthContext } from "../auth/request-context";
+import { restartDrainGate } from "./controlled-restart";
 
 const agentAuth: RequestAuthContext = {
   npub: "npub1wingman",
@@ -13,6 +14,18 @@ const agentAuth: RequestAuthContext = {
   session: null,
   delegatedByBot: false,
 };
+
+const restartRecoveryDeps = () => ({
+  controlledRestartOperationPath: join(tmpdir(), `controlled-restart-${crypto.randomUUID()}.json`),
+  messageStore: { listSessions: () => [] },
+  promptQueueStore: { getQueueCount: () => 0, rebindSession: () => 0 },
+  sessionDispatchStore: { hasRecoveryWork: () => false, rebindSession: () => undefined },
+  directChatTurnStore: { hasRecoverableSessionTurn: () => false },
+  queueDispatchInFlight: new Set<string>(),
+  controlledRestartGracePeriodMs: 0,
+});
+
+afterEach(() => restartDrainGate.leave());
 
 test("FIPS status requires system access even for a trusted restart agent", async () => {
   const url = new URL("http://node.fips:3601/api/system/fips");
@@ -70,9 +83,20 @@ describe("handleSystemRoutes restart", () => {
 
   test("allows trusted restart status reads and preserves explicit access denials", async () => {
     const url = new URL("http://localhost/api/system/restart/status");
+    const runtimeIdentity = {
+      controller: {
+        execution: "bun-source",
+        entrypoint: "src/index.ts",
+        gitCommit: "controller-commit",
+        sourceState: "clean",
+        startedAt: "2026-10-15T07:45:00.000Z",
+      },
+      agentApi: null,
+    } as const;
     const baseContext = {
       ensureApiAccess: async () => Response.json({ error: "admin-only" }, { status: 403 }),
       AccessActions: { SystemManage: "system:manage" },
+      runtimeIdentity,
     } as unknown as SystemRoutesContext;
 
     const allowed = await handleSystemRoutes(
@@ -91,6 +115,7 @@ describe("handleSystemRoutes restart", () => {
     );
 
     expect(allowed!.status).toBe(200);
+    expect(await allowed!.json()).toMatchObject({ runtime: runtimeIdentity });
     expect(denied!.status).toBe(403);
     expect(await denied!.json()).toEqual({ error: "admin-only" });
   });
@@ -100,6 +125,7 @@ describe("handleSystemRoutes restart", () => {
     let stopCalls = 0;
     let scheduledMarker: unknown = null;
     const ctx = {
+      ...restartRecoveryDeps(),
       manager: {
         listSessions: () => [{
           id: "session-1",
@@ -110,6 +136,7 @@ describe("handleSystemRoutes restart", () => {
           workingDirectory: "/tmp/project",
           metadata: {},
         }],
+        getSession: () => ({ status: "running" }),
         stopSession: async () => {
           stopCalls += 1;
         },
@@ -161,9 +188,11 @@ describe("handleSystemRoutes restart", () => {
       },
     };
     const ctx = {
+      ...restartRecoveryDeps(),
       restartMarkerPath: join(root, "restart.json"),
       manager: {
         listSessions: () => [session],
+        getSession: () => session,
         stopSession: async (sessionId: string) => {
           stopped.push(sessionId);
           return { ...session, status: "stopped" };
@@ -193,7 +222,7 @@ describe("handleSystemRoutes restart", () => {
     expect(stopped).toEqual(["session-1"]);
     expect(storedMarker).toMatchObject({
       mode: "resume-or-fresh",
-      status: "sessions-stopped",
+      status: "checkpointed",
       sessionIds: ["session-1"],
     });
     expect(scheduledMarker).toMatchObject({ mode: "resume-or-fresh", sessionIds: ["session-1"] });
@@ -203,6 +232,7 @@ describe("handleSystemRoutes restart", () => {
     const root = await mkdtemp(join(tmpdir(), "wingman-system-canonical-restart-"));
     let scheduledMarker: unknown = null;
     const ctx = {
+      ...restartRecoveryDeps(),
       restartMarkerPath: join(root, "restart.json"),
       manager: {
         listSessions: () => [],
@@ -245,9 +275,11 @@ describe("handleSystemRoutes restart", () => {
       metadata: {},
     };
     const ctx = {
+      ...restartRecoveryDeps(),
       restartMarkerPath: markerPath,
       manager: {
         listSessions: () => [session],
+        getSession: () => session,
         stopSession: async () => ({ ...session, status: "stopped" }),
         createSession: async (...args: unknown[]) => {
           origins.push((args[3] as { type: string }).type);
@@ -271,7 +303,10 @@ describe("handleSystemRoutes restart", () => {
     );
 
     expect(response!.status).toBe(500);
-    expect(await response!.json()).toMatchObject({ error: "manager unavailable", rollbackFailed: [] });
+    expect(await response!.json()).toMatchObject({
+      error: "Failed to launch restart: manager unavailable; rollback failures: none",
+      operation: { status: "failed", failure: { phase: "restart-requested" } },
+    });
     expect(origins).toEqual(["restart-fresh"]);
     expect(await Bun.file(markerPath).exists()).toBe(false);
   });

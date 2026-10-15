@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 
-import { ensureAgentApiBinary } from "../src/server/bootstrap/agentapi";
+import { buildAgentApiLoopback } from "../src/server/bootstrap/agentapi-build";
 
 const projectRootDirectory = resolve(import.meta.dir, "..");
-await ensureAgentApiBinary({
+await buildAgentApiLoopback({
   agentApiBinaryPath: resolve(projectRootDirectory, "out", "agentapi"),
   projectRootDirectory,
 });

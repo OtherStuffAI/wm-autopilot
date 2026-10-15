@@ -18,7 +18,6 @@ import type { MessageStore } from "../storage/message-store";
 import type { AppProcessManager } from "../apps/app-process-manager";
 import type { AppRegistry } from "../apps/app-registry";
 import type { SystemCleanupDeps, SystemCleanupResult } from "./system-cleanup";
-import { scheduleRestartWithSessionRecovery } from "./restart-request";
 import {
   loadControlledRestartOperation,
   requestControlledRestart,
@@ -26,6 +25,7 @@ import {
 import type { PromptQueueStore } from "../storage/prompt-queue-store";
 import type { SessionDispatchStore } from "../session-dispatch/session-dispatch-store";
 import type { DirectChatTurnStore } from "../agent-chat/direct-chat-turn-store";
+import type { RuntimeIdentity } from "./bootstrap/runtime-identity";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -54,6 +54,7 @@ export interface SystemRoutesContext {
   directChatTurnStore: Pick<DirectChatTurnStore, "hasRecoverableSessionTurn">;
   queueDispatchInFlight: ReadonlySet<string>;
   controlledRestartGracePeriodMs: number;
+  runtimeIdentity: RuntimeIdentity;
   appProcessManager: AppProcessManager;
   appRegistry: AppRegistry;
 }
@@ -125,6 +126,7 @@ export async function handleSystemRoutes(
         operation,
         marker: warmRestartState.marker,
         outcome: warmRestartOutcome.current,
+        runtime: ctx.runtimeIdentity,
       });
     } catch (error) {
       return Response.json({ error: `Failed to read controlled restart status: ${error instanceof Error ? error.message : String(error)}` }, { status: 500 });
@@ -177,6 +179,7 @@ export async function handleSystemRoutes(
       inProgress: warmRestartState.inProgress,
       marker: warmRestartState.marker,
       outcome: warmRestartOutcome.current,
+      runtime: ctx.runtimeIdentity,
     });
   }
 
@@ -191,13 +194,21 @@ export async function handleSystemRoutes(
       return Response.json({ error: "Restart already in progress" }, { status: 409 });
     }
     const requestedBy = authContext.actorNpub ?? authContext.npub ?? null;
-    return scheduleRestartWithSessionRecovery({
+    if (!requestedBy) {
+      return Response.json({ error: "restart-requester-identity-required" }, { status: 403 });
+    }
+    return requestControlledRestart({
       manager: ctx.manager,
+      messageStore: ctx.messageStore,
+      promptQueueStore: ctx.promptQueueStore,
+      sessionDispatchStore: ctx.sessionDispatchStore,
+      directChatTurnStore: ctx.directChatTurnStore,
+      queueDispatchInFlight: ctx.queueDispatchInFlight,
+      operationPath: ctx.controlledRestartOperationPath,
       markerPath: ctx.restartMarkerPath,
-      requestedBy,
-      reason: pathname === "/api/system/restart-and-resume"
-        ? "legacy-api-restart-and-resume"
-        : "api-restart",
+      requesterNpub: requestedBy,
+      gracePeriodMs: ctx.controlledRestartGracePeriodMs,
+      initiatingSessionId: authContext.capabilitySessionId ?? null,
       isAgentType: ctx.isAgentType,
       preflight: ctx.launchRestart
         ? undefined

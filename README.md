@@ -55,6 +55,12 @@ checksummed project-local toolchain under `.cache/toolchains`; no system Go
 installation is required. Startup repeats this check and repairs a missing or
 stale binary when necessary.
 
+`bun run build:agentapi-loopback` always performs a fresh deterministic native
+build and rewrites its provenance file. This binary is the agent-session
+transport, not the Autopilot controller. The controller runs `src/index.ts`
+through Bun; `GET /api/system/restart/status` reports its startup Git revision
+separately from the AgentAPI transport hash so activation can be verified.
+
 Launch the orchestration server:
 
 ```bash

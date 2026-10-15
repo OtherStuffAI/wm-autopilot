@@ -52,6 +52,8 @@ export interface SessionMetadata {
   flightdeckAgentNpub?: string;
   flightdeckRoutingKey?: string;
   sessionGeneration?: number;
+  /** Durable user/API close intent. Warm restart recovery must not revive it. */
+  explicitlyClosedAt?: string;
   ownerNpub?: string;
   createdByNpub?: string;
   lastManagedByNpub?: string;
@@ -184,6 +186,8 @@ export const normaliseSessionMetadata = (
   const nextActionTemplate =
     typeof metadata?.nextActionTemplate === "string" ? metadata.nextActionTemplate.trim() : "";
   const sessionGeneration = Number(metadata?.sessionGeneration);
+  const explicitlyClosedAtValue = cleanString(metadata?.explicitlyClosedAt);
+  const explicitlyClosedAtTimestamp = Date.parse(explicitlyClosedAtValue);
   const retryAttempt = Number(metadata?.retryAttempt);
   const bindingTypeValue =
     typeof metadata?.bindingType === "string" ? metadata.bindingType.trim().toLowerCase() : "";
@@ -264,6 +268,9 @@ export const normaliseSessionMetadata = (
     flightdeckAgentNpub: cleanString(metadata?.flightdeckAgentNpub) || undefined,
     flightdeckRoutingKey: cleanString(metadata?.flightdeckRoutingKey) || undefined,
     sessionGeneration: Number.isFinite(sessionGeneration) && sessionGeneration > 0 ? Math.floor(sessionGeneration) : undefined,
+    explicitlyClosedAt: Number.isFinite(explicitlyClosedAtTimestamp)
+      ? new Date(explicitlyClosedAtTimestamp).toISOString()
+      : undefined,
     bindingType,
     bindingId: bindingId || undefined,
     nativeProjectTools: role==='completed-turn' && metadata?.nativeProjectTools===true ? true : undefined,

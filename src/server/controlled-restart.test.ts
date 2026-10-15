@@ -136,6 +136,7 @@ describe("controlled restart coordinator", () => {
     expect(f.launches()).toBe(1);
     expect(f.queueRebindings).toEqual([["eligible", "replacement-1"]]);
     expect(f.dispatchRebindings).toEqual([["eligible", "replacement-1"]]);
+    expect(await Bun.file(f.input.markerPath).exists()).toBe(false);
     expect(restartDrainGate.isDraining()).toBe(false);
   });
 
@@ -159,6 +160,7 @@ describe("controlled restart coordinator", () => {
     expect(f.launches()).toBe(1);
     expect(f.queueRebindings).toEqual([["eligible", "replacement-1"]]);
     expect(f.dispatchRebindings).toEqual([["eligible", "replacement-1"]]);
+    expect(await Bun.file(f.input.markerPath).exists()).toBe(false);
     expect(restartDrainGate.isDraining()).toBe(false);
   });
 

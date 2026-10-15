@@ -277,6 +277,7 @@ import {
 } from "./server/terminal-websocket";
 import { createWingmanWebSocketHandler, type WingmanWebSocketData } from "./server/websocket-handler";
 import { ensureAgentApiBinary } from "./server/bootstrap/agentapi";
+import { captureRuntimeIdentity } from "./server/bootstrap/runtime-identity";
 import { SchedulerStore } from "./scheduler/scheduler-store";
 import { SchedulerEngine } from "./scheduler/scheduler-engine";
 import { requireSuccessfulPipelineExecution } from "./scheduler/pipeline-execution-result";
@@ -757,6 +758,8 @@ const projectRootDirectory = normalize(join(moduleDirectory, ".."));
 const agentApiBinaryPath = normalize(join(projectRootDirectory, "out", "agentapi"));
 
 await ensureAgentApiBinary({ agentApiBinaryPath, projectRootDirectory });
+const runtimeIdentity = await captureRuntimeIdentity(projectRootDirectory, agentApiBinaryPath);
+writeServerLog("INFO", "[runtime] activation identity", runtimeIdentity);
 
 let sessionsStoppedForRestart = false;
 
@@ -2851,6 +2854,7 @@ const handleApi = createApiRouteHandler({
     directChatTurnStore,
     queueDispatchInFlight,
     controlledRestartGracePeriodMs: Math.max(0, Number.parseInt(Bun.env.CONTROLLED_RESTART_GRACE_MS || "30000", 10) || 30000),
+    runtimeIdentity,
     ensureApiAccess,
     AccessActions,
     isAgentType,

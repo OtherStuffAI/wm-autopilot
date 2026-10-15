@@ -10,6 +10,7 @@ import { createRestartReplacement } from "../../sessions/restart-session-policy"
 import { resolveStoredSessionTargetFile } from "../../security/filesystem-boundary";
 import type { PromptQueueStore } from "../../storage/prompt-queue-store";
 import type { SessionDispatchStore } from "../../session-dispatch/session-dispatch-store";
+import { isSessionExplicitlyClosed } from "../../sessions/explicit-session-close";
 
 export type WarmRestartMarker = {
   createdAt: string;
@@ -21,6 +22,7 @@ export type WarmRestartMarker = {
   status?: string;
   message?: string;
   operationId?: string;
+  closedSessionIds?: string[];
   recoveredSessions?: Array<{ sourceSessionId: string; sessionId: string; disposition: "resumed" | "fresh"; reason?: string }>;
 };
 
@@ -31,6 +33,7 @@ export interface WarmRestartOutcome {
   mode?: "preserve" | "native-resume" | "resume-or-fresh";
   resumedSessions?: Array<{ sourceSessionId: string; sessionId: string }>;
   freshSessions?: Array<{ sourceSessionId: string; sessionId: string; reason?: string }>;
+  closedSessionIds?: string[];
 }
 
 export const warmRestartState = {
@@ -304,12 +307,19 @@ export const restoreRestartedSessions = async (
     }
   }
   const alreadyRecovered = new Set((marker.recoveredSessions ?? []).map((entry) => entry.sourceSessionId));
+  const explicitlyClosed = new Set(marker.closedSessionIds ?? []);
 
   for (const sourceSessionId of targetIds) {
-    if (alreadyRecovered.has(sourceSessionId)) continue;
+    if (alreadyRecovered.has(sourceSessionId) || explicitlyClosed.has(sourceSessionId)) continue;
     const source = recordsById.get(sourceSessionId) as NativeResumeSourceSession | undefined;
     if (!source) {
       failed.push(sourceSessionId);
+      continue;
+    }
+    if (isSessionExplicitlyClosed(source.metadata)) {
+      explicitlyClosed.add(sourceSessionId);
+      marker.closedSessionIds = [...explicitlyClosed];
+      if (marker.operationId) await writeWarmRestartMarker(markerPath, marker);
       continue;
     }
     try {
@@ -343,6 +353,7 @@ export const restoreRestartedSessions = async (
     mode: marker.mode === "native-resume" ? "native-resume" : "resume-or-fresh",
     resumedSessions,
     freshSessions,
+    closedSessionIds: [...explicitlyClosed],
   };
   warmRestartOutcome.current = outcome;
   warmRestartState.marker = null;

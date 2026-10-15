@@ -14,6 +14,7 @@ describe("resolveNativeResumeLaunch", () => {
       workingDirectory: "/tmp/project",
       metadata: {
         ownerNpub: "npub1owner",
+        explicitlyClosedAt: "2026-10-15T07:44:00.000Z",
         nativeAgentSession: {
           agent: "codex",
           sessionId: "native-123",
@@ -33,6 +34,7 @@ describe("resolveNativeResumeLaunch", () => {
     expect(launch.metadata.resumedFromWingmanSessionId).toBe("session-old");
     expect(launch.metadata.ownerNpub).toBe("npub1owner");
     expect(launch.metadata.lastManagedByNpub).toBe("npub1wingman");
+    expect(launch.metadata.explicitlyClosedAt).toBeUndefined();
   });
 
   test.each([

@@ -67,6 +67,7 @@ export function resolveNativeResumeLaunch(
         workingDirectory,
       },
       resumedFromWingmanSessionId: source.id,
+      explicitlyClosedAt: undefined,
       ownerNpub,
       createdByNpub: actorNpub ?? sourceMetadata.createdByNpub,
       lastManagedByNpub: actorNpub ?? undefined,
