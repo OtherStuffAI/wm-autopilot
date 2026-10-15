@@ -21,27 +21,53 @@ async function fixture(sessions = [session("idle")]) {
   const queues = new Map<string, number>();
   const directTurns = new Set<string>();
   const supervisedWork = new Set<string>();
+  const stopFailures = new Set<string>();
   const stopped: string[] = [];
+  const queueRebindings: Array<[string, string]> = [];
+  const dispatchRebindings: Array<[string, string]> = [];
   let launches = 0;
   const input = {
     manager: {
       listSessions: () => [...live.values()], getSession: (id: string) => live.get(id),
-      stopSession: async (id: string) => { stopped.push(id); live.delete(id); },
+      stopSession: async (id: string) => {
+        if (stopFailures.has(id)) throw new Error(`failed to stop ${id}`);
+        stopped.push(id);
+        live.delete(id);
+      },
       createSession: async () => { launches += 1; return { id: `replacement-${launches}` }; },
     },
     messageStore: { listSessions: () => [...sessions, { ...session("terminal"), id: "terminal" }] },
-    promptQueueStore: { getQueueCount: (id: string) => queues.get(id) ?? 0, rebindSession: () => 0 },
+    promptQueueStore: {
+      getQueueCount: (id: string) => queues.get(id) ?? 0,
+      rebindSession: (sourceId: string, replacementId: string) => {
+        queueRebindings.push([sourceId, replacementId]);
+        return 0;
+      },
+    },
     directChatTurnStore: { hasRecoverableSessionTurn: (id: string) => directTurns.has(id) },
     sessionDispatchStore: {
       hasRecoveryWork: (id: string) => supervisedWork.has(id),
-      rebindSession: () => undefined,
+      rebindSession: (sourceId: string, replacementId: string) => {
+        dispatchRebindings.push([sourceId, replacementId]);
+      },
     },
     queueDispatchInFlight: new Set<string>(),
     operationPath: join(root, "operation.json"), markerPath: join(root, "marker.json"),
     requesterNpub: "npub1pete", gracePeriodMs: 0, isAgentType: (agent: string) => agent === "codex",
     launch: async () => Response.json({ status: "scheduled" }, { status: 202 }),
   };
-  return { input, live, queues, directTurns, supervisedWork, stopped, launches: () => launches };
+  return {
+    input,
+    live,
+    queues,
+    directTurns,
+    supervisedWork,
+    stopFailures,
+    stopped,
+    queueRebindings,
+    dispatchRebindings,
+    launches: () => launches,
+  };
 }
 
 afterEach(() => restartDrainGate.leave());
@@ -92,14 +118,47 @@ describe("controlled restart coordinator", () => {
     expect(restartDrainGate.isDraining()).toBe(false);
   });
 
-  test("persists supervisor rejection and releases the gate", async () => {
-    const f = await fixture();
+  test("restores only eligible sessions after supervisor rejection", async () => {
+    const f = await fixture([
+      session("eligible"),
+      session("settled", {
+        origin: { type: "agent-chat", id: "route" },
+        metadata: { AGENT: true, role: "agent-chat", nextAction: "reflect" },
+      }),
+    ]);
     f.input.launch = async () => Response.json({ error: "supervisor refused" }, { status: 503 });
     const response = await requestControlledRestart(f.input as never);
     const operation = await loadControlledRestartOperation(f.input.operationPath);
     expect(response.status).toBe(500);
     expect(operation).toMatchObject({ status: "failed", failure: { phase: "restart-requested" } });
     expect(operation?.failure?.message).toContain("supervisor refused");
+    expect(f.stopped).toEqual(["eligible", "settled"]);
+    expect(f.launches()).toBe(1);
+    expect(f.queueRebindings).toEqual([["eligible", "replacement-1"]]);
+    expect(f.dispatchRebindings).toEqual([["eligible", "replacement-1"]]);
+    expect(restartDrainGate.isDraining()).toBe(false);
+  });
+
+  test("restores only stopped eligible sessions after a separate stop fails", async () => {
+    const f = await fixture([
+      session("eligible"),
+      session("settled", {
+        origin: { type: "agent-chat", id: "route" },
+        metadata: { AGENT: true, role: "agent-chat", nextAction: "reflect" },
+      }),
+      session("stop-failure"),
+    ]);
+    f.stopFailures.add("stop-failure");
+
+    const response = await requestControlledRestart(f.input as never);
+    const operation = await loadControlledRestartOperation(f.input.operationPath);
+
+    expect(response.status).toBe(500);
+    expect(operation).toMatchObject({ status: "failed", failure: { phase: "stopping" } });
+    expect(f.stopped).toEqual(["eligible", "settled"]);
+    expect(f.launches()).toBe(1);
+    expect(f.queueRebindings).toEqual([["eligible", "replacement-1"]]);
+    expect(f.dispatchRebindings).toEqual([["eligible", "replacement-1"]]);
     expect(restartDrainGate.isDraining()).toBe(false);
   });
 

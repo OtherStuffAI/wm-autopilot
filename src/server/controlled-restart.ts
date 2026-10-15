@@ -271,7 +271,12 @@ export async function requestControlledRestart(input: ControlledRestartRequest):
     stopFailures.length ? `Failed to stop ${stopFailures.length} session(s).` : undefined);
   if (stopFailures.length) {
     restartDrainGate.leave(operationId);
-    const rollbackFailures = await restoreAfterRejectedRestart(sourceSessions, stoppedIds, input);
+    const rollbackFailures = await restoreAfterRejectedRestart(
+      sourceSessions,
+      stoppedIds,
+      operation.affectedSessionIds,
+      input,
+    );
     operation.status = "failed";
     operation.failure = { phase: "stopping", message: `Failed to stop sessions: ${stopFailures.join(", ")}; rollback failures: ${rollbackFailures.join(", ") || "none"}` };
     await persist(input.operationPath, operation);
@@ -290,7 +295,12 @@ export async function requestControlledRestart(input: ControlledRestartRequest):
     return Response.json({ status: operation.status, operationId, operation }, { status: 202 });
   } catch (error) {
     restartDrainGate.leave(operationId);
-    const rollbackFailures = await restoreAfterRejectedRestart(sourceSessions, stoppedIds, input);
+    const rollbackFailures = await restoreAfterRejectedRestart(
+      sourceSessions,
+      stoppedIds,
+      operation.affectedSessionIds,
+      input,
+    );
     operation.status = "failed";
     operation.failure = { phase: "restart-requested", message: `${safeError(error)}; rollback failures: ${rollbackFailures.join(", ") || "none"}` };
     finishPhase(operation, "restart-requested", "failed", operation.failure.message);
@@ -302,12 +312,14 @@ export async function requestControlledRestart(input: ControlledRestartRequest):
 async function restoreAfterRejectedRestart(
   sourceSessions: SessionSnapshot[],
   stoppedIds: string[],
+  recoveryEligibleIds: string[],
   input: ControlledRestartRequest,
 ): Promise<string[]> {
   const stopped = new Set(stoppedIds);
+  const recoveryEligible = new Set(recoveryEligibleIds);
   const failures: string[] = [];
   for (const source of sourceSessions) {
-    if (!stopped.has(source.id)) continue;
+    if (!stopped.has(source.id) || !recoveryEligible.has(source.id)) continue;
     try {
       const replacement = await createRestartReplacement(input.manager, source, input.isAgentType, input.requesterNpub);
       input.promptQueueStore.rebindSession(source.id, replacement.sessionId);

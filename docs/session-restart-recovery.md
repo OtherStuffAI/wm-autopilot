@@ -22,6 +22,11 @@ so warm bootstrap cannot create another native-resume or fresh replacement.
 Stopping instead of deleting preserves its durable transcript and lifecycle
 evidence.
 
+If the supervisor rejects the restart launch, or a different session cannot be
+stopped, rollback recreates only recovery-eligible sessions that were already
+stopped. Settled automatic sessions remain stopped, while restored eligible
+sessions retain their prompt-queue and supervised-dispatch bindings.
+
 Agent Direct idle retirement remains a separate safeguard. Idle intercepts
 reschedule their retention timer on startup, but restart eligibility does not
 depend on intercept state being internally consistent: durable turn, queue, and
