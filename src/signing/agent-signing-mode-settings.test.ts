@@ -44,4 +44,28 @@ describe("AgentSigningModeSettings", () => {
     expect(() => settings.setMode("owner", "npub1admin")).toThrow("Unknown agent signing mode");
     store.close();
   });
+
+  test("preserves an unreadable stored mode and falls back after a session-secret rotation", () => {
+    const previousSecret = process.env.IDENTITY_SESSION_SECRET;
+    const { store } = makeStore();
+    try {
+      process.env.IDENTITY_SESSION_SECRET = "OldSecret_Value-For-Agent-Signing-Mode-123";
+      const settings = new AgentSigningModeSettings(store);
+      settings.setMode("full-agent", "npub1admin");
+
+      process.env.IDENTITY_SESSION_SECRET = "NewSecret_Value-For-Agent-Signing-Mode-456";
+      expect(settings.getMode()).toBe("standard-agent");
+      expect(settings.snapshot()).toEqual({
+        mode: "standard-agent",
+        configured: false,
+        updatedAt: null,
+        source: null,
+      });
+      expect(store.has("agents.signing_mode")).toBe(true);
+    } finally {
+      store.close();
+      if (previousSecret === undefined) delete process.env.IDENTITY_SESSION_SECRET;
+      else process.env.IDENTITY_SESSION_SECRET = previousSecret;
+    }
+  });
 });
