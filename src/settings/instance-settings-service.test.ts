@@ -118,6 +118,15 @@ describe("InstanceSettingsService", () => {
         IDENTITY_SESSION_SECRET: newSecret,
         GITEA_URL: "https://fallback.example.test",
       })).toHaveProperty("GITEA_URL", "https://fallback.example.test");
+      const importResult = service.autoImportMissing({
+        IDENTITY_SESSION_SECRET: newSecret,
+        GITEA_URL: "https://fallback.example.test",
+      });
+      expect(importResult.imported).toEqual([]);
+      expect(importResult.skipped).toContainEqual({
+        key: "integrations.gitea_url",
+        reason: "stored value cannot be decrypted with the active session secret",
+      });
       expect(store.has("integrations.gitea_url")).toBe(true);
       expect(() => store.get("integrations.gitea_url")).toThrow(
         "Encrypted instance setting could not be decrypted",

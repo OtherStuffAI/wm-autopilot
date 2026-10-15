@@ -273,10 +273,19 @@ export class InstanceSettingsService {
     const envSources = collectEnvSources(definition, env, envFile);
     if (envSources.length === 0) return null;
     const uniqueValues = new Set(envSources.map((source) => source.value));
-    const record = this.store.getRecord(definition.key);
+    let record: InstanceSettingRecord | null = null;
+    let recordUnreadable = false;
+    try {
+      record = this.store.getRecord(definition.key);
+    } catch (error) {
+      if (!(error instanceof SettingValueDecryptionError)) throw error;
+      recordUnreadable = this.store.has(definition.key);
+    }
     const value = envSources[0]?.value ?? "";
     const validationError = uniqueValues.size === 1 ? validateInstanceSettingValue(definition, value) : null;
-    const blockedReason = resolveBlockedReason(definition, record, envSources, validationError);
+    const blockedReason = recordUnreadable
+      ? "stored value cannot be decrypted with the active session secret"
+      : resolveBlockedReason(definition, record, envSources, validationError);
     const sourceKinds = new Set(envSources.map((source) => source.source));
     const source = sourceKinds.size > 1 ? "process+file" : envSources[0]?.source ?? "process";
     const appFingerprint = record ? fingerprintValue(record.value) : null;
@@ -293,7 +302,7 @@ export class InstanceSettingsService {
       envAliases: definition.envAliases,
       envKeys: envSources.map((item) => item.key),
       source,
-      configured: Boolean(record),
+      configured: Boolean(record) || recordUnreadable,
       imported: record?.source === "env_auto_import" || record?.source === "env_manual_import",
       appFingerprint,
       envFingerprint,
