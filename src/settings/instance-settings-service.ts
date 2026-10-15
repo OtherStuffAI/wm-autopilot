@@ -18,6 +18,7 @@ import {
   type InstanceSettingsStore,
   instanceSettingsStore,
 } from "../storage/instance-settings-store";
+import { SettingValueDecryptionError } from "../storage/setting-value-crypto";
 
 export interface MaskedInstanceSetting {
   key: string;
@@ -240,7 +241,17 @@ export class InstanceSettingsService {
     }
     for (const definition of INSTANCE_SETTING_DEFINITIONS) {
       if (!definition.compatibilityEnvName || definition.bootstrapOnly) continue;
-      const value = this.get(definition.key, env);
+      let value: string | null;
+      try {
+        value = this.get(definition.key, env);
+      } catch (error) {
+        if (!(error instanceof SettingValueDecryptionError)) throw error;
+        console.warn(
+          `[instance-settings] ${definition.key} cannot be decrypted with the active session secret; ` +
+          "preserving the stored value and using an environment fallback when available",
+        );
+        value = readEnvValueForDefinition(definition, env)?.value ?? null;
+      }
       if (value !== null && value.trim().length > 0) {
         output[definition.compatibilityEnvName] = value;
       }

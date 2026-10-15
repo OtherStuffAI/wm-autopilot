@@ -101,6 +101,32 @@ describe("InstanceSettingsService", () => {
     expect(result.imported.some((item) => item.key === "runtime.identity_session_secret")).toBe(false);
   });
 
+  test("preserves settings encrypted with an old secret and falls back to the environment at startup", () => {
+    const originalSecret = Bun.env.IDENTITY_SESSION_SECRET;
+    const oldSecret = "OldTestSecretValue_With-Numbers123!AndSymbols@2026";
+    const newSecret = "NewTestSecretValue_With-Numbers456!AndSymbols@2026";
+    Bun.env.IDENTITY_SESSION_SECRET = oldSecret;
+    store.set({
+      key: "integrations.gitea_url",
+      value: "https://stored.example.test",
+      source: "app",
+    });
+
+    try {
+      Bun.env.IDENTITY_SESSION_SECRET = newSecret;
+      expect(service.buildRuntimeEnv({
+        IDENTITY_SESSION_SECRET: newSecret,
+        GITEA_URL: "https://fallback.example.test",
+      })).toHaveProperty("GITEA_URL", "https://fallback.example.test");
+      expect(store.has("integrations.gitea_url")).toBe(true);
+      expect(() => store.get("integrations.gitea_url")).toThrow(
+        "Encrypted instance setting could not be decrypted",
+      );
+    } finally {
+      Bun.env.IDENTITY_SESSION_SECRET = originalSecret;
+    }
+  });
+
   test("does not allow admin npubs to be saved in app settings", () => {
     expect(() => service.set("identity.admin_npubs", "npub1admin")).toThrow(
       "Bootstrap-only settings cannot be saved in app settings",

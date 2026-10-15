@@ -13,6 +13,13 @@ interface EncryptedSettingPayload {
   ciphertext: string;
 }
 
+export class SettingValueDecryptionError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("Encrypted instance setting could not be decrypted with the active session secret", options);
+    this.name = "SettingValueDecryptionError";
+  }
+}
+
 const deriveKey = (): Buffer => {
   const secret = getSessionSecretBytes();
   return createHash("sha256").update(secret).digest().subarray(0, KEY_LENGTH);
@@ -44,18 +51,23 @@ export const decryptSettingValue = (value: string): string => {
     return value;
   }
 
-  const encodedPayload = value.slice(ENCRYPTED_PREFIX.length);
-  const parsed = JSON.parse(Buffer.from(encodedPayload, "base64").toString("utf8")) as Partial<EncryptedSettingPayload>;
-  if (parsed.v !== 1 || !parsed.iv || !parsed.authTag || !parsed.ciphertext) {
-    throw new Error("Invalid encrypted setting payload");
-  }
+  try {
+    const encodedPayload = value.slice(ENCRYPTED_PREFIX.length);
+    const parsed = JSON.parse(Buffer.from(encodedPayload, "base64").toString("utf8")) as Partial<EncryptedSettingPayload>;
+    if (parsed.v !== 1 || !parsed.iv || !parsed.authTag || !parsed.ciphertext) {
+      throw new Error("Invalid encrypted setting payload");
+    }
 
-  const key = deriveKey();
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(parsed.iv, "base64"));
-  decipher.setAuthTag(Buffer.from(parsed.authTag, "base64"));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(parsed.ciphertext, "base64")),
-    decipher.final(),
-  ]);
-  return decrypted.toString("utf8");
+    const key = deriveKey();
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(parsed.iv, "base64"));
+    decipher.setAuthTag(Buffer.from(parsed.authTag, "base64"));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(parsed.ciphertext, "base64")),
+      decipher.final(),
+    ]);
+    return decrypted.toString("utf8");
+  } catch (error) {
+    if (error instanceof SettingValueDecryptionError) throw error;
+    throw new SettingValueDecryptionError({ cause: error });
+  }
 };
