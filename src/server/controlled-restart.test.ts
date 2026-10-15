@@ -8,6 +8,7 @@ import {
   requestControlledRestart,
   restartDrainGate,
 } from "./controlled-restart";
+import { loadWarmRestartMarker, restoreRestartedSessions } from "./bootstrap/warm-restart";
 
 const session = (id: string, options: Record<string, unknown> = {}) => ({
   id, agent: "codex", port: 3700, name: id, status: "running", startedAt: new Date().toISOString(),
@@ -18,21 +19,29 @@ async function fixture(sessions = [session("idle")]) {
   const root = await mkdtemp(join(tmpdir(), "controlled-restart-test-"));
   const live = new Map(sessions.map((value) => [value.id, value]));
   const queues = new Map<string, number>();
+  const directTurns = new Set<string>();
+  const supervisedWork = new Set<string>();
   const stopped: string[] = [];
+  let launches = 0;
   const input = {
     manager: {
       listSessions: () => [...live.values()], getSession: (id: string) => live.get(id),
       stopSession: async (id: string) => { stopped.push(id); live.delete(id); },
-      createSession: async () => ({ id: "rollback-session" }),
+      createSession: async () => { launches += 1; return { id: `replacement-${launches}` }; },
     },
     messageStore: { listSessions: () => [...sessions, { ...session("terminal"), id: "terminal" }] },
     promptQueueStore: { getQueueCount: (id: string) => queues.get(id) ?? 0, rebindSession: () => 0 },
+    directChatTurnStore: { hasRecoverableSessionTurn: (id: string) => directTurns.has(id) },
+    sessionDispatchStore: {
+      hasRecoveryWork: (id: string) => supervisedWork.has(id),
+      rebindSession: () => undefined,
+    },
     queueDispatchInFlight: new Set<string>(),
     operationPath: join(root, "operation.json"), markerPath: join(root, "marker.json"),
     requesterNpub: "npub1pete", gracePeriodMs: 0, isAgentType: (agent: string) => agent === "codex",
     launch: async () => Response.json({ status: "scheduled" }, { status: 202 }),
   };
-  return { input, live, queues, stopped };
+  return { input, live, queues, directTurns, supervisedWork, stopped, launches: () => launches };
 }
 
 afterEach(() => restartDrainGate.leave());
@@ -47,7 +56,7 @@ describe("controlled restart coordinator", () => {
     const response = await requestControlledRestart(f.input as never);
     const operation = await loadControlledRestartOperation(f.input.operationPath);
     expect(response.status).toBe(202);
-    expect(operation?.counts).toMatchObject({ "active-in-flight": 1, idle: 1, queued: 1, scheduled: 1, terminal: 1, forced: 1 });
+    expect(operation?.counts).toMatchObject({ "active-in-flight": 1, "user-persistent": 1, queued: 1, scheduled: 1, terminal: 1, forced: 1 });
     expect(operation?.forcedSessionIds).toEqual(["busy"]);
     expect(operation?.phases.find((entry) => entry.phase === "draining")?.outcome).toBe("partial");
     expect(f.stopped.sort()).toEqual(["busy", "idle", "queued", "scheduled"]);
@@ -114,5 +123,61 @@ describe("controlled restart coordinator", () => {
     const operation = await recordControlledRestartRecovery(f.input.operationPath, null);
     expect(operation?.status).toBe("partial");
     expect(operation?.sessions.find((entry) => entry.id === "idle")?.recoveryStatus).toBe("failed");
+  });
+
+  test("uses durable work invariants and still stops settled auto sessions cleanly", async () => {
+    const automatic = { AGENT: true, role: "agent-chat", nextAction: "reflect" };
+    const f = await fixture([
+      session("active", { agentRuntimeStatus: "running", metadata: automatic }),
+      session("uncertain", { metadata: automatic }),
+      session("direct", { metadata: automatic }),
+      session("supervisor", { metadata: automatic }),
+      session("scheduled", { origin: { type: "scheduler", id: "job-1" }, metadata: automatic }),
+      session("user-idle"),
+      session("settled", { origin: { type: "agent-chat", id: "route" }, metadata: automatic }),
+    ]);
+    // getQueueCount includes both pending prompts and claimed uncertain deliveries.
+    f.queues.set("uncertain", 1);
+    f.directTurns.add("direct");
+    f.supervisedWork.add("supervisor");
+
+    await requestControlledRestart(f.input as never);
+    const operation = await loadControlledRestartOperation(f.input.operationPath);
+
+    expect(operation?.affectedSessionIds.sort()).toEqual([
+      "active", "direct", "scheduled", "supervisor", "uncertain", "user-idle",
+    ]);
+    expect(operation?.sessions.find((entry) => entry.id === "settled")).toMatchObject({
+      classification: "settled-auto",
+      eligible: false,
+      recoveryStatus: "not-eligible",
+    });
+    expect(f.stopped.sort()).toEqual([
+      "active", "direct", "scheduled", "settled", "supervisor", "uncertain", "user-idle",
+    ]);
+  });
+
+  test("does not resurrect a settled auto Agent Direct session across two restart cycles", async () => {
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      const settled = session(`settled-${cycle}`, {
+        origin: { type: "agent-chat", id: "route" },
+        metadata: { AGENT: true, role: "agent-chat", nextAction: "reflect" },
+      });
+      const f = await fixture([settled]);
+      await requestControlledRestart(f.input as never);
+      const marker = await loadWarmRestartMarker(f.input.markerPath);
+      const outcome = await restoreRestartedSessions(
+        marker,
+        f.input.markerPath,
+        f.input.manager as never,
+        f.input.messageStore as never,
+        ["codex"],
+        { promptQueueStore: f.input.promptQueueStore, sessionDispatchStore: f.input.sessionDispatchStore } as never,
+      );
+      expect(marker?.sessionIds).toEqual([]);
+      expect(outcome?.restored).toBe(0);
+      expect(f.launches()).toBe(0);
+      restartDrainGate.leave();
+    }
   });
 });

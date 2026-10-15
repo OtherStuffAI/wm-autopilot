@@ -54,5 +54,6 @@ export function ensureWappStoreSchema(db: Database): void {
   db.run("CREATE INDEX IF NOT EXISTS idx_wapp_records_owner ON wapp_records(owner_npub)");
   db.run("CREATE INDEX IF NOT EXISTS idx_wapp_records_scope ON wapp_records(workspace_owner_npub, scope_id)");
   db.run("CREATE INDEX IF NOT EXISTS idx_wapp_records_tower_binding ON wapp_records(tower_binding_id)");
-  db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_wapp_tower_bindings_default ON wapp_tower_bindings(is_default) WHERE is_default = 1");
+  db.run("DROP INDEX IF EXISTS idx_wapp_tower_bindings_default");
+  db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_wapp_tower_bindings_owner_default ON wapp_tower_bindings(workspace_owner_npub) WHERE is_default = 1");
 }

@@ -4,19 +4,19 @@ import type { AgentType } from "../config";
 import type { MessageStore } from "../storage/message-store";
 import type { PromptQueueStore } from "../storage/prompt-queue-store";
 import type { SessionDispatchStore } from "../session-dispatch/session-dispatch-store";
+import type { DirectChatTurnStore } from "../agent-chat/direct-chat-turn-store";
 import { createRestartReplacement } from "../sessions/restart-session-policy";
+import {
+  assessRestartRecovery,
+  type RestartRecoveryClassification,
+} from "../sessions/restart-recovery-eligibility";
 import { restartDrainGate } from "../agents/session-admission";
 import {
   type WarmRestartMarker,
   writeWarmRestartMarker,
 } from "./bootstrap/warm-restart";
 
-export type ControlledRestartClassification =
-  | "active-in-flight"
-  | "idle"
-  | "queued"
-  | "scheduled"
-  | "terminal";
+export type ControlledRestartClassification = RestartRecoveryClassification;
 
 export type ControlledRestartPhaseName =
   | "requested"
@@ -109,26 +109,24 @@ function finishPhase(
   if (detail) entry.detail = detail;
 }
 
-function classificationFor(session: SessionSnapshot, queueCount: number, inFlight: boolean): ControlledRestartClassification {
-  if (session.status === "stopped" || session.status === "error") return "terminal";
-  if (session.origin?.type === "scheduler") return "scheduled";
-  if (inFlight || session.agentRuntimeStatus === "running") return "active-in-flight";
-  if (queueCount > 0) return "queued";
-  return "idle";
-}
-
 function classifySessions(
   manager: ProcessManager,
   store: MessageStore,
   queue: PromptQueueStore,
+  directChatTurns: Pick<DirectChatTurnStore, "hasRecoverableSessionTurn">,
+  dispatches: Pick<SessionDispatchStore, "hasRecoveryWork">,
   inFlightIds: ReadonlySet<string>,
 ): ControlledRestartSession[] {
   const live = manager.listSessions();
   const liveIds = new Set(live.map((session) => session.id));
   const rows = live.map((session) => {
     const queueCount = queue.getQueueCount(session.id);
-    const classification = classificationFor(session, queueCount, inFlightIds.has(session.id));
-    const eligible = classification !== "terminal";
+    const { classification, eligible } = assessRestartRecovery(session, {
+      queueCount,
+      queueDispatchInFlight: inFlightIds.has(session.id),
+      hasDirectChatTurn: directChatTurns.hasRecoverableSessionTurn(session.id),
+      hasSupervisedWork: dispatches.hasRecoveryWork(session.id),
+    });
     return { id: session.id, classification, eligible, forced: false, queueCount,
       recoveryStatus: eligible ? "pending" as const : "not-eligible" as const };
   });
@@ -143,7 +141,8 @@ function classifySessions(
 
 function countsFor(sessions: ControlledRestartSession[]): ControlledRestartOperation["counts"] {
   const counts: ControlledRestartOperation["counts"] = {
-    "active-in-flight": 0, idle: 0, queued: 0, scheduled: 0, terminal: 0,
+    "active-in-flight": 0, queued: 0, "agent-direct": 0, supervised: 0,
+    scheduled: 0, "user-persistent": 0, "settled-auto": 0, terminal: 0,
     eligible: 0, forced: 0,
   };
   for (const session of sessions) {
@@ -160,7 +159,8 @@ export interface ControlledRestartRequest {
   manager: ProcessManager;
   messageStore: MessageStore;
   promptQueueStore: PromptQueueStore;
-  sessionDispatchStore?: SessionDispatchStore;
+  sessionDispatchStore: SessionDispatchStore;
+  directChatTurnStore: Pick<DirectChatTurnStore, "hasRecoverableSessionTurn">;
   queueDispatchInFlight: ReadonlySet<string>;
   operationPath: string;
   markerPath: string;
@@ -183,7 +183,14 @@ export async function requestControlledRestart(input: ControlledRestartRequest):
   const operationId = crypto.randomUUID();
   restartDrainGate.enter(operationId);
   const sourceSessions = input.manager.listSessions();
-  const sessions = classifySessions(input.manager, input.messageStore, input.promptQueueStore, input.queueDispatchInFlight);
+  const sessions = classifySessions(
+    input.manager,
+    input.messageStore,
+    input.promptQueueStore,
+    input.directChatTurnStore,
+    input.sessionDispatchStore,
+    input.queueDispatchInFlight,
+  );
   const createdAt = now().toISOString();
   const operation: ControlledRestartOperation = {
     version: 1, operationId, requesterNpub: input.requesterNpub, createdAt, updatedAt: createdAt,
@@ -252,9 +259,13 @@ export async function requestControlledRestart(input: ControlledRestartRequest):
   await persist(input.operationPath, operation);
   const stopFailures: string[] = [];
   const stoppedIds: string[] = [];
-  for (const entry of operation.sessions.filter((candidate) => candidate.eligible)) {
-    try { await input.manager.stopSession(entry.id); stoppedIds.push(entry.id); }
-    catch (error) { entry.failure = safeError(error); stopFailures.push(entry.id); }
+  for (const source of sourceSessions) {
+    const entry = operation.sessions.find((candidate) => candidate.id === source.id);
+    try { await input.manager.stopSession(source.id); stoppedIds.push(source.id); }
+    catch (error) {
+      if (entry) entry.failure = safeError(error);
+      stopFailures.push(source.id);
+    }
   }
   finishPhase(operation, "stopping", stopFailures.length ? "partial" : "succeeded",
     stopFailures.length ? `Failed to stop ${stopFailures.length} session(s).` : undefined);
@@ -300,7 +311,7 @@ async function restoreAfterRejectedRestart(
     try {
       const replacement = await createRestartReplacement(input.manager, source, input.isAgentType, input.requesterNpub);
       input.promptQueueStore.rebindSession(source.id, replacement.sessionId);
-      input.sessionDispatchStore?.rebindSession(source.id, replacement.sessionId);
+      input.sessionDispatchStore.rebindSession(source.id, replacement.sessionId);
     } catch {
       failures.push(source.id);
     }

@@ -26,12 +26,22 @@ WAPP_TOWER_URL
 WAPP_WORKSPACE_ID
 WAPP_TOWER_WORKSPACE_ID
 WAPP_TOWER_WORKSPACE_OWNER_NPUB
+WAPP_TOWER_BINDINGS_JSON
 WAPP_REGISTERED_OPEN_ORIGINS_JSON
 ```
 
 `WAPP_WORKSPACE_ID` is empty when no stable Tower workspace ID is configured.
 The absence of `WAPP_NSEC` is intentional. A WApp calls Autopilot's authorised
 activity route; Autopilot signs with the installation-scoped broker identity.
+
+`WAPP_TOWER_BINDINGS_JSON` is the finite public routing catalog for the current
+managed process. Each entry contains only the stored installation ID, binding
+ID, Tower origin, workspace ID (when configured), workspace owner npub, and app
+npub. A WApp may match its saved business destination to this catalog and send
+the corresponding opaque `installationId` to the broker. It cannot add a Tower
+origin or widen the catalog. The legacy singular variables above continue to
+describe the latest active installation selected by `getByAppId()`; they are
+compatibility values, not routing input.
 
 Tower-backed WApps also receive these process-only values:
 
@@ -61,6 +71,7 @@ Content-Type: application/json
 
 ```json
 {
+  "installationId": "installed-binding-id",
   "method": "PATCH",
   "path": "/tables/companies/rows/company_123",
   "body": {
@@ -71,10 +82,13 @@ Content-Type: application/json
 }
 ```
 
-The broker accepts only `method`, `path`, and optional `body`. `path` is a
-suffix beneath the bound installation's own Tower `/db` route; it is never a
-URL. The broker constructs the Tower origin, workspace owner, app npub, and
-namespace from current Autopilot state. Supported combinations are:
+The broker accepts only `installationId`, `method`, `path`, and optional `body`.
+`installationId` must be one of the active installations captured in the
+process capability when it was issued. Single-binding callers may omit it and
+retain the existing default-installation behavior. `path` is a suffix beneath
+the selected installation's own Tower `/db` route; it is never a URL. The
+broker constructs the Tower origin, workspace owner, app npub, and namespace
+from current Autopilot state. Supported combinations are:
 
 | Path | Methods |
 | --- | --- |
@@ -96,6 +110,29 @@ unknown request fields, widened paths or methods, expired or revoked bearers,
 inactive installations, missing custody or bindings, and any app identity or
 Tower binding drift since process start. It is not a general NIP-98 signer or
 HTTP proxy.
+
+## Multiple binding lifecycle
+
+The durable model is one active `WappRecord` per explicitly authorised Tower
+installation. Multiple records may reference the same managed `appId`; each
+keeps its own immutable installation ID, Tower binding, workspace tuple, public
+app identity, and broker custody record. This uses the existing install-intent
+relationship, so no schema migration or implicit grant synthesis is required.
+
+At process start Autopilot lists the app's active installations, rejects any
+incomplete Tower-backed record, snapshots their exact tuples into one in-memory
+capability, and exposes their public catalog in `WAPP_TOWER_BINDINGS_JSON`.
+Every request re-reads the selected installation and fails closed if its state,
+app ID, installation ID, owner, workspace owner, binding ID, normalized Tower
+origin, workspace ID, binding owner, app npub, or custody availability changed.
+Stop, restart, or app-level revocation invalidates the one capability that
+covers the set, so there are no sibling bearer tokens left usable.
+
+To add a destination, complete another normal Tower installation intent for the
+same managed app and restart that managed process after review. Existing
+single-installation records and publish/install flows need no data migration.
+Removing, archiving, reassigning, or rotating an installation takes effect on
+its next broker request; a managed-process restart refreshes the finite catalog.
 
 ## One-time legacy identity custody migration
 

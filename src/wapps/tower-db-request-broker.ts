@@ -10,6 +10,7 @@ export const WAPP_TOWER_DB_CAPABILITY_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 type AllowedMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
 export interface WappTowerDbBrokerRequest {
+  installationId?: string;
   method: string;
   path: string;
   body?: unknown;
@@ -20,15 +21,21 @@ export interface WappTowerDbRuntimeCapability {
   expiresAt: string;
 }
 
-interface CapabilityRecord {
+interface CapabilityBindingRecord {
   installationId: string;
-  appId: string;
   ownerNpub: string;
+  workspaceOwnerNpub: string;
   appNpub: string;
   towerBindingId: string;
-  towerUrl: string;
+  towerOrigin: string;
   workspaceId: string | null;
-  workspaceOwnerNpub: string;
+  bindingWorkspaceOwnerNpub: string;
+}
+
+interface CapabilityRecord {
+  defaultInstallationId: string;
+  appId: string;
+  bindings: CapabilityBindingRecord[];
   issuedAt: number;
   expiresAt: number;
   revokedAt: number | null;
@@ -215,33 +222,40 @@ export class WappTowerDbRequestBroker {
     this.maxBodyBytes = options.maxBodyBytes ?? WAPP_TOWER_DB_MAX_BODY_BYTES;
   }
 
-  issue(input: { installationId: string; appId: string }): WappTowerDbRuntimeCapability {
-    const wapp = this.store.get(input.installationId);
-    if (
-      !wapp
-      || wapp.recordState !== "active"
-      || wapp.status !== "active"
-      || wapp.appId !== input.appId
-      || !wapp.towerBindingId
-      || !wapp.towerBinding
-      || !wapp.appNpub
-      || !this.store.hasAppSigningKey(wapp.id)
-    ) {
-      throw new WappTowerDbBrokerError("wapp_broker_binding_incomplete", 409, "Tower-backed WApp broker identity is incomplete");
-    }
-    normalizeTowerOrigin(wapp.towerBinding.towerUrl);
+  issue(input: { installationId: string; installationIds?: string[]; appId: string }): WappTowerDbRuntimeCapability {
+    const installationIds = Array.from(new Set([input.installationId, ...(input.installationIds ?? [])]));
+    const bindings = installationIds.map((installationId): CapabilityBindingRecord => {
+      const wapp = this.store.get(installationId);
+      if (
+        !wapp
+        || wapp.recordState !== "active"
+        || wapp.status !== "active"
+        || wapp.appId !== input.appId
+        || !wapp.towerBindingId
+        || !wapp.towerBinding
+        || !wapp.appNpub
+        || !this.store.hasAppSigningKey(wapp.id)
+      ) {
+        throw new WappTowerDbBrokerError("wapp_broker_binding_incomplete", 409, "Tower-backed WApp broker identity is incomplete");
+      }
+      return {
+        installationId: wapp.wappInstallationId,
+        ownerNpub: wapp.ownerNpub,
+        workspaceOwnerNpub: wapp.workspaceOwnerNpub,
+        appNpub: wapp.appNpub,
+        towerBindingId: wapp.towerBindingId,
+        towerOrigin: normalizeTowerOrigin(wapp.towerBinding.towerUrl),
+        workspaceId: wapp.towerBinding.workspaceId,
+        bindingWorkspaceOwnerNpub: wapp.towerBinding.workspaceOwnerNpub,
+      };
+    });
     const token = randomBytes(32).toString("base64url");
     const issuedAt = this.now();
     const expiresAt = issuedAt + this.capabilityTtlMs;
     this.capabilities.set(capabilityDigest(token), {
-      installationId: wapp.wappInstallationId,
-      appId: wapp.appId,
-      ownerNpub: wapp.ownerNpub,
-      appNpub: wapp.appNpub,
-      towerBindingId: wapp.towerBindingId,
-      towerUrl: wapp.towerBinding.towerUrl,
-      workspaceId: wapp.towerBinding.workspaceId,
-      workspaceOwnerNpub: wapp.towerBinding.workspaceOwnerNpub,
+      defaultInstallationId: input.installationId,
+      appId: input.appId,
+      bindings,
       issuedAt,
       expiresAt,
       revokedAt: null,
@@ -273,27 +287,40 @@ export class WappTowerDbRequestBroker {
       throw new WappTowerDbBrokerError("capability_expired", 401, "WApp Tower DB capability has expired");
     }
 
-    const wapp = this.store.get(capability.installationId);
-    const binding = wapp?.towerBinding;
-    if (!wapp || wapp.recordState !== "active" || wapp.status !== "active") {
-      throw new WappTowerDbBrokerError("wapp_not_active", 409, "WApp installation is not active");
+    const requestedInstallationId = input.installationId?.trim() || capability.defaultInstallationId;
+    const grantedBinding = capability.bindings.find((entry) => entry.installationId === requestedInstallationId);
+    if (!grantedBinding) {
+      throw new WappTowerDbBrokerError("wapp_binding_not_authorized", 403, "WApp Tower DB installation is not authorized by this capability");
     }
-    if (
-      wapp.wappInstallationId !== capability.installationId
-      || wapp.appId !== capability.appId
-      || wapp.ownerNpub !== capability.ownerNpub
-      || wapp.appNpub !== capability.appNpub
-      || wapp.towerBindingId !== capability.towerBindingId
-      || !binding
-      || binding.towerUrl !== capability.towerUrl
-      || binding.workspaceId !== capability.workspaceId
-      || binding.workspaceOwnerNpub !== capability.workspaceOwnerNpub
-    ) {
-      throw new WappTowerDbBrokerError("wapp_identity_drift", 409, "WApp broker identity or Tower binding changed after process start");
-    }
-    if (!this.store.hasAppSigningKey(wapp.id)) {
-      throw new WappTowerDbBrokerError("wapp_signing_key_missing", 409, "WApp broker signing identity is unavailable");
-    }
+
+    const activeBindings = capability.bindings.map((granted) => {
+      const current = this.store.get(granted.installationId);
+      const currentBinding = current?.towerBinding;
+      if (!current || current.recordState !== "active" || current.status !== "active") {
+        throw new WappTowerDbBrokerError("wapp_not_active", 409, "WApp installation is not active");
+      }
+      if (
+        current.wappInstallationId !== granted.installationId
+        || current.appId !== capability.appId
+        || current.ownerNpub !== granted.ownerNpub
+        || current.workspaceOwnerNpub !== granted.workspaceOwnerNpub
+        || current.appNpub !== granted.appNpub
+        || current.towerBindingId !== granted.towerBindingId
+        || !currentBinding
+        || normalizeTowerOrigin(currentBinding.towerUrl) !== granted.towerOrigin
+        || currentBinding.workspaceId !== granted.workspaceId
+        || currentBinding.workspaceOwnerNpub !== granted.bindingWorkspaceOwnerNpub
+      ) {
+        throw new WappTowerDbBrokerError("wapp_identity_drift", 409, "WApp broker identity or Tower binding changed after process start");
+      }
+      if (!this.store.hasAppSigningKey(current.id)) {
+        throw new WappTowerDbBrokerError("wapp_signing_key_missing", 409, "WApp broker signing identity is unavailable");
+      }
+      return { granted, current, currentBinding };
+    });
+    const selected = activeBindings.find((entry) => entry.granted === grantedBinding)!;
+    const wapp = selected.current;
+    const binding = selected.currentBinding;
 
     const method = input.method?.trim().toUpperCase() as AllowedMethod;
     if (!(["GET", "POST", "PATCH", "DELETE"] as const).includes(method)) {
@@ -301,9 +328,9 @@ export class WappTowerDbRequestBroker {
     }
     const path = normalizeAllowedPath(method, input.path?.trim() ?? "");
     const serializedBody = serializeBody(input, method, this.maxBodyBytes);
-    const towerOrigin = normalizeTowerOrigin(binding.towerUrl);
+    const towerOrigin = grantedBinding.towerOrigin;
     const targetPath = `/api/v4/workspaces/${encodeURIComponent(binding.workspaceOwnerNpub)}`
-      + `/apps/${encodeURIComponent(wapp.appNpub)}/db${path}`;
+      + `/apps/${encodeURIComponent(grantedBinding.appNpub)}/db${path}`;
     const targetUrl = new URL(targetPath, towerOrigin).toString();
     capability.expiresAt = this.now() + this.capabilityTtlMs;
 

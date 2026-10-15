@@ -152,6 +152,14 @@ export class DirectChatTurnStore {
       .all(limit) as Record<string, unknown>[]).map((row) => this.map(row));
   }
 
+  hasRecoverableSessionTurn(sessionId: string): boolean {
+    if (!sessionId) return false;
+    return Boolean(this.db.query(`SELECT 1 FROM agent_direct_chat_turns
+      WHERE session_id = ?1 AND COALESCE(prompt_type,'') != 'direct_chat_status'
+        AND state NOT IN ('completed','published','suppressed','integrity_halt','failed')
+      LIMIT 1`).get(sessionId));
+  }
+
   save(record: DirectChatTurnRecord): DirectChatTurnRecord {
     // After freezing, only lease-aware delivery methods own state transitions.
     // Generic runtime snapshots must not rewind retries or publication binding.

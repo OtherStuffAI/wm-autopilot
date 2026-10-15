@@ -25,6 +25,7 @@ import {
 } from "./controlled-restart";
 import type { PromptQueueStore } from "../storage/prompt-queue-store";
 import type { SessionDispatchStore } from "../session-dispatch/session-dispatch-store";
+import type { DirectChatTurnStore } from "../agent-chat/direct-chat-turn-store";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
@@ -50,6 +51,7 @@ export interface SystemRoutesContext {
   messageStore: MessageStore;
   promptQueueStore: PromptQueueStore;
   sessionDispatchStore: SessionDispatchStore;
+  directChatTurnStore: Pick<DirectChatTurnStore, "hasRecoverableSessionTurn">;
   queueDispatchInFlight: ReadonlySet<string>;
   controlledRestartGracePeriodMs: number;
   appProcessManager: AppProcessManager;
@@ -147,6 +149,7 @@ export async function handleSystemRoutes(
       messageStore: ctx.messageStore,
       promptQueueStore: ctx.promptQueueStore,
       sessionDispatchStore: ctx.sessionDispatchStore,
+      directChatTurnStore: ctx.directChatTurnStore,
       queueDispatchInFlight: ctx.queueDispatchInFlight,
       operationPath: ctx.controlledRestartOperationPath,
       markerPath: ctx.restartMarkerPath,

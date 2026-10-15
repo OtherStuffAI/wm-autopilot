@@ -6,6 +6,37 @@ import { wappStore, type WappStore } from "./wapp-store";
 export interface WappTowerDbRuntimeEnvInput {
   brokerUrl: string;
   capability: string;
+  bindings?: WappTowerDbRuntimeBinding[];
+}
+
+export interface WappTowerDbRuntimeBinding {
+  installationId: string;
+  bindingId: string;
+  towerUrl: string;
+  workspaceId: string | null;
+  workspaceOwnerNpub: string;
+  appNpub: string;
+}
+
+export function getWappTowerDbRuntimeBindings(
+  appId: string,
+  store: WappStore = wappStore,
+): WappTowerDbRuntimeBinding[] {
+  return store.listActiveByAppId(appId)
+    .filter((wapp) => Boolean(wapp.towerBindingId))
+    .map((wapp) => {
+      if (!wapp.towerBinding || !wapp.appNpub) {
+        throw new Error(`WApp ${wapp.id} has an incomplete Tower binding`);
+      }
+      return {
+        installationId: wapp.wappInstallationId,
+        bindingId: wapp.towerBinding.id,
+        towerUrl: new URL(wapp.towerBinding.towerUrl).origin,
+        workspaceId: wapp.towerBinding.workspaceId,
+        workspaceOwnerNpub: wapp.towerBinding.workspaceOwnerNpub,
+        appNpub: wapp.appNpub,
+      };
+    });
 }
 
 export function buildWappRuntimeEnv(
@@ -52,6 +83,14 @@ export function buildWappRuntimeEnv(
     WAPP_TOWER_WORKSPACE_OWNER_NPUB: wapp.towerBinding.workspaceOwnerNpub,
     WAPP_TOWER_DB_BROKER_URL: towerDbBroker.brokerUrl,
     WAPP_TOWER_DB_CAPABILITY: towerDbBroker.capability,
+    WAPP_TOWER_BINDINGS_JSON: JSON.stringify(towerDbBroker.bindings ?? [{
+      installationId: wapp.wappInstallationId,
+      bindingId: wapp.towerBinding.id,
+      towerUrl: new URL(wapp.towerBinding.towerUrl).origin,
+      workspaceId: wapp.towerBinding.workspaceId,
+      workspaceOwnerNpub: wapp.towerBinding.workspaceOwnerNpub,
+      appNpub: wapp.appNpub,
+    }]),
   };
 }
 

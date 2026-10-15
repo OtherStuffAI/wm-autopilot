@@ -322,7 +322,7 @@ export async function handleWappsApi(
   if (url.pathname === "/api/wapps/tower-bindings" && method === "GET") {
     return Response.json({
       bindings: ctx.wappStore.listTowerBindings(),
-      defaultBinding: ctx.wappStore.getDefaultTowerBinding(),
+      defaultBinding: ctx.wappStore.getDefaultTowerBinding(ctx.viewerNpub),
     });
   }
 

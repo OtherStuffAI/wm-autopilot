@@ -1,8 +1,12 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { createOwnerScopedAuthContext, DelegationScopes, type OwnerAccessResolution } from "../auth/delegation-access";
 import type { RequestAuthContext } from "../auth/request-context";
 import type { WorkspaceDelegationRecord } from "../storage/workspace-delegation-store";
+import { WappStore } from "../wapps/wapp-store";
 import {
   handleOwnerSpaceApi,
   resolveOwnerAgentChatScope,
@@ -324,5 +328,140 @@ describe("owner-space scheduler delegation", () => {
       scope: DelegationScopes.SessionsManage,
       outcome: "denied",
     });
+  });
+});
+
+describe("owner-space WApp Tower binding isolation", () => {
+  const owner = "npub1admin";
+  const delegate = "npub1agent";
+  const auth: RequestAuthContext = {
+    npub: delegate,
+    actorNpub: delegate,
+    signerNpub: delegate,
+    subjectNpub: delegate,
+    targetOwnerNpub: delegate,
+    session: null,
+    authMethod: "nip98",
+  };
+
+  function grant(resourceFilters: WorkspaceDelegationRecord["resourceFilters"] = null): WorkspaceDelegationRecord {
+    return {
+      id: "delegation-wapps",
+      ownerNpub: owner,
+      delegateNpub: delegate,
+      scopes: [DelegationScopes.WappsRead, DelegationScopes.WappsAssign],
+      resourceFilters,
+      billingMode: "owner",
+      spendLimitSats: null,
+      createdAt: 1,
+      expiresAt: null,
+      revokedAt: null,
+      signedPayload: "signed",
+      signature: "signature",
+      eventId: null,
+      createdBy: owner,
+    };
+  }
+
+  function context(store: WappStore, activeGrant = grant()): OwnerSpaceRoutesContext {
+    return {
+      workspaceDelegationStore: {
+        findActiveDelegation: (candidateOwner: string, candidateDelegate: string, scope?: string) =>
+          candidateOwner === owner && candidateDelegate === delegate && (!scope || activeGrant.scopes.includes(scope))
+            ? activeGrant
+            : null,
+      } as OwnerSpaceRoutesContext["workspaceDelegationStore"],
+      resolveWorkspace: () => ({
+        ownerNpub: owner,
+        docsRoot: "/",
+        docsRootBoundary: "/",
+        aliasDirectory: "/allowed",
+        defaultDirectory: "/allowed",
+        allowedDirectories: ["/allowed"],
+        isAdmin: true,
+      }),
+      buildAppsContext: (() => ({})) as unknown as OwnerSpaceRoutesContext["buildAppsContext"],
+      buildWappsContext: (ownerAuthContext, canAccessApp) => ({
+        adminNpub: null,
+        viewerNpub: owner,
+        actorNpub: delegate,
+        sourceWingmanUrl: "http://localhost",
+        flightDeckAppNamespace: "npub1flightdeck",
+        AccessActions: { AppsManage: "apps:manage" },
+        ensureApiAccess: async () => null,
+        ensureDirectory: async (root: string) => root,
+        canAccessApp,
+        appRegistry: {},
+        appAliasRegistry: {},
+        wappStore: store,
+        publisher: {},
+        scopeAccessResolver: {},
+        buildLaunchUrl: () => "http://localhost",
+        ownerAuthContext,
+      } as unknown as WappsApiContext),
+      docsApiContext: {} as OwnerSpaceRoutesContext["docsApiContext"],
+      listDirectories: async () => ({}),
+      createDirectoryEntry: async () => ({}),
+      schedulerStore: {} as OwnerSpaceRoutesContext["schedulerStore"],
+      schedulerApiHandler: async () => null,
+      ensureSessionsAccess: async () => null,
+    };
+  }
+
+  test("lists only bindings owned by the delegated owner and hides another owner's default", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "owner-wapp-bindings-"));
+    const store = new WappStore(join(dir, "wapps.sqlite"));
+    try {
+      store.createTowerBinding({ id: "owner-binding", label: "Owner", towerUrl: "https://owner.example", workspaceId: "workspace-owner", workspaceOwnerNpub: owner });
+      store.createTowerBinding({ id: "other-binding", label: "Other", towerUrl: "https://other.example", workspaceId: "workspace-other", workspaceOwnerNpub: "npub1other", isDefault: true });
+      const request = new Request(`http://localhost/api/owners/${owner}/wapps/tower-bindings`);
+      const response = await handleOwnerSpaceApi(request, new URL(request.url), "GET", auth, context(store));
+      expect(response?.status).toBe(200);
+      const payload = await response!.json() as { bindings: Array<{ id: string }>; defaultBinding: unknown };
+      expect(payload.bindings.map((binding) => binding.id)).toEqual(["owner-binding"]);
+      expect(payload.defaultBinding).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects cross-owner updates and enforces workspace filters for binding reads", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "owner-wapp-bindings-"));
+    const store = new WappStore(join(dir, "wapps.sqlite"));
+    try {
+      store.createTowerBinding({ id: "owner-binding", label: "Owner", towerUrl: "https://owner.example", workspaceId: "workspace-owner", workspaceOwnerNpub: owner });
+      store.createTowerBinding({ id: "other-binding", label: "Other", towerUrl: "https://other.example", workspaceId: "workspace-other", workspaceOwnerNpub: "npub1other", isDefault: true });
+      const update = new Request(`http://localhost/api/owners/${owner}/wapps/tower-bindings/other-binding`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ isDefault: true }),
+      });
+      const denied = await handleOwnerSpaceApi(update, new URL(update.url), "PATCH", auth, context(store));
+      expect(denied?.status).toBe(404);
+      expect(store.getTowerBinding("other-binding")?.workspaceOwnerNpub).toBe("npub1other");
+
+      const ownUpdate = new Request(`http://localhost/api/owners/${owner}/wapps/tower-bindings/owner-binding`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ isDefault: true }),
+      });
+      const updated = await handleOwnerSpaceApi(ownUpdate, new URL(ownUpdate.url), "PATCH", auth, context(store));
+      expect(updated?.status).toBe(200);
+      expect(store.getTowerBinding("owner-binding")?.isDefault).toBe(true);
+      expect(store.getTowerBinding("other-binding")?.isDefault).toBe(true);
+
+      const list = new Request(`http://localhost/api/owners/${owner}/wapps/tower-bindings`);
+      const filtered = await handleOwnerSpaceApi(
+        list,
+        new URL(list.url),
+        "GET",
+        auth,
+        context(store, grant({ workspaceIds: ["workspace-denied"] })),
+      );
+      expect(filtered?.status).toBe(200);
+      expect(await filtered!.json()).toMatchObject({ bindings: [], defaultBinding: null });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

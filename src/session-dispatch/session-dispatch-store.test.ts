@@ -9,6 +9,26 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("SessionDispatchStore", () => {
+  test("keeps active workers and reviewable callbacks recoverable", () => {
+    const root = mkdtempSync(join(tmpdir(), "dispatch-store-recovery-")); roots.push(root);
+    const store = new SessionDispatchStore(join(root, "dispatches.db"));
+    const base = { ownerNpub: "npub1owner", prompt: "Do it", promptQueuedAt: "2026-01-01T00:00:00.000Z",
+      reportingContext: {}, terminalStatus: null, terminalMessage: null, terminalMessageCreatedAt: null,
+      terminalFingerprint: null, callbackPrompt: null, nativeDiscoveryStartedAt: null,
+      nativeDiscoveryNextAttemptAt: null, nativeDiscoveryAttemptCount: 0, nativeDiscoveryLastError: null,
+      callbackAttemptCount: 0, callbackNextAttemptAt: null, callbackExpiresAt: null, callbackQueuedAt: null,
+      callbackAcknowledgedAt: null, closedAt: null, lastError: null };
+    const running = store.create({ ...base, workerSessionId: "worker", callbackSessionId: "manager", state: "running" });
+    expect(store.hasRecoveryWork("worker")).toBeTrue();
+    expect(store.hasRecoveryWork("manager")).toBeTrue();
+    store.update(running.dispatchId, { state: "callback_pending", terminalStatus: "completed",
+      terminalFingerprint: "fingerprint", terminalMessage: "Done" });
+    expect(store.hasRecoveryWork("worker")).toBeFalse();
+    expect(store.hasRecoveryWork("manager")).toBeTrue();
+    store.update(running.dispatchId, { state: "closed", closedAt: "2026-01-01T00:02:00.000Z" });
+    expect(store.hasRecoveryWork("manager")).toBeFalse();
+  });
+
   test("rebinds worker and callback ownership without duplicating callbacks", () => {
     const root = mkdtempSync(join(tmpdir(), "dispatch-store-rebind-")); roots.push(root);
     const store = new SessionDispatchStore(join(root, "dispatches.db"));

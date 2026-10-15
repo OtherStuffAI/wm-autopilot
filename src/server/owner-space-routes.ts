@@ -269,6 +269,26 @@ function delegatedWappResourceDenial(
   return null;
 }
 
+function delegationAllowsTowerBinding(
+  delegation: ReturnType<WorkspaceDelegationStore["findActiveDelegation"]>,
+  binding: NonNullable<ReturnType<WappsApiContext["wappStore"]["getTowerBinding"]>>,
+  installations: ReturnType<WappsApiContext["wappStore"]["list"]>,
+): boolean {
+  const filters = delegation?.resourceFilters;
+  if (!filters) return true;
+  if (filters.workspaceIds?.length && (!binding.workspaceId || !filters.workspaceIds.includes(binding.workspaceId))) {
+    return false;
+  }
+  const boundInstallations = installations.filter((wapp) => wapp.towerBindingId === binding.id);
+  if (filters.wappIds?.length && !boundInstallations.some((wapp) => filters.wappIds!.includes(wapp.id))) {
+    return false;
+  }
+  if (filters.scopeIds?.length && !boundInstallations.some((wapp) => filters.scopeIds!.includes(wapp.scopeId))) {
+    return false;
+  }
+  return true;
+}
+
 export async function resolveOwnerAppsScope(request: Request, method: HttpMethod, subpath: string): Promise<string> {
   if (method === "GET" || method === "HEAD") return DelegationScopes.AppsRead;
   if (/\/domains(?:\/|$)|\/caprover\/|\/deploy-to-caprover$/.test(subpath)) return DelegationScopes.DeploymentsManage;
@@ -400,6 +420,10 @@ export async function handleOwnerSpaceApi(
     const routeWappId = wappIdMatch && !["templates", "tower-bindings"].includes(wappIdMatch[1]!)
       ? decodeURIComponent(wappIdMatch[1]!)
       : null;
+    const towerBindingMatch = matched.subpath.match(/^\/wapps\/tower-bindings\/([^/]+)$/);
+    const routeTowerBindingId = towerBindingMatch?.[1]
+      ? decodeURIComponent(towerBindingMatch[1])
+      : null;
     const body = method === "GET" || method === "HEAD" || method === "DELETE" ? null : await readJsonBody(request);
     const wappId = routeWappId ?? (
       typeof body?.id === "string" ? body.id
@@ -408,6 +432,33 @@ export async function handleOwnerSpaceApi(
     );
     const wappsContext = ctx.buildWappsContext(ownerAuthContext, (app) =>
       normaliseNpub(app.ownerNpub ?? null) === matched.ownerNpub && delegationAllowsApp(access.delegation, app));
+    const ownerInstallations = wappsContext.wappStore.list()
+      .filter((wapp) => normaliseNpub(wapp.ownerNpub) === matched.ownerNpub);
+    const routeTowerBinding = routeTowerBindingId
+      ? wappsContext.wappStore.getTowerBinding(routeTowerBindingId)
+      : null;
+    if (routeTowerBindingId && (
+      !routeTowerBinding
+      || normaliseNpub(routeTowerBinding.workspaceOwnerNpub) !== matched.ownerNpub
+    )) {
+      return Response.json({ error: "WApp Tower binding not found" }, { status: 404 });
+    }
+    if (routeTowerBinding && !delegationAllowsTowerBinding(access.delegation, routeTowerBinding, ownerInstallations)) {
+      auditResourceDenial(ctx, authContext, matched.ownerNpub, access.delegation?.id, requiredScope, request, url);
+      return Response.json({ error: "wapp-outside-delegated-resource-filters", filter: "towerBinding" }, { status: 403 });
+    }
+    if (matched.subpath === "/wapps/tower-bindings" && (method === "GET" || method === "HEAD")) {
+      const bindings = wappsContext.wappStore.listTowerBindings().filter((binding) =>
+        normaliseNpub(binding.workspaceOwnerNpub) === matched.ownerNpub
+        && delegationAllowsTowerBinding(access.delegation, binding, ownerInstallations));
+      const defaultBinding = wappsContext.wappStore.getDefaultTowerBinding(matched.ownerNpub);
+      return Response.json({
+        bindings,
+        defaultBinding: defaultBinding && bindings.some((binding) => binding.id === defaultBinding.id)
+          ? defaultBinding
+          : null,
+      });
+    }
     const existing = routeWappId ? wappsContext.wappStore.get(routeWappId) : null;
     if (routeWappId && (!existing || normaliseNpub(existing.ownerNpub) !== matched.ownerNpub)) {
       return Response.json({ error: "WApp not found" }, { status: 404 });
@@ -415,7 +466,7 @@ export async function handleOwnerSpaceApi(
     const towerBindingId = typeof body?.towerBindingId === "string"
       ? body.towerBindingId
       : typeof body?.tower_binding_id === "string" ? body.tower_binding_id : existing?.towerBindingId;
-    const binding = towerBindingId ? wappsContext.wappStore.getTowerBinding(towerBindingId) : null;
+    const binding = routeTowerBinding ?? (towerBindingId ? wappsContext.wappStore.getTowerBinding(towerBindingId) : null);
     const workspaceOwnerNpub = normaliseNpub(
       typeof body?.workspaceOwnerNpub === "string" ? body.workspaceOwnerNpub
         : typeof body?.workspace_owner_npub === "string" ? body.workspace_owner_npub
@@ -425,7 +476,7 @@ export async function handleOwnerSpaceApi(
       auditResourceDenial(ctx, authContext, matched.ownerNpub, access.delegation?.id, requiredScope, request, url);
       return Response.json({ error: "wapp-owner-mismatch" }, { status: 403 });
     }
-    const deniedResource = delegatedWappResourceDenial(access.delegation, {
+    const deniedResource = routeTowerBinding ? null : delegatedWappResourceDenial(access.delegation, {
       wappId,
       workspaceId: typeof body?.workspaceId === "string" ? body.workspaceId
         : typeof body?.workspace_id === "string" ? body.workspace_id

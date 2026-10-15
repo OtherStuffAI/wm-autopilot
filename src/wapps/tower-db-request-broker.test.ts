@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { nip19, verifyEvent, type Event } from "nostr-tools";
+import { generateSecretKey, nip19, verifyEvent, type Event } from "nostr-tools";
 
 import { handleWappTowerDbBrokerRoute } from "../server/wapp-tower-db-broker-route";
 import { sha256Payload } from "./wapp-publishing-client";
@@ -25,6 +25,7 @@ function withBroker(
     token: string;
     appNpub: string;
     calls: CapturedRequest[];
+    directory: string;
     setNow: (value: number) => void;
   }) => void | Promise<void>,
   options: { maxBodyBytes?: number; capabilityTtlMs?: number } = {},
@@ -76,6 +77,7 @@ function withBroker(
     token: capability.token,
     appNpub: wapp.appNpub!,
     calls,
+    directory,
     setNow: (value) => { now = value; },
   })).finally(() => rmSync(directory, { recursive: true, force: true }));
 }
@@ -88,6 +90,94 @@ function decodeAuthorization(init: RequestInit): Event {
 }
 
 describe("WappTowerDbRequestBroker", () => {
+  test("allows two installed bindings while each signs only its own exact Tower namespace", () => withBroker(async ({ store, broker, calls, appNpub }) => {
+    store.createTowerBinding({
+      id: "tower-secondary",
+      label: "Secondary Tower",
+      towerUrl: "https://nstack.example",
+      workspaceId: "workspace-2",
+      workspaceOwnerNpub: "npub1secondworkspace",
+    });
+    const secondary = store.create({
+      id: "installation-2",
+      appId: "kindling-api",
+      title: "Kindling API Secondary",
+      ownerNpub: "npub1owner",
+      createdByNpub: "npub1owner",
+      workspaceOwnerNpub: "npub1secondworkspace",
+      scopeId: "scope-2",
+      allowedNpubs: ["npub1owner"],
+      launchUrl: "https://kindling.example",
+      towerBindingId: "tower-secondary",
+      appKeyMode: "generate",
+    });
+    const capability = broker.issue({
+      installationId: "installation-1",
+      installationIds: ["installation-1", secondary.id],
+      appId: "kindling-api",
+    });
+
+    await broker.request(capability.token, { method: "GET", path: "/descriptor" });
+    await broker.request(capability.token, {
+      installationId: secondary.id,
+      method: "POST",
+      path: "/tables/datasets/query",
+      body: { where: { active: { eq: true } } },
+    });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      `https://tower.example/api/v4/workspaces/npub1workspaceowner/apps/${encodeURIComponent(appNpub)}/db/descriptor`,
+      `https://nstack.example/api/v4/workspaces/npub1secondworkspace/apps/${encodeURIComponent(secondary.appNpub!)}/db/tables/datasets/query`,
+    ]);
+    expect(decodeAuthorization(calls[0]!.init).pubkey).toBe((nip19.decode(appNpub) as { data: string }).data);
+    expect(decodeAuthorization(calls[1]!.init).pubkey).toBe((nip19.decode(secondary.appNpub!) as { data: string }).data);
+
+    store.markDeleted(secondary.id);
+    await expect(broker.request(capability.token, { method: "GET", path: "/migrations" }))
+      .rejects.toMatchObject({ code: "wapp_not_active" });
+    expect(calls).toHaveLength(2);
+  }));
+
+  test("denies unknown, cross-app, and installations added after capability issue", () => withBroker(async ({ store, broker, token, calls }) => {
+    store.createTowerBinding({
+      id: "tower-other",
+      label: "Other Tower",
+      towerUrl: "https://other.example",
+      workspaceOwnerNpub: "npub1otherworkspace",
+    });
+    const late = store.create({
+      id: "late-installation",
+      appId: "kindling-api",
+      title: "Late",
+      ownerNpub: "npub1owner",
+      createdByNpub: "npub1owner",
+      workspaceOwnerNpub: "npub1otherworkspace",
+      scopeId: "scope-late",
+      allowedNpubs: ["npub1owner"],
+      launchUrl: "https://kindling.example",
+      towerBindingId: "tower-other",
+      appKeyMode: "generate",
+    });
+    const foreign = store.create({
+      id: "foreign-installation",
+      appId: "foreign-app",
+      title: "Foreign",
+      ownerNpub: "npub1other",
+      createdByNpub: "npub1other",
+      workspaceOwnerNpub: "npub1otherworkspace",
+      scopeId: "scope-other",
+      allowedNpubs: ["npub1other"],
+      launchUrl: "https://foreign.example",
+      towerBindingId: "tower-other",
+      appKeyMode: "generate",
+    });
+    for (const installationId of ["unknown-installation", late.id, foreign.id]) {
+      await expect(broker.request(token, { installationId, method: "GET", path: "/migrations" }))
+        .rejects.toMatchObject({ code: "wapp_binding_not_authorized", status: 403 });
+    }
+    expect(calls).toEqual([]);
+  }));
+
   test("allows only the required own-app DB method and path combinations", () => withBroker(async ({ broker, token, calls, appNpub }) => {
     const requests = [
       { method: "GET", path: "/descriptor" },
@@ -182,6 +272,43 @@ describe("WappTowerDbRequestBroker", () => {
     expect(calls).toEqual([]);
   }, { capabilityTtlMs: 1_000 }));
 
+  test("fails closed after deactivation, owner/workspace drift, key rotation, or missing custody", async () => {
+    await withBroker(async ({ store, broker, token, calls }) => {
+      store.markDeleted("installation-1");
+      await expect(broker.request(token, { method: "GET", path: "/migrations" }))
+        .rejects.toMatchObject({ code: "wapp_not_active" });
+      expect(calls).toEqual([]);
+    });
+    await withBroker(async ({ store, broker, token, calls }) => {
+      store.update("installation-1", { workspaceOwnerNpub: "npub1changedworkspace" });
+      await expect(broker.request(token, { method: "GET", path: "/migrations" }))
+        .rejects.toMatchObject({ code: "wapp_identity_drift" });
+      expect(calls).toEqual([]);
+    });
+    await withBroker(async ({ store, broker, token, calls }) => {
+      store.updateTowerBinding("tower-primary", {
+        workspaceId: "changed-workspace",
+        workspaceOwnerNpub: "npub1changedowner",
+      });
+      await expect(broker.request(token, { method: "GET", path: "/migrations" }))
+        .rejects.toMatchObject({ code: "wapp_identity_drift" });
+      expect(calls).toEqual([]);
+    });
+    await withBroker(async ({ store, broker, token, calls }) => {
+      store.stagePublisherKey("installation-1", "import", nip19.nsecEncode(generateSecretKey()));
+      await store.activatePendingPublisherKey("installation-1");
+      await expect(broker.request(token, { method: "GET", path: "/migrations" }))
+        .rejects.toMatchObject({ code: "wapp_identity_drift" });
+      expect(calls).toEqual([]);
+    });
+    await withBroker(async ({ broker, token, calls, directory }) => {
+      rmSync(join(directory, "broker-vault", "wapps"), { recursive: true, force: true });
+      await expect(broker.request(token, { method: "GET", path: "/migrations" }))
+        .rejects.toMatchObject({ code: "wapp_signing_key_missing" });
+      expect(calls).toEqual([]);
+    });
+  });
+
   test("renews the inactivity expiry only after an accepted request", () => withBroker(async ({ broker, token, setNow }) => {
     setNow(Date.parse("2026-08-31T00:00:00.500Z"));
     expect((await broker.request(token, { method: "GET", path: "/migrations" })).status).toBe(207);
@@ -221,7 +348,7 @@ describe("WappTowerDbRequestBroker", () => {
     expect(widened?.status).toBe(400);
     expect(await widened?.json()).toMatchObject({ error: "broker_request_invalid" });
 
-    const validRequest = makeRequest({ method: "GET", path: "/migrations" });
+    const validRequest = makeRequest({ installationId: "installation-1", method: "GET", path: "/migrations" });
     const valid = await handleWappTowerDbBrokerRoute({
       request: validRequest,
       url: new URL(validRequest.url),

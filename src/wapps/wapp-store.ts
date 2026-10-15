@@ -164,6 +164,14 @@ export class WappStore {
     return row ? this.hydrateRecord(row) : null;
   }
 
+  listActiveByAppId(appId: string): WappRecord[] {
+    return (this.db.query(`
+      SELECT * FROM wapp_records
+      WHERE app_id = ? AND record_state = 'active' AND status = 'active'
+      ORDER BY updated_at DESC, id ASC
+    `).all(appId) as WappRow[]).map((row) => this.hydrateRecord(row));
+  }
+
   listTowerBindings(): WappTowerBinding[] {
     return (this.db.query("SELECT * FROM wapp_tower_bindings ORDER BY is_default DESC, label ASC").all() as WappTowerBindingRow[])
       .map(rowToTowerBinding);
@@ -174,8 +182,10 @@ export class WappStore {
     return row ? rowToTowerBinding(row) : null;
   }
 
-  getDefaultTowerBinding(): WappTowerBinding | null {
-    const row = this.db.query("SELECT * FROM wapp_tower_bindings WHERE is_default = 1 LIMIT 1").get() as WappTowerBindingRow | null;
+  getDefaultTowerBinding(workspaceOwnerNpub?: string | null): WappTowerBinding | null {
+    const row = workspaceOwnerNpub
+      ? this.db.query("SELECT * FROM wapp_tower_bindings WHERE is_default = 1 AND workspace_owner_npub = ? LIMIT 1").get(workspaceOwnerNpub) as WappTowerBindingRow | null
+      : this.db.query("SELECT * FROM wapp_tower_bindings WHERE is_default = 1 ORDER BY updated_at DESC, id ASC LIMIT 1").get() as WappTowerBindingRow | null;
     return row ? rowToTowerBinding(row) : null;
   }
 
@@ -183,7 +193,7 @@ export class WappStore {
     const now = new Date().toISOString();
     const id = input.id?.trim() || randomUUID();
     const isDefault = input.isDefault === true ? 1 : 0;
-    if (isDefault) this.clearDefaultTowerBinding();
+    if (isDefault) this.clearDefaultTowerBinding(input.workspaceOwnerNpub);
     this.db.query(`
       INSERT INTO wapp_tower_bindings (
         id, label, tower_url, workspace_id, workspace_owner_npub, user_alias, is_default, created_at, updated_at
@@ -216,8 +226,15 @@ export class WappStore {
     if (input.workspaceId !== undefined) add("workspace_id", input.workspaceId?.trim() || null);
     if (input.workspaceOwnerNpub !== undefined) add("workspace_owner_npub", trimRequired(input.workspaceOwnerNpub, "workspaceOwnerNpub"));
     if (input.userAlias !== undefined) add("user_alias", input.userAlias?.trim() || null);
+    const effectiveWorkspaceOwnerNpub = input.workspaceOwnerNpub === undefined
+      ? existing.workspaceOwnerNpub
+      : trimRequired(input.workspaceOwnerNpub, "workspaceOwnerNpub");
+    if ((input.isDefault === true || (input.isDefault === undefined && existing.isDefault))
+      && effectiveWorkspaceOwnerNpub !== existing.workspaceOwnerNpub) {
+      this.clearDefaultTowerBinding(effectiveWorkspaceOwnerNpub, id);
+    }
     if (input.isDefault !== undefined) {
-      if (input.isDefault) this.clearDefaultTowerBinding(id);
+      if (input.isDefault) this.clearDefaultTowerBinding(effectiveWorkspaceOwnerNpub, id);
       add("is_default", input.isDefault ? 1 : 0);
     }
     if (sets.length === 0) return existing;
@@ -392,12 +409,14 @@ export class WappStore {
     return this.get(id);
   }
 
-  private clearDefaultTowerBinding(exceptId: string | null = null): void {
+  private clearDefaultTowerBinding(workspaceOwnerNpub: string, exceptId: string | null = null): void {
     if (exceptId) {
-      this.db.query("UPDATE wapp_tower_bindings SET is_default = 0 WHERE id != ?").run(exceptId);
+      this.db.query("UPDATE wapp_tower_bindings SET is_default = 0 WHERE workspace_owner_npub = ? AND id != ?")
+        .run(workspaceOwnerNpub, exceptId);
       return;
     }
-    this.db.run("UPDATE wapp_tower_bindings SET is_default = 0");
+    this.db.query("UPDATE wapp_tower_bindings SET is_default = 0 WHERE workspace_owner_npub = ?")
+      .run(workspaceOwnerNpub);
   }
 
   private hydrateRecord(row: WappRow): WappRecord {

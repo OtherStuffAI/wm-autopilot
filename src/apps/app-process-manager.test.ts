@@ -68,7 +68,7 @@ function makeManager(input: {
   registrar: { register: (registration: any) => Promise<any> };
   namespaceStatus?: number;
   fipsIngressManager?: any;
-}): { manager: InstanceType<typeof AppProcessManager>; cleanup: () => void } {
+}): { manager: InstanceType<typeof AppProcessManager>; broker: InstanceType<typeof WappTowerDbRequestBroker>; store: WappStore; cleanup: () => void } {
   ecosystemCalls.length = 0;
   wappRuntimeEnvs.length = 0;
   pm2Starts.length = 0;
@@ -122,6 +122,7 @@ function makeManager(input: {
   return {
     manager,
     broker,
+    store,
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 }
@@ -236,6 +237,56 @@ describe("AppProcessManager Tower WApp lifecycle registration", () => {
       expect(status.status).toBe("running");
       expect(registrations).toEqual([]);
       expect(pm2Starts).toEqual(["app-test-process"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("issues one process capability for two exact active Tower installations", async () => {
+    const { manager, broker, store, cleanup } = makeManager({
+      namespaceStatus: 200,
+      registrar: { register: async () => ({}) },
+    });
+    try {
+      store.createTowerBinding({
+        id: "tower-nstack",
+        label: "NStack",
+        towerUrl: "https://nstack.example",
+        workspaceId: "workspace-nstack",
+        workspaceOwnerNpub: "npub1nstackowner",
+      });
+      store.create({
+        id: "wapp-2",
+        appId: app.id,
+        title: "Ops Board NStack",
+        ownerNpub: "npub1owner",
+        createdByNpub: "npub1owner",
+        workspaceOwnerNpub: "npub1nstackowner",
+        scopeId: "scope-2",
+        allowedNpubs: ["npub1owner"],
+        launchUrl: "https://apps.example/ops",
+        towerBindingId: "tower-nstack",
+        appKeyMode: "generate",
+      });
+      store.update("wapp-1", { title: "Ops Board WApp" });
+
+      await manager.start(app.id);
+      const runtimeEnv = wappRuntimeEnvs.at(-1)!;
+      const bindings = JSON.parse(runtimeEnv.WAPP_TOWER_BINDINGS_JSON!);
+      expect(bindings).toHaveLength(2);
+      expect(bindings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ installationId: "wapp-1", towerUrl: "https://tower.example" }),
+        expect.objectContaining({ installationId: "wapp-2", towerUrl: "https://nstack.example" }),
+      ]));
+      expect(runtimeEnv.WAPP_TOWER_URL).toBe("https://tower.example");
+      expect(JSON.stringify(runtimeEnv)).not.toContain("nsec");
+
+      const token = runtimeEnv.WAPP_TOWER_DB_CAPABILITY!;
+      expect((await broker.request(token, {
+        installationId: "wapp-2",
+        method: "GET",
+        path: "/migrations",
+      })).status).toBe(200);
     } finally {
       cleanup();
     }

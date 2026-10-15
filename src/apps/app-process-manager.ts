@@ -36,7 +36,8 @@ import {
 } from "./fips-app-ingress-manager";
 import { waitForAvailableTcpPort, waitForListeningPort, waitForTcpPort } from "../utils/port-utils";
 import { wappStore, type WappStore } from "../wapps/wapp-store";
-import { getWappRuntimeEnvForWapp } from "../wapps/runtime-env";
+import { getWappRuntimeEnvForWapp, getWappTowerDbRuntimeBindings } from "../wapps/runtime-env";
+import type { WappRecord } from "../wapps/types";
 import {
   WAPP_TOWER_DB_BROKER_PATH,
   wappTowerDbRequestBroker,
@@ -581,6 +582,22 @@ export class AppProcessManager {
     }
   }
 
+  private issueTowerDbRuntime(wapp: WappRecord): {
+    capability: WappTowerDbRuntimeCapability;
+    bindings: ReturnType<typeof getWappTowerDbRuntimeBindings>;
+  } {
+    const bindings = getWappTowerDbRuntimeBindings(wapp.appId, this.wappStore);
+    if (!bindings.some((binding) => binding.installationId === wapp.wappInstallationId)) {
+      throw new Error(`WApp ${wapp.id} is not in the active Tower binding set for app ${wapp.appId}`);
+    }
+    const capability = this.towerDbRequestBroker.issue({
+      installationId: wapp.wappInstallationId,
+      installationIds: bindings.map((binding) => binding.installationId),
+      appId: wapp.appId,
+    });
+    return { capability, bindings };
+  }
+
   private async startManagedAppProcess(app: AppRecord): Promise<string> {
     if (
       app.webApp
@@ -594,11 +611,12 @@ export class AppProcessManager {
     const { userAlias, userRootDir, isAdmin } = this.resolveUserContext(app);
     const wapp = this.wappStore.getByAppId(app.id);
     let capability: WappTowerDbRuntimeCapability | null = null;
+    let towerBindings: ReturnType<typeof getWappTowerDbRuntimeBindings> = [];
     let launch: Awaited<ReturnType<typeof addUserAppToEcosystem>> | undefined;
     try {
       if (wapp?.towerBindingId) {
         this.towerDbRequestBroker.revokeApp(app.id);
-        capability = this.towerDbRequestBroker.issue({ installationId: wapp.id, appId: app.id });
+        ({ capability, bindings: towerBindings } = this.issueTowerDbRuntime(wapp));
       }
       const wappRuntimeEnv = wapp
         ? getWappRuntimeEnvForWapp(
@@ -608,6 +626,7 @@ export class AppProcessManager {
           capability ? {
             brokerUrl: this.towerDbBrokerUrl(),
             capability: capability.token,
+            bindings: towerBindings,
           } : undefined,
         )
         : {};
@@ -728,9 +747,8 @@ export class AppProcessManager {
     }
 
     const wapp = this.wappStore.getByAppId(app.id);
-    const capability = wapp?.towerBindingId
-      ? this.towerDbRequestBroker.issue({ installationId: wapp.id, appId: app.id })
-      : null;
+    const towerRuntime = wapp?.towerBindingId ? this.issueTowerDbRuntime(wapp) : null;
+    const capability = towerRuntime?.capability ?? null;
     let stdout: string;
     let stderr: string;
     let exitCode: number;
@@ -742,6 +760,7 @@ export class AppProcessManager {
         capability ? {
           brokerUrl: this.towerDbBrokerUrl(),
           capability: capability.token,
+          bindings: towerRuntime?.bindings,
         } : undefined,
       ) : {};
       const plan = buildManagedAppSpawnPlan({

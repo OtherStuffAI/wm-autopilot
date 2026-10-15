@@ -53,9 +53,12 @@ function validateBrokerRequest(input: unknown): WappTowerDbBrokerRequest {
     throw new WappTowerDbBrokerError("broker_request_invalid", 400, "WApp Tower DB broker request must be an object");
   }
   const record = input as Record<string, unknown>;
-  const unexpected = Object.keys(record).filter((key) => key !== "method" && key !== "path" && key !== "body");
+  const unexpected = Object.keys(record).filter((key) => key !== "installationId" && key !== "method" && key !== "path" && key !== "body");
   if (unexpected.length > 0 || typeof record.method !== "string" || typeof record.path !== "string") {
-    throw new WappTowerDbBrokerError("broker_request_invalid", 400, "WApp Tower DB broker accepts only method, path, and optional body");
+    throw new WappTowerDbBrokerError("broker_request_invalid", 400, "WApp Tower DB broker accepts only installationId, method, path, and optional body");
+  }
+  if (record.installationId !== undefined && (typeof record.installationId !== "string" || !record.installationId.trim())) {
+    throw new WappTowerDbBrokerError("broker_request_invalid", 400, "WApp Tower DB installationId must be a non-empty string");
   }
   return record as unknown as WappTowerDbBrokerRequest;
 }

@@ -23,6 +23,16 @@ function fixture() {
 }
 
 describe("Agent Direct immutable publication ownership", () => {
+  test("reports only nonterminal ordinary turns as restart work", () => {
+    const { store, record, at } = fixture();
+    expect(store.hasRecoverableSessionTurn("session")).toBeTrue();
+    store.save({ ...record, state: "completed", updatedAt: at });
+    expect(store.hasRecoverableSessionTurn("session")).toBeFalse();
+    store.save({ ...record, turnId: "status", clientRequestId: "status-request",
+      promptType: "direct_chat_status", state: "awaiting_reply" });
+    expect(store.hasRecoverableSessionTurn("session")).toBeFalse();
+  });
+
   test("identical and conflicting re-freezes preserve an in-flight lease and attempt", () => {
     const { store, at } = fixture();
     store.freezeReply("turn", "Final", at);

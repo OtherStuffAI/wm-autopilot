@@ -58,7 +58,8 @@ describe("handleSystemRoutes restart", () => {
       controlledRestartOperationPath: join(root, "controlled-restart.json"),
       messageStore: { listSessions: () => [] },
       promptQueueStore: { getQueueCount: () => 0, rebindSession: () => 0 },
-      sessionDispatchStore: { rebindSession: () => undefined },
+      sessionDispatchStore: { hasRecoveryWork: () => false, rebindSession: () => undefined },
+      directChatTurnStore: { hasRecoverableSessionTurn: () => false },
       queueDispatchInFlight: new Set(), controlledRestartGracePeriodMs: 0,
       launchRestart: async (value: unknown) => { marker = value; return Response.json({ status: "scheduled" }, { status: 202 }); },
     } as unknown as SystemRoutesContext;

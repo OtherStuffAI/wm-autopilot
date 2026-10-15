@@ -219,6 +219,15 @@ export class SessionDispatchStore {
       .map((row) => this.map(row));
   }
 
+  hasRecoveryWork(sessionId: string): boolean {
+    if (!sessionId) return false;
+    return Boolean(this.db.query(`SELECT 1 FROM session_dispatches
+      WHERE (worker_session_id = ?1 AND state IN ('creating','running'))
+        OR (callback_session_id = ?1 AND state IN
+          ('creating','running','callback_pending','callback_delivered','acknowledged'))
+      LIMIT 1`).get(sessionId));
+  }
+
   getInboxFingerprint(callbackSessionId: string): string | null {
     const callbacks = this.listUnresolvedCallbacks(callbackSessionId);
     if (callbacks.length === 0) return null;

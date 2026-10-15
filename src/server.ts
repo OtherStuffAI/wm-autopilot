@@ -2848,6 +2848,7 @@ const handleApi = createApiRouteHandler({
     manager,
     promptQueueStore,
     sessionDispatchStore,
+    directChatTurnStore,
     queueDispatchInFlight,
     controlledRestartGracePeriodMs: Math.max(0, Number.parseInt(Bun.env.CONTROLLED_RESTART_GRACE_MS || "30000", 10) || 30000),
     ensureApiAccess,
@@ -3100,7 +3101,7 @@ const handleApi = createApiRouteHandler({
 
   // Per-request context builders
   buildStarterProjectsContext: (workspaceScope, viewerNpub) => {
-    const defaultTowerBinding = wappStore.getDefaultTowerBinding();
+    const defaultTowerBinding = wappStore.getDefaultTowerBinding(viewerNpub);
     return {
       adminNpub,
       workspaceScope,

@@ -281,6 +281,10 @@ async function run() {
     ownerNpub
       ? `/api/owners/${encodeURIComponent(ownerNpub)}/apps${suffix}`
       : `/api/apps${suffix}`;
+  const wappsPath = (suffix = ""): string =>
+    ownerNpub
+      ? `/api/owners/${encodeURIComponent(ownerNpub)}/wapps${suffix}`
+      : `/api/wapps${suffix}`;
 
   // Unified request helper: bot-crypto signs via API, otherwise uses local key
   async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -327,7 +331,7 @@ async function run() {
 
   if (command === "tower-bindings") {
     const payload = await req<{ bindings?: Array<Record<string, unknown>>; defaultBinding?: Record<string, unknown> | null }>(
-      "GET", "/api/wapps/tower-bindings",
+      "GET", wappsPath("/tower-bindings"),
     );
     if (asJson) {
       console.log(JSON.stringify(payload, null, 2));
@@ -351,7 +355,7 @@ async function run() {
     if (!workspaceOwnerNpub) throw new Error("tower-binding-create requires --workspace-owner-npub <npub>");
     const payload = await req<Record<string, unknown>>(
       "POST",
-      "/api/wapps/tower-bindings",
+      wappsPath("/tower-bindings"),
       {
         label: starterName,
         towerUrl,
@@ -466,7 +470,7 @@ async function run() {
   if (command === "tower-binding-default") {
     const payload = await req<Record<string, unknown>>(
       "PATCH",
-      `/api/wapps/tower-bindings/${encodeURIComponent(appId)}`,
+      wappsPath(`/tower-bindings/${encodeURIComponent(appId)}`),
       { isDefault: true },
     );
     if (asJson) {

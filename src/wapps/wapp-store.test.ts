@@ -49,6 +49,58 @@ describe("WApp store and helpers", () => {
     expect(updated?.allowedNpubs).toEqual(["npub1owner"]);
   }));
 
+  test("lists every active installation for one managed app without changing the compatibility selector", () => withStore((store) => {
+    for (const id of ["installation-a", "installation-b", "installation-archived"]) {
+      store.create({
+        id,
+        appId: "shared-app",
+        title: id,
+        ownerNpub: "npub1owner",
+        createdByNpub: "npub1owner",
+        workspaceOwnerNpub: "npub1workspace",
+        scopeId: "scope-1",
+        allowedNpubs: ["npub1owner"],
+        launchUrl: "https://app.example",
+      });
+    }
+    store.archive("installation-archived");
+    store.update("installation-b", { title: "latest compatibility assignment" });
+
+    expect(store.listActiveByAppId("shared-app").map((record) => record.id).sort()).toEqual([
+      "installation-a",
+      "installation-b",
+    ]);
+    expect(store.listActiveByAppId("shared-app")[0]?.id).toBe(store.getByAppId("shared-app")?.id);
+  }));
+
+  test("keeps one default Tower binding per workspace owner", () => withStore((store) => {
+    store.createTowerBinding({
+      id: "owner-a-first",
+      label: "Owner A first",
+      towerUrl: "https://a-first.example",
+      workspaceOwnerNpub: "npub1owner-a",
+      isDefault: true,
+    });
+    store.createTowerBinding({
+      id: "owner-b",
+      label: "Owner B",
+      towerUrl: "https://b.example",
+      workspaceOwnerNpub: "npub1owner-b",
+      isDefault: true,
+    });
+    store.createTowerBinding({
+      id: "owner-a-next",
+      label: "Owner A next",
+      towerUrl: "https://a-next.example",
+      workspaceOwnerNpub: "npub1owner-a",
+      isDefault: true,
+    });
+
+    expect(store.getDefaultTowerBinding("npub1owner-a")?.id).toBe("owner-a-next");
+    expect(store.getDefaultTowerBinding("npub1owner-b")?.id).toBe("owner-b");
+    expect(store.getTowerBinding("owner-a-first")?.isDefault).toBe(false);
+  }));
+
   test("derives allowlist from owner plus supplied scope members", () => {
     expect(resolveWappAllowedNpubs({
       scopeId: "scope-1",
@@ -166,6 +218,14 @@ describe("WApp store and helpers", () => {
       WAPP_TOWER_WORKSPACE_ID: "workspace-1",
       WAPP_TOWER_WORKSPACE_OWNER_NPUB: "npub1workspace",
     });
+    expect(JSON.parse(runtimeEnv.WAPP_TOWER_BINDINGS_JSON!)).toEqual([{
+      installationId: "wapp-tower",
+      bindingId: "binding-1",
+      towerUrl: "https://tower.example",
+      workspaceId: "workspace-1",
+      workspaceOwnerNpub: "npub1workspace",
+      appNpub: importedNpub,
+    }]);
     expect(runtimeEnv).not.toHaveProperty("WAPP_NSEC");
     expect(JSON.stringify(store.get(record.id))).not.toContain("runtime-only-capability");
   }));
