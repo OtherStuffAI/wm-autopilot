@@ -149,7 +149,29 @@ changed snapshot keyset could otherwise skip newly introduced earlier families.
 Family and partition coverage also fence indexed review continuations.
 
 The current Tower contract supplies family bootstrap proof at snapshot completion
-only. Recovery for an already downloaded cache needs a backend-supported additive
-family bootstrap/certificate or an explicit contract proving historical replay;
-operators must not reset the cache or mark a family complete manually. Continuing
-delta download preserves progress but does not resolve that coverage gap.
+only. Use the explicit supplementary recovery path for an existing cache:
+
+```sh
+bun clis/heartbeat-wake.ts --recover-families --hours 12 --max-wakes 100 --output tmp/docs/handoffs/heartbeat-family-recovery.json
+```
+
+Supply the same workspace/Tower/app/cache targeting flags as the ordinary wake.
+Recovery creates one durable supplementary v2 client/cache under
+`<primary-cache-path>.family-bootstrap/<primary-generation>/`. It downloads a
+full bounded snapshot and handover with normal per-page acknowledgements, holding
+the primary writer lease during each supplementary wake. Budget limits and failed
+acknowledgements preserve this cache for the next explicit invocation; rerunning
+resumes the same supplementary client, rather than creating clients repeatedly.
+
+After supplementary certification, recovery advances the primary journal past
+that boundary. It requires identical authority epoch/access revision, no pending
+acks or unavailable partitions, and matching family advertisements. A mismatch
+fails clearly; no speculative merge or reset follows. The atomic merge imports
+only missing-family rows by decimal version, preserving newer rows and tombstones,
+retains primary authority exclusions, and records supplementary checkpoint proof
+in `family_bootstraps`. Primary client, generation, cursor and checkpoint revision
+are preserved. Coverage changes invalidate indexed review continuations.
+
+Recovery does not assemble or drain review summaries. Its final result certifies
+the merged source checkpoint only; Rick must begin a fresh indexed review.
+Do not reset caches or manually mark a family complete.

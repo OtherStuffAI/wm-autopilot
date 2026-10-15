@@ -25,6 +25,7 @@ export interface HeartbeatWakeOptions {
   reviewCursor?: string;
   reviewOnly?: boolean;
   syncOnly?: boolean;
+  preserveCacheOnRepair?: boolean;
   workspaceId?: string;
   towerUrl?: string;
   appNpub?: string;
@@ -252,7 +253,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
     }
   } catch (error) {
     budgetDeferred = error instanceof RecordSyncBudgetError;
-    if (error instanceof RecordSyncHttpError && REPAIR_ERRORS.has(error.code)) {
+    if (!options.preserveCacheOnRepair && error instanceof RecordSyncHttpError && REPAIR_ERRORS.has(error.code)) {
       cache.repair();
       errors.push(
         `${error.message}; retained downloads/pending intent; fresh cache ID will bootstrap next wake`,

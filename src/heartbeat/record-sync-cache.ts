@@ -133,6 +133,9 @@ export class RecordSyncCache {
       throw new Error("Stale page response fenced");
     return state;
   }
+  assertWriter(): CacheState {
+    return this.assertFence();
+  }
   private save(state: CacheState): void {
     this.db
       .query("UPDATE meta SET state=? WHERE id=1")

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { recoverHeartbeatFamilies } from "../src/heartbeat/record-family-recovery.ts";
 import { writeFile } from "node:fs/promises";
 import {
   runHeartbeatWake,
@@ -34,6 +35,15 @@ async function main(): Promise<void> {
     reviewCursor: value("--review-cursor"),
   };
   const outputPath = value("--output");
+  if (process.argv.includes("--recover-families")) {
+    const recovery = await recoverHeartbeatFamilies(options, Number(value("--max-wakes") ?? 100), async (wake, phase, n) => {
+      if (outputPath) await writeFile(outputPath, `${JSON.stringify(wake, null, 2)}\n`, "utf8");
+      process.stdout.write(`${JSON.stringify({ phase, wake: n, syncComplete: wake.syncComplete, coverage: wake.coverage, errors: wake.errors })}\n`);
+    });
+    process.stdout.write(`${JSON.stringify({ outcome: recovery.outcome })}\n`);
+    if (recovery.outcome !== "certified") process.exitCode = 1;
+    return;
+  }
   if (process.argv.includes("--catch-up")) {
     const result = await runHeartbeatCatchUp(
       options,
