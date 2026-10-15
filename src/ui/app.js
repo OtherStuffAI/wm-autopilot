@@ -643,6 +643,10 @@ const {
 
 const dialog = document.getElementById("session-dialog");
 const agentSelect = document.getElementById("agent-select");
+// Give the session dialog a usable catalogue immediately. The authenticated
+// config request replaces this list with the server catalogue once it lands,
+// but a slow or failed request must never leave the manual launcher blank.
+populateAgentSelect(agentSelect, "codex");
 const confirmButton = document.getElementById("confirm-session");
 const cancelButton = document.getElementById("cancel-session");
 const sessionForm = dialog?.querySelector("form");
