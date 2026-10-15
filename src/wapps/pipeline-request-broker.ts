@@ -14,14 +14,19 @@ import type { WappStore } from "./wapp-store";
 import { WappPipelineGrantStore, type WappPipelineGrant } from "./pipeline-grant-store";
 
 export const WAPP_PIPELINE_BROKER_PATH = "/api/internal/wapps/pipelines";
+export const WAPP_REMOTE_PIPELINE_BROKER_PATH = "/api/wapps/remote-managed-pipelines";
 const hash = (value:unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export interface WappPipelineRequest {method:"GET"|"POST"; path:string; serializedBody?:string;}
+export interface RemoteWappPipelineRequest {
+  installationId:string; appId:string; ownerNpub:string; clientOrigin:string;
+  operation:"pipeline.request"; request:WappPipelineRequest;
+}
 export class WappPipelineRequestBroker {
   constructor(readonly grants:WappPipelineGrantStore, private readonly wapps:WappStore,
     private readonly appLookup:(id:string)=>Promise<{root:string;ownerNpub:string|null}|undefined>,
     private readonly now=()=>Date.now(),
     private readonly validateCallback=validateWebhookUrl) {}
-  async register(ownerNpub:string,input:{installationId:string;appId:string;definitionId:string;origin:string;callbackUrl:string;expiresAt:number}) {
+  async register(ownerNpub:string,input:{installationId:string;appId:string;definitionId:string;origin:string;callbackUrl:string;expiresAt:number;access?:"loopback"|"remote";clientOrigin?:string}) {
     const wapp=this.wapps.get(input.installationId),app=await this.appLookup(input.appId);
     if (!wapp || wapp.appId!==input.appId || wapp.ownerNpub!==ownerNpub || app?.ownerNpub!==ownerNpub ||
         wapp.recordState!=="active" || wapp.status!=="active" || !wapp.appNpub || !this.wapps.hasAppSigningKey(wapp.id)) throw new Error("pipeline_app_binding_denied");
@@ -30,6 +35,13 @@ export class WappPipelineRequestBroker {
     if (!Number.isSafeInteger(input.expiresAt) || input.expiresAt<=this.now() || input.expiresAt>this.now()+90*86400000) throw new Error("pipeline_expiry_denied");
     const callback=(await this.validateCallback(input.callbackUrl)).url;
     if (callback.origin!==new URL(wapp.launchUrl).origin) throw new Error("pipeline_callback_denied");
+    const access=input.access??"loopback";
+    if (access!=="loopback"&&access!=="remote") throw new Error("pipeline_access_denied");
+    if (access==="remote") {
+      const clientOrigin=new URL(input.clientOrigin!);
+      if (clientOrigin.protocol!=="https:" || clientOrigin.origin!==input.clientOrigin || clientOrigin.username || clientOrigin.password ||
+          clientOrigin.origin!==new URL(wapp.launchUrl).origin || clientOrigin.origin!==callback.origin) throw new Error("pipeline_client_origin_denied");
+    } else if (input.clientOrigin!==undefined) throw new Error("pipeline_client_origin_denied");
     const alias=generateIdentityAlias(ownerNpub),definition=await getPipelineDefinition(input.definitionId,alias);
     if (!definition || definition.spec.enabled===false) throw new Error("pipeline_definition_denied");
     const functions=await loadPipelineFunctionRegistry(alias,builtinPipelineFunctions);
@@ -37,16 +49,26 @@ export class WappPipelineRequestBroker {
       callbackUrl:callback.href,definitionOwnerAlias:alias,definitionHash:hash(definition.spec),
       functionHashes:pipelineFunctionHashes(definition,functions.registry)});
   }
-  private async authorize(token:string) {
+  private async authorize(token:string,access:"loopback"|"remote") {
     const grant=this.grants.authorize(token),wapp=this.wapps.get(grant.installationId),app=await this.appLookup(grant.appId);
-    if (grant.expiresAt<=this.now() || !this.grants.active(grant.id) || !wapp || wapp.appId!==grant.appId ||
+    if ((grant.access??"loopback")!==access || grant.expiresAt<=this.now() || !this.grants.active(grant.id) || !wapp || wapp.appId!==grant.appId ||
         wapp.ownerNpub!==grant.ownerNpub || wapp.appNpub!==grant.appNpub || wapp.recordState!=="active" ||
         wapp.status!=="active" || app?.root!==grant.appRoot || app.ownerNpub!==grant.ownerNpub ||
         new URL(wapp.launchUrl).origin!==new URL(grant.callbackUrl).origin || !this.wapps.hasAppSigningKey(wapp.id)) throw new Error("pipeline_grant_binding_denied");
     return grant;
   }
-  async request(token:string,input:WappPipelineRequest,ctx:PipelineApiContext):Promise<Response> {
-    const grant=await this.authorize(token);
+  async remoteRequest(token:string,input:RemoteWappPipelineRequest,ctx:PipelineApiContext):Promise<Response> {
+    const grant=await this.authorize(token,"remote");
+    if (!input || Object.keys(input).sort().join(",")!=="appId,clientOrigin,installationId,operation,ownerNpub,request" ||
+        input.installationId!==grant.installationId || input.appId!==grant.appId || input.ownerNpub!==grant.ownerNpub ||
+        input.clientOrigin!==grant.clientOrigin || input.operation!=="pipeline.request") {
+      this.grants.audit(grant.id,"remote-envelope","denied");
+      return Response.json({error:"pipeline_request_denied"},{status:403});
+    }
+    return this.request(token,input.request,ctx,"remote");
+  }
+  async request(token:string,input:WappPipelineRequest,ctx:PipelineApiContext,access:"loopback"|"remote"="loopback"):Promise<Response> {
+    const grant=await this.authorize(token,access);
     try {
       if (!input || Object.keys(input).some(k=>!["method","path","serializedBody"].includes(k)) ||
           !["GET","POST"].includes(input.method) || typeof input.path!=="string" || !input.path.startsWith("/api/pipelines/") ||
@@ -71,7 +93,7 @@ export class WappPipelineRequestBroker {
       const decoded=nip19.decode(grant.appNpub);
       if (decoded.type!=="npub" || event.pubkey!==decoded.data || !verifyEvent(event)) throw new Error("pipeline_signer_denied");
       // Revalidate after custody/lookup awaits; revocation cannot race execution.
-      await this.authorize(token);
+      await this.authorize(token,access);
       const request=new Request(url.href,{method:input.method,headers:{authorization,"content-type":"application/json"},...(start?{body:input.serializedBody}:{})});
       let response:Response;
       if (start) {
@@ -81,13 +103,13 @@ export class WappPipelineRequestBroker {
             hash(pipelineFunctionHashes(definition,functions.registry))!==hash(grant.functionHashes)) throw new Error("pipeline_definition_drift");
         const submitted=JSON.parse(input.serializedBody!).input;
         if (Object.keys(submitted).some(key=>Object.prototype.hasOwnProperty.call(definition.spec.input??{},key))) throw new Error("pipeline_default_override_denied");
-        await this.authorize(token);
+        await this.authorize(token,access);
         // Explicit installation grant supplies execution authority. Run owner is
         // the app identity, separate from its human owner's broad API permissions.
         response=await handlePublicPipelineCall(request,url,{npub:grant.appNpub,actorNpub:grant.appNpub,
           signerNpub:grant.appNpub,session:null,authMethod:"nip98"},ctx,definition,grant.appNpub,grant.definitionOwnerAlias,
           {principalNpub:grant.appNpub,workspaceId:"local",credentialOwnerNpub:grant.ownerNpub},
-          {registry:functions.registry,beforeAccept:async()=>{await this.authorize(token)},
+          {registry:functions.registry,beforeAccept:async()=>{await this.authorize(token,access)},
             assertActive:()=>{if(!this.grants.active(grant.id)||grant.expiresAt<=this.now())throw new Error("pipeline_grant_revoked")}});
         const body=await response.clone().json() as {runId?:unknown};
         if (response.ok && typeof body.runId==="string") this.grants.bindRun(grant.id,body.runId);

@@ -8,6 +8,7 @@ export interface WappPipelineGrant {
   id: string; installationId: string; appId: string; appRoot: string; ownerNpub: string;
   appNpub: string; origin: string; definitionId: string; definitionOwnerAlias: string;
   definitionHash: string; functionHashes: Record<string, string>; callbackUrl: string; expiresAt: number;
+  access?: "loopback" | "remote"; clientOrigin?: string;
 }
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 export class WappPipelineGrantStore {
@@ -25,7 +26,8 @@ export class WappPipelineGrantStore {
     const credential = randomBytes(32).toString("base64url");
     this.db.query("INSERT INTO pipeline_app_grants VALUES(?,?,?,0)").run(grant.id,digest(credential),JSON.stringify(grant));
     try {
-      const credentialFile = captureHostedSiteCredential(join(dirname(this.path),"pipeline-app-credentials"),grant.id,credential);
+      const directory = grant.access === "remote" ? "remote-pipeline-app-credentials" : "pipeline-app-credentials";
+      const credentialFile = captureHostedSiteCredential(join(dirname(this.path),directory),grant.id,credential);
       this.audit(grant.id,"register","allowed");
       return { grant, credentialFile };
     } catch (error) { this.revoke(grant.id); throw error; }

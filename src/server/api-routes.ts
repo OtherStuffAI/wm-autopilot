@@ -61,6 +61,8 @@ import type { SessionDispatchService } from "../session-dispatch/session-dispatc
 import { readAgentModelSettings, resolveAgentModelCatalogue } from "./agent-model-catalogue";
 import { handleWappTowerDbBrokerRoute } from "./wapp-tower-db-broker-route";
 import { handleWappPipelineBrokerRoute } from "./wapp-pipeline-broker-route";
+import { handleWappRemotePipelineBrokerRoute } from "./wapp-remote-pipeline-broker-route";
+import { WAPP_REMOTE_PIPELINE_BROKER_PATH } from "../wapps/pipeline-request-broker";
 import { getWappPipelineBroker } from "../wapps/pipeline-broker-runtime";
 import type { WappTowerDbRequestBroker } from "../wapps/tower-db-request-broker";
 import {
@@ -345,6 +347,12 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
       if (!ctx.pipelineApiContext) return Response.json({ error: "pipeline-runtime-unavailable" }, { status: 503 });
       return await handleWappPipelineBrokerRoute({ request, url, isLoopback: isLocalhostBrokerRequest(request, url, ctx),
         broker: getWappPipelineBroker(), pipelines: ctx.pipelineApiContext }) ?? Response.json({error:"not_found"},{status:404});
+    }
+
+    if (pathname === WAPP_REMOTE_PIPELINE_BROKER_PATH) {
+      if (!ctx.pipelineApiContext) return Response.json({ error: "pipeline-runtime-unavailable" }, { status: 503 });
+      return await handleWappRemotePipelineBrokerRoute({ request, url, broker: getWappPipelineBroker(), pipelines: ctx.pipelineApiContext })
+        ?? Response.json({error:"not_found"},{status:404});
     }
 
     if (pathname === "/api/internal/wapps/tower-db") {

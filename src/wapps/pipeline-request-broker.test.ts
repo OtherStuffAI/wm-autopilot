@@ -9,6 +9,7 @@ import {WappStore} from "./wapp-store";
 import {WappPipelineGrantStore} from "./pipeline-grant-store";
 import {WappPipelineRequestBroker,WAPP_PIPELINE_BROKER_PATH} from "./pipeline-request-broker";
 import {handleWappPipelineBrokerRoute} from "../server/wapp-pipeline-broker-route";
+import {handleWappRemotePipelineBrokerRoute} from "../server/wapp-remote-pipeline-broker-route";
 const owner=nip19.npubEncode(getPublicKey(generateSecretKey()));
 async function fixture(fn:(x:any)=>Promise<void>) {
   const dir=mkdtempSync(join(tmpdir(),"pipeline-app-broker-")),previous=process.env.WINGMEN_PIPELINES_ROOT;
@@ -78,4 +79,28 @@ test("grant survives store reopen; runtime route denies browser/remote and unbou
   expect(oversized!.status).toBe(413);
   x.setNow(x.registration.grant.expiresAt);
   await expect(x.broker.request(x.token,{method:"GET",path:"/api/pipelines/webhook-signer"},x.ctx)).rejects.toThrow();
+}));
+test("remote managed route binds deployment identity, preserves idempotency and fails closed",()=>fixture(async x=>{
+  const remote=await x.broker.register(owner,{installationId:"installation",appId:"app",origin:"https://autopilot.example",
+    definitionId:x.registration.grant.definitionId,callbackUrl:"https://example.com/result",expiresAt:x.registration.grant.expiresAt,
+    access:"remote",clientOrigin:"https://example.com"});
+  const token=readFileSync(remote.credentialFile,"utf8").trim();
+  const body={installationId:"installation",appId:"app",ownerNpub:owner,clientOrigin:"https://example.com",
+    operation:"pipeline.request",request:{method:"POST",path:x.path,serializedBody:JSON.stringify(x.payload)}} as const;
+  const call=(value:any=body,origin?:string,credential=token)=>handleWappRemotePipelineBrokerRoute({broker:x.broker,pipelines:x.ctx,
+    url:new URL("https://autopilot.example/api/wapps/remote-managed-pipelines"),request:new Request("https://autopilot.example/api/wapps/remote-managed-pipelines",
+      {method:"POST",headers:{authorization:"Bearer "+credential,...(origin?{origin}:{})},body:JSON.stringify(value)})});
+  const first=await call();expect(first!.status).toBe(202);const accepted=await first!.json();
+  const retry=await call();expect(retry!.status).toBe(200);const replay=(await retry!.json()).response;
+  expect(replay.runId).toBe(accepted.response.runId);expect(replay.replayed).toBe(true);
+  expect((await call({...body,installationId:"foreign"}))!.status).toBe(403);
+  expect((await call({...body,appId:"foreign"}))!.status).toBe(403);
+  expect((await call({...body,ownerNpub:nip19.npubEncode(getPublicKey(generateSecretKey()))}))!.status).toBe(403);
+  expect((await call({...body,clientOrigin:"https://foreign.example"}))!.status).toBe(403);
+  expect((await call({...body,request:{method:"GET",path:"/api/pipelines/runs/foreign"}}))!.status).toBe(403);
+  expect((await call(body,"https://example.com"))!.status).toBe(403);
+  expect((await call(body,undefined,x.token))!.status).toBe(403);
+  await expect(x.broker.request(token,{method:"GET",path:"/api/pipelines/webhook-signer"},x.ctx)).rejects.toThrow("pipeline_grant_binding_denied");
+  x.setNow(remote.grant.expiresAt);expect((await call())!.status).toBe(403);
+  x.grants.revoke(remote.grant.id);expect((await call())!.status).toBe(403);
 }));

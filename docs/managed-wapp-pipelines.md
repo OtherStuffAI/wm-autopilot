@@ -38,6 +38,26 @@ pipeline response, HTTP status and a public signed request receipt. Acceptance,
 polling and delivery ACK never establish business completion. WApps must persist
 request/run mapping and apply authoritative signed callbacks transactionally.
 
+## Separately hosted managed installations
+
+A reviewed WApp hosted outside the Autopilot machine uses the separate public
+`POST /api/wapps/remote-managed-pipelines` server-to-server edge. The loopback
+route remains private and unchanged. Register a new remote grant with
+`wapp-pipeline-grant.ts register-remote`; never copy an existing loopback
+credential. The remote grant adds the exact HTTPS client installation origin to
+the existing installation, app, owner, Autopilot origin, definition/function
+hash, callback, expiry and publisher-custody pins.
+
+The caller supplies only an exact envelope containing `installationId`, `appId`,
+`ownerNpub`, `clientOrigin`, `operation: "pipeline.request"` and the ordinary
+bounded broker request. Browser Origin calls, unknown fields, identity/origin
+drift and use of local credentials on the remote edge fail closed. The grant's
+existing immutable pipeline body, idempotency, owned-run polling, callback,
+definition-drift, expiry, revocation and audit rules still apply. This route is
+not an arbitrary signer, Tower proxy or general Autopilot API capability.
+Revoke either grant mode with `wapp-pipeline-grant.ts revoke <grant-id>`; a
+revoked credential cannot start or inspect another run.
+
 ## Typed service custody
 
 `secrets.typesafeNoul` performs one fixed TypeSafe HTTPS call with typed Noul
