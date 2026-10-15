@@ -15,8 +15,27 @@ run_autopilot() {
   exec "$@"
 }
 
+prepare_persistent_directory() {
+  local directory="$1"
+  mkdir -p "${directory}"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chown wingman:wingman "${directory}"
+    if ! gosu wingman test -w "${directory}"; then
+      echo "Persistent directory is not writable by wingman: ${directory}" >&2
+      exit 1
+    fi
+  elif [[ ! -w "${directory}" ]]; then
+    echo "Persistent directory is not writable: ${directory}" >&2
+    exit 1
+  fi
+}
+
 fips_pid=""
 autopilot_pid=""
+
+for persistent_directory in /app/data /app/tmp /home/wingman /workspace; do
+  prepare_persistent_directory "${persistent_directory}"
+done
 
 shutdown_children() {
   if [[ -n "${autopilot_pid}" ]]; then
