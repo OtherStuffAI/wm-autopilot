@@ -37,6 +37,26 @@ function execute(runtime: CompletedTurnRuntime, id = "one", prompt?: string) {
   return executeCompletedTurn({ store, storeKey: directory, runtime, owner: "owner", request: request(id, prompt), runId: `run-${id}`, stepId: `step-${id}` });
 }
 
+test("existing receipt tables gain the durable sender fence without replacing rows", () => {
+  const legacyDirectory = mkdtempSync(join(tmpdir(), "completed-turn-legacy-"));
+  const legacyDb = new Database(join(legacyDirectory, "turns.sqlite"));
+  try {
+    legacyDb.exec(`CREATE TABLE completed_turn_receipts(
+      receiptId TEXT PRIMARY KEY, owner TEXT NOT NULL, conversationKey TEXT NOT NULL, requestId TEXT NOT NULL, projectId TEXT NOT NULL,
+      runId TEXT NOT NULL, stepId TEXT NOT NULL, fingerprint TEXT NOT NULL, requestJson TEXT NOT NULL, prompt TEXT NOT NULL, sequence INTEGER NOT NULL,
+      sessionId TEXT, executionId TEXT, nativeSessionId TEXT, checkpoint INTEGER, outputJson TEXT,
+      status TEXT NOT NULL, reply TEXT, error TEXT, claimToken TEXT, leaseUntil INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(owner, requestId), UNIQUE(owner, conversationKey, sequence));
+      INSERT INTO completed_turn_receipts(receiptId,owner,conversationKey,requestId,projectId,runId,stepId,fingerprint,requestJson,prompt,sequence,status)
+      VALUES('receipt','owner','conversation','request','project','run','step','fingerprint','{}','prompt',1,'queued');`);
+    new CompletedTurnStore(legacyDb);
+    const columns = legacyDb.query("PRAGMA table_info(completed_turn_receipts)").all() as { name: string }[];
+    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(["senderToken","senderLeaseUntil"]));
+    expect((legacyDb.query("SELECT receiptId,senderToken,senderLeaseUntil FROM completed_turn_receipts").get() as any))
+      .toEqual({ receiptId: "receipt", senderToken: null, senderLeaseUntil: 0 });
+  } finally { legacyDb.close(); rmSync(legacyDirectory, { recursive: true, force: true }); }
+});
+
 test("simultaneous first requests launch once, preserve exact prompts and await FIFO completion", async () => {
   const fake = fakeRuntime();
   let release!: () => void;

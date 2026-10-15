@@ -8,6 +8,8 @@ export interface TurnRecord extends CompletedTurnReceipt {
   requestJson: string;
   claimToken: string | null;
   leaseUntil: number;
+  senderToken: string | null;
+  senderLeaseUntil: number;
 }
 export interface TurnBinding {
   owner: string;
@@ -29,8 +31,16 @@ export class CompletedTurnStore {
       fingerprint TEXT NOT NULL, requestJson TEXT NOT NULL, prompt TEXT NOT NULL, sequence INTEGER NOT NULL,
       sessionId TEXT, executionId TEXT, nativeSessionId TEXT, checkpoint INTEGER, outputJson TEXT,
       status TEXT NOT NULL, reply TEXT, error TEXT, claimToken TEXT, leaseUntil INTEGER NOT NULL DEFAULT 0,
+      senderToken TEXT, senderLeaseUntil INTEGER NOT NULL DEFAULT 0,
       UNIQUE(owner, requestId), UNIQUE(owner, conversationKey, sequence),
       FOREIGN KEY(owner, conversationKey) REFERENCES completed_turn_bindings(owner, conversationKey));`);
+    const receiptColumns = db.query("PRAGMA table_info(completed_turn_receipts)").all() as { name: string }[];
+    if (!receiptColumns.some((column) => column.name === "senderToken")) {
+      db.exec("ALTER TABLE completed_turn_receipts ADD COLUMN senderToken TEXT");
+    }
+    if (!receiptColumns.some((column) => column.name === "senderLeaseUntil")) {
+      db.exec("ALTER TABLE completed_turn_receipts ADD COLUMN senderLeaseUntil INTEGER NOT NULL DEFAULT 0");
+    }
     db.exec(`CREATE TABLE IF NOT EXISTS completed_turn_retirements(owner TEXT NOT NULL,conversationKey TEXT NOT NULL,receiptId TEXT NOT NULL,PRIMARY KEY(owner,conversationKey));`);
     db.exec(`CREATE TABLE IF NOT EXISTS completed_turn_deletions(owner TEXT NOT NULL,conversationKey TEXT NOT NULL,requestJson TEXT NOT NULL,receiptId TEXT NOT NULL UNIQUE,sessionId TEXT NOT NULL,receiptJson TEXT,PRIMARY KEY(owner,conversationKey));`);
   }
@@ -84,12 +94,35 @@ export class CompletedTurnStore {
     return row ? this.get(row.receiptId) : null;
   }
 
-  activeForSession(sessionId: string, claimToken?: string): TurnRecord | null {
-    const rows = (claimToken
-      ? this.db.query("SELECT receiptId FROM completed_turn_receipts WHERE sessionId=? AND status='sending' AND claimToken=? AND leaseUntil>?").all(sessionId, claimToken, Date.now())
-      : this.db.query("SELECT receiptId FROM completed_turn_receipts WHERE sessionId=? AND status='sending' AND claimToken IS NOT NULL AND leaseUntil>?").all(sessionId, Date.now())) as {receiptId:string}[];
+  activeForSession(sessionId: string): TurnRecord | null {
+    const rows = this.db.query("SELECT receiptId FROM completed_turn_receipts WHERE sessionId=? AND status='sending' AND claimToken IS NOT NULL AND leaseUntil>?")
+      .all(sessionId, Date.now()) as { receiptId: string }[];
     if (rows.length !== 1) return null;
     return this.get(rows[0]!.receiptId);
+  }
+
+  /**
+   * Refresh the execution lease only while the durable sender fence still
+   * matches the exact sending claim. Recovery replaces the claim and clears
+   * this fence in the same database write, so another process cannot revive a
+   * stale writer.
+   */
+  refreshActiveSenderForSession(sessionId: string, at = Date.now()): TurnRecord | null {
+    return this.db.transaction(() => {
+      const rows = this.db.query(`SELECT receiptId,senderToken FROM completed_turn_receipts
+        WHERE sessionId=? AND status='sending' AND claimToken=senderToken
+          AND senderToken IS NOT NULL AND senderLeaseUntil>?`).all(sessionId, at) as {
+            receiptId: string;
+            senderToken: string;
+          }[];
+      if (rows.length !== 1) return null;
+      const row = rows[0]!;
+      const refreshed = this.db.query(`UPDATE completed_turn_receipts SET leaseUntil=?
+        WHERE receiptId=? AND sessionId=? AND status='sending' AND claimToken=?
+          AND senderToken=? AND senderLeaseUntil>?`)
+        .run(at + 30_000, row.receiptId, sessionId, row.senderToken, row.senderToken, at);
+      return refreshed.changes === 1 ? this.get(row.receiptId) : null;
+    }).immediate();
   }
 
   /** Explicit recovery only for the known source lookup failure BEFORE any launch/send. */
@@ -99,7 +132,8 @@ export class CompletedTurnStore {
       if (!row || row.requestJson !== JSON.stringify(request)) throw new Error("Preparation recovery request binding denied");
       if (row.status === "completed" || row.status === "queued") return;
       if (row.status !== "preparing" || row.error !== "Completed-turn bound session unavailable" ||
-          row.sessionId || row.executionId || row.nativeSessionId || row.checkpoint !== null || row.claimToken || row.leaseUntil !== 0) {
+          row.sessionId || row.executionId || row.nativeSessionId || row.checkpoint !== null || row.claimToken || row.leaseUntil !== 0 ||
+          row.senderToken || row.senderLeaseUntil !== 0) {
         throw new Error("Preparation recovery denied: launch or send outcome is not proven absent");
       }
       this.db.query("UPDATE completed_turn_receipts SET status='queued',error=NULL WHERE receiptId=?").run(row.receiptId);
@@ -119,19 +153,18 @@ export class CompletedTurnStore {
   }
   claim(id: string, token: string, at = Date.now()): boolean {
     return this.db.query(`UPDATE completed_turn_receipts SET
-      status=CASE WHEN status='queued' THEN 'preparing' ELSE status END, claimToken=?,leaseUntil=?,error=NULL
+      status=CASE WHEN status='queued' THEN 'preparing' ELSE status END, claimToken=?,leaseUntil=?,error=NULL,
+      senderToken=NULL,senderLeaseUntil=0
       WHERE receiptId=? AND status NOT IN ('completed','abandoned','abandoning') AND leaseUntil<=?`)
       .run(token, at + 30_000, id, at).changes === 1;
   }
   renew(id: string, token: string): void {
-    const result = this.db.query("UPDATE completed_turn_receipts SET leaseUntil=? WHERE receiptId=? AND claimToken=? AND status!='completed'")
-      .run(Date.now() + 30_000, id, token);
+    const now = Date.now();
+    const result = this.db.query(`UPDATE completed_turn_receipts SET leaseUntil=?,
+      senderLeaseUntil=CASE WHEN status='sending' AND senderToken=? THEN ? ELSE senderLeaseUntil END
+      WHERE receiptId=? AND claimToken=? AND status!='completed'`)
+      .run(now + 30_000, token, now + 120_000, id, token);
     if (result.changes !== 1) throw new Error("Completed-turn lease changed");
-  }
-  /** Refresh an elapsed tool lease only for the exact in-process sending claim. */
-  renewSendingClaim(id: string, token: string, at = Date.now()): boolean {
-    return this.db.query("UPDATE completed_turn_receipts SET leaseUntil=? WHERE receiptId=? AND claimToken=? AND status='sending'")
-      .run(at + 30_000, id, token).changes === 1;
   }
   bind(id: string, token: string, executionId: string, sessionId: string | null = executionId): void {
     this.db.transaction(() => {
@@ -143,12 +176,13 @@ export class CompletedTurnStore {
     }).immediate();
   }
   sending(id: string, token: string, nativeId: string | null, checkpoint: number): void {
-    const result = this.db.query("UPDATE completed_turn_receipts SET status='sending',nativeSessionId=?,checkpoint=? WHERE receiptId=? AND claimToken=? AND status='preparing'")
-      .run(nativeId, checkpoint, id, token);
+    const result = this.db.query(`UPDATE completed_turn_receipts SET status='sending',nativeSessionId=?,checkpoint=?,
+      senderToken=?,senderLeaseUntil=? WHERE receiptId=? AND claimToken=? AND status='preparing'`)
+      .run(nativeId, checkpoint, token, Date.now() + 120_000, id, token);
     if (result.changes !== 1) throw new Error("Completed-turn claim changed");
   }
   uncertain(id: string, token: string, error: string): void {
-    this.db.query("UPDATE completed_turn_receipts SET error=?,leaseUntil=0,claimToken=NULL,status=CASE WHEN status='sending' THEN 'uncertain' ELSE status END WHERE receiptId=? AND claimToken=? AND status!='completed'")
+    this.db.query("UPDATE completed_turn_receipts SET error=?,leaseUntil=0,claimToken=NULL,senderToken=NULL,senderLeaseUntil=0,status=CASE WHEN status='sending' THEN 'uncertain' ELSE status END WHERE receiptId=? AND claimToken=? AND status!='completed'")
       .run(error, id, token);
   }
   claimAbandonment(id:string,token:string):boolean {
@@ -159,7 +193,7 @@ export class CompletedTurnStore {
       // Explicit scoped cancellation revokes the old execution's claim before
       // stopping it. A late completion can no longer commit this receipt.
       this.db.query("INSERT OR IGNORE INTO completed_turn_retirements VALUES(?,?,?)").run(row.owner,row.conversationKey,id);
-      return this.db.query("UPDATE completed_turn_receipts SET status='abandoning',claimToken=?,leaseUntil=? WHERE receiptId=? AND status NOT IN ('completed','abandoned')").run(token,Date.now()+30_000,id).changes===1;
+      return this.db.query("UPDATE completed_turn_receipts SET status='abandoning',claimToken=?,leaseUntil=?,senderToken=NULL,senderLeaseUntil=0 WHERE receiptId=? AND status NOT IN ('completed','abandoned')").run(token,Date.now()+30_000,id).changes===1;
     }).immediate();
   }
   abandon(id:string,token:string,evidence:Record<string,unknown>):void {
@@ -167,12 +201,12 @@ export class CompletedTurnStore {
       const row=this.get(id)!;
       if(row.claimToken!==token || row.status!=='abandoning')throw Error('Abandonment claim changed');
       this.db.query("INSERT OR IGNORE INTO completed_turn_retirements VALUES(?,?,?)").run(row.owner,row.conversationKey,id);
-      this.db.query("UPDATE completed_turn_receipts SET status='abandoned',outputJson=?,error=NULL,leaseUntil=0,claimToken=NULL WHERE owner=? AND conversationKey=? AND status!='completed'").run(JSON.stringify(evidence),row.owner,row.conversationKey);
+      this.db.query("UPDATE completed_turn_receipts SET status='abandoned',outputJson=?,error=NULL,leaseUntil=0,claimToken=NULL,senderToken=NULL,senderLeaseUntil=0 WHERE owner=? AND conversationKey=? AND status!='completed'").run(JSON.stringify(evidence),row.owner,row.conversationKey);
     }).immediate();
   }
   complete(id: string, token: string, reply: string, nativeId: string, output: Record<string, unknown> | null = null): void {
     if (!reply.trim() || !nativeId) throw new Error("Native completed-turn evidence missing");
-    const result = this.db.query("UPDATE completed_turn_receipts SET status='completed',reply=?,nativeSessionId=?,outputJson=?,error=NULL,leaseUntil=0,claimToken=NULL WHERE receiptId=? AND claimToken=? AND status IN ('sending','uncertain')")
+    const result = this.db.query("UPDATE completed_turn_receipts SET status='completed',reply=?,nativeSessionId=?,outputJson=?,error=NULL,leaseUntil=0,claimToken=NULL,senderToken=NULL,senderLeaseUntil=0 WHERE receiptId=? AND claimToken=? AND status IN ('sending','uncertain')")
       .run(reply, nativeId, output ? JSON.stringify(output) : null, id, token);
     if (result.changes !== 1) throw new Error("Completed-turn completion claim changed");
   }

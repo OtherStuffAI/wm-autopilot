@@ -1,6 +1,5 @@
 import type { CompletedTurnReceipt, CompletedTurnRequest } from "./completed-turn-contract.ts";
 import { CompletedTurnStore, publicTurnReceipt, type TurnBinding, type TurnRecord } from "./completed-turn-store.ts";
-import { registerActiveCompletedTurnClaim } from "./active-completed-turn-claims.ts";
 
 export interface CompletedTurnRuntime {
   abandon?: (row: TurnRecord) => Promise<Record<string,unknown>>;
@@ -76,15 +75,7 @@ export async function executeCompletedTurn(input: {
           store.renew(head.receiptId, token);
           store.sending(head.receiptId, token, checkpoint.nativeSessionId, checkpoint.count);
           observeTurn(store.get(head.receiptId)!);
-          const releaseActiveClaim = sessionId
-            ? registerActiveCompletedTurnClaim(input.storeKey, sessionId, head.receiptId, token)
-            : () => {};
-          let completed: Awaited<ReturnType<CompletedTurnRuntime["send"]>>;
-          try {
-            completed = await runtime.send(executionId, head.prompt);
-          } finally {
-            releaseActiveClaim();
-          }
+          const completed = await runtime.send(executionId, head.prompt);
           if (leaseError) throw leaseError;
           if (checkpoint.nativeSessionId && completed.nativeSessionId !== checkpoint.nativeSessionId) {
             throw new Error("Native conversation changed during completed turn; continuity lost");

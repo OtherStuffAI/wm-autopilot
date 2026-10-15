@@ -3,16 +3,12 @@ import type { SessionSnapshot } from '../agents/process-manager.ts';
 import { loadPipelineFunctionRegistry } from './function-loader.ts';
 import { assertPipelineFunctionPins } from './pipeline-function-pins.ts';
 import { completedTurnBindingId } from '../sessions/completed-turn-runtime.ts';
-import { activeCompletedTurnClaim } from '../sessions/active-completed-turn-claims.ts';
 import type { TurnRecord } from '../sessions/completed-turn-store.ts';
 
 const activeInvocations=new Set<string>();
 
 function activeTurnForInvocation(store: PipelineStore, sessionId: string): TurnRecord | null {
-  const claim = activeCompletedTurnClaim(store.path, sessionId);
-  if (!claim) return store.completedTurns.activeForSession(sessionId);
-  if (!store.completedTurns.renewSendingClaim(claim.receiptId, claim.claimToken)) return null;
-  return store.completedTurns.activeForSession(sessionId, claim.claimToken);
+  return store.completedTurns.refreshActiveSenderForSession(sessionId);
 }
 
 /** Tools are installed by the immutable pipeline, never named by participant input. */
