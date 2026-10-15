@@ -118,6 +118,7 @@ describe("InstanceSettingsService", () => {
         IDENTITY_SESSION_SECRET: newSecret,
         GITEA_URL: "https://fallback.example.test",
       })).toBe("https://fallback.example.test");
+      expect(service.getAppValue("integrations.gitea_url")).toBeNull();
       expect(service.buildRuntimeEnv({
         IDENTITY_SESSION_SECRET: newSecret,
         GITEA_URL: "https://fallback.example.test",

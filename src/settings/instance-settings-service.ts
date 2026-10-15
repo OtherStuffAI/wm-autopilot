@@ -111,7 +111,16 @@ export class InstanceSettingsService {
   }
 
   getAppValue(key: string): string | null {
-    return this.store.get(key);
+    try {
+      return this.store.get(key);
+    } catch (error) {
+      if (!(error instanceof SettingValueDecryptionError)) throw error;
+      console.warn(
+        `[instance-settings] ${key} cannot be decrypted with the active session secret; ` +
+        "preserving the stored value and treating it as unavailable",
+      );
+      return null;
+    }
   }
 
   listMaskedSettings(env: EnvLike = process.env): MaskedInstanceSetting[] {
