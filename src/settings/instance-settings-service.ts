@@ -95,7 +95,17 @@ export class InstanceSettingsService {
     if (definition.bootstrapOnly) {
       return readEnvValueForDefinition(definition, env)?.value ?? null;
     }
-    const record = this.store.getRecord(key);
+    let record: InstanceSettingRecord | null;
+    try {
+      record = this.store.getRecord(key);
+    } catch (error) {
+      if (!(error instanceof SettingValueDecryptionError)) throw error;
+      console.warn(
+        `[instance-settings] ${definition.key} cannot be decrypted with the active session secret; ` +
+        "preserving the stored value and using an environment fallback when available",
+      );
+      return readEnvValueForDefinition(definition, env)?.value ?? null;
+    }
     if (record) return record.value;
     return readEnvValueForDefinition(definition, env)?.value ?? null;
   }
@@ -241,17 +251,7 @@ export class InstanceSettingsService {
     }
     for (const definition of INSTANCE_SETTING_DEFINITIONS) {
       if (!definition.compatibilityEnvName || definition.bootstrapOnly) continue;
-      let value: string | null;
-      try {
-        value = this.get(definition.key, env);
-      } catch (error) {
-        if (!(error instanceof SettingValueDecryptionError)) throw error;
-        console.warn(
-          `[instance-settings] ${definition.key} cannot be decrypted with the active session secret; ` +
-          "preserving the stored value and using an environment fallback when available",
-        );
-        value = readEnvValueForDefinition(definition, env)?.value ?? null;
-      }
+      const value = this.get(definition.key, env);
       if (value !== null && value.trim().length > 0) {
         output[definition.compatibilityEnvName] = value;
       }

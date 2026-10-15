@@ -114,6 +114,10 @@ describe("InstanceSettingsService", () => {
 
     try {
       Bun.env.IDENTITY_SESSION_SECRET = newSecret;
+      expect(service.get("integrations.gitea_url", {
+        IDENTITY_SESSION_SECRET: newSecret,
+        GITEA_URL: "https://fallback.example.test",
+      })).toBe("https://fallback.example.test");
       expect(service.buildRuntimeEnv({
         IDENTITY_SESSION_SECRET: newSecret,
         GITEA_URL: "https://fallback.example.test",
