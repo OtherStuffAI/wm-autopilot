@@ -54,6 +54,36 @@ test("managed app scope signs exact bytes, runs native public call and owns priv
   expect(read.status).toBe(200);
   expect(x.grants.ownsRun(x.registration.grant.id,run.id)).toBe(true);
 }));
+test("managed app can retry only its same exhausted immutable delivery",()=>fixture(async x=>{
+  const first=await x.broker.request(x.token,{method:"POST",path:x.path,serializedBody:JSON.stringify(x.payload)},x.ctx);
+  const accepted=await first.json(),runId=accepted.response.runId;
+  const delivery=x.ctx.store.publicCalls.getDelivery(runId)!;
+  x.ctx.store.publicCalls.claim(delivery.id,0,JSON.stringify({deliveryId:delivery.id,runId}));
+  for(let attempt=1;attempt<=5;attempt++){
+    const current=x.ctx.store.publicCalls.getDelivery(runId)!;
+    if(attempt>1)x.ctx.store.publicCalls.claim(current.id,current.nextAttemptAt,"changed-body-denied");
+    x.ctx.store.publicCalls.finish(x.ctx.store.publicCalls.getDelivery(runId)!,{status:503,error:"failed"},current.nextAttemptAt);
+  }
+  const path=`/api/pipelines/runs/${runId}/delivery/retry`;
+  const [a,b]=await Promise.all([x.broker.request(x.token,{method:"POST",path},x.ctx),x.broker.request(x.token,{method:"POST",path},x.ctx)]);
+  expect([a.status,b.status]).toEqual([202,202]);
+  const bodies=await Promise.all([a.json(),b.json()]);
+  expect(bodies.map(body=>body.response.outcome).sort()).toEqual(["already_pending","requeued"]);
+  expect(x.ctx.store.publicCalls.getDelivery(runId)).toMatchObject({id:delivery.id,status:"pending",attempts:5,retryCount:1});
+}));
+test("managed app publication preflight verifies the pinned native tool before a run starts",()=>fixture(async x=>{
+  writeFileSync(x.definitionPath,JSON.stringify({name:"app-proof",version:1,steps:[{name:"turn",type:"code",function:"session.completedTurn",
+    agentTools:{"napplet.publish":"freedomtools.agentPublish.v1"}}]}));
+  const functionsDirectory=join(x.dir,"pipelines/shared/functions");mkdirSync(functionsDirectory,{recursive:true});
+  writeFileSync(join(functionsDirectory,"publish.ts"),"export const name='freedomtools.agentPublish.v1'; export default async()=>({status:'published'});");
+  const renewed=await x.broker.register(owner,{installationId:"installation",appId:"app",origin:"https://autopilot.example",
+    definitionId:x.registration.grant.definitionId,callbackUrl:"https://example.com/result",expiresAt:x.registration.grant.expiresAt});
+  const token=readFileSync(renewed.credentialFile,"utf8").trim();
+  const path=`/api/pipelines/definitions/${encodeURIComponent(renewed.grant.definitionId)}/publication-preflight`;
+  const response=await x.broker.request(token,{method:"GET",path},x.ctx);
+  expect(response.status).toBe(200);
+  expect((await response.json()).response).toEqual({protocol:"native-project-tools-v1",ready:true,publicationTool:"napplet.publish",reason:null});
+}));
 test("denies foreign runs/routes, callback widening, drift, expiry and revocation",()=>fixture(async x=>{
   for(const input of [{method:"GET",path:"/api/pipelines/runs/foreign"},{method:"POST",path:"/api/sessions"},
     {method:"GET",path:"/api/pipelines/webhook-signer?admin=true"},

@@ -36,7 +36,7 @@ export class ResultWebhookService {
     try {
       // Concurrency is bounded to one delivery per worker; database claims cover multiple workers.
       for (const due of this.store.publicCalls.due(this.now())) {
-        if (due.attempts >= 5) { this.store.publicCalls.exhaust(due.id); continue; }
+        if (due.attempts >= due.attemptLimit) { this.store.publicCalls.exhaust(due.id); continue; }
         const run = this.store.getRun(due.runId);
         if (!run || !run.completedAt) throw new Error(`Delivery ${due.id} lacks a terminal run`);
         const payload = JSON.stringify({ deliveryId: due.id, ...runEnvelope(run) });

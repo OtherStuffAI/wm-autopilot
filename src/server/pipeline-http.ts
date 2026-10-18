@@ -11,7 +11,7 @@ export async function handlePipelineHttp(request: Request, url: URL, auth: Reque
   const origin = request.headers.get("origin");
   const publicOrigin = new URL(publicBaseUrl.trim() || url.origin).origin;
   const crossOrigin = origin !== null && origin !== publicOrigin;
-  const browserRoute = /^\/api\/pipelines\/(definitions(?:\/[^/]+\/runs)?|runs\/[^/]+(?:\/delivery)?|webhook-signer)$/.test(url.pathname);
+  const browserRoute = /^\/api\/pipelines\/(definitions(?:\/[^/]+\/runs)?|runs\/[^/]+(?:\/delivery(?:\/retry)?)?|webhook-signer)$/.test(url.pathname);
   let permittedOrigin = false;
   if (origin && origin !== "null") {
     try {

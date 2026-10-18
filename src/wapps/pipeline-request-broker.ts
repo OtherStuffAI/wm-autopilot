@@ -76,7 +76,9 @@ export class WappPipelineRequestBroker {
       const url=new URL(input.path,grant.origin);
       if (url.origin!==grant.origin || url.pathname!==input.path) throw new Error("pipeline_route_denied");
       const start=input.method==="POST" && input.path===`/api/pipelines/definitions/${encodeURIComponent(grant.definitionId)}/runs`;
+      const publicationPreflight=input.path===`/api/pipelines/definitions/${encodeURIComponent(grant.definitionId)}/publication-preflight`;
       const runMatch=input.path.match(/^\/api\/pipelines\/runs\/([^/]+)(\/delivery)?$/);
+      const retryMatch=input.path.match(/^\/api\/pipelines\/runs\/([^/]+)\/delivery\/retry$/);
       if (start) {
         if (typeof input.serializedBody!=="string" || Buffer.byteLength(input.serializedBody)>1048576) throw new Error("pipeline_body_denied");
         const body=JSON.parse(input.serializedBody);
@@ -84,8 +86,10 @@ export class WappPipelineRequestBroker {
             !body.input || typeof body.input!=="object" || Array.isArray(body.input) ||
             typeof body.idempotencyKey!=="string" || !body.idempotencyKey || body.idempotencyKey.length>200 ||
             body.webhook?.url!==grant.callbackUrl || Object.keys(body.webhook).join(",")!=="url") throw new Error("pipeline_body_denied");
-      } else if (input.method!=="GET" || input.serializedBody!==undefined ||
-          (input.path!=="/api/pipelines/webhook-signer" && (!runMatch || !this.grants.ownsRun(grant.id,decodeURIComponent(runMatch[1]!))))) throw new Error("pipeline_route_denied");
+      } else if (input.serializedBody!==undefined || !(
+          input.method==="POST" && retryMatch && this.grants.ownsRun(grant.id,decodeURIComponent(retryMatch[1]!)) ||
+          input.method==="GET" && (publicationPreflight || input.path==="/api/pipelines/webhook-signer" || runMatch && this.grants.ownsRun(grant.id,decodeURIComponent(runMatch[1]!)))
+        )) throw new Error("pipeline_route_denied");
       // Signing is a validated HTTP operation, not arbitrary kind-27235 signing.
       const authorization=await this.wapps.withAppSigningKey(grant.installationId,nsec=>createWappNip98Authorization({
         url:url.href,method:input.method,nsec,serializedBody:input.serializedBody,nonce:randomUUID()}));
@@ -113,10 +117,33 @@ export class WappPipelineRequestBroker {
             assertActive:()=>{if(!this.grants.active(grant.id)||grant.expiresAt<=this.now())throw new Error("pipeline_grant_revoked")}});
         const body=await response.clone().json() as {runId?:unknown};
         if (response.ok && typeof body.runId==="string") this.grants.bindRun(grant.id,body.runId);
+      } else if (publicationPreflight) {
+        const definition=await getPipelineDefinition(grant.definitionId,grant.definitionOwnerAlias);
+        const functions=await loadPipelineFunctionRegistry(grant.definitionOwnerAlias,builtinPipelineFunctions);
+        const definitionCurrent=Boolean(definition&&hash(definition.spec)===grant.definitionHash);
+        const functionsCurrent=Boolean(definition&&hash(pipelineFunctionHashes(definition,functions.registry))===hash(grant.functionHashes));
+        const publicationHandler=definition?.spec.steps.flatMap(step=>step.type==="code"&&step.function==="session.completedTurn"
+          ? [step.agentTools?.["napplet.publish"]] : []).find((name):name is string=>typeof name==="string")??null;
+        const ready=definitionCurrent&&functionsCurrent&&Boolean(publicationHandler&&
+          /^freedomtools\.agentPublish\.v\d+$/.test(publicationHandler)&&grant.functionHashes[publicationHandler]);
+        response=Response.json({protocol:"native-project-tools-v1",ready,publicationTool:"napplet.publish",
+          reason:ready?null:!definitionCurrent?"definition_drift":!functionsCurrent?"function_drift":"publication_tool_missing"},
+          {headers:{"cache-control":"no-store"}});
+      } else if (retryMatch) {
+        const run=ctx.store.getRun(decodeURIComponent(retryMatch[1]!));
+        if (!run || run.ownerNpub!==grant.appNpub || run.definitionId!==grant.definitionId || !run.completedAt) throw new Error("pipeline_run_denied");
+        const retry=ctx.store.publicCalls.retryExhausted(run.id,grant.appNpub,grant.appNpub,this.now());
+        if (retry.outcome==="denied") throw new Error("pipeline_delivery_retry_denied");
+        response=retry.outcome==="invalid"
+          ? Response.json({...retry,error:"Pipeline delivery cannot be retried"},{status:409,headers:{"cache-control":"no-store"}})
+          : Response.json({outcome:retry.outcome,delivery:publicDelivery(retry.delivery,retry.requeues)},
+            {status:retry.outcome==="delivered"?200:202,headers:{"cache-control":"no-store"}});
       } else if (runMatch) {
         const run=ctx.store.getRun(decodeURIComponent(runMatch[1]!));
         if (!run || run.ownerNpub!==grant.appNpub || run.definitionId!==grant.definitionId) throw new Error("pipeline_run_denied");
-        response=Response.json({...runEnvelope(run),...(runMatch[2]?{delivery:publicDelivery(ctx.store.publicCalls.getDelivery(run.id))}:{})});
+        const delivery=runMatch[2]?ctx.store.publicCalls.getDelivery(run.id):null;
+        response=Response.json({...runEnvelope(run),...(runMatch[2]?{delivery:publicDelivery(delivery,
+          delivery?ctx.store.publicCalls.getRequeueHistory(delivery.id):[])}:{})});
       } else response=Response.json({pubkey:ctx.resultWebhooks?.pubkey??null,scheme:"NIP-98"});
       this.grants.audit(grant.id,input.method,response.ok?"allowed":"rejected");
       // Public signed receipt contains no publisher secret or bearer capability.

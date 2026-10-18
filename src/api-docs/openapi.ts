@@ -71,6 +71,16 @@ export function createOpenApiSpec() {
     parameters: [idParameter], "x-source-file": "src/pipelines/pipeline-api-routes.ts", "x-access-policy": "sessions:manage; run owner only",
     responses: { "200": jsonResponse("Run envelope plus delivery record (null without a webhook)", { $ref: "#/components/schemas/DeliveryEnvelope" }), ...errors },
   } };
+  paths["/api/pipelines/runs/{id}/delivery/retry"] = { post: {
+    operationId: "retryPipelineDelivery", summary: "Retry an exhausted immutable terminal delivery", tags: ["pipelines"], security: nip98,
+    parameters: [idParameter], "x-source-file": "src/pipelines/pipeline-api-routes.ts", "x-access-policy": "sessions:manage; run owner only",
+    description: "Owner-authorized recovery only. Atomically requeues only a terminal public run's failed delivery, retaining its delivery ID, run ID, destination and exact snapshotted body. It never reruns the pipeline or creates another delivery row. Each requeue opens one bounded five-attempt window and appends prior exhaustion details to durable history. The existing worker sends through the normal NIP-98 path; receivers remain authoritative for delivery-ID deduplication. Concurrent repeats never rearm twice: inspect outcome for requeued, already_pending, delivered, invalid or denied.",
+    responses: { "200": jsonResponse("No mutation: the delivery was already delivered", { $ref: "#/components/schemas/DeliveryRetry" }),
+      "202": jsonResponse("The failed delivery was requeued, or a delivery is already pending/delivering", { $ref: "#/components/schemas/DeliveryRetry" }),
+      "409": jsonResponse("No mutation: the run or delivery is not eligible for recovery", { $ref: "#/components/schemas/DeliveryRetry" }),
+      "404": jsonResponse("Absent or outside caller ownership", { $ref: "#/components/schemas/DeliveryRetry" }),
+      "401": errors["401"], "403": errors["403"] },
+  } };
   paths["/api/pipelines/webhook-signer"] = { get: {
     operationId: "getWebhookSigner", summary: "Discover public result webhook signing key", tags: ["pipelines"], security: nip98,
     "x-source-file": "src/pipelines/pipeline-api-routes.ts", "x-access-policy": "sessions:manage",

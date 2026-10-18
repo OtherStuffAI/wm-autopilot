@@ -1,7 +1,7 @@
 import { rootPipelineRunId } from "./pipeline-run-authority";
 import { createHash } from "node:crypto";
 import type { PipelineRunRecord, PipelineStore } from "./pipeline-store";
-import type { ResultDelivery } from "./public-call-store";
+import type { ResultDelivery, ResultDeliveryRequeue } from "./public-call-store";
 
 export const MAX_PIPELINE_WAIT_MS = 60_000;
 export const PUBLIC_CALL_MODES = ["wait", "poll", "webhook"] as const;
@@ -11,10 +11,10 @@ export function callError(message: string, code: string, status: number): Respon
   return Response.json({ error: message, code }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
-export function publicDelivery(delivery: ResultDelivery | null) {
+export function publicDelivery(delivery: ResultDelivery | null, requeues: ResultDeliveryRequeue[] = []) {
   if (!delivery) return null;
   const { payload: _payload, ...status } = delivery;
-  return status;
+  return { ...status, requeues };
 }
 
 export function runEnvelope(run: PipelineRunRecord) {

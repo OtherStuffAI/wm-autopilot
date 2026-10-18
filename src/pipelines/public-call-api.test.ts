@@ -224,6 +224,61 @@ describe("public pipeline calls", () => {
     expect(await signer.json()).toEqual({ pubkey: getPublicKey(secret), scheme: "NIP-98" });
   });
 
+  test("only the run owner can idempotently retry an exhausted terminal delivery", async () => {
+    ctx.resultWebhooks = new ResultWebhookService(store, getPublicKey(secret), event => finalizeEvent(event, secret), async () => 503);
+    const response = await call(signedRequest("/api/pipelines/definitions/quick/runs", "POST", {
+      mode: "webhook", idempotencyKey: "recover-webhook", webhook: { url: "https://8.8.8.8/result" },
+    }));
+    const accepted = await response.json();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const delivery = store.publicCalls.getDelivery(accepted.runId)!;
+      store.publicCalls.claim(delivery.id, delivery.nextAttemptAt, JSON.stringify({ deliveryId: delivery.id, runId: accepted.runId }));
+      store.publicCalls.finish(store.publicCalls.getDelivery(accepted.runId)!, { status: 503, error: "Receiver returned HTTP 503" }, delivery.nextAttemptAt);
+    }
+    expect(store.publicCalls.getDelivery(accepted.runId)?.status).toBe("failed");
+    const path = `${accepted.deliveryUrl}/retry`;
+    expect((await call(signedRequest(path, "POST", undefined, outsiderSecret))).status).toBe(404);
+    const [first, second] = await Promise.all([call(signedRequest(path, "POST")), call(signedRequest(path, "POST"))]);
+    expect([first.status, second.status]).toEqual([202, 202]);
+    const bodies = await Promise.all([first.json(), second.json()]);
+    expect(bodies.map(body => body.outcome).sort()).toEqual(["already_pending", "requeued"]);
+    expect(bodies.every(body => body.delivery.id === store.publicCalls.getDelivery(accepted.runId)?.id)).toBe(true);
+    expect(store.publicCalls.getDelivery(accepted.runId)).toMatchObject({ status: "pending", attempts: 5, retryCount: 1 });
+    expect(bodies[0].delivery.requeues).toEqual([expect.objectContaining({ priorAttempts: 5, requestedByNpub: owner })]);
+
+    const pending = await call(signedRequest(path, "POST"));
+    expect(pending.status).toBe(202);
+    expect(await pending.json()).toMatchObject({ outcome: "already_pending" });
+    const delivery = store.publicCalls.getDelivery(accepted.runId)!;
+    const claimed = store.publicCalls.claim(delivery.id, delivery.nextAttemptAt, "different-body-is-ignored")!;
+    store.publicCalls.finish(claimed, { status: 204, error: null }, delivery.nextAttemptAt);
+    const delivered = await call(signedRequest(path, "POST"));
+    expect(delivered.status).toBe(200);
+    expect(await delivered.json()).toMatchObject({ outcome: "delivered" });
+  });
+
+  test("delivery retry rejects non-public, absent-delivery and nonterminal runs with typed states", async () => {
+    const privateRun = store.createRun({ definitionId: "private", name: "private", ownerNpub: owner, scope: "user", input: {} });
+    store.completeRun(privateRun.id, "ok", {});
+    const privateResponse = await call(signedRequest(`/api/pipelines/runs/${privateRun.id}/delivery/retry`, "POST"));
+    expect(privateResponse.status).toBe(409);
+    expect(await privateResponse.json()).toMatchObject({ outcome: "invalid", code: "not_public_call" });
+
+    const noDelivery = store.publicCalls.create({ owner, definitionId: "none", key: null, fingerprint: "none", webhookUrl: null },
+      () => store.createRun({ definitionId: "none", name: "none", ownerNpub: owner, scope: "user", input: {} }));
+    store.completeRun(noDelivery.id, "ok", {});
+    const absentResponse = await call(signedRequest(`/api/pipelines/runs/${noDelivery.id}/delivery/retry`, "POST"));
+    expect(absentResponse.status).toBe(409);
+    expect(await absentResponse.json()).toMatchObject({ outcome: "invalid", code: "delivery_absent" });
+
+    const active = store.publicCalls.create({ owner, definitionId: "active", key: null, fingerprint: "active", webhookUrl: "https://8.8.8.8/result" },
+      () => store.createRun({ definitionId: "active", name: "active", ownerNpub: owner, scope: "user", input: {} }));
+    store.publicCalls.exhaust(store.publicCalls.getDelivery(active.id)!.id);
+    const activeResponse = await call(signedRequest(`/api/pipelines/runs/${active.id}/delivery/retry`, "POST"));
+    expect(activeResponse.status).toBe(409);
+    expect(await activeResponse.json()).toMatchObject({ outcome: "invalid", code: "run_not_terminal" });
+  });
+
   test("invalid starts create no run; private webhook destinations are rejected", async () => {
     ctx.resultWebhooks = new ResultWebhookService(store, getPublicKey(secret), event => finalizeEvent(event, secret));
     for (const body of [{ mode: "invalid" }, { waitSeconds: 61 }, { input: [] }, { idempotencyKey: " " }, { mode: "webhook", webhook: { url: "https://127.0.0.1/result" } }, { mode: "webhook", webhook: { url: "http://public.example/result" } }]) {

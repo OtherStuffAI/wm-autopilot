@@ -387,8 +387,25 @@ export async function handlePipelineApi(
   if (deliveryMatch && method === "GET") {
     const run = ctx.store.getRun(decodeURIComponent(deliveryMatch[1]!));
     if (!run || !canAccessPipelineRun(run, ownerNpub, ctx)) return Response.json({ error: "Pipeline run not found" }, { status: 404 });
-    return Response.json({ ...runEnvelope(run), delivery: publicDelivery(ctx.store.publicCalls.getDelivery(run.id)) },
+    const delivery = ctx.store.publicCalls.getDelivery(run.id);
+    return Response.json({ ...runEnvelope(run), delivery: publicDelivery(delivery,
+      delivery ? ctx.store.publicCalls.getRequeueHistory(delivery.id) : []) },
       { headers: { "Cache-Control": "no-store" } });
+  }
+
+  const deliveryRetryMatch = pathname.match(/^\/api\/pipelines\/runs\/([^/]+)\/delivery\/retry$/);
+  if (deliveryRetryMatch && method === "POST") {
+    const run = ctx.store.getRun(decodeURIComponent(deliveryRetryMatch[1]!));
+    if (!run || !run.ownerNpub || !canAccessPipelineRun(run, ownerNpub, ctx)) {
+      return Response.json({ outcome: "denied", code: "delivery_not_found", error: "Pipeline delivery not found" }, { status: 404 });
+    }
+    const retry = ctx.store.publicCalls.retryExhausted(run.id, run.ownerNpub, ownerNpub, Date.now());
+    if (retry.outcome === "denied") return Response.json({ ...retry, error: "Pipeline delivery not found" }, { status: 404 });
+    if (retry.outcome === "invalid") return Response.json({ ...retry, error: "Pipeline delivery cannot be retried" }, { status: 409 });
+    return Response.json({ outcome: retry.outcome, delivery: publicDelivery(retry.delivery, retry.requeues) }, {
+      status: retry.outcome === "delivered" ? 200 : 202,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
   const runMatch = pathname.match(/^\/api\/pipelines\/runs\/([^/]+)$/);

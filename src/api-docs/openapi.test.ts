@@ -31,7 +31,9 @@ describe("hosted OpenAPI", () => {
     expect(checkResult({ ...runExample, status: "imaginary" })).toBe(false);
     const callback = start.callbacks.terminalResult["{$request.body#/webhook/url}"].post;
     expect(ajv.compile(callback.requestBody.content["application/json"].schema)(callback.requestBody.content["application/json"].example)).toBe(true);
-    const delivery = { id: "delivery", runId: runExample.runId, url: "https://receiver.example/result", status: "pending", attempts: 1, nextAttemptAt: 1000, lastError: null, lastHttpStatus: null, deliveredAt: null };
+    const delivery = { id: "delivery", runId: runExample.runId, url: "https://receiver.example/result", status: "pending",
+      attempts: 1, attemptLimit: 5, nextAttemptAt: 1000, lastError: null, lastHttpStatus: null, deliveredAt: null,
+      retryCount: 0, retryRequestedAt: null, requeues: [] };
     const checkDelivery = ajv.compile(spec.components.schemas.DeliveryEnvelope);
     expect(checkDelivery({ ...runExample, delivery })).toBe(true);
     expect(checkDelivery({ ...runExample, delivery: null })).toBe(true);

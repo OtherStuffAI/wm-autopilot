@@ -9,6 +9,7 @@ export const endpointCatalog = [
   ["get", "/api/pipelines/runs/{id}/steps/{stepId}", "Read a step", "sessions:manage; run ownership or legacy shared visibility", "src/pipelines/pipeline-api-routes.ts"],
   ["post", "/api/pipelines/runs/{id}/cancel", "Cancel a running pipeline", "sessions:manage; run ownership or legacy shared visibility", "src/pipelines/pipeline-api-routes.ts"],
   ["post", "/api/pipelines/runs/{id}/resume-from-failure", "Resume an errored pipeline", "sessions:manage; run ownership or legacy shared visibility; same run ID", "src/pipelines/pipeline-api-routes.ts"],
+  ["post", "/api/pipelines/runs/{id}/delivery/retry", "Retry an exhausted immutable terminal delivery", "sessions:manage; public run owner only; same delivery ID and body", "src/pipelines/pipeline-api-routes.ts"],
   ["get", "/api/sessions", "List visible agent sessions", "sessions:read; approved work access; owner visibility and configured admin policy", "src/server/session-api-routes.ts"],
   ["post", "/api/sessions", "Start an agent session", "sessions:manage; direct approved user/admin or explicit execution delegation", "src/server/session-api-routes.ts"],
   ["get", "/api/sessions/{id}", "Read an agent session", "sessions:read; owner or configured admin", "src/server/session-api-routes.ts"],

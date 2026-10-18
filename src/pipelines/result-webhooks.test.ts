@@ -85,6 +85,50 @@ describe("public result webhooks", () => {
     at += 100000; await worker.tick(); expect(calls).toBe(5);
   });
 
+  test("owner recovery reuses the exhausted delivery ID and exact signed body idempotently", async () => {
+    const run = createDelivery();
+    const sent: Array<{ url: string; body: string; headers: Record<string, string> }> = [];
+    const worker = new ResultWebhookService(store, getPublicKey(secret), event => finalizeEvent(event, secret),
+      async (url, body, headers) => { sent.push({ url, body, headers }); return sent.length <= 5 ? 503 : 204; }, () => at);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await worker.tick();
+      at = store.publicCalls.getDelivery(run.id)!.nextAttemptAt;
+    }
+    const exhausted = store.publicCalls.getDelivery(run.id)!;
+    expect(exhausted).toMatchObject({ status: "failed", attempts: 5, attemptLimit: 5, retryCount: 0 });
+    const exactBody = exhausted.payload;
+    const deliveryId = exhausted.id;
+
+    const reopenedA = new PipelineStore(store.path);
+    const reopenedB = new PipelineStore(store.path);
+    const recoveries = await Promise.all([
+      Promise.resolve().then(() => reopenedA.publicCalls.retryExhausted(run.id, "owner", "owner", at)),
+      Promise.resolve().then(() => reopenedB.publicCalls.retryExhausted(run.id, "owner", "owner", at)),
+    ]);
+    expect(recoveries.map(result => result.outcome).sort()).toEqual(["already_pending", "requeued"]);
+    expect(reopenedA.publicCalls.getDelivery(run.id)).toMatchObject({
+      id: deliveryId, status: "pending", attempts: 5, attemptLimit: 10, retryCount: 1,
+    });
+    expect(reopenedA.publicCalls.getRequeueHistory(deliveryId)).toEqual([expect.objectContaining({
+      retryNumber: 1, priorAttempts: 5, priorAttemptLimit: 5, priorLastError: "Receiver returned HTTP 503",
+      priorLastHttpStatus: 503, requestedByNpub: "owner",
+    })]);
+
+    const recoveredWorker = new ResultWebhookService(reopenedA, getPublicKey(secret), event => finalizeEvent(event, secret),
+      async (url, body, headers) => { sent.push({ url, body, headers }); return 204; }, () => at);
+    await recoveredWorker.tick();
+    expect(sent).toHaveLength(6);
+    expect(sent[5]!.url).toBe("https://receiver.example/result");
+    expect(sent[5]!.body).toBe(exactBody);
+    expect(sent[5]!.headers["X-Wingman-Delivery-Id"]).toBe(deliveryId);
+    const event = JSON.parse(Buffer.from(sent[5]!.headers.Authorization!.slice(6), "base64").toString());
+    expect(event.tags).toContainEqual(["delivery", deliveryId]);
+    expect(event.tags).toContainEqual(["attempt", "6"]);
+    expect(reopenedA.publicCalls.getDelivery(run.id)).toMatchObject({ status: "delivered", attempts: 6, retryCount: 1 });
+    expect(reopenedA.listRuns()).toHaveLength(1);
+    expect(reopenedA.publicCalls.retryExhausted(run.id, "owner", "owner", at)).toMatchObject({ outcome: "delivered" });
+  });
+
   test("crash leases prevent concurrent claims and recover without new run or delivery", async () => {
     const run = createDelivery();
     const delivery = store.publicCalls.getDelivery(run.id)!;

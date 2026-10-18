@@ -27,15 +27,28 @@ export const schemas = {
     },
   },
   Delivery: {
-    type: "object", required: ["id", "runId", "url", "status", "attempts", "nextAttemptAt", "lastError", "lastHttpStatus", "deliveredAt"],
+    type: "object", required: ["id", "runId", "url", "status", "attempts", "attemptLimit", "nextAttemptAt", "lastError", "lastHttpStatus", "deliveredAt", "retryCount", "retryRequestedAt", "requeues"],
     properties: {
       id: { type: "string" }, runId: { type: "string" }, url: { type: "string", format: "uri" },
       status: { type: "string", enum: ["pending", "delivering", "delivered", "failed"] },
-      attempts: { type: "integer", minimum: 0, maximum: 5 }, nextAttemptAt: { type: "integer", description: "Unix milliseconds; a delivering record uses this as its recovery lease expiry." },
+      attempts: { type: "integer", minimum: 0 }, attemptLimit: { type: "integer", minimum: 5, description: "End of the current bounded five-attempt delivery window." },
+      nextAttemptAt: { type: "integer", description: "Unix milliseconds; a delivering record uses this as its recovery lease expiry." },
       lastError: { type: "string", nullable: true }, lastHttpStatus: { type: "integer", nullable: true },
       deliveredAt: { type: "string", format: "date-time", nullable: true },
+      retryCount: { type: "integer", minimum: 0 }, retryRequestedAt: { type: "string", format: "date-time", nullable: true },
+      requeues: { type: "array", items: { type: "object", required: ["id", "deliveryId", "retryNumber", "priorAttempts", "priorAttemptLimit", "priorLastError", "priorLastHttpStatus", "requestedAt", "requestedByNpub"], properties: {
+        id: { type: "string" }, deliveryId: { type: "string" }, retryNumber: { type: "integer", minimum: 1 },
+        priorAttempts: { type: "integer", minimum: 0 }, priorAttemptLimit: { type: "integer", minimum: 5 },
+        priorLastError: { type: "string", nullable: true }, priorLastHttpStatus: { type: "integer", nullable: true },
+        requestedAt: { type: "string", format: "date-time" }, requestedByNpub: { type: "string" },
+      } } },
     },
   },
+  DeliveryRetry: { type: "object", required: ["outcome"], properties: {
+    outcome: { type: "string", enum: ["requeued", "already_pending", "delivered", "invalid", "denied"] },
+    code: { type: "string", enum: ["delivery_not_found", "not_public_call", "delivery_absent", "run_not_terminal", "delivery_payload_absent"] },
+    error: { type: "string" }, delivery: { $ref: "#/components/schemas/Delivery" },
+  } },
   DeliveryEnvelope: { allOf: [{ $ref: "#/components/schemas/RunEnvelope" }, {
     type: "object", required: ["delivery"], properties: { delivery: { anyOf: [{ $ref: "#/components/schemas/Delivery" }, { type: "object", nullable: true, enum: [null] }] } },
   }] },
