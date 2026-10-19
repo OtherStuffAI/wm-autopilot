@@ -1854,6 +1854,7 @@ const promptDispatchEngine = createPromptDispatchEngine({
   nightWatchDeps,
   flightDeckTurnBridge: flightDeckSessionTurnBridge,
   dispatchInbox: sessionDispatchInbox,
+  hasUnpublishedDirectChatTurn: (sessionId) => directChatTurnStore.hasRecoverableSessionTurn(sessionId),
 });
 const {
   dispatchNextQueuedPromptForSession,

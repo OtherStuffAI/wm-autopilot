@@ -58,6 +58,7 @@ export interface PromptDispatchContext {
   nightWatchDeps: any;
   flightDeckTurnBridge?: FlightDeckSessionTurnBridge;
   dispatchInbox?: SessionDispatchInboxCoordinator;
+  hasUnpublishedDirectChatTurn?: (sessionId: string) => boolean;
 }
 
 // ---------- Custom error ----------
@@ -426,6 +427,9 @@ export function createPromptDispatchEngine(ctx: PromptDispatchContext): PromptDi
       if (session.agentRuntimeStatus === "stable") {
         void ctx.maybeTriggerNightWatch(session, ctx.nightWatchDeps);
       }
+      return;
+    }
+    if (queuedPromptCount === 0 && hasCallbacks && ctx.hasUnpublishedDirectChatTurn?.(session.id)) {
       return;
     }
     const userNpub = resolveSessionChargeNpub(session.metadata, session.npub ?? null);

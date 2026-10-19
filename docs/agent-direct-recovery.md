@@ -33,6 +33,30 @@ reconciliation requires native `final_answer` evidence after the accepted bounda
 a later error supersedes earlier assistant text. Continue/steering remains inside
 the accepted request's observation boundary.
 
+## Callback wake publication boundary
+
+An accepted human Agent Direct turn fences supervised callback wake delivery for
+the same session until the human turn reaches a terminal delivery state. Runtime
+stability alone is not sufficient: a final may already be visible in the native
+session transcript while its Agent Direct delivery is still being frozen,
+reported, or published. The callback remains unresolved in its durable inbox and
+becomes eligible again after the human delivery is published, suppressed, or
+otherwise terminal.
+
+The live runtime freezes the observed human final and its immutable source-message,
+thread, session, agent, and `prompt_type=direct_chat` binding before post-turn
+reporting or activity publication can yield. A later callback final therefore
+cannot replace that payload even if callback publication overlaps a delayed Tower
+request. Callback reporting retains its separate `dispatch_inbox_wake` turn and
+idempotency key.
+
+The fresh-human cutoff introduced in `08444f3` protects a different boundary: a
+new human trigger reactivating an inactive session retires older work. It does not
+run when the already accepted human turn becomes stable after producing its final,
+which is the point where callback auto-dispatch previously overtook publication.
+The session-level publication fence covers that same-turn gap without weakening
+fresh-human supersession, callback durability, or same-session reuse.
+
 The archive viewer materializes history into Dexie before reading it and binds
 loads to the selected session and request. Navigation discards obsolete responses;
 the archive badge identifies an interrupted request separately from archive state.

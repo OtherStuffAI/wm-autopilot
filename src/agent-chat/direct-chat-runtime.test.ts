@@ -355,6 +355,28 @@ describe('Agent Direct Chat runtime', () => {
     expect(state.lastAgentMessageIdPublished).toBe('agent-message-1'); expect(state.lastCompletedTurnId).toBeTruthy();
   });
 
+  test('freezes the observed human final before post-turn reporting can yield', async () => {
+    const f = fixture({ finalContent: 'Human answer frozen at its turn boundary.' });
+    const originalRecord = f.dispatchOutcomeStore.recordSessionRecovered.bind(f.dispatchOutcomeStore);
+    let frozenBeforeReporting: ReturnType<DirectChatTurnStore['get']> = null;
+    f.dispatchOutcomeStore.recordSessionRecovered = ((input: Parameters<typeof originalRecord>[0]) => {
+      if (input.evidence === 'final_turn') {
+        frozenBeforeReporting = f.turnStore.listRecoverable().find((record) => record.promptType === 'direct_chat') ?? null;
+      }
+      return originalRecord(input);
+    }) as typeof f.dispatchOutcomeStore.recordSessionRecovered;
+    const human = f.message('m1', '@Example Agent answer this', true);
+
+    await f.handle([human], 'm1');
+    await f.runtime.waitForIdle();
+
+    expect(frozenBeforeReporting).toMatchObject({ state: 'reply_ready', replyBody: 'Human answer frozen at its turn boundary.',
+      publicationPayload: { body: 'Human answer frozen at its turn boundary.',
+        metadata: { prompt_type: 'direct_chat', source_message_ids: ['m1'] } } });
+    expect(f.published).toHaveLength(1);
+    expect(f.published[0].body).toBe('Human answer frozen at its turn boundary.');
+  });
+
   test('routes a pipeline with the addressed profile identity without creating a session', async () => {
     const routed: any[] = [];
     const f = fixture({

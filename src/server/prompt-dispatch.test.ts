@@ -12,6 +12,7 @@ import { SessionDispatchStore } from "../session-dispatch/session-dispatch-store
 import { handleQueueRoutes } from "./session-queue-routes";
 import type { SessionApiContext } from "./session-api-routes";
 import type { RequestAuthContext } from "../auth/request-context";
+import { DirectChatTurnStore } from "../agent-chat/direct-chat-turn-store";
 
 const roots: string[] = [];
 
@@ -334,6 +335,48 @@ describe("prompt dispatch engine", () => {
     await f.engine.reconcileNextTurn(f.session);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(inbox.inspect(f.session.id)).toMatchObject({ callbacks: [{ dispatchId: expect.any(String) }], wake: null });
+  });
+
+  test("keeps callback wakes durable until the accepted Agent Direct turn is published", async () => {
+    const root = mkdtempSync(join(tmpdir(), "prompt-inbox-direct-fence-")); roots.push(root);
+    const path = join(root, "dispatch.db");
+    const dispatchStore = new SessionDispatchStore(path);
+    dispatchStore.create({ workerSessionId: "worker-1", callbackSessionId: "session-1", ownerNpub: "npub1owner",
+      state: "callback_pending", prompt: "Do work", promptQueuedAt: "2026-10-19T12:48:47.753Z", reportingContext: {},
+      terminalStatus: "completed", terminalMessage: "Callback final", terminalMessageCreatedAt: "2026-10-19T12:48:47.753Z",
+      terminalFingerprint: "terminal-1", callbackPrompt: null, nativeDiscoveryStartedAt: null,
+      nativeDiscoveryNextAttemptAt: null, nativeDiscoveryAttemptCount: 0, nativeDiscoveryLastError: null,
+      callbackAttemptCount: 0, callbackNextAttemptAt: null, callbackExpiresAt: null, callbackQueuedAt: null,
+      callbackAcknowledgedAt: null, closedAt: null, lastError: null });
+    const inbox = new SessionDispatchInboxCoordinator(dispatchStore);
+    const turns = new DirectChatTurnStore(path);
+    const now = "2026-10-19T12:48:40.000Z";
+    turns.save({ turnId: "human-turn", routingKey: "route", sourceMessageIds: ["human-1", "human-2"],
+      clientRequestId: "agentdirect:route:human-turn", replyBody: null, publishedMessageId: null,
+      state: "awaiting_reply", createdAt: now, updatedAt: now, sessionId: "session-1", promptType: "direct_chat" });
+    const delivered: string[] = [];
+    globalThis.fetch = mock(async (_input: unknown, init?: RequestInit) => {
+      delivered.push(JSON.parse(String(init?.body ?? "{}")).content);
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const f = buildEngine({ dispatchInbox: inbox,
+      hasUnpublishedDirectChatTurn: (sessionId: string) => turns.hasRecoverableSessionTurn(sessionId) });
+    f.queue.prompts = [];
+    f.session.agentRuntimeStatus = "stable";
+
+    await f.engine.reconcileNextTurn(f.session);
+    expect(delivered).toEqual([]);
+    expect(inbox.inspect(f.session.id).wake).toBeNull();
+
+    turns.save({ ...turns.get("human-turn")!, state: "published", publishedMessageId: "human-answer",
+      publishedAt: "2026-10-19T12:48:43.116Z", updatedAt: "2026-10-19T12:48:43.116Z" });
+    const reopenedTurns = new DirectChatTurnStore(path);
+    expect(reopenedTurns.hasRecoverableSessionTurn(f.session.id)).toBeFalse();
+
+    await f.engine.reconcileNextTurn(f.session);
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toContain("unresolved supervised-dispatch callbacks");
+    expect(inbox.inspect(f.session.id).wake?.state).toBe("submitted");
   });
 
   test("delivers a queued human prompt before the durable callback inbox", async () => {

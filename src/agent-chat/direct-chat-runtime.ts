@@ -548,6 +548,7 @@ export class AgentDirectChatRuntime {
                 { acceptedAt: pending.createdAt, onPoll: () => { assertCurrentHumanTurn(this.turnStore, pending.turnId); return activity?.commentary(); } },
               );
           assertCurrentHumanTurn(this.turnStore, pending.turnId);
+          freezeOrResumeDirectChatReply(this.turnStore, pending.turnId, recovered.content, recovered.createdAt, this.log);
           this.enrichment.store.accepted(pending.turnId, session.id);
           for (const recordId of recoverySourceMessageIds) {
             this.recordRecoveredSessionOutcome(input, agent, recordId, session.id, routingKey, 'final_turn');
@@ -685,6 +686,7 @@ export class AgentDirectChatRuntime {
           });
         }
         assertCurrentHumanTurn(this.turnStore, turnId);
+        freezeOrResumeDirectChatReply(this.turnStore, turnId, reply.content, reply.createdAt, this.log);
         for (const recordId of sourceMessageIds) {
           this.recordRecoveredSessionOutcome(input, agent, recordId, session.id, routingKey, 'final_turn');
         }
