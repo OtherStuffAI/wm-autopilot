@@ -1,4 +1,4 @@
-import { prepareFreshHumanSession, FreshHumanIntakeCoordinator, afterFreshHumanBoundary, assertCurrentHumanTurn } from "./fresh-human-session";
+import { ACCEPTED_TURN_INTERRUPTED, prepareFreshHumanSession, FreshHumanIntakeCoordinator, afterFreshHumanBoundary, assertCurrentHumanTurn } from "./fresh-human-session";
 import { buildAcceptedDirectChatRecoveryPrompt } from "./direct-chat-recovery-prompt";
 import { DirectChatRequestQueue } from "./direct-chat-request-queue.ts";
 import { randomUUID } from "node:crypto";
@@ -718,15 +718,18 @@ export class AgentDirectChatRuntime {
           // Receipt owns execution. An observer timeout or capacity error must
           // never stop/replay an accepted turn that may still own live workers.
           activity?.releaseObservation();
-          if (!isSessionWaitTimeout(error)) {
+          const interrupted = !isSessionWaitTimeout(error);
+          if (interrupted) {
+            this.turnStore.markInterrupted(awaiting.turnId, error instanceof Error ? error.message : String(error), ACCEPTED_TURN_INTERRUPTED);
             this.deps.deliveryReconciler?.notifyStatus(awaiting, 'interrupted');
             await activity?.finish('failed', 'Accepted work interrupted; retained for recovery.');
           }
           if (this.deps.deliveryReconciler && awaiting.leaseOwner === this.deps.deliveryReconciler.runtimeLeaseOwner) {
-            this.turnStore.releaseAwaiting(awaiting.turnId, this.deps.deliveryReconciler.runtimeLeaseOwner, new Date().toISOString());
+            this.turnStore.releaseAwaiting(awaiting.turnId, this.deps.deliveryReconciler.runtimeLeaseOwner, new Date().toISOString(),
+              interrupted ? { message: error instanceof Error ? error.message : String(error), errorClass: ACCEPTED_TURN_INTERRUPTED } : undefined);
             this.deps.deliveryReconciler.notify(awaiting.turnId);
           }
-          this.deps.interceptStore.save({ ...intercept, state: 'active', lastDecision: 'pending',
+          this.deps.interceptStore.save({ ...intercept, state: 'active', lastDecision: interrupted ? 'failed' : 'pending',
             lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
           for (const recordId of outcomeRecordIds) {
             if (!intercept.sessionId || !isSessionWaitTimeout(error)) continue;

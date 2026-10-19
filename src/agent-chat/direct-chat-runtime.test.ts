@@ -26,7 +26,7 @@ const ATHENA_BOT_NPUB = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
 
 function fixture(options: {
   sdkTransport?: "claude-sdk" | "codex-sdk";
-  sendError?: Error;
+  sendError?: Error | ((attempt: number) => Error | null);
   publish?: (input: any, attempt: number) => Promise<any>;
   directChat?: AgentDefinitionRecord['directChat'] | null;
   enrichDirectChat?: EnrichDirectChat;
@@ -68,6 +68,7 @@ function fixture(options: {
   const captures: string[] = [];
   const creates: any[] = [];
   const stops: string[] = [];
+  let sendAttempts = 0;
   const manager = {
     getSession: (id: string) => sessions.get(id) ?? null,
     updateSessionMetadata: (id: string, patch: Record<string, unknown>) => {
@@ -79,9 +80,11 @@ function fixture(options: {
     getAdapter: (id: string) => ({
       waitForReady: async () => {}, fetchStatus: async () => 'stable', deliversPromptsDirectly: () => true, fetchMessages: async () => [...(sessions.get(id).messages ?? [])],
       sendMessage: async (prompt: string) => {
+        sendAttempts += 1;
         prompts.push(prompt);
         sessions.get(id).messages.push({ role: 'user', content: prompt, createdAt: new Date().toISOString() });
-        if (options.sendError) throw options.sendError;
+        const sendError = typeof options.sendError === 'function' ? options.sendError(sendAttempts) : options.sendError;
+        if (sendError) throw sendError;
         if (options.includeWorkingMessage) sessions.get(id).messages.push({ role: 'agent-working', content: 'Thinking and tool progress', createdAt: new Date().toISOString() });
         sessions.get(id).messages.push({ role: options.replyRole ?? 'assistant', content: options.finalContent ?? '## Answer\n\nFinal **Markdown**.', createdAt: options.finalCreatedAt ?? new Date().toISOString() });
       },
@@ -1508,6 +1511,50 @@ test("Codex SDK overload retains its received request and Continue publishes the
   expect(f.published).toHaveLength(2);
   expect(f.published[1].body).toBe("Verified terminal handoff");
   expect(f.turnStore.get(turn.turnId)?.state).toBe("published");
+});
+
+test('a fresh human turn recovers immediately after a live session interruption and refreshes its goal after restart', async () => {
+  const f = fixture({ sdkTransport: 'codex-sdk', useDeliveryReconciler: true,
+    sendError: attempt => attempt === 1 ? new Error('server_overloaded') : null,
+    finalContent: 'Recovered answer for the current request.' });
+  const failed = f.message('m1', '@Example Agent check AgentMail', true);
+  await f.handle([failed], 'm1');
+  await f.runtime.waitForIdle();
+  await f.deliveryReconciler!.runOnce();
+
+  const intercept = f.interceptStore.listAll()[0]!;
+  const failedTurn = f.turnStore.get(buildDirectChatTurnId(intercept.routingKey, ['m1']))!;
+  await waitUntil(() => f.turnStore.get(`${failedTurn.turnId}:status:interrupted`)?.state === 'published');
+  const interruption = f.turnStore.get(`${failedTurn.turnId}:status:interrupted`)!;
+  expect(failedTurn).toMatchObject({ state: 'awaiting_reply', lastErrorClass: 'accepted_turn_interrupted' });
+  expect(interruption).toMatchObject({ state: 'published', promptType: 'direct_chat_status' });
+
+  const restarted = f.makeRuntime();
+  const build = f.message('m2', 'Build please', true);
+  await restarted.handle({ subscription: f.subscription, botIdentity: f.botIdentity, channel: f.channel,
+    messages: [failed, build], event: { entity_id: 'm2', channel_id: 'channel-1', cursor: 'cursor-m2' },
+    instructionAuthorization: { verified: true, authorNpub: 'npub1human', reason: 'verified' } });
+  await restarted.waitForIdle();
+
+  expect(f.turnStore.get(failedTurn.turnId)).toMatchObject({ state: 'suppressed', lastErrorClass: 'fresh_human_supersession' });
+  expect(f.prompts).toHaveLength(2);
+  expect(f.published.at(-1)).toMatchObject({ body: 'Recovered answer for the current request.',
+    metadata: { prompt_type: 'direct_chat', source_message_ids: ['m2'] } });
+  expect(f.sessions.get(intercept.sessionId).metadata.goal).toContain('Build please');
+
+  const specific = f.message('m3', "Show David's emailed visual in Rick's Artefacts", true);
+  await restarted.handle({ subscription: f.subscription, botIdentity: f.botIdentity, channel: f.channel,
+    messages: [failed, build, specific], event: { entity_id: 'm3', channel_id: 'channel-1', cursor: 'cursor-m3' },
+    instructionAuthorization: { verified: true, authorNpub: 'npub1human', reason: 'verified' } });
+  await restarted.waitForIdle();
+
+  expect(f.prompts).toHaveLength(3);
+  expect(f.published.at(-1).metadata).toMatchObject({ prompt_type: 'direct_chat', source_message_ids: ['m3'] });
+  expect(f.sessions.get(intercept.sessionId).metadata.goal).toContain("Show David's emailed visual");
+  expect(f.sessions.get(intercept.sessionId).metadata.goal).not.toContain('Build please');
+  expect(f.turnStore.get(interruption.turnId)).toMatchObject({ state: 'published', publishedMessageId: interruption.publishedMessageId });
+  expect(f.published.filter(entry => !entry.metadata.turn_id.includes(':status:')).map(entry => entry.metadata.source_message_ids))
+    .toEqual([['m2'], ['m3']]);
 });
 
 test('fresh human intake discards stopped accepted work and answers only the new question with history preserved', async () => {

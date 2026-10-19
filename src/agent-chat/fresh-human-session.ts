@@ -3,6 +3,16 @@ import type { ChatInterceptStateStore } from "./chat-intercept-state-store";
 import type { DirectChatTurnStore } from "./direct-chat-turn-store";
 import type { ChatInterceptStateRecord } from "./types";
 
+export const ACCEPTED_TURN_INTERRUPTED = "accepted_turn_interrupted";
+
+function hasInterruptedTurn(
+  intercept: ChatInterceptStateRecord,
+  turnStore: Pick<DirectChatTurnStore, "getPending">,
+): boolean {
+  return intercept.lastDecision === "failed"
+    || turnStore.getPending(intercept.routingKey)?.lastErrorClass === ACCEPTED_TURN_INTERRUPTED;
+}
+
 /** Runs synchronously before session creation, activity publication or prompt submission.
  * A persisted pending transition joins concurrent human arrivals to the same cutoff. */
 export function prepareFreshHumanSession(deps: {
@@ -14,9 +24,10 @@ export function prepareFreshHumanSession(deps: {
   const sourceId = intercept.sessionId ?? deps.turnStore.getPending(intercept.routingKey)?.sessionId;
   if (!sourceId) return;
   const session = deps.manager.getSession(sourceId);
+  const interrupted = hasInterruptedTurn(intercept, deps.turnStore);
   if (session?.status === "starting") return;
-  if (session?.status === "running" && (!idleConfirmed || session.agentRuntimeStatus === "running")) return;
-  const boundaryId = intercept.state === "pending" && intercept.lastDecision !== "failed" && intercept.freshStartMessageId
+  if (!interrupted && session?.status === "running" && (!idleConfirmed || session.agentRuntimeStatus === "running")) return;
+  const boundaryId = intercept.state === "pending" && !interrupted && intercept.freshStartMessageId
     ? intercept.freshStartMessageId : triggerId;
   // Persist intent before touching separate stores, so recovery completes the
   // same vector of cutoffs after a crash rather than capturing wider cutoffs.
@@ -54,6 +65,10 @@ export async function prepareFreshHumanIntake(
 ): Promise<void> {
   const sourceId = intercept.sessionId ?? deps.turnStore.getPending(intercept.routingKey)?.sessionId;
   const session = sourceId ? deps.manager.getSession(sourceId) : null;
+  if (hasInterruptedTurn(intercept, deps.turnStore)) {
+    prepareFreshHumanSession(deps, intercept, triggerId);
+    return;
+  }
   if (session?.status !== "running") {
     prepareFreshHumanSession(deps, intercept, triggerId);
     return;

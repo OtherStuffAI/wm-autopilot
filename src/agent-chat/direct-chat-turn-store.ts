@@ -250,6 +250,13 @@ export class DirectChatTurnStore {
       .run(turnId, new Date().toISOString(), nextAttemptAt, error?.message ?? null, error?.errorClass ?? null, owner);
   }
 
+  markInterrupted(turnId: string, error: string, errorClass: string, at = new Date().toISOString()): void {
+    this.db.query(`UPDATE agent_direct_chat_turns SET last_error=?2,last_error_class=?3,updated_at=?4
+      WHERE turn_id=?1 AND publication_payload_json IS NULL
+        AND state NOT IN ('completed','published','suppressed','integrity_halt','failed')`)
+      .run(turnId, error, errorClass, at);
+  }
+
   markFailed(turnId: string, errorClass: string, error: string, at = new Date().toISOString(), owner?: string): void {
     this.db.query(`UPDATE agent_direct_chat_turns SET state='failed',next_attempt_at=NULL,lease_owner=NULL,lease_expires_at=NULL,
       last_error=?3,last_error_class=?2,updated_at=?4 WHERE turn_id=?1

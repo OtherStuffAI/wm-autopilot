@@ -79,6 +79,29 @@ test("active intake leaves the queue intact; retired direct turns cannot be resu
   expect(f.turnStore.getPending("route")).toBeNull();
 });
 
+test("a durable interrupted turn supersedes live process status after stores reopen", async () => {
+  const { prepareFreshHumanIntake } = await import("./fresh-human-session");
+  const f = fixture();
+  const now = new Date().toISOString();
+  f.setStatus("running");
+  f.queue.addPrompt("session", { content: "Interrupted accepted work" });
+  f.turnStore.save({ turnId: "interrupted", routingKey: "route", sessionId: "session", sourceMessageIds: ["old"],
+    clientRequestId: "interrupted-client", replyBody: null, publishedMessageId: null, state: "awaiting_reply",
+    createdAt: now, updatedAt: now, threadId: "thread", agentNpub: "bot",
+    lastError: "server_overloaded", lastErrorClass: "accepted_turn_interrupted" });
+  const reopenedTurns = new DirectChatTurnStore(join(f.root, "turns.db"));
+  const reopenedIntercepts = new ChatInterceptStateStore(join(f.root, "intercepts.db"));
+  const manager = { getSession: () => ({ id: "session", status: "running", agentRuntimeStatus: "running" }),
+    getAdapter: () => { throw new Error("failed intake must not wait for live readiness"); } } as any;
+
+  await prepareFreshHumanIntake({ ...f.deps, manager, turnStore: reopenedTurns, interceptStore: reopenedIntercepts },
+    reopenedIntercepts.getByRoutingKey("route")!, "fresh");
+
+  expect(reopenedTurns.get("interrupted")).toMatchObject({ state: "suppressed", lastErrorClass: "fresh_human_supersession" });
+  expect(reopenedIntercepts.getByRoutingKey("route")?.freshStartMessageId).toBe("fresh");
+  expect(f.queue.getQueueCount("session")).toBe(0);
+});
+
 test("a persisted cross-store snapshot protects arrivals and edits after interrupted cleanup", async () => {
   const { SessionDispatchStore } = await import("../session-dispatch/session-dispatch-store");
   const { SessionDispatchInboxCoordinator } = await import("../session-dispatch/session-dispatch-inbox");

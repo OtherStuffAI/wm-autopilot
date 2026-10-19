@@ -68,6 +68,16 @@ describe("Agent Direct immutable publication ownership", () => {
     expect(store.get("turn")).toEqual(published);
   });
 
+  test("records an interruption without taking delivery ownership or rewriting a frozen reply", () => {
+    const { store, at } = fixture();
+    store.markInterrupted("turn", "server_overloaded", "accepted_turn_interrupted", at);
+    expect(store.get("turn")).toMatchObject({ state: "awaiting_reply", lastError: "server_overloaded",
+      lastErrorClass: "accepted_turn_interrupted", leaseOwner: null });
+    const frozen = store.freezeReply("turn", "Verified final", at);
+    store.markInterrupted("turn", "late interruption", "accepted_turn_interrupted", at);
+    expect(store.get("turn")).toEqual(frozen);
+  });
+
   test("an expired publisher cannot claim completion under a newer lease", () => {
     const { store, at } = fixture();
     store.freezeReply("turn", "Final", at);

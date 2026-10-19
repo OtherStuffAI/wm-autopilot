@@ -17,6 +17,7 @@ import type { RuntimeBotIdentity } from './types';
 import type { DuplicateCallbackPublicationFilter } from './duplicate-callback-publication-filter';
 import type { FlightDeckDispatchOutcomeStore } from './flightdeck-dispatch-outcome-store';
 import { directChatPublicationIntegrityError } from './direct-chat-publication-observation';
+import { ACCEPTED_TURN_INTERRUPTED } from './fresh-human-session';
 
 export interface AgentDirectDeliveryTransport {
   backendBaseUrl: string;
@@ -172,8 +173,15 @@ export class AgentDirectDeliveryReconciler {
         await this.processTurnNow(notification.turnId);
         return this.store.get(record.turnId);
       }
-      if (inspection.interrupted && inspection.runtimeStable) this.notifyStatus(record, 'interrupted');
-      this.store.releaseAwaiting(record.turnId, owner, this.after(this.activeIntervalMs));
+      const interrupted = (inspection.interrupted && inspection.runtimeStable)
+        || this.store.get(record.turnId)?.lastErrorClass === ACCEPTED_TURN_INTERRUPTED;
+      if (interrupted) {
+        this.notifyStatus(record, 'interrupted');
+        this.markInterceptInterrupted(record);
+      }
+      this.store.releaseAwaiting(record.turnId, owner, this.after(this.activeIntervalMs), interrupted
+        ? { message: record.lastError ?? 'Accepted Agent Direct turn ended with an interruption before a verified final response.', errorClass: ACCEPTED_TURN_INTERRUPTED }
+        : undefined);
       return this.store.get(record.turnId);
     }
     this.store.releaseAwaiting(record.turnId, owner, this.isoNow());
@@ -331,6 +339,15 @@ export class AgentDirectDeliveryReconciler {
       lastActivityAt: at,
       updatedAt: at,
     });
+  }
+
+  private markInterceptInterrupted(record: DirectChatTurnRecord): void {
+    if (!this.deps.interceptStore || !record.sessionId) return;
+    const intercept = this.deps.interceptStore.getByRoutingKey(record.routingKey);
+    if (!intercept || (intercept.sessionId && intercept.sessionId !== record.sessionId)) return;
+    const at = this.isoNow();
+    this.deps.interceptStore.save({ ...intercept, sessionId: record.sessionId, lastDecision: 'failed',
+      lastActivityAt: at, updatedAt: at });
   }
 
   private hasBinding(record: DirectChatTurnRecord): boolean {
