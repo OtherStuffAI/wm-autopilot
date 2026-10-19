@@ -33,7 +33,8 @@ export function prepareFreshHumanSession(deps: {
   // same vector of cutoffs after a crash rather than capturing wider cutoffs.
   if (boundaryId === triggerId && intercept.freshStartMessageId !== boundaryId) {
     deps.interceptStore.save({ ...intercept, freshStartMessageId: boundaryId,
-      state: "pending", lastDecision: "pending", pendingMessageCount: Math.max(1, intercept.pendingMessageCount), updatedAt: new Date().toISOString() });
+      state: "pending", lastDecision: interrupted ? "failed" : "pending",
+      pendingMessageCount: Math.max(1, intercept.pendingMessageCount), updatedAt: new Date().toISOString() });
   }
   // Each store captures its own durable exact row cutoff, with no await between
   // stores. A retry of this trigger never widens any already captured cutoff.

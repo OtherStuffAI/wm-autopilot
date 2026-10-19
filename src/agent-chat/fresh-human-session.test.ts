@@ -98,7 +98,7 @@ test("a durable interrupted turn supersedes live process status after stores reo
     reopenedIntercepts.getByRoutingKey("route")!, "fresh");
 
   expect(reopenedTurns.get("interrupted")).toMatchObject({ state: "suppressed", lastErrorClass: "fresh_human_supersession" });
-  expect(reopenedIntercepts.getByRoutingKey("route")?.freshStartMessageId).toBe("fresh");
+  expect(reopenedIntercepts.getByRoutingKey("route")).toMatchObject({ freshStartMessageId: "fresh", lastDecision: "failed" });
   expect(f.queue.getQueueCount("session")).toBe(0);
 });
 

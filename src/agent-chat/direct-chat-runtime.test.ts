@@ -1538,9 +1538,14 @@ test('a fresh human turn recovers immediately after a live session interruption 
 
   expect(f.turnStore.get(failedTurn.turnId)).toMatchObject({ state: 'suppressed', lastErrorClass: 'fresh_human_supersession' });
   expect(f.prompts).toHaveLength(2);
+  expect(f.stops).toEqual(['session-1']);
+  expect(f.creates).toHaveLength(2);
+  expect(f.interceptStore.getByRoutingKey(intercept.routingKey)?.sessionId).toBe('session-2');
+  expect(f.prompts[1]).toContain(' · m1');
+  expect(f.prompts[1]).toContain('# Prompt\n\nBuild please');
   expect(f.published.at(-1)).toMatchObject({ body: 'Recovered answer for the current request.',
     metadata: { prompt_type: 'direct_chat', source_message_ids: ['m2'] } });
-  expect(f.sessions.get(intercept.sessionId).metadata.goal).toContain('Build please');
+  expect(f.sessions.get('session-2').metadata.goal).toContain('Build please');
 
   const specific = f.message('m3', "Show David's emailed visual in Rick's Artefacts", true);
   await restarted.handle({ subscription: f.subscription, botIdentity: f.botIdentity, channel: f.channel,
@@ -1549,9 +1554,10 @@ test('a fresh human turn recovers immediately after a live session interruption 
   await restarted.waitForIdle();
 
   expect(f.prompts).toHaveLength(3);
+  expect(f.creates).toHaveLength(2);
   expect(f.published.at(-1).metadata).toMatchObject({ prompt_type: 'direct_chat', source_message_ids: ['m3'] });
-  expect(f.sessions.get(intercept.sessionId).metadata.goal).toContain("Show David's emailed visual");
-  expect(f.sessions.get(intercept.sessionId).metadata.goal).not.toContain('Build please');
+  expect(f.sessions.get('session-2').metadata.goal).toContain("Show David's emailed visual");
+  expect(f.sessions.get('session-2').metadata.goal).not.toContain('Build please');
   expect(f.turnStore.get(interruption.turnId)).toMatchObject({ state: 'published', publishedMessageId: interruption.publishedMessageId });
   expect(f.published.filter(entry => !entry.metadata.turn_id.includes(':status:')).map(entry => entry.metadata.source_message_ids))
     .toEqual([['m2'], ['m3']]);

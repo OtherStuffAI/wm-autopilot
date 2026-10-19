@@ -428,6 +428,7 @@ export class AgentDirectChatRuntime {
             ? history.filter((message) => message.messageId === input.event.entity_id)
           : undelivered.filter((message) => isAgentDirectMessageEligible(input.channel, message, agent.botNpub)), intercept);
         if (delta.length === 0) continue;
+        const replaceInterruptedSession = intercept.lastDecision === 'failed' && Boolean(intercept.freshStartMessageId);
         if (pendingAwaiting && pending) {
           // A pre-session failure has no transcript for the delivery reconciler
           // to inspect. Older builds incorrectly converted these failed turns
@@ -597,7 +598,9 @@ export class AgentDirectChatRuntime {
           leaseOwner: this.deps.deliveryReconciler?.runtimeLeaseOwner ?? null,
           leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS + 60000).toISOString() : null });
         let sessionResolution = await this.resolveSession(agent, intercept, input.subscription, input.channel.scope_id ?? null,
-          delta.at(-1)?.message ?? '');
+          delta.at(-1)?.message ?? '', replaceInterruptedSession
+            ? { forceReplacementReason: 'previous Agent Direct turn was interrupted' }
+            : undefined);
         let session = sessionResolution.session;
         assertCurrentHumanTurn(this.turnStore, turnId);
         await activity.working(session.id);
@@ -940,6 +943,15 @@ export class AgentDirectChatRuntime {
     session: SessionSnapshot; bootstrap: boolean; generation: number; previousSessionIds: string[]; recovery: { previousSessionId: string; reason: string } | null;
   }> {
     const live = intercept.sessionId ? this.deps.processManager.getSession(intercept.sessionId) : null;
+    if (options?.forceReplacementReason && live && (live.status === 'running' || live.status === 'starting')) {
+      await this.deps.processManager.stopSession(live.id).catch((error) => {
+        this.log.warn('[agent-chat] failed to retire interrupted direct chat session', {
+          routingKey: intercept.routingKey,
+          sessionId: live.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
     const archived = !live && intercept.sessionId ? this.deps.getArchivedSession?.(intercept.sessionId) ?? null : null;
     const liveBindingCompatible = live?.metadata?.flightdeckAgentNpub === agent.botNpub
       && live.agent === (agent.directChat?.sessionAgent || this.deps.defaultAgent)
