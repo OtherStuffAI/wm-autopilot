@@ -35,6 +35,7 @@ function createHandler(options: {
   config?: Record<string, unknown>;
   agentChatApiContext?: AgentChatApiContext;
   cloudflareTunnelRoutesContext?: CloudflareTunnelRoutesContext;
+  systemRoutesContext?: any;
   resolveNip98AuthContext?: (request: Request, url: URL, auth: RequestAuthContext) => Promise<RequestAuthContext>;
   terminalConfigured?: boolean;
   adminNpubs?: string[];
@@ -111,7 +112,7 @@ function createHandler(options: {
     docsApiContext: {} as any,
     providerProxyApiContext: {} as any,
     billingApiContext: {} as any,
-    systemRoutesContext: {} as any,
+    systemRoutesContext: options.systemRoutesContext ?? ({} as any),
     authApiContext: {} as any,
     adminUsersApiContext: {} as any,
     uploadApiContext: {} as any,
@@ -228,6 +229,35 @@ function createHandler(options: {
 }
 
 describe("createApiRouteHandler config defaults", () => {
+  test("resolves NIP-98 identity before authorizing system restart routes", async () => {
+    const signer = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    let trustedSigner: string | null = null;
+    const handler = createHandler({
+      resolveNip98AuthContext: async (_request, _url, auth) => ({
+        ...auth,
+        npub: signer,
+        actorNpub: signer,
+        signerNpub: signer,
+        authMethod: "nip98",
+      }),
+      systemRoutesContext: {
+        ensureApiAccess: async () => Response.json({ error: "admin-only" }, { status: 403 }),
+        AccessActions: { SystemManage: "system:manage" },
+        isTrustedRestartAuthority: (auth: RequestAuthContext) => {
+          trustedSigner = auth.signerNpub ?? null;
+          return trustedSigner === signer;
+        },
+        runtimeIdentity: { revision: "test" },
+      },
+    });
+    const url = new URL("http://localhost:3000/api/system/restart/status");
+
+    const response = await handler(new Request(url), url, "GET", anonymousAuth);
+
+    expect(response.status).toBe(200);
+    expect(trustedSigner).toBe(signer);
+  });
+
   test("routes advertised owner-space discovery through NIP-98 resolution", async () => {
     const owner = nip19.npubEncode(getPublicKey(generateSecretKey()));
     const identityNpub = nip19.npubEncode(getPublicKey(generateSecretKey()));

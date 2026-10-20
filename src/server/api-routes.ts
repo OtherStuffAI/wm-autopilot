@@ -776,7 +776,8 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
     }
     // System routes (delegated to system-routes.ts)
     if (pathname.startsWith("/api/system/")) {
-      const systemResponse = await handleSystemRoutes(request, url, method, authContext, ctx.systemRoutesContext);
+      const systemAuthContext = await ctx.resolveNip98AuthContext(request, url, authContext);
+      const systemResponse = await handleSystemRoutes(request, url, method, systemAuthContext, ctx.systemRoutesContext);
       if (systemResponse) {
         return systemResponse;
       }
