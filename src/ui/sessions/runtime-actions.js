@@ -398,11 +398,13 @@ export function createSessionRuntimeActions(deps) {
     if (!session || !action || typeof action.sequence !== "string") {
       return;
     }
-    const interruptsCodex = action.id === "terminal-esc" && session.metadata?.agentTransport === "codex-sdk";
+    const interruptTransport = action.id === "terminal-esc"
+      ? { "claude-sdk": "Claude", "codex-sdk": "Codex" }[session.metadata?.agentTransport]
+      : undefined;
     try {
-      if (interruptsCodex) {
+      if (interruptTransport) {
         await interruptSessionApi(sessionId);
-        showToast("Interrupted Codex turn");
+        showToast(`Interrupted ${interruptTransport} turn`);
         return;
       }
       await postSessionMessage(sessionId, action.sequence, "raw");
@@ -410,8 +412,8 @@ export function createSessionRuntimeActions(deps) {
       await fetchLogs(sessionId);
     } catch (error) {
       console.error(`Failed to send control command (${action.toastLabel})`, error);
-      const message = interruptsCodex
-        ? (error instanceof Error && error.message ? error.message : "Failed to interrupt Codex turn")
+      const message = interruptTransport
+        ? (error instanceof Error && error.message ? error.message : `Failed to interrupt ${interruptTransport} turn`)
         : `Failed to send ${action.toastLabel}`;
       showToast(message, { variant: "error" });
     }

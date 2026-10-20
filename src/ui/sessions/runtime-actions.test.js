@@ -556,6 +556,19 @@ describe("session runtime actions", () => {
     expect(showToast).toHaveBeenCalledWith("Interrupted Codex turn");
   });
 
+  test("Escape interrupts a Claude SDK turn through the session API", async () => {
+    sessions = [{ id: "session-1", metadata: { agentTransport: "claude-sdk" } }];
+    const actions = buildActions();
+
+    await actions.sendControlCommand("session-1", {
+      id: "terminal-esc", toastLabel: "Esc", sequence: "\u001b",
+    });
+
+    expect(interruptSessionApi).toHaveBeenCalledWith("session-1");
+    expect(postSessionMessageApi).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith("Interrupted Claude turn");
+  });
+
   test("Escape keeps terminal input for Agent API sessions", async () => {
     sessions = [{ id: "session-1", metadata: { agentTransport: "agentapi" } }];
     const actions = buildActions();
