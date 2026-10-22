@@ -154,7 +154,7 @@ docker compose --env-file .env.<instance-name> up -d --build
 Use this path for repeatable remote setup:
 
 ```bash
-curl -fsSL https://bun.sh/install | bash
+curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.4"
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 bun install --frozen-lockfile

@@ -68,7 +68,7 @@ bun run typecheck
 git diff --check
 ```
 
-The Dockerfile defaults to the pinned official Bun 1.3.0 Debian image. If registry
+The Dockerfile defaults to the pinned official Bun 1.4.4 Debian image. If registry
 access is unavailable, an operator may supply `--build-arg ISOLATION_BASE=<audited
 local runtime image>`; record its immutable ID and actual Bun version. Runtime
 tests are explicitly skipped without `WINGMAN_ISOLATION_TEST_IMAGE`; skipped tests

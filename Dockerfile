@@ -9,7 +9,7 @@ RUN cd /src/agentapi \
   && git apply /tmp/loopback-listener.patch \
   && go build -trimpath -o /agentapi .
 
-FROM node:22-trixie@sha256:97337fb5b20347953eb4b9aa0183c73259a0e21934b07845f04278e4954ae61a AS fips-downloader
+FROM node:22.23.4-trixie@sha256:77d0c7953e80648137a237496c8edbcb3a14bedc5c5298b93a6d0dfa6c3e1271 AS fips-downloader
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -34,7 +34,7 @@ RUN apt-get update \
   && test -x /fips-release/fipsctl \
   && test -f /fips-release/fips.nft
 
-FROM node:22-trixie@sha256:97337fb5b20347953eb4b9aa0183c73259a0e21934b07845f04278e4954ae61a
+FROM node:22.23.4-trixie@sha256:77d0c7953e80648137a237496c8edbcb3a14bedc5c5298b93a6d0dfa6c3e1271
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -44,7 +44,7 @@ ARG CLAUDE_PACKAGE=@anthropic-ai/claude-code@2.1.241
 ARG OPENCODE_PACKAGE=opencode-ai@1.18.21
 ARG FLIGHTDECK_CLI_PACKAGE=@runwingman/flightdeck-cli@0.2.1
 ARG GOOSE_VERSION=v1.33.1
-ARG BUN_VERSION=1.4.0
+ARG BUN_VERSION=1.4.4
 ARG TARGETARCH
 
 ENV BUN_INSTALL=/usr/local/bun \

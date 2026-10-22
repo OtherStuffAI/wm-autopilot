@@ -1,4 +1,4 @@
-FROM node:22-trixie@sha256:97337fb5b20347953eb4b9aa0183c73259a0e21934b07845f04278e4954ae61a AS fips-downloader
+FROM node:22.23.4-trixie@sha256:77d0c7953e80648137a237496c8edbcb3a14bedc5c5298b93a6d0dfa6c3e1271 AS fips-downloader
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -30,9 +30,9 @@ COPY vendor/agentapi/loopback-listener.patch /tmp/loopback-listener.patch
 RUN cd /src/agentapi && git apply /tmp/loopback-listener.patch \
   && go build -trimpath -o /agentapi .
 
-FROM oven/bun:1.3.0-debian@sha256:386b9fd0974a0ad7d33a45c1f2e2ee7159da3807023868d0feb8b427af76b34e AS bun-runtime
+FROM oven/bun:1.4.4-debian@sha256:93d5032fe06d163427822dc1598f420363759bb18155c9cc90eb1be05a64a19e AS bun-runtime
 
-FROM node:22-trixie@sha256:97337fb5b20347953eb4b9aa0183c73259a0e21934b07845f04278e4954ae61a
+FROM node:22.23.4-trixie@sha256:77d0c7953e80648137a237496c8edbcb3a14bedc5c5298b93a6d0dfa6c3e1271
 COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
 RUN useradd --create-home --shell /bin/bash bun
 RUN apt-get update && apt-get install -y --no-install-recommends git python3 make g++ ca-certificates iproute2 nftables tcpdump curl openssl bash \
