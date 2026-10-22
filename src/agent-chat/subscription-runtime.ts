@@ -1,3 +1,4 @@
+import { connectNStackWorkspaces, type NStackWorkspaceConnection } from "./nstack-connect";
 import { selectFlightDeckTransportSubscription, type FlightDeckTransportBinding } from "./flightdeck-session-transport";
 import { consumeTowerEventStream } from "./tower-event-stream";
 import { saveTowerConnectionTransport, ownedTowerConnection, createTowerConnection } from "./tower-connection-settings";
@@ -2408,6 +2409,22 @@ export class WorkspaceSubscriptionManager {
     }
     this.profilePolicyStore.deleteProfile(agentId, npub);
     return { agent: record, keyDisposition };
+  }
+
+  async connectNStackForManager(managedByNpub: string, workspaces: NStackWorkspaceConnection[]) {
+    return connectNStackWorkspaces({
+      manager: this,
+      managedByNpub,
+      workspaces,
+      resolveIdentity: async (npub) => {
+        const identity = await this.resolveStoredBotIdentity(npub);
+        if (!identity) return null;
+        // Escrow/vault resolutions already own their buffer; only the instance key is shared.
+        return identity.botSecret === this.getInstanceIdentity()?.secretKey
+          ? { ...identity, botSecret: new Uint8Array(identity.botSecret) }
+          : identity;
+      },
+    });
   }
 
   async importAgentConnectPackage(input: {

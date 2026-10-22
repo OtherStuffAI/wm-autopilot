@@ -1,3 +1,4 @@
+import { handleNStackConnectRoute } from "./nstack-connect-routes";
 import { canExportAgentProfileKey, handleAgentProfileKeyExport, type AgentProfileKeyExportContext } from "./agent-profile-key-export.ts";
 import { agentDirectEnrichmentOptions } from "./agent-direct-enrichment-options.ts";
 import { directChatHandlerMode, parseEnrichmentConfigs } from "../agent-chat/direct-chat-enrichment-config.ts";
@@ -640,6 +641,7 @@ const AGENT_CHAT_API_PREFIXES = [
   '/api/agent-chat/profiles',
   '/api/agent-chat/backend-connections',
   '/api/agent-chat/agent-connect',
+  '/api/agent-chat/nstack-connect',
   '/api/agent-chat/dispatch-routes',
   '/api/agent-chat/dispatch-outcomes',
   '/api/agent-chat/enrichment-options',
@@ -666,6 +668,9 @@ export async function handleAgentChatApi(
   if (!scope) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
+
+  const nstackResponse = await handleNStackConnectRoute(request, url, ctx.manager, scope);
+  if (nstackResponse) return nstackResponse;
 
   const transportResponse = await handleTowerTransportRoute(request, url, ctx.manager, scope);
   if (transportResponse) return transportResponse;

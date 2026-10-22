@@ -29,7 +29,7 @@ export function createWorkspaceDetails(workspace, { canManage, busy, onAction, o
   header.append(element('h2', workspace.name));
   const health = [...new Set(workspace.subscriptions.map((item) => item.health))].join(' · ');
   header.append(element('span', health, 'wm-workspace-health'));
-  card.append(header, element('p', 'Agent Direct routes messages to eligible bots in the conversation. A bot can participate in several workspaces.', 'wm-workspace-note'));
+  card.append(header, element('p', 'Agent Direct routes messages to eligible bots in the conversation. A bot can participate in several workspaces. Connected means workspace monitoring is healthy; agents run only when addressed and authorized.', 'wm-workspace-note'));
   const sources = [...new Set(workspace.subscriptions.map((item) => item.source))];
   card.append(element('p', sources.join(' · '), 'wm-workspace-note'));
   const errors = [...new Set(workspace.subscriptions.map((item) => item.error).filter(Boolean))];

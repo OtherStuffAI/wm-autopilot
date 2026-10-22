@@ -17546,3 +17546,10 @@ textarea.wm-input {
   .wm-signing-policy-summary { grid-template-columns: 1fr; }
   .wm-signing-policy-summary dd { margin-bottom: 0.5rem; }
 }
+
+/* Saved NStack discovery, selection and review. */
+.wm-nstack-connect { width: min(40rem, calc(100vw - 2rem)); max-height: 85vh; overflow: auto; padding: 1.5rem; }
+.wm-nstack-choice { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; padding: 1rem 0; border-bottom: 1px solid var(--border-color, #405047); overflow-wrap: anywhere; }
+.wm-nstack-choice small { flex-basis: 100%; }
+.wm-nstack-connect .wm-settings-page__actions { flex-wrap: wrap; margin-top: 1rem; }
+.wm-modal-overlay { position: fixed; inset: 0; z-index: 1000; align-items: center; justify-content: center; padding: 1rem; background: rgba(0, 0, 0, .46); }

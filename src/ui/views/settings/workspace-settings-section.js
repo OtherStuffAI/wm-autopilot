@@ -1,3 +1,4 @@
+import { createNStackConnectModal } from './nstack-connect-modal.js';
 import { randomId } from "../../core/random-id.js";
 import { createTowerTransportCard } from './tower-transport-card.js';
 import Alpine from '/vendor/alpinejs/module.esm.js';
@@ -56,7 +57,8 @@ export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
     return result;
   } });
   const connectPackageCard = createAutopilotConnectPackageCard({ ownerNpub });
-  container.append(status, body, modal.element);
+  const nstackModal = createNStackConnectModal({ onConnected: refresh });
+  container.append(status, body, modal.element, nstackModal.element);
 
   function showError(error) {
     status.textContent = error?.message || 'Workspace settings could not be loaded.';
@@ -144,8 +146,11 @@ export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
     const reload = createButton('Refresh', 'workspace-refresh', 'Refresh servers and workspaces');
     reload.disabled = busy;
     reload.addEventListener('click', () => void refresh({ reconcileAudiences: true }));
-    toolbar.append(connect, reload);
-    const intro = element('p', 'Add bots to workspaces in Flight Deck. Autopilot picks up trusted Nostr announcements, or you can paste AgentConnect here.', 'wm-workspace-note');
+    const nstack = createButton('Connect to NStack', 'workspace-connect-nstack', 'Connect to saved NStack');
+    nstack.disabled = !snapshot.canManage || busy;
+    nstack.addEventListener('click', () => nstackModal.open());
+    toolbar.append(nstack, connect, reload);
+    const intro = element('p', 'Choose saved NStacks in Nostr Browser and select workspaces to monitor. Local agents share connections and run only when addressed and authorized. AgentConnect and manual setup remain available.', 'wm-workspace-note');
     const layout = element('div', '', 'wm-workspaces-layout');
     const nav = element('nav', '', 'wm-workspace-tree');
     nav.setAttribute('aria-label', 'Servers and workspaces');
@@ -202,6 +207,7 @@ export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
     stopped = true;
     clearTimeout(timer);
     connectPackageCard.stopConnectPackageExpiry?.();
+    void nstackModal.destroy();
   };
   return container;
 }

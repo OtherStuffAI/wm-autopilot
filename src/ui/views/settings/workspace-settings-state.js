@@ -12,6 +12,8 @@ export function getWorkspaceHealthLabel(subscription) {
   if (isRevokedWorkspaceSubscription(subscription)) return 'Revoked';
   if (subscription?.sseStatus === 'disabled') return 'Disabled';
   if (subscription?.sseStatus === 'disconnected') return 'Disconnected';
+  if (subscription?.sseStatus === 'backoff') return 'Reconnecting';
+  if (subscription?.sseStatus === 'connecting') return 'Connecting';
   if (subscription?.healthStatus === 'healthy') return 'Connected';
   if (subscription?.lastErrorCode || ['unhealthy', 'degraded'].includes(subscription?.healthStatus)) return 'Needs attention';
   return subscription?.healthStatus || 'Status unavailable';
