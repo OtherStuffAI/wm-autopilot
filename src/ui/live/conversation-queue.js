@@ -25,7 +25,7 @@ export function mergeConversationWithQueuedPrompts(messages, prompts) {
   }
 
   const visibleQueuedPrompts = queuedPrompts
-    .filter((prompt) => prompt?.id && !releasedPromptIds.has(prompt.id))
+    .filter((prompt) => prompt?.id && prompt.state !== "handled" && !releasedPromptIds.has(prompt.id))
     .map((prompt) => ({
       id: `queued:${prompt.id}`,
       messageId: `queued:${prompt.id}`,
@@ -33,16 +33,14 @@ export function mergeConversationWithQueuedPrompts(messages, prompts) {
       sessionId: prompt.sessionId,
       role: "user",
       content: String(prompt.content ?? ""),
-      createdAt: prompt.state === "handled" ? prompt.handledAt : prompt.timestamp,
-      queued: prompt.state !== "handled",
-      handled: prompt.state === "handled",
+      createdAt: prompt.timestamp,
+      queued: true,
+      handled: false,
       deliveryState: prompt.deliveryState,
       deliveryActive: prompt.deliveryActive === true,
       deliveryId: prompt.deliveryId,
       claimToken: prompt.claimToken,
       revision: prompt.revision,
-      handledBy: prompt.handledBy,
-      handledReason: prompt.handledReason,
       queueState: prompt.state,
       queueOrder: prompt.order,
     }));

@@ -856,10 +856,6 @@ export function getChatTemplate(sessionId) {
         <template x-if="$store.chat.isIntermediateAssistantMessage(message)">
           <span class="wm-message-intermediate-state" role="status" data-testid="intermediate-agent-output">Intermediate · agent loop still running</span>
         </template>
-        <template x-if="message.handled">
-          <span class="wm-message-queued-state" role="status" aria-live="polite" data-testid="handled-prompt-state"
-                x-text="'Handled: ' + message.handledReason" :title="message.handledBy"></span>
-        </template>
         <template x-if="message.queued">
           <span class="wm-message-queued-state" role="status" data-testid="queued-prompt-state" x-text="message.queueState === 'claimed' ? (message.deliveryActive ? 'Dispatching' : 'Delivery unresolved — inspect queue and reconcile explicitly') : 'Queued'">Queued</span>
         </template>

@@ -46,12 +46,12 @@ describe("queued prompt conversation projection", () => {
   });
 });
 
-test("handled prompts stay as historical events in an active conversation without queue controls", () => {
+test("handled prompts are hidden from the conversation timeline", () => {
   const history = { id: "handled-id", sessionId: "busy", content: "already acted", timestamp: "2026-10-02T00:00:00Z",
     state: "handled", handledAt: "2026-10-02T00:01:00Z", handledBy: "session:busy", handledReason: "Completed this turn", order: 1 };
   const projected = mergeConversationWithQueuedPrompts([{ role: "user", content: "already acted", createdAt: "2026-10-02T00:00:30Z" }], [history]);
-  expect(projected).toHaveLength(2);
-  expect(projected[1]).toMatchObject({ handled: true, queued: false, handledReason: "Completed this turn", createdAt: history.handledAt });
+  expect(projected).toHaveLength(1);
+  expect(projected.some((row) => row.promptId === "handled-id")).toBe(false);
 });
 
 test("authoritative pending queue rows are not hidden by matching conversation text", () => {
