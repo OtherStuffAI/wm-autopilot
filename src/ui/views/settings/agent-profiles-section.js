@@ -1,3 +1,4 @@
+import { createAgentProfileKeyExport } from "./agent-profile-key-export.js";
 import { loadAgentEnrichmentOptions } from '../../services/agent-enrichment-options.js';
 import { randomId } from "../../core/random-id.js";
 import { createProfileCard } from './agent-profile-card.js';
@@ -16,6 +17,7 @@ import { createButton, createStatusLine } from './agent-chat-shared-ui.js';
 import { fetchConfigApi } from '../../services/config.js';
 
 export function createAgentProfilesSection({ openDirectoryBrowser = null } = {}) {
+  const keyExport = createAgentProfileKeyExport();
   const section = document.createElement('section');
   section.dataset.testid = 'agent-profiles-settings-section';
   section.className = 'wm-agent-profiles-section';
@@ -196,6 +198,8 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
           rotate,
           setDefault,
           deleteProfile,
+          keyExport.open,
+          payload.permissions?.canExportNsec === true,
         )));
       }
     } catch (error) {
@@ -205,7 +209,7 @@ export function createAgentProfilesSection({ openDirectoryBrowser = null } = {})
 
   addButton.addEventListener('click', () => modal.open());
   actions.append(addButton);
-  section.append(actions, status, list, modal.element, editor.element);
+  section.append(actions, status, list, modal.element, editor.element, keyExport.element);
   void refresh();
   return section;
 }

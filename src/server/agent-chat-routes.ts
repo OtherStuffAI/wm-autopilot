@@ -1,3 +1,4 @@
+import { canExportAgentProfileKey, handleAgentProfileKeyExport, type AgentProfileKeyExportContext } from "./agent-profile-key-export.ts";
 import { agentDirectEnrichmentOptions } from "./agent-direct-enrichment-options.ts";
 import { directChatHandlerMode, parseEnrichmentConfigs } from "../agent-chat/direct-chat-enrichment-config.ts";
 import { isAbsolute } from 'node:path';
@@ -52,6 +53,7 @@ type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 export interface AgentChatApiContext extends AgentProfileMediaApiContext {
   manager: WorkspaceSubscriptionManager;
+  keyExport?: AgentProfileKeyExportContext;
   directChatTurnStore?: Pick<DirectChatTurnStore, 'getHealth'>;
   agentTypes?: Array<{ id: string; label: string; modelOptions?: string[] }>;
   adminNpub?: string | null;
@@ -659,6 +661,8 @@ export async function handleAgentChatApi(
   }
 
   const scope = resolveAgentChatScope(authContext, ctx);
+  const exportResponse = await handleAgentProfileKeyExport(request, url, authContext, ctx, scope?.managerNpub ?? null);
+  if (exportResponse) return exportResponse;
   if (!scope) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
@@ -718,6 +722,7 @@ export async function handleAgentChatApi(
       permissions: {
         shared: scope.shared,
         canManage: scope.canManage,
+        canExportNsec: canExportAgentProfileKey(authContext, ctx),
       },
       agents: ctx.manager.listAgentsForManager(scope.managerNpub).map(serialiseAgent),
       workspaceBotConnections: ctx.manager.listWorkspaceBotConnectionsForManager?.(scope.managerNpub) ?? [],

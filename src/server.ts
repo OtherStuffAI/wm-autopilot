@@ -2983,6 +2983,15 @@ const handleApi = createApiRouteHandler({
       });
     },
     rotateAgentProfileKey: (input) => agentProfileKeyRotation.rotate(input),
+    keyExport: {
+      store: botKeyStore,
+      vault: brokerKeyVault,
+      isBotNpub: (npub) => Boolean(
+        botKeyStore.getActiveKeyForBotNpub(npub)
+        || agentDefinitionStore.getByBotNpub(npub)
+        || wingmanInstanceIdentity?.npub === npub
+      ),
+    },
     profileMediaStore: agentProfileMediaStore,
     profileMediaBaseUrl: config.baseUrl,
     profileMediaBaseUrlConfigured: config.baseUrlConfigured,

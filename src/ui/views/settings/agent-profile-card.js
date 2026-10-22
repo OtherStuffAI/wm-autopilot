@@ -8,7 +8,7 @@ function createProfileFact(label, value) {
   return [term, detail];
 }
 
-export function createProfileCard(agent, canManage, isDefault, onEdit, onRotate, onSetDefault, onDelete) {
+export function createProfileCard(agent, canManage, isDefault, onEdit, onRotate, onSetDefault, onDelete, onExport, canExport = false) {
   const card = document.createElement('article');
   card.className = 'wm-card wm-agent-profile';
   const header = document.createElement('header');
@@ -74,6 +74,11 @@ export function createProfileCard(agent, canManage, isDefault, onEdit, onRotate,
   editButton.addEventListener('click', () => onEdit(agent));
   actions.append(editButton);
   card.append(facts, actions, identity);
+  if (canExport === true && typeof onExport === 'function') {
+    const exportButton = createButton('Export nsec', `agent-profile-export-${agent.agentId}`, `Export private key for ${agent.label || agent.agentId}`);
+    exportButton.addEventListener('click', () => onExport(agent, exportButton));
+    identity.append(exportButton);
+  }
   if (canManage) {
     if (!isDefault) {
       const defaultButton = createButton('Make default', `agent-profile-make-default-${agent.agentId}`, `Use ${agent.label || agent.agentId} for ordinary Autopilot sessions`);
