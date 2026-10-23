@@ -17,6 +17,27 @@ afterEach(async () => {
 });
 
 describe("createAppTarball", () => {
+  test("omits AppleDouble files and filesystem metadata from Linux build contexts", async () => {
+    const root = await tempApp();
+    await writeFile(join(root, "captain-definition"), JSON.stringify({ schemaVersion: 2 }));
+    await writeFile(join(root, "Dockerfile"), "FROM scratch\n");
+    await mkdir(join(root, "content"));
+    const article = join(root, "content", "article.md");
+    await writeFile(article, "---\ntitle: Fixture\n---\nContent\n");
+    await writeFile(join(root, "content", "._article.md"), "metadata fixture");
+    if (process.platform === "darwin") {
+      const xattr = Bun.spawnSync(["xattr", "-w", "com.apple.metadata:wm21-test", "fixture", article]);
+      expect(xattr.exitCode).toBe(0);
+    }
+
+    const result = await createAppTarball(root);
+    const listing = Bun.spawnSync(["tar", "-tf", "-"], { stdin: result.buffer });
+    expect(listing.exitCode).toBe(0);
+    expect(result.files).toContain("content/article.md");
+    expect(result.files).not.toContain("content/._article.md");
+    expect(listing.stdout.toString()).not.toMatch(/(?:^|\/)\._/m);
+  });
+
   test("excludes trailing-slash private directories without excluding similarly named source", async () => {
     const root = await tempApp();
     await writeFile(join(root, "captain-definition"), JSON.stringify({ schemaVersion: 2 }));

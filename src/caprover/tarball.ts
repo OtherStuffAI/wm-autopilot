@@ -21,6 +21,8 @@ const DEFAULT_EXCLUDES = [
   ".env",
   ".env.*",
   ".DS_Store",
+  "._*",
+  "**/._*",
   "*.log",
   ".idea",
   ".vscode",
@@ -299,6 +301,8 @@ async function createTarBuffer(baseDir: string, files: string[]): Promise<Buffer
     // Use tar with -T to read file list from stdin
     const tarProcess = spawn("tar", ["-cf", "-", "-C", baseDir, "-T", "-"], {
       stdio: ["pipe", "pipe", "pipe"],
+      // macOS otherwise serializes xattrs as AppleDouble source files on Linux.
+      env: { ...process.env, COPYFILE_DISABLE: "1" },
     });
 
     tarProcess.stdout.on("data", (chunk: Buffer) => {
