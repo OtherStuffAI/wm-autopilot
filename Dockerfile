@@ -39,7 +39,7 @@ FROM node:22.23.4-trixie@sha256:77d0c7953e80648137a237496c8edbcb3a14bedc5c5298b9
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG INSTALL_AGENT_CLIS=true
-ARG CODEX_PACKAGE=@openai/codex@0.144.6
+ARG CODEX_PACKAGE=@openai/codex@0.164.0
 ARG CLAUDE_PACKAGE=@anthropic-ai/claude-code@2.1.241
 ARG OPENCODE_PACKAGE=opencode-ai@1.18.21
 ARG FLIGHTDECK_CLI_PACKAGE=@runwingman/flightdeck-cli@0.2.1
