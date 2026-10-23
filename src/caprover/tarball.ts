@@ -65,12 +65,25 @@ async function parseIncludeFile(includePath: string): Promise<string[]> {
  * Check if a path should be excluded based on patterns.
  * Simple matching - checks if path starts with or equals pattern.
  */
-function shouldExclude(relativePath: string, patterns: string[]): boolean {
+function shouldExclude(relativePath: string, patterns: string[], isDirectory: boolean): boolean {
   const normalizedPath = relativePath.replace(/\\/g, "/");
 
   for (const pattern of patterns) {
-    // Remove leading slash if present
-    const normalizedPattern = pattern.replace(/^\//, "").replace(/\\/g, "/");
+    const slashPattern = pattern.replace(/\\/g, "/");
+    const directoryOnly = slashPattern.endsWith("/");
+    const normalizedPattern = slashPattern.replace(/^\//, "").replace(/\/+$/, "");
+    if (!normalizedPattern) continue;
+
+    // Gitignore's trailing slash names a directory, not a literal slash in
+    // its name. Unanchored single-component directory rules apply at any depth.
+    if (directoryOnly) {
+      if (!slashPattern.startsWith("/") && !normalizedPattern.includes("/")) {
+        const directories = normalizedPath.split("/");
+        if (!isDirectory) directories.pop();
+        if (directories.includes(normalizedPattern)) return true;
+      }
+      if (!isDirectory && normalizedPath === normalizedPattern) continue;
+    }
 
     // Direct match
     if (normalizedPath === normalizedPattern) {
@@ -127,7 +140,7 @@ async function collectFiles(
     const fullPath = join(dir, entry.name);
     const relativePath = relative(baseDir, fullPath);
 
-    if (shouldExclude(relativePath, excludePatterns)) {
+    if (shouldExclude(relativePath, excludePatterns, entry.isDirectory())) {
       continue;
     }
 
