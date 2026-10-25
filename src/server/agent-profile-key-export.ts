@@ -3,11 +3,26 @@ import type { RequestAuthContext } from "../auth/request-context.ts";
 import type { BotKeyStore } from "../identity/bot-key-store.ts";
 import type { BrokerKeyVaultBackend } from "../signing/broker-key-vault.ts";
 import type { AgentChatApiContext } from "./agent-chat-routes.ts";
+import { configuredPublicRequestUrl, forwardedRequestUrl } from "./request-url.ts";
 
 export interface AgentProfileKeyExportContext {
   store: Pick<BotKeyStore, "getActiveKeyForBotNpub">;
   vault: Pick<BrokerKeyVaultBackend, "has" | "withKey">;
   isBotNpub: (npub: string) => boolean;
+  /** Public base URL (e.g. WINGMAN_BASE_URL) used when Autopilot sits behind a reverse proxy. */
+  publicBaseUrl?: string;
+}
+
+// Behind a reverse proxy the browser Origin is the public URL, not the internal listener URL.
+function isSameOriginRequest(request: Request, url: URL, publicBaseUrl: string | undefined): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return false;
+  const candidates = [
+    url,
+    forwardedRequestUrl(request, url),
+    publicBaseUrl ? configuredPublicRequestUrl(url, publicBaseUrl) : null,
+  ];
+  return candidates.some((candidate) => candidate?.origin === origin);
 }
 
 export function canExportAgentProfileKey(auth: RequestAuthContext, ctx: AgentChatApiContext): boolean {
@@ -43,7 +58,7 @@ export async function handleAgentProfileKeyExport(
   if (!canExportAgentProfileKey(auth, ctx) || !managerNpub) return reply({ error: "Human administrator access required." }, 403);
   if (request.method !== "POST") return reply({ error: "POST required." }, 405);
   // This browser-only endpoint never accepts cross-origin or non-JSON submissions.
-  if (request.headers.get("origin") !== url.origin
+  if (!isSameOriginRequest(request, url, ctx.keyExport?.publicBaseUrl)
     || !request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     return reply({ error: "Same-origin JSON confirmation required." }, 403);
   }

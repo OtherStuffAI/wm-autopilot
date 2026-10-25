@@ -2991,6 +2991,7 @@ const handleApi = createApiRouteHandler({
         || agentDefinitionStore.getByBotNpub(npub)
         || wingmanInstanceIdentity?.npub === npub
       ),
+      publicBaseUrl: config.baseUrl,
     },
     profileMediaStore: agentProfileMediaStore,
     profileMediaBaseUrl: config.baseUrl,

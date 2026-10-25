@@ -49,10 +49,10 @@ async function fixture() {
   const second = agents.getByAgentId("second")!;
   async function call(a: RequestAuthContext = auth, body: unknown = {
     confirmation: { profileId: "second", currentNpub: second.botNpub, acknowledged: true },
-  }, options: { origin?: string; method?: string; path?: string } = {}) {
+  }, options: { origin?: string; method?: string; path?: string; headers?: Record<string, string> } = {}) {
     const method = options.method ?? "POST";
     const req = new Request(`http://localhost/api/agent-chat/profiles/${options.path ?? 'second/export-nsec'}`, {
-      method, headers: { "content-type": "application/json", origin: options.origin ?? "http://localhost" },
+      method, headers: { "content-type": "application/json", origin: options.origin ?? "http://localhost", ...options.headers },
       ...(method === "GET" ? {} : { body: JSON.stringify(body) }),
     });
     return (await handleAgentChatApi(req, new URL(req.url), method as "POST", a, ctx))!;
@@ -116,6 +116,20 @@ describe("human administrator bot key export (disposable fixtures only)", () => 
     f.ctx.isAdminContext = undefined;
     expect((await f.call()).status).toBe(403);
     expect(f.reads()).toBe(0);
+  });
+
+  test("accepts the public origin when served behind a reverse proxy", async () => {
+    const f = await fixture();
+    const publicOrigin = "https://wingman.example";
+    expect((await f.call(f.auth, undefined, { origin: publicOrigin })).status).toBe(403);
+    expect((await f.call(f.auth, undefined, {
+      origin: publicOrigin, headers: { "x-forwarded-proto": "https", "x-forwarded-host": "wingman.example" },
+    })).status).toBe(200);
+    f.ctx.keyExport!.publicBaseUrl = publicOrigin;
+    const response = await f.call(f.auth, undefined, { origin: publicOrigin });
+    expect(response.status).toBe(200);
+    expect((await response.json()).botNpub).toBe(f.second.botNpub);
+    expect((await f.call(f.auth, undefined, { origin: "https://other.example" })).status).toBe(403);
   });
 
   test("rejects absent, mismatched, stale confirmation, cross-origin and GET without key access", async () => {
