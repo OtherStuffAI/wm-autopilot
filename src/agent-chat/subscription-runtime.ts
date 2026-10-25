@@ -1,3 +1,4 @@
+import { discoverNStackWorkspaces } from "./nstack-discovery";
 import { connectNStackWorkspaces, type NStackWorkspaceConnection } from "./nstack-connect";
 import { selectFlightDeckTransportSubscription, type FlightDeckTransportBinding } from "./flightdeck-session-transport";
 import { consumeTowerEventStream } from "./tower-event-stream";
@@ -2409,6 +2410,20 @@ export class WorkspaceSubscriptionManager {
     }
     this.profilePolicyStore.deleteProfile(agentId, npub);
     return { agent: record, keyDisposition };
+  }
+
+  async discoverNStackForManager(managedByNpub: string, address: unknown) {
+    return discoverNStackWorkspaces({
+      address,
+      agentNpubs: this.listAgentsForManager(managedByNpub)
+        .filter((agent) => agent.enabled && !agent.archived).map((agent) => agent.botNpub),
+      resolveIdentity: async (npub) => {
+        const identity = await this.resolveStoredBotIdentity(npub);
+        if (!identity) return null;
+        return identity.botSecret === this.getInstanceIdentity()?.secretKey
+          ? { ...identity, botSecret: new Uint8Array(identity.botSecret) } : identity;
+      },
+    });
   }
 
   async connectNStackForManager(managedByNpub: string, workspaces: NStackWorkspaceConnection[]) {

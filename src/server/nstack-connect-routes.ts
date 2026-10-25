@@ -1,13 +1,18 @@
 import type { WorkspaceSubscriptionManager } from "../agent-chat/subscription-runtime";
+import { validateNStackAddress } from "../agent-chat/nstack-discovery";
 import { validateNStackSelection } from "../agent-chat/nstack-connect";
 
 export async function handleNStackConnectRoute(request: Request, url: URL,
-  manager: Pick<WorkspaceSubscriptionManager, "connectNStackForManager">,
+  manager: Pick<WorkspaceSubscriptionManager, "connectNStackForManager" | "discoverNStackForManager">,
   scope: { managerNpub: string; canManage: boolean }) {
-  if (url.pathname !== "/api/agent-chat/nstack-connect" || request.method !== "POST") return null;
+  if (!["/api/agent-chat/nstack-connect", "/api/agent-chat/nstack-connect/discover"].includes(url.pathname) || request.method !== "POST") return null;
   if (!scope.canManage) return Response.json({ error: "Connection changes require an authorized Autopilot user." }, { status: 403 });
   try {
-    const body = await request.json() as { workspaces?: unknown };
+    const body = await request.json() as { workspaces?: unknown; address?: unknown };
+    if (url.pathname.endsWith("/discover")) {
+      const address = validateNStackAddress(body.address);
+      return Response.json(await manager.discoverNStackForManager(scope.managerNpub, address));
+    }
     const workspaces = validateNStackSelection(body.workspaces);
     return Response.json(await manager.connectNStackForManager(scope.managerNpub, workspaces));
   } catch (error) {

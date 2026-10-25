@@ -81,3 +81,28 @@ test('late native setup response after cancellation cannot reopen results', asyn
   finish({ results: [] }); await setup;
   expect(value.open).toBe(false); expect(value.results).toEqual([]);
 });
+test('direct HTTPS flow needs no browser provider and reuses review/setup', async () => {
+  let value; const submissions = [];
+  const connection = { name: 'Direct', workspaceId: 'one', directHttpsUrl: 'https://tower.example', serviceNpub: 'tower', workspaceServiceNpub: 'ws' };
+  const table = { get: async () => value, put: async (row) => { value = row; } };
+  const controller = createNStackConnectController({ id: 'https', table, host: {},
+    discoverAddress: async (address) => { expect(address).toBe('https://tower.example'); return { workspaces: [connection] }; },
+    setup: async (rows) => { submissions.push(rows); return { results: [] }; } });
+  await controller.open(); expect(value.source).toBe(null);
+  await controller.setAddress('https://tower.example'); await controller.discoverHttps();
+  await controller.select(value.choices[0].key, true); await controller.review();
+  expect(value.stage).toBe('review'); await controller.connect();
+  expect(submissions).toEqual([[connection]]); expect(value.stage).toBe('results');
+});
+test('direct discovery errors and late responses respect cancellation', async () => {
+  let value; let finish;
+  const table = { get: async () => value, put: async (row) => { value = row; } };
+  const controller = createNStackConnectController({ id: 'https', table, host: {},
+    discoverAddress: () => new Promise((resolve) => { finish = resolve; }) });
+  await controller.open(); const discovery = controller.discoverHttps(); await tick();
+  await controller.close(); finish({ workspaces: [] }); await discovery;
+  expect(value.open).toBe(false); expect(value.choices).toEqual([]);
+  const failed = createNStackConnectController({ id: 'https', table, host: {}, discoverAddress: async () => { throw new Error('HTTP 403'); } });
+  await failed.open(); await failed.discoverHttps();
+  expect(value.message).toBe('HTTP 403'); expect(value.busy).toBe(false);
+});

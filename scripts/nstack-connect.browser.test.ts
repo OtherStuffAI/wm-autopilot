@@ -19,6 +19,12 @@ suite("NStack Workspaces browser journey", () => {
       if (url.pathname === "/api/agent-chat/subscriptions") return Response.json({ permissions: { canManage: true }, subscriptions });
       if (url.pathname === "/api/agent-chat/agents") return Response.json({ agents, workspaceBotConnections: subscriptions.flatMap((row) => agents.map((agent) => ({ subscriptionId: row.subscriptionId, agentId: agent.agentId, status: "idle" }))) });
       if (url.pathname === "/api/agent-chat/backend-connections") return Response.json({ backendConnections: [] });
+      if (url.pathname === "/api/agent-chat/nstack-connect/discover") {
+        const { address } = await request.json() as any;
+        if (address !== 'https://tower.example') return Response.json({ error: 'Enter a valid HTTPS NStack address.' }, { status: 400 });
+        return Response.json({ workspaces: [{ name: 'Direct', workspaceId: 'direct', workspaceOwnerNpub: 'owner',
+          workspaceServiceNpub: 'ws', serviceNpub: 'tower', directHttpsUrl: address }] });
+      }
       if (url.pathname === "/api/agent-chat/nstack-connect") {
         const body = await request.json() as any; submissions.push(body.workspaces);
         return Response.json({ results: body.workspaces.map((connection: any) => {
@@ -48,10 +54,35 @@ suite("NStack Workspaces browser journey", () => {
     page.on("pageerror", (error: Error) => errors.push(error.message));
     await page.goto(new URL("/settings/automation/workspaces", server.url).href);
     await page.getByTestId("workspace-connect-nstack").click();
+    expect(await page.getByTestId("nstack-directory").isDisabled()).toBe(true);
+    expect(await page.getByRole("dialog").textContent()).toContain('Nostr announcements');
+    await page.getByTestId("nstack-address").fill('invalid');
+    await page.getByTestId("nstack-discover-https").click();
+    await page.getByTestId("nstack-connect-status").filter({ hasText: "valid HTTPS" }).waitFor();
+    await page.getByTestId("nstack-address").fill('');
+    await page.getByTestId("nstack-address").pressSequentially('https://tower.example', { delay: 15 });
+    expect(await page.getByTestId("nstack-address").inputValue()).toBe('https://tower.example');
+    await page.getByTestId('nstack-address').press('Home');
+    await page.getByTestId('nstack-address').press('ArrowRight');
+    await page.getByTestId('nstack-address').press('X');
+    await page.waitForTimeout(50);
+    expect(await page.getByTestId('nstack-address').evaluate((node: HTMLInputElement) => node.selectionStart)).toBe(2);
+    await page.getByTestId('nstack-address').press('Backspace');
+    expect(await page.getByTestId('nstack-address').inputValue()).toBe('https://tower.example');
+    await page.getByTestId("nstack-discover-https").click();
+    await page.getByRole('checkbox', { name: 'Select Direct on tower.example' }).check();
+    await page.getByTestId('nstack-review').click(); await page.getByTestId('nstack-confirm').click();
+    await page.locator('[data-workspace-id="direct"]').filter({ hasText: 'monitoring' }).waitFor();
+    expect(submissions[0][0].workspaceId).toBe('direct');
+    submissions.length = 0; subscriptions = [];
+    await page.getByTestId('nstack-cancel').click();
+    await page.getByTestId('workspace-connect-nstack').click();
+    await page.getByTestId('nstack-discover').click();
     await page.getByTestId("nstack-connect-status").filter({ hasText: "Nostr Browser" }).waitFor();
     await page.getByTestId("nstack-cancel").click();
     await page.evaluate(() => (window as any).installProvider());
     await page.getByTestId("workspace-connect-nstack").click();
+    await page.getByTestId("nstack-discover").click();
     for (const id of ["personal", "team"]) await page.getByTestId(`nstack-choice-s/${id}`).check();
     await page.getByTestId("nstack-review").click(); await page.getByTestId("nstack-confirm").waitFor();
     expect(await page.getByRole("dialog").textContent()).toContain("Tower");
@@ -71,7 +102,7 @@ suite("NStack Workspaces browser journey", () => {
     expect(await page.getByTestId("workspace-bot-A").count()).toBe(1);
     for (const width of [1440, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 900 }); await page.evaluate(() => (window as any).installProvider());
-      await page.getByTestId("workspace-connect-nstack").click(); await page.getByTestId("nstack-choice-s/personal").waitFor();
+      await page.getByTestId("workspace-connect-nstack").click(); await page.getByTestId("nstack-discover").click(); await page.getByTestId("nstack-choice-s/personal").waitFor();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       const box = await page.getByRole("dialog").boundingBox();
       expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
@@ -79,7 +110,7 @@ suite("NStack Workspaces browser journey", () => {
       if (dir) await page.screenshot({ path: `${dir}/selection-${width}.png`, fullPage: true });
       await page.keyboard.press("Escape");
     }
-    await page.getByTestId("workspace-connect-nstack").click(); await page.getByTestId("nstack-choice-s/personal").check();
+    await page.getByTestId("workspace-connect-nstack").click(); await page.getByTestId("nstack-discover").click(); await page.getByTestId("nstack-choice-s/personal").check();
     await page.getByTestId("nstack-review").click(); await page.getByTestId("nstack-confirm").waitFor();
     await page.evaluate(() => (window as any).changeIdentity());
     await page.getByTestId("nstack-connect-status").filter({ hasText: "identity" }).waitFor();

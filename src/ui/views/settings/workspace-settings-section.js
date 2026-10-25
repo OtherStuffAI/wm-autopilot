@@ -146,11 +146,11 @@ export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
     const reload = createButton('Refresh', 'workspace-refresh', 'Refresh servers and workspaces');
     reload.disabled = busy;
     reload.addEventListener('click', () => void refresh({ reconcileAudiences: true }));
-    const nstack = createButton('Connect to NStack', 'workspace-connect-nstack', 'Connect to saved NStack');
+    const nstack = createButton('Connect to NStack', 'workspace-connect-nstack', 'Connect to NStack');
     nstack.disabled = !snapshot.canManage || busy;
     nstack.addEventListener('click', () => nstackModal.open());
     toolbar.append(nstack, connect, reload);
-    const intro = element('p', 'Choose saved NStacks in Nostr Browser and select workspaces to monitor. Local agents share connections and run only when addressed and authorized. AgentConnect and manual setup remain available.', 'wm-workspace-note');
+    const intro = element('p', 'Choose a saved NStack via NBrowser or enter its HTTPS address, then select workspaces to monitor. Local agents share connections and run only when addressed and authorized. AgentConnect and manual setup remain available.', 'wm-workspace-note');
     const layout = element('div', '', 'wm-workspaces-layout');
     const nav = element('nav', '', 'wm-workspace-tree');
     nav.setAttribute('aria-label', 'Servers and workspaces');

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-25
+
+- Add direct NStack HTTPS address entry to Workspaces alongside saved NBrowser selection. Discover workspaces accessible to enabled local agents using existing signed Tower discovery; select, review, connect and retry through the same verified, duplicate-safe setup and monitoring. Invalid addresses, access failures and discovery errors remain visible.
+- Add a disabled “Browse NStack directory — coming soon” choice explaining future Nostr announcements of FIPS and HTTP endpoints. Existing manual and AgentConnect setup remain available.
+
 ## 2026-10-22
 
 - Add **Connect to NStack** in Workspaces: use Nostr Browser’s consented saved connections, select multiple workspaces, review setup, and see individual results with retry for failures. Existing AgentConnect and manual paths remain available.

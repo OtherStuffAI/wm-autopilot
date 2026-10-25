@@ -17553,3 +17553,7 @@ textarea.wm-input {
 .wm-nstack-choice small { flex-basis: 100%; }
 .wm-nstack-connect .wm-settings-page__actions { flex-wrap: wrap; margin-top: 1rem; }
 .wm-modal-overlay { position: fixed; inset: 0; z-index: 1000; align-items: center; justify-content: center; padding: 1rem; background: rgba(0, 0, 0, .46); }
+
+.wm-nstack-entries { display: flex; flex-direction: column; align-items: stretch; gap: .75rem; }
+.wm-nstack-entries label { display: flex; flex-direction: column; gap: .5rem; }
+.wm-nstack-entries input { width: 100%; min-width: 0; box-sizing: border-box; }

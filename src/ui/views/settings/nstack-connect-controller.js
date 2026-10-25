@@ -4,11 +4,11 @@ export function nstackConnectionKey(connection) {
 }
 
 // This controller owns discovery/network commands; all rendered state is materialized in Dexie.
-export function createNStackConnectController({ id, table, host = globalThis, setup }) {
+export function createNStackConnectController({ id, table, host = globalThis, setup, discoverAddress }) {
   let generation = 0;
   let unsubscribe;
   let pending = Promise.resolve();
-  const empty = { id, open: false, stage: 'select', choices: [], selected: [], results: [], busy: false, message: '' };
+  const empty = { id, open: false, stage: 'select', choices: [], selected: [], results: [], busy: false, message: '', source: null, address: '' };
   function write(patch, expected = generation) {
     pending = pending.catch(() => {}).then(async () => {
       if (expected !== generation) return;
@@ -23,10 +23,27 @@ export function createNStackConnectController({ id, table, host = globalThis, se
     unsubscribe?.(); unsubscribe = null;
     return write({ ...empty, open: true, message: 'Browser identity or discovery changed. Choose the connection again.' });
   }
+  function open() {
+    generation++;
+    unsubscribe?.(); unsubscribe = null;
+    return write({ ...empty, open: true, message: 'Choose a saved NStack or enter its HTTPS address.' });
+  }
+  async function discoverHttps() {
+    const value = await state();
+    const current = ++generation;
+    unsubscribe?.(); unsubscribe = null;
+    await write({ ...empty, open: true, source: 'https', address: value.address, busy: true, message: 'Discovering workspaces accessible to local agents…' }, current);
+    try {
+      const result = await discoverAddress(value.address);
+      const choices = result.workspaces.map((connection) => ({ key: nstackConnectionKey(connection),
+        name: connection.name, stackName: new URL(connection.directHttpsUrl).host, connection }));
+      await write({ choices, busy: false, message: [choices.length ? 'Select workspaces to monitor.' : 'No accessible workspaces. Add an enabled local agent identity to this NStack workspace.', ...(result.errors || [])].join(' ') }, current);
+    } catch (error) { await write({ busy: false, message: error.message }, current); }
+  }
   async function discover() {
     const current = ++generation;
     unsubscribe?.(); unsubscribe = null;
-    await write({ ...empty, open: true, busy: true, message: 'Waiting for Nostr Browser discovery…' }, current);
+    await write({ ...empty, open: true, source: 'saved', busy: true, message: 'Waiting for Nostr Browser discovery…' }, current);
     try {
       const provider = host.NStack;
       if (!provider) throw new Error('Open this Autopilot in Nostr Browser to use saved NStacks. Manual and AgentConnect setup remain available.');
@@ -69,6 +86,7 @@ export function createNStackConnectController({ id, table, host = globalThis, se
       const choices = [];
       for (const choice of value.choices) {
         if (!value.selected.includes(choice.key)) { choices.push(choice); continue; }
+        if (choice.connection) { choices.push(choice); continue; }
         const raw = await host.NStack.getConnection({ stackId: choice.stackId, workspaceId: choice.workspaceAlias });
         // Whitelist public metadata. Never persist provider handles, signatures or secrets.
         const connection = Object.fromEntries(['name', 'workspaceId', 'workspaceOwnerNpub', 'workspaceServiceNpub', 'directHttpsUrl', 'serviceNpub'].map((key) => [key, raw[key]]));
@@ -99,10 +117,10 @@ export function createNStackConnectController({ id, table, host = globalThis, se
   }
   async function providerReady() {
     const value = await state();
-    if (value.open && value.stage === 'select' && !value.busy && !value.choices.length) void discover();
+    if (value.open && value.source === 'saved' && value.stage === 'select' && !value.busy && !value.choices.length) void discover();
   }
   host.addEventListener?.('nstackready', providerReady);
-  return { discover, select, review, connect, close,
+  return { open, discoverHttps, setAddress: (address) => write({ address }), discover, select, review, connect, close,
     back: () => write({ stage: 'select', message: 'Select workspaces to monitor.' }),
     destroy: async () => { generation++; unsubscribe?.(); host.removeEventListener?.('nstackready', providerReady); await pending; await table.delete(id); },
   };

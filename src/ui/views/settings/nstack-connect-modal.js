@@ -31,6 +31,13 @@ export function createNStackConnectModal({ onConnected }) {
   let returnFocus;
   const controller = createNStackConnectController({
     id: overlay.dataset.flowId, table: workspaceSettingsDb.nstackFlows,
+    discoverAddress: async (address) => {
+      const response = await fetch('/api/agent-chat/nstack-connect/discover', { method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'NStack discovery failed.');
+      return result;
+    },
     setup: async (workspaces) => {
       const response = await fetch('/api/agent-chat/nstack-connect', { method: 'POST', credentials: 'include',
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ workspaces }) });
@@ -52,7 +59,9 @@ export function createNStackConnectModal({ onConnected }) {
     overlay.hidden = !value?.open;
     overlay.style.display = value?.open ? 'flex' : 'none';
     if (!value?.open) { if (wasOpen) returnFocus?.focus(); return; }
-    const focusedId = panel.contains(document.activeElement) ? document.activeElement.dataset.testid : null;
+    const focused = panel.contains(document.activeElement) ? document.activeElement : null;
+    const focusedId = focused?.dataset.testid;
+    const selection = focusedId === 'nstack-address' ? [focused.selectionStart, focused.selectionEnd] : null;
     const title = element('h2', value.stage === 'review' ? `Connect ${value.selected.length} workspace${value.selected.length === 1 ? '' : 's'}`
       : value.stage === 'results' ? 'Connection results' : 'Choose workspaces');
     const status = element('p', value.message, 'wm-workspace-note');
@@ -60,6 +69,22 @@ export function createNStackConnectModal({ onConnected }) {
     status.dataset.testid = 'nstack-connect-status';
     panel.setAttribute('aria-busy', String(value.busy));
     panel.replaceChildren(title, status);
+    if (value.stage === 'select') {
+      const entries = element('section', '', 'wm-nstack-entries');
+      entries.setAttribute('aria-label', 'NStack connection choices');
+      const label = element('label', 'NStack HTTPS address');
+      const address = element('input', '', 'wm-input'); address.type = 'text'; address.inputMode = 'url'; address.autocomplete = 'url'; address.placeholder = 'https://nstack.example';
+      address.value = value.address; address.disabled = value.busy;
+      address.dataset.testid = 'nstack-address'; address.setAttribute('aria-label', 'NStack HTTPS address');
+      address.addEventListener('input', () => void controller.setAddress(address.value));
+      address.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void controller.discoverHttps(); } });
+      label.append(address);
+      entries.append(action('Saved NStack via NBrowser', 'nstack-discover', controller.discover, value.busy), label,
+        action('Enter NStack HTTPS address', 'nstack-discover-https', controller.discoverHttps, value.busy),
+        action('Browse NStack directory — coming soon', 'nstack-directory', () => {}, true),
+        element('p', 'Coming soon: browse Nostr announcements of NStack FIPS and HTTP connection endpoints.', 'wm-workspace-note'));
+      panel.append(entries);
+    }
     if (value.stage === 'results') {
       for (const result of value.results) {
         const row = element('section', '', 'wm-workspace-connection');
@@ -94,8 +119,7 @@ export function createNStackConnectModal({ onConnected }) {
     }
     const actions = element('div', '', 'wm-settings-page__actions');
     if (value.stage === 'select') {
-      actions.append(action('Choose saved NStack', 'nstack-discover', controller.discover, value.busy),
-        action('Review connection', 'nstack-review', controller.review, value.busy || !value.selected.length));
+      actions.append(action('Review connection', 'nstack-review', controller.review, value.busy || !value.selected.length));
     } else if (value.stage === 'review') {
       actions.append(action('Back', 'nstack-back', controller.back, value.busy),
         action('Connect workspaces', 'nstack-confirm', () => controller.connect(), value.busy));
@@ -104,7 +128,11 @@ export function createNStackConnectModal({ onConnected }) {
     }
     actions.append(action(value.stage === 'results' ? 'Done' : 'Cancel', 'nstack-cancel', controller.close));
     panel.append(actions);
-    if (focusedId) [...panel.querySelectorAll('[data-testid]')].find((node) => node.dataset.testid === focusedId)?.focus();
+    if (focusedId) {
+      const replacement = [...panel.querySelectorAll('[data-testid]')].find((node) => node.dataset.testid === focusedId);
+      replacement?.focus();
+      if (selection && replacement) replacement.setSelectionRange(...selection);
+    }
     if (!panel.contains(document.activeElement)) panel.querySelector('button:not(:disabled), input:not(:disabled)')?.focus();
   }
   overlay.renderFlow = render;
@@ -118,5 +146,5 @@ export function createNStackConnectModal({ onConnected }) {
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }
   });
-  return { element: overlay, open: () => { returnFocus = document.activeElement; void controller.discover(); }, destroy: controller.destroy };
+  return { element: overlay, open: () => { returnFocus = document.activeElement; void controller.open(); }, destroy: controller.destroy };
 }

@@ -37,7 +37,7 @@ export function validateNStackSelection(value: unknown): NStackWorkspaceConnecti
     const connection = {} as NStackWorkspaceConnection;
     for (const key of ["name", "workspaceId", "workspaceOwnerNpub", "workspaceServiceNpub", "directHttpsUrl", "serviceNpub"] as const) {
       if (typeof item[key] !== "string" || !item[key].trim() || item[key].length > 2048) {
-        throw new Error(`Workspace connection requires ${key}. Refresh NBrowser discovery.`);
+        throw new Error(`Workspace connection requires ${key}. Refresh discovery.`);
       }
       connection[key] = item[key].trim();
     }
