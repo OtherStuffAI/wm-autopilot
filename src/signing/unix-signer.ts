@@ -2,6 +2,7 @@ import { BROKER_KEY_NOT_PROVISIONED, BROKER_KEY_IDENTITY_MISMATCH } from "./brok
 import { chmodSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute } from "node:path";
 import { createServer, type Socket } from "node:net";
+import { prepareSignerSocket } from "./unix-signer-socket";
 import { ApplicationSigner, SignerError, type SignerRequest } from "./application-signer";
 
 export const SIGNER_MAX_FRAME_BYTES = 262144;
@@ -13,7 +14,7 @@ export async function listenUnixSigner(path: string, signer: ApplicationSigner) 
   mkdirSync(parent, { recursive: true, mode: 0o700 });
   const info = lstatSync(parent);
   if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o700) throw new Error("Signer parent must be owner-only directory");
-  // Never unlink a live or unknown socket; operator removes a stale socket after confirming no listener.
+  await prepareSignerSocket(path);
   const sockets = new Set<Socket>();
   const server = createServer(socket => {
     if (sockets.size >= 8) { socket.destroy(); return; }
