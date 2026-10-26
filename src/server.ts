@@ -303,8 +303,7 @@ import {
 import type { WarmRestartMarker } from "./server/bootstrap/warm-restart";
 import { recordControlledRestartRecovery } from "./server/controlled-restart";
 import { createTerminalRuntime } from "./terminal/terminal-runtime";
-import { reconcileAppsWithPM2 } from "./server/bootstrap/pm2-reconcile";
-import { autostartApps } from "./server/bootstrap/app-autostart";
+import { bootstrapHostedApps } from "./server/bootstrap/hosted-apps";
 import { cleanupOrphanedAgentProcesses } from "./server/bootstrap/pm2-agent-cleanup";
 import { ensureWingmanCoreRegistration } from "./server/bootstrap/wingman-core-registry";
 import { connectPM2 } from "./agents/pm2-wrapper";
@@ -1012,17 +1011,6 @@ const wingmanMcpApiHandler = createWingmanMcpApiHandler({
   documentDirectStore,
 });
 
-// Reconcile PM2 processes with app registry
-try {
-  const appReconcileResult = await reconcileAppsWithPM2(appRegistry);
-  if (appReconcileResult.appsReconciled > 0 || appReconcileResult.appsCleared > 0) {
-    console.log(`[pm2] reconciled apps: ${appReconcileResult.appsReconciled} running, ${appReconcileResult.appsCleared} cleared`);
-  }
-  await autostartApps(appRegistry, appProcessManager);
-  await appProcessManager.reconcileFipsIngresses();
-} catch (error) {
-  console.warn(`[apps-bootstrap] app reconciliation or autostart failed: ${(error as Error).message}`);
-}
 const nightWatchDeps = createNightWatchRuntimeDeps(manager, {
   store: nightWatchStore,
   featureFlagStore,
@@ -3457,6 +3445,9 @@ registerShutdownHandlers();
 console.log(
   `Wingman V2 listening on http://localhost:${config.port} (agents ${config.agentPortStart} - ${config.agentPortStart + config.agentPortMax - 1})`,
 );
+
+// Hosted app recovery must never hold the Autopilot HTTP listener behind it.
+void bootstrapHostedApps(appRegistry, appProcessManager);
 
 // Start scheduler engine (loads enabled jobs from DB)
 schedulerEngine.start();
