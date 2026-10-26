@@ -31,6 +31,7 @@ mock.module("../agents/ecosystem-generator", () => ({
 }));
 
 mock.module("../agents/pm2-wrapper", () => ({
+  listProcesses: async () => [],
   deleteProcess: async () => undefined,
   getProcessByName: async () => null,
   getProcessRuntimeInfo: async () => ({ pid: 1234, port: 4100, memory: 1024, status: pm2RuntimeStatus }),
@@ -41,6 +42,7 @@ mock.module("../agents/pm2-wrapper", () => ({
 }));
 
 mock.module("../utils/port-utils", () => ({
+  getListeningPortForPid: async () => 4100,
   isPortAvailable: () => true,
   waitForAvailableTcpPort: async () => assignedPortAvailable,
   waitForListeningPort: async () => 4100,
@@ -452,4 +454,49 @@ describe("AppProcessManager Tower WApp lifecycle registration", () => {
       cleanup();
     }
   });
+});
+
+test("aborted autostart releases the action lock and ignores late startup completion", async () => {
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  let first = true;
+  const { manager, cleanup } = makeManager({
+    namespaceStatus: 200,
+    registrar: { register: async (registration) => ({
+      workspaceOwnerNpub: registration.workspaceOwnerNpub,
+      appNpub: registration.appNpub,
+      app: { app_npub: registration.appNpub },
+    }) },
+    fipsIngressManager: {
+      stop: async () => {
+        if (first) {
+          first = false;
+          entered.resolve();
+          await gate.promise;
+        }
+      },
+      start: async () => undefined,
+      getEndpoint: () => null,
+    },
+  });
+  try {
+    const controller = new AbortController();
+    const attempt = manager.restart(app.id, controller.signal);
+    const rejected = attempt.catch((error: Error) => error);
+    await entered.promise;
+    controller.abort(new Error("Autostart abandoned"));
+    expect((await rejected)?.message).toBe("Autostart abandoned");
+    const failed = await manager.getStatus(app.id);
+    expect(failed.inProgressAction).toBeNull();
+    expect(failed.status).toBe("failed");
+    await manager.restart(app.id);
+    expect(pm2Starts).toHaveLength(1);
+    gate.resolve();
+    await Bun.sleep(0);
+    expect(pm2Starts).toHaveLength(1);
+    expect((await manager.getStatus(app.id)).inProgressAction).toBeNull();
+  } finally {
+    gate.resolve();
+    cleanup();
+  }
 });

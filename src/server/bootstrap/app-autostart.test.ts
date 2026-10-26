@@ -119,3 +119,43 @@ describe("autostartApps", () => {
     expect(result.skippedMissingStartScript).toBe(1);
   });
 });
+
+test("abandons a stalled app and continues with the next app", async () => {
+  const restarted: string[] = [];
+  let abandoned: AbortSignal | undefined;
+  const result = await autostartApps(
+    { listApps: async () => [app({ id: "stalled", autoStart: true }), app({ id: "next", autoStart: true })] },
+    {
+      getStatus: async (appId) => status({ appId }),
+      restart: async (appId, signal) => {
+        restarted.push(appId);
+        if (appId === "stalled") {
+          abandoned = signal;
+          return new Promise(() => {});
+        }
+        return status({ appId, running: true });
+      },
+    },
+    { log() {}, warn() {} },
+    10,
+  );
+  expect(restarted).toEqual(["stalled", "next"]);
+  expect(abandoned?.aborted).toBe(true);
+  expect(result.started).toBe(1);
+  expect(result.failed[0]?.error).toContain("start manually from the Apps UI");
+});
+
+test("deadline also covers stalled status checks", async () => {
+  let restarted = false;
+  const result = await autostartApps(
+    { listApps: async () => [app({ autoStart: true })] },
+    {
+      getStatus: async () => new Promise(() => {}),
+      restart: async () => { restarted = true; return status({}); },
+    },
+    { log() {}, warn() {} },
+    10,
+  );
+  expect(restarted).toBe(false);
+  expect(result.failed).toHaveLength(1);
+});

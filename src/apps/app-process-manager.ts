@@ -9,6 +9,7 @@ import { buildManagedAppSpawnPlan } from "./app-runtime-env";
 import { removeAppRuntimeEnvelope } from "./app-runtime-envelope";
 import { summarizeAppStartupLogs } from "./app-startup-diagnostics";
 import { AppActionError, AppActionInProgressError, AppScriptMissingError } from "./app-process-errors";
+import { awaitAppStartup } from "./app-startup-deadline";
 import { clearAppLogFiles } from "./app-log-files";
 import { generateIdentityAlias } from "../identity/identity-alias";
 import { getConfiguredAdminNpubs, isNpubInList, normaliseNpub, normaliseNpubList } from "../identity/npub-utils";
@@ -244,26 +245,26 @@ export class AppProcessManager {
     });
   }
 
-  async restart(appId: string): Promise<AppProcessStatus> {
+  async restart(appId: string, signal?: AbortSignal): Promise<AppProcessStatus> {
     return this.runAction(appId, "restart", async (app) => {
       const startScript = app.scripts.start;
       if (!startScript) {
         throw new AppScriptMissingError(app.id, "restart");
       }
-      await this.ensureTowerWappRegistered(app);
+      await awaitAppStartup(() => this.ensureTowerWappRegistered(app), signal);
       this.towerDbRequestBroker.revokeApp(app.id);
-      await this.stopFipsIngress(app.id);
+      await awaitAppStartup(() => this.stopFipsIngress(app.id), signal);
 
       // Clear runtime port before restart
       runtimePortRegistry.clear(app.id);
 
       const processName = app.pm2Name;
       if (processName) {
-        const proc = await getProcessByName(processName).catch(() => null);
+        const proc = await awaitAppStartup(() => getProcessByName(processName).catch(() => null), signal);
         if (proc) {
-          await deleteProcess(processName);
-          const refreshedProcessName = await this.startManagedAppProcess(app);
-          await this.startFipsIngress(app);
+          await awaitAppStartup(() => deleteProcess(processName), signal);
+          const refreshedProcessName = await this.startManagedAppProcess(app, signal);
+          await awaitAppStartup(() => this.startFipsIngress(app), signal);
           return {
             finalStatus: "running" as AppRuntimeStatus,
             exitCode: 0,
@@ -272,15 +273,15 @@ export class AppProcessManager {
         }
       }
 
-      const newProcessName = await this.startManagedAppProcess(app);
-      await this.startFipsIngress(app);
+      const newProcessName = await this.startManagedAppProcess(app, signal);
+      await awaitAppStartup(() => this.startFipsIngress(app), signal);
 
       return {
         finalStatus: "running" as AppRuntimeStatus,
         exitCode: 0,
         message: `Started via PM2 as ${newProcessName}`,
       };
-    });
+    }, signal);
   }
 
   async build(appId: string): Promise<AppProcessStatus> {
@@ -405,8 +406,9 @@ export class AppProcessManager {
     appId: string,
     action: AppLifecycleAction,
     handler: (app: AppRecord) => Promise<{ finalStatus: AppRuntimeStatus; exitCode?: number | null; message?: string }>,
+    signal?: AbortSignal,
   ): Promise<AppProcessStatus> {
-    const app = await this.registry.getApp(appId);
+    const app = await awaitAppStartup(() => this.registry.getApp(appId), signal);
     if (!app) {
       throw new Error(`Unknown app: ${appId}`);
     }
@@ -417,7 +419,7 @@ export class AppProcessManager {
         `App lifecycle requires Admin review: ${(app.lifecycleReviewReasons ?? []).join(", ")}`,
       );
     }
-    const state = await this.resolveState(app);
+    const state = await awaitAppStartup(() => this.resolveState(app), signal);
     if (state.inProgress) {
       throw new AppActionInProgressError(app.id, state.inProgress);
     }
@@ -427,7 +429,7 @@ export class AppProcessManager {
     state.lastAction = action;
     state.updatedAt = new Date().toISOString();
     try {
-      const { finalStatus, exitCode, message } = await handler(app);
+      const { finalStatus, exitCode, message } = await awaitAppStartup(() => handler(app), signal);
       state.status = finalStatus;
       state.lastExitCode = exitCode ?? null;
       state.message = message;
@@ -598,16 +600,17 @@ export class AppProcessManager {
     return { capability, bindings };
   }
 
-  private async startManagedAppProcess(app: AppRecord): Promise<string> {
+  private async startManagedAppProcess(app: AppRecord, signal?: AbortSignal): Promise<string> {
     if (
       app.webApp
       && typeof app.webAppPort === "number"
       && app.webAppPort > 0
-      && !await waitForAvailableTcpPort(app.webAppPort)
+      && !await awaitAppStartup(() => waitForAvailableTcpPort(app.webAppPort!), signal)
     ) {
       throw new Error(`App ${app.id} cannot start because assigned port ${app.webAppPort} is already in use`);
     }
 
+    signal?.throwIfAborted();
     const { userAlias, userRootDir, isAdmin } = this.resolveUserContext(app);
     const wapp = this.wappStore.getByAppId(app.id);
     let capability: WappTowerDbRuntimeCapability | null = null;
@@ -638,9 +641,11 @@ export class AppProcessManager {
         wappStore: this.wappStore,
         wappRuntimeEnv,
       });
+      signal?.throwIfAborted();
       await this.registry.updateApp(app.id, { pm2Name: launch.processName, logsDir: launch.logsDir });
-      await startProcessFromConfig(launch.ecosystemPath, launch.processName);
-      await this.registerRuntimePort(app, launch.processName);
+      await awaitAppStartup(() => startProcessFromConfig(launch!.ecosystemPath, launch!.processName), signal);
+      signal?.throwIfAborted();
+      await this.registerRuntimePort(app, launch.processName, signal);
       return launch.processName;
     } catch (error) {
       if (capability) this.towerDbRequestBroker.revokeToken(capability.token);
@@ -674,7 +679,7 @@ export class AppProcessManager {
    * Register the runtime port for an app after start/restart.
    * Uses the known webAppPort if available, otherwise falls back to detection.
    */
-  private async registerRuntimePort(app: AppRecord, processName: string): Promise<void> {
+  private async registerRuntimePort(app: AppRecord, processName: string, signal?: AbortSignal): Promise<void> {
     try {
       const runtimeInfo = await getProcessRuntimeInfo(processName);
       const pid = runtimeInfo?.pid ?? 0;
@@ -704,6 +709,7 @@ export class AppProcessManager {
               : `App ${app.id} stopped before startup completed`,
           );
         }
+        signal?.throwIfAborted();
         runtimePortRegistry.set(app.id, app.webAppPort, managedRuntime.pid);
         console.log(`[app-process-manager] Registered known port ${app.webAppPort} for ${processName}`);
         return;
@@ -717,6 +723,7 @@ export class AppProcessManager {
 
       const port = await waitForListeningPort(pid, { maxAttempts: 5, delayMs: 500 });
       if (port !== null) {
+        signal?.throwIfAborted();
         runtimePortRegistry.set(app.id, port, pid);
         console.log(`[app-process-manager] Detected and registered port ${port} for ${processName}`);
       } else {

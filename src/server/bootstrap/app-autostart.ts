@@ -1,13 +1,17 @@
 import type { AppLifecycleScripts, AppRecord } from "../../apps/app-registry";
 import type { AppProcessStatus } from "../../apps/app-process-manager";
 
+import { awaitAppStartup } from "../../apps/app-startup-deadline";
+
+export const APP_AUTOSTART_TIMEOUT_MS = 60_000;
+
 export interface AppAutostartRegistry {
   listApps: () => Promise<AppRecord[]>;
 }
 
 export interface AppAutostartProcessManager {
   getStatus: (appId: string) => Promise<AppProcessStatus>;
-  restart: (appId: string) => Promise<AppProcessStatus>;
+  restart: (appId: string, signal?: AbortSignal) => Promise<AppProcessStatus>;
 }
 
 export interface AppAutostartLogger {
@@ -37,6 +41,7 @@ export async function autostartApps(
   registry: AppAutostartRegistry,
   processManager: AppAutostartProcessManager,
   logger: AppAutostartLogger = console,
+  timeoutMs = APP_AUTOSTART_TIMEOUT_MS,
 ): Promise<AppAutostartResult> {
   const result: AppAutostartResult = {
     checked: 0,
@@ -64,8 +69,12 @@ export async function autostartApps(
       continue;
     }
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error(
+      `Autostart abandoned after ${timeoutMs / 1000} seconds; start manually from the Apps UI`,
+    )), timeoutMs);
     try {
-      const status = await processManager.getStatus(app.id);
+      const status = await awaitAppStartup(() => processManager.getStatus(app.id), controller.signal);
       if (status.inProgressAction) {
         result.skippedInProgress++;
         logger.warn(
@@ -74,7 +83,7 @@ export async function autostartApps(
         continue;
       }
 
-      await processManager.restart(app.id);
+      await awaitAppStartup(() => processManager.restart(app.id, controller.signal), controller.signal);
       result.started++;
       const previousState = status.running ? "running" : "stopped";
       logger.log(`[apps-autostart] restarted ${app.label} (${app.id}) from ${previousState} state`);
@@ -82,6 +91,8 @@ export async function autostartApps(
       const message = errorMessage(error);
       result.failed.push({ appId: app.id, label: app.label, error: message });
       logger.warn(`[apps-autostart] failed to restart ${app.label} (${app.id}): ${message}`);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
