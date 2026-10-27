@@ -144,3 +144,21 @@ test("a long-lived heartbeat context keeps the renewed capability on subsequent 
   expect(await (await callCapabilityBrokerResponse("/api/mcp/wingman/flightdeck", {}, context)).json()).toEqual({ ok: true });
   expect(authorizations).toEqual(["Bearer original", "Bearer renewed", "Bearer renewed"]);
 });
+
+test("identity bootstrap preserves structured rate-limit delay for resumable catch-up", async () => {
+  const { readCapabilityIdentity } = await import("./capability-client.ts");
+  for (const [rateLimit, headers, expected] of [
+    [{ retryAfterMs: 12345 }, { "retry-after": "13" }, 12345],
+    [undefined, { "retry-after": "7" }, 7000],
+    [undefined, {}, 60000],
+  ] as const) {
+    let caught: unknown;
+    try {
+      await readCapabilityIdentity({ wingmanUrl: "https://broker.test", sessionId: crypto.randomUUID(), capabilityToken: "private-fixture-token",
+        fetch: (async () => Response.json({ error: "Capability rate limit exceeded", code: "capability_rate_limited", rateLimit }, { status: 429, headers })) as typeof fetch });
+    } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(CapabilityRateLimitError);
+    expect((caught as CapabilityRateLimitError).retryAfterMs).toBe(expected);
+    expect(JSON.stringify(caught)).not.toContain("private-fixture-token");
+  }
+});

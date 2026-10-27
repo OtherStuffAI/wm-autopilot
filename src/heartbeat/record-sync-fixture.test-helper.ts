@@ -108,6 +108,7 @@ export function fixture(
   let revision = 0;
   let extension = true;
   let bound = false;
+  let uuidCursors = false;
   const fetchImpl = (async (
     input: Parameters<typeof fetch>[0],
     init?: RequestInit,
@@ -198,7 +199,7 @@ export function fixture(
       ...p,
       client_id: registeredId,
       checkpoint_revision: String(revision),
-      next_cursor: `opaque-${index}`,
+      next_cursor: uuidCursors ? `30000000-0000-4000-8000-${String(index).padStart(12, "0")}` : `opaque-${index}`,
     });
   }) as typeof fetch;
   const context = {
@@ -227,6 +228,8 @@ export function fixture(
     setBound(value: boolean) {
       bound = value;
     },
+    setUuidCursors(value: boolean) { uuidCursors = value; },
+    rewindPages(value = 0) { index = value; },
     run(overrides: Partial<HeartbeatWakeOptions> = {}) {
       return runHeartbeatWake({
         hours: 12,

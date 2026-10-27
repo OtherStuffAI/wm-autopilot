@@ -176,3 +176,31 @@ are preserved. Coverage changes invalidate indexed review continuations.
 Recovery does not assemble or drain review summaries. Its final result certifies
 the merged source checkpoint only; Rick must begin a fresh indexed review.
 Do not reset caches or manually mark a family complete.
+
+## Oversized canonical records
+
+Discovery now negotiates Tower's existing `chunked_v1` when advertised. Interrupted
+chunks resume durably before dependent paging. Digest, canonical identity and
+receipt acknowledgement must all succeed; a manifest alone never counts as a row
+or certified coverage. The explicit assembled-record limit is 64 MiB; larger
+records and exhausted SQLite quota fail clearly without truncation. Rejected
+partial downloads and canonical replacements are retained outside authorized review.
+
+For a host with the existing finite transport capability but older bounded chunk
+allowlists, explicitly select the supported host path on every recovery invocation:
+
+```sh
+bun clis/heartbeat-wake.ts --recover-families --large-record-transport host-finite --hours 25 --max-wakes 100 --output tmp/docs/handoffs/heartbeat-family-recovery.json
+```
+
+Keep the same targeting/cache flags and identity as the ordinary source command.
+This mode changes only chunk and receipt-ack transport; exact broker signing,
+selected HTTPS/FIPS transport and local protocol bounds still apply. It is never
+an automatic fallback. Review-only continuations perform no chunk transport.
+A wake reports the actual `retryAfterMs` and `syncOutcome=retry` when rate
+limited. Catch-up/recovery waits Retry-After before resuming, including bootstrap
+context/identity limits, and counts chunk progress separately from committed pages.
+Retries consume the explicit wake cap; no-progress budget deferrals without a
+retry delay stop for inspection. A standalone setup failure still throws a typed
+rate-limit error; callers must preserve existing output/continuation and respect
+its `retryAfterMs` before retrying the same operation. Never start a new review or sync while draining a pinned review.

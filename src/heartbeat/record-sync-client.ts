@@ -11,8 +11,11 @@ import {
   TransientTransferError,
 } from "./bounded-response.ts";
 import { PAGE_MS, record, type JsonRecord } from "./record-sync-protocol.ts";
+import { finiteLargeRecordResponse, type LargeRecordTransport } from "./record-large-record-transport.ts";
 
-export class RecordSyncBudgetError extends Error {}
+export class RecordSyncBudgetError extends Error {
+  constructor(message: string, readonly retryAfterMs = 0) { super(message); }
+}
 
 export class RecordSyncHttpError extends Error {
   constructor(
@@ -47,6 +50,7 @@ export class RecordSyncClient {
     readonly timeoutMs = PAGE_MS,
     readonly signal?: AbortSignal,
     readonly random = Math.random,
+    readonly largeRecordTransport: LargeRecordTransport = "bounded",
   ) {
     this.operationDeadline = Math.min(Date.now() + timeoutMs, wakeDeadline);
     const fetchImpl = baseContext.fetch ?? fetch;
@@ -80,11 +84,20 @@ export class RecordSyncClient {
     body: string | undefined,
     operation: string,
   ): Promise<JsonRecord> {
+    return await this.transfer(url, method, body, operation, false) as JsonRecord;
+  }
+  async chunk(url: string): Promise<Uint8Array> {
+    return await this.transfer(url, "GET", undefined, "chunk", true) as Uint8Array;
+  }
+  private async transfer(
+    url: string, method: "GET" | "POST", body: string | undefined,
+    operation: string, binary: boolean,
+  ): Promise<JsonRecord | Uint8Array> {
     for (let attempt = 0; ; attempt++) {
       this.signal?.throwIfAborted();
       if (
         this.remaining() <= 0 ||
-        (operation === "page" && this.remaining() < PAGE_MS)
+        (["page", "chunk"].includes(operation) && this.remaining() < PAGE_MS)
       )
         throw new RecordSyncBudgetError(
           "Wake budget deferred page; fewer than 30 seconds remain",
@@ -95,6 +108,8 @@ export class RecordSyncClient {
       );
       const started = performance.now();
       try {
+        const finite = this.boundTransport && this.largeRecordTransport === "host-finite" &&
+          (operation === "chunk" || operation === "large-ack");
         const actual = this.boundTransport
           ? String(
               (
@@ -102,7 +117,7 @@ export class RecordSyncClient {
                   action: "transport_prepare",
                   url,
                   method,
-                  recordSync: true,
+                  recordSync: !finite,
                 })
               ).url ?? "",
             )
@@ -135,8 +150,8 @@ export class RecordSyncClient {
         let response: Response;
         if (this.boundTransport) {
           // Raw bounded JSON avoids a second base64 envelope and uses the selected host transport.
-          this.brokerRequests++;
-          response = await callCapabilityBrokerResponse(
+          if (!finite) this.brokerRequests++;
+          response = finite ? await finiteLargeRecordResponse(this, actual, method, headers, body) : await callCapabilityBrokerResponse(
             "/api/mcp/wingman/flightdeck",
             {
               action: "record_sync_request",
@@ -157,8 +172,8 @@ export class RecordSyncClient {
             ...(body === undefined ? {} : { body }),
           });
         const receivedAt = performance.now();
-        const bytes = await response.text();
-        const payload = record(JSON.parse(bytes));
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const payload = binary && response.ok ? null : record(JSON.parse(new TextDecoder().decode(bytes)));
         const parsedAt = performance.now();
         if (!response.ok) {
           const retry = response.headers.get("retry-after");
@@ -170,7 +185,7 @@ export class RecordSyncClient {
               : 0;
           throw new RecordSyncHttpError(
             response.status,
-            typeof payload.error === "string" &&
+            typeof payload?.error === "string" &&
               /^[a-z_]{1,128}$/.test(payload.error)
               ? payload.error
               : "request_error",
@@ -190,10 +205,10 @@ export class RecordSyncClient {
             ? "fips"
             : "https",
           parseMs: parsedAt - receivedAt,
-          decodedBytes: Buffer.byteLength(bytes),
+          decodedBytes: bytes.byteLength,
           retries: attempt,
         });
-        return payload;
+        return binary ? bytes : payload!;
       } catch (error) {
         this.signal?.throwIfAborted();
         const status =
@@ -217,6 +232,7 @@ export class RecordSyncClient {
         if (this.remaining() < delay + PAGE_MS)
           throw new RecordSyncBudgetError(
             "Retry deferred to next wake by Retry-After/time budget",
+            retryAfter,
           );
         await new Promise<void>((resolve, reject) => {
           const cancel = () => {

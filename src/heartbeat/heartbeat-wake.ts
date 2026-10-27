@@ -1,8 +1,13 @@
 import { unfinishedFamilies } from "./record-family-compatibility.ts";
+import { stagedPage, materializeLargeRecords, discardStage, LargeRecordIntegrityError } from "./record-large-records.ts";
+import { rollbackLargeRecord } from "./record-large-record-undo.ts";
+import type { LargeRecordTransport } from "./record-large-record-transport.ts";
+import { positive, fence } from "./heartbeat-wake-options.ts";
 import { join } from "node:path";
 import {
   capabilityClientContextFromEnv,
   readCapabilityIdentity,
+  CapabilityRateLimitError,
   type CapabilityClientContext,
 } from "../mcp/capability-client.ts";
 import {
@@ -10,7 +15,7 @@ import {
   RecordSyncHttpError,
   RecordSyncBudgetError,
 } from "./record-sync-client.ts";
-import { RecordSyncCache, cachePath, type Fence } from "./record-sync-cache.ts";
+import { RecordSyncCache, cachePath } from "./record-sync-cache.ts";
 import {
   PAGE_MS,
   page,
@@ -26,6 +31,7 @@ export interface HeartbeatWakeOptions {
   reviewOnly?: boolean;
   syncOnly?: boolean;
   preserveCacheOnRepair?: boolean;
+  largeRecordTransport?: LargeRecordTransport;
   workspaceId?: string;
   towerUrl?: string;
   appNpub?: string;
@@ -36,15 +42,6 @@ export interface HeartbeatWakeOptions {
   fetchImpl?: typeof fetch;
   cacheRoot?: string;
   signal?: AbortSignal;
-}
-function positive(value: number, name: string): number {
-  if (!Number.isSafeInteger(value) || value < 1)
-    throw new Error(`${name} must be a positive finite integer`);
-  return value;
-}
-function fence(cache: RecordSyncCache): Fence {
-  const s = cache.state();
-  return { cursor: s.cursor, clientId: s.clientId, generation: s.generation };
 }
 const REPAIR_ERRORS = new Set([
   "reset_required",
@@ -89,6 +86,8 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
     "",
     timeoutMs,
     options.signal,
+    Math.random,
+    options.largeRecordTransport,
   );
   const active = record(
     await bootstrap.broker<JsonRecord>("/api/mcp/wingman/flightdeck", {
@@ -129,6 +128,8 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
     appNpub,
     timeoutMs,
     options.signal,
+    Math.random,
+    options.largeRecordTransport,
   );
   const root =
     options.cacheRoot ??
@@ -139,10 +140,12 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
   const cache = new RecordSyncCache(path, partition, wakeMs + PAGE_MS);
   const errors: string[] = [];
   let budgetDeferred = false;
+  let retryAfterMs = 0;
   let pages = 0;
   let terminal = false;
   let negotiated = false;
   let bounded = false;
+  let chunked = false;
   const pageTimings: { totalMs: number; commitMs: number; ackMs: number }[] =
     [];
   const base = `${towerUrl}/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/record-sync`;
@@ -158,8 +161,9 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
         JSON.stringify({
           cursor: intent.cursor,
           expected_revision: intent.expected_revision,
+          ...(intent.large_record_receipts ? { large_record_receipts: intent.large_record_receipts } : {}),
         }),
-        "ack",
+        intent.large_record_receipts?.length ? "large-ack" : "ack",
       );
       cache.ack(registration(value, intent.clientId), intent);
     } catch (error) {
@@ -172,7 +176,10 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
           intent.clientId,
         );
         if (r.checkpoint_cursor === intent.cursor) cache.ack(r, intent);
-        else cache.replayConflict(r, intent);
+        else if (intent.large_record_receipts?.length) {
+          rollbackLargeRecord(cache);
+          throw new Error("Large-record acknowledgement conflict; restored prior committed cursor for replay");
+        } else cache.replayConflict(r, intent);
       } else throw error;
     }
   };
@@ -201,6 +208,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
       bounded =
         Array.isArray(capability.extensions) &&
         capability.extensions.includes("bounded_snapshot_v1");
+      chunked = bounded && Array.isArray(capability.extensions) && capability.extensions.includes("chunked_v1");
       const f = fence(cache);
       const r = registration(
         await client.request(clientUrl(), "POST", "", "register"),
@@ -221,13 +229,20 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
         url.searchParams.set("cursor", expected.cursor!);
         url.searchParams.set("limit", "200");
         if (bounded) url.searchParams.set("extension", "bounded_snapshot_v1");
-        const payload = page(
-          await client.request(url.toString(), "GET", undefined, "page"),
+        if (chunked) url.searchParams.set("large_records", "chunked_v1");
+        const saved = stagedPage(cache, expected);
+        if (saved && !chunked) throw new Error("Staged chunk transfer requires advertised chunked_v1");
+        const wire = page(
+          saved ?? await client.request(url.toString(), "GET", undefined, "page"),
           expected.clientId,
           workspaceId,
+          chunked,
         );
+        const { payload, receipts } = chunked
+          ? await materializeLargeRecords(cache, client, wire, expected, base, workspaceId)
+          : { payload: wire, receipts: undefined };
         const received = performance.now();
-        cache.commit(payload, expected, bounded);
+        cache.commit(payload, expected, bounded, receipts);
         pages++;
         const committed = performance.now();
         await acknowledge();
@@ -253,6 +268,14 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
     }
   } catch (error) {
     budgetDeferred = error instanceof RecordSyncBudgetError;
+    if (error instanceof CapabilityRateLimitError || (error instanceof RecordSyncHttpError && error.status === 429) || error instanceof RecordSyncBudgetError)
+      retryAfterMs = error.retryAfterMs;
+    if (error instanceof LargeRecordIntegrityError) { discardStage(cache); cache.unavailable(); }
+    if (error instanceof RecordSyncHttpError && ["large_record_changed", "record_access_required", "page_token_invalid"].includes(error.code)) {
+      rollbackLargeRecord(cache);
+      discardStage(cache);
+      cache.unavailable();
+    }
     if (!options.preserveCacheOnRepair && error instanceof RecordSyncHttpError && REPAIR_ERRORS.has(error.code)) {
       cache.repair();
       errors.push(
@@ -299,8 +322,10 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
       botNpub: identity.botNpub,
       brokerRequests: bootstrap.brokerRequests + client.brokerRequests + 1,
       syncComplete,
+      retryAfterMs,
       syncOutcome: syncComplete
         ? ("certified" as const)
+        : retryAfterMs > 0 ? ("retry" as const)
         : budgetDeferred
           ? ("budget" as const)
           : ("blocked" as const),
@@ -330,6 +355,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
           negotiated || (options.reviewOnly && state.cursor) ? 2 : null,
         observation: options.reviewOnly ? "pinned-cache-review" : "live-sync",
         pages,
+        downloadedChunks: client.timings.filter(t => t.operation === "chunk").length,
         snapshotComplete: state.snapshotDone,
         deltaHandoverObserved: state.handoverDone,
         certifiedBoundary: syncComplete,

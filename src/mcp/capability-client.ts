@@ -81,18 +81,21 @@ export async function callCapabilityBroker<T>(
   context: CapabilityClientContext = capabilityClientContextFromEnv(),
 ): Promise<T> {
   const response = await callCapabilityBrokerResponse(path, body, context);
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({})) as { error?: string; code?: string; rateLimit?: { retryAfterMs?: number } };
-    if (response.status === 429 && error.code === "capability_rate_limited") {
-      const headerSeconds = Number(response.headers.get("retry-after"));
-      const retryAfterMs = Number.isFinite(error.rateLimit?.retryAfterMs)
-        ? Number(error.rateLimit?.retryAfterMs)
-        : Number.isFinite(headerSeconds) ? headerSeconds * 1_000 : 60_000;
-      throw new CapabilityRateLimitError(error.error ?? "Capability broker rate limit exceeded", retryAfterMs, error as Record<string, unknown>);
-    }
-    throw Object.assign(new Error(error.error ?? `Capability broker request failed (${response.status})`), { status: response.status, envelope: error });
-  }
+  if (!response.ok) throw await capabilityFailure(response, "request");
   return await response.json() as T;
+}
+
+async function capabilityFailure(response: Response, operation: string): Promise<Error> {
+  const error = await response.json().catch(() => ({})) as { error?: string; code?: string; rateLimit?: { retryAfterMs?: number } };
+  if (response.status === 429 && error.code === "capability_rate_limited") {
+    const retry = response.headers.get("retry-after");
+    const seconds = retry === null ? NaN : Number(retry);
+    const retryAfterMs = Number.isFinite(error.rateLimit?.retryAfterMs)
+      ? Math.max(0, Number(error.rateLimit?.retryAfterMs))
+      : Number.isFinite(seconds) ? Math.max(0, seconds * 1_000) : 60_000;
+    return new CapabilityRateLimitError(error.error ?? "Capability broker rate limit exceeded", retryAfterMs, error as Record<string, unknown>);
+  }
+  return Object.assign(new Error(error.error ?? `Capability broker ${operation} failed (${response.status})`), { status: response.status, envelope: error });
 }
 
 async function isReissuedCapabilityResponse(response: Response): Promise<boolean> {
@@ -200,10 +203,7 @@ export async function readCapabilityIdentity(
       "x-wingman-capability-nonce": randomUUID(),
     },
   });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({})) as { error?: string };
-    throw new Error(error.error ?? `Capability broker identity request failed (${response.status})`);
-  }
+  if (!response.ok) throw await capabilityFailure(response, "identity request");
   return await response.json() as {
     identityType: "agent";
     botNpub: string;

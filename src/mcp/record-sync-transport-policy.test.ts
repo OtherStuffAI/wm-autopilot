@@ -162,3 +162,41 @@ test("raw host reader rejects decoded oversized bodies and cancels source", asyn
   expect(cancelled).toBe(true);
   expect(await response.json()).toEqual({ error: "record_response_too_large" });
 });
+
+test("chunk policy accepts exact v2 GETs only and receipt policy rejects extra authority", async () => {
+  const { validRecordSyncAcknowledgement } = await import("./record-sync-ack-policy.ts");
+  const path = `${base}/clients/${client}/pages/${client}/large-records/${client}/chunks/0?protocol_version=2`;
+  expect(permitsRecordSyncTransport(new URL(path, "https://tower"), "GET", "workspace")).toBe(true);
+  for (const invalid of [path.replace("/chunks/0", "/chunks/-1"), path.replace("protocol_version=2", "protocol_version=1"), path.replace("/pages/", "/other/")]) {
+    expect(permitsRecordSyncTransport(new URL(invalid, "https://tower"), "GET", "workspace")).toBe(false);
+  }
+  expect(permitsRecordSyncTransport(new URL(path, "https://tower"), "POST", "workspace")).toBe(false);
+  expect(permitsRecordSyncTransport(new URL(path, "https://tower"), "GET", "other")).toBe(false);
+  const receipt = { manifest_id: client, sha256: "a".repeat(64) };
+  const ack = { cursor: client, expected_revision: "9007199254740993", large_record_receipts: [receipt] };
+  expect(validRecordSyncAcknowledgement(ack)).toBe(true);
+  for (const invalid of [{ ...ack, extra: true }, { ...ack, large_record_receipts: [{ ...receipt, extra: true }] },
+    { ...ack, large_record_receipts: [receipt, receipt] }, { ...ack, large_record_receipts: [{ ...receipt, sha256: "bad" }] }])
+    expect(validRecordSyncAcknowledgement(invalid)).toBe(false);
+});
+
+test("raw chunk transport preserves binary bytes and receipt ack signs exact body", async () => {
+  const key = generateSecretKey();
+  const chunk = `https://tower.test${base}/clients/${client}/pages/${client}/large-records/${client}/chunks/0?protocol_version=2`;
+  const bytes = new Uint8Array([0, 255, 128, 65]);
+  async function run(url: string, method: string, body?: string) {
+    const tags = [["u", url], ["method", method]];
+    if (body !== undefined) tags.push(["payload", createHash("sha256").update(body).digest("hex")]);
+    const event = finalizeEvent({ kind: 27235, created_at: Math.floor(Date.now() / 1000), content: "", tags }, key);
+    return handleFlightDeckTransport({ action: "record_sync_request", subscriptionId: "subscription", workspaceId: "workspace",
+      botPubkeyHex: getPublicKey(key), appNpub: "app", body: { url, method, bodyBase64: body === undefined ? null : Buffer.from(body).toString("base64"),
+        headers: [["authorization", `Nostr ${Buffer.from(JSON.stringify(event)).toString("base64")}`], ["x-flightdeck-pg-app-npub", "app"]] } },
+    { prepare: async () => url, fetch: async () => new Response(bytes, { headers: { "content-type": "application/octet-stream" } }) });
+  }
+  const response = await run(chunk, "GET");
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("application/octet-stream");
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+  const ack = JSON.stringify({ cursor: client, expected_revision: "1", large_record_receipts: [{ manifest_id: client, sha256: "a".repeat(64) }] });
+  expect((await run(`https://tower.test${base}/clients/${client}/ack?protocol_version=2`, "POST", ack)).status).toBe(200);
+});

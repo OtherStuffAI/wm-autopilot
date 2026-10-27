@@ -34,11 +34,15 @@ async function main(): Promise<void> {
     reviewOnly: process.argv.includes("--review-only"),
     reviewCursor: value("--review-cursor"),
   };
+  const largeRecordTransport = value("--large-record-transport") ?? "bounded";
+  if (largeRecordTransport !== "bounded" && largeRecordTransport !== "host-finite")
+    throw new Error("--large-record-transport must be bounded or host-finite");
+  options.largeRecordTransport = largeRecordTransport;
   const outputPath = value("--output");
   if (process.argv.includes("--recover-families")) {
     const recovery = await recoverHeartbeatFamilies(options, Number(value("--max-wakes") ?? 100), async (wake, phase, n) => {
       if (outputPath) await writeFile(outputPath, `${JSON.stringify(wake, null, 2)}\n`, "utf8");
-      process.stdout.write(`${JSON.stringify({ phase, wake: n, syncComplete: wake.syncComplete, coverage: wake.coverage, errors: wake.errors })}\n`);
+      process.stdout.write(`${JSON.stringify({ phase, wake: n, syncComplete: wake.syncComplete, retryAfterMs: wake.retryAfterMs, coverage: wake.coverage, errors: wake.errors })}\n`);
     });
     process.stdout.write(`${JSON.stringify({ outcome: recovery.outcome })}\n`);
     if (recovery.outcome !== "certified") process.exitCode = 1;
@@ -61,6 +65,7 @@ async function main(): Promise<void> {
             wake: n,
             syncComplete: wake.syncComplete,
             syncOutcome: wake.syncOutcome,
+            retryAfterMs: wake.retryAfterMs,
             coverage: wake.coverage,
             errors: wake.errors,
             output: outputPath,

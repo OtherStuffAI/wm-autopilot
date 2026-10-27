@@ -10,6 +10,9 @@ export function permitsRecordSyncTransport(
   if (url.searchParams.get("protocol_version") !== "2") return false;
   if (url.pathname === base) return method === "GET";
   const suffix = url.pathname.slice(base.length);
+  const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+  if (url.pathname.startsWith(base) && new RegExp(`^/clients/${uuid}/pages/${uuid}/large-records/${uuid}/chunks/(0|[1-9][0-9]*)$`).test(suffix))
+    return method === "GET";
   const client =
     /^\/clients\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\/ack)?$/.exec(
       suffix,

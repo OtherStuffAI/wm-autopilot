@@ -96,3 +96,27 @@ test("catch-up does not spin on budget deferral without page progress", async ()
     rmSync(f.cacheRoot, { recursive: true, force: true });
   }
 });
+
+test("catch-up honors bootstrap and returned Retry-After without spinning or replacing cache identity", async () => {
+  const { CapabilityRateLimitError } = await import("../mcp/capability-client.ts");
+  const f = fixture([pagePayload(), pagePayload([], true)]);
+  const waits: number[] = [];
+  let attempt = 0;
+  try {
+    const pending = await f.run({ maxPages: 1, syncOnly: true });
+    const resumed = await runHeartbeatCatchUp({ hours: 12 }, 4, undefined, async options => {
+      attempt++;
+      if (attempt === 1) throw new CapabilityRateLimitError("rate", 1234, {});
+      if (attempt === 2) return { ...pending, syncOutcome: "retry", retryAfterMs: 2345,
+        coverage: { ...pending.coverage, pages: 0, downloadedChunks: 1 } };
+      return f.run(options);
+    }, async ms => { waits.push(ms); });
+    expect(waits).toEqual([1234, 2345]);
+    expect(resumed.outcome).toBe("certified");
+    expect(resumed.wakes).toBe(3);
+    expect(resumed.result.cache.clientId).toBe(pending.cache.clientId);
+    const limited = await runHeartbeatCatchUp({ hours: 12 }, 1, undefined,
+      async () => ({ ...pending, syncOutcome: "retry", retryAfterMs: 9999 }), async () => { throw new Error("must not wait beyond cap"); });
+    expect(limited.outcome).toBe("wake_limit");
+  } finally { rmSync(f.cacheRoot, { recursive: true, force: true }); }
+});

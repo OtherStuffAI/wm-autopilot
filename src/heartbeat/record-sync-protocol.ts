@@ -84,6 +84,7 @@ export function page(
   value: unknown,
   clientId: string,
   workspaceId: string,
+  chunked = false,
 ): Page {
   const p = record(value);
   if (p.protocol_version !== 2 || p.client_id !== clientId)
@@ -115,7 +116,7 @@ export function page(
     throw new Error("Invalid delta metadata");
   if (
     p.large_records !== undefined &&
-    (!Array.isArray(p.large_records) || p.large_records.length)
+    (!Array.isArray(p.large_records) || (!chunked && p.large_records.length))
   )
     throw new Error("Unnegotiated oversized record manifest; no advancement");
   const bounds = record(p.bounds);
@@ -128,7 +129,7 @@ export function page(
   )
     throw new Error("Missing canonical/access metadata");
   if (
-    p.changes.length + p.actors.length + p.access_changes.length >
+    p.changes.length + p.actors.length + p.access_changes.length + (Array.isArray(p.large_records) ? p.large_records.length : 0) >
     MAX_ENTRIES
   )
     throw new Error("Record-sync entry ceiling exceeded");

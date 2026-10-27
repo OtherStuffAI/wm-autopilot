@@ -1,5 +1,6 @@
 import { readBoundedBody, DecodedResponseTooLarge } from "../heartbeat/bounded-response.ts";
 import { permitsRecordSyncTransport } from "./record-sync-transport-policy.ts";
+import { validRecordSyncAcknowledgement } from "./record-sync-ack-policy.ts";
 import { readTowerResponseBytes } from "./tower-response-bytes";
 import { createHash } from "node:crypto";
 import { verifyEvent } from "nostr-tools";
@@ -39,7 +40,7 @@ export async function handleFlightDeckTransport(input: {
     if (method === "POST" && url.pathname.endsWith("/ack")) {
       let intent: Record<string, unknown>;
       try { intent = JSON.parse(bytes?.toString() ?? ""); } catch { return Response.json({ error: "Invalid acknowledgement body" }, { status: 400 }); }
-      if (!intent || Array.isArray(intent) || Object.keys(intent).sort().join() !== "cursor,expected_revision" || typeof intent.cursor !== "string" || !intent.cursor || !/^(0|[1-9][0-9]*)$/.test(String(intent.expected_revision)) || typeof intent.expected_revision !== "string") return Response.json({ error: "Invalid acknowledgement body" }, { status: 400 });
+      if (!validRecordSyncAcknowledgement(intent)) return Response.json({ error: "Invalid acknowledgement body" }, { status: 400 });
     }
   }
   const tag = (name: string) => event.tags.find((item: string[]) => item[0] === name)?.[1];
@@ -68,7 +69,7 @@ export async function handleFlightDeckTransport(input: {
       if (error instanceof DecodedResponseTooLarge) return Response.json({ error: "record_response_too_large" }, { status: 413 });
       throw error;
     }
-    return new Response(body, { status: response.status, headers: { "content-type": "application/json", "x-wingman-record-headers-ms": String(headersReceived - transportStarted), "x-wingman-record-body-ms": String(performance.now() - headersReceived), ...(response.headers.has("retry-after") ? { "retry-after": response.headers.get("retry-after")! } : {}) } });
+    return new Response(body, { status: response.status, headers: { "content-type": response.headers.get("content-type") ?? "application/json", "x-wingman-record-headers-ms": String(headersReceived - transportStarted), "x-wingman-record-body-ms": String(performance.now() - headersReceived), ...(response.headers.has("retry-after") ? { "retry-after": response.headers.get("retry-after")! } : {}) } });
   }
   const body = await readTowerResponseBytes(response);
   return Response.json({ status: response.status, headers: [...response.headers], bodyBase64: body?.toString("base64") ?? null });

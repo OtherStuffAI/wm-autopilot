@@ -1,4 +1,6 @@
 import { assertFamilyCompatibility } from "./record-family-compatibility.ts";
+import { assertHandoverProgress } from "./record-handover.ts";
+import { saveLargeRecordUndo } from "./record-large-record-undo.ts";
 import { initializeRecordCache } from "./record-cache-schema.ts";
 import { readCacheReview, readCacheCounts, readCacheAuthority } from "./record-cache-review.ts";
 import { Database } from "bun:sqlite";
@@ -35,6 +37,7 @@ export interface AckIntent {
   expected_revision: string;
   clientId: string;
   generation: string;
+  large_record_receipts?: { manifest_id: string; sha256: string }[];
 }
 export interface Fence {
   cursor: string | null;
@@ -187,7 +190,7 @@ export class RecordSyncCache {
       })
       .immediate();
   }
-  commit(p: Page, fence: Fence, bounded = false): void {
+  commit(p: Page, fence: Fence, bounded = false, receipts?: AckIntent["large_record_receipts"]): void {
     this.db
       .transaction(() => {
         const s = this.assertFence(fence);
@@ -210,21 +213,10 @@ export class RecordSyncCache {
           BigInt(p.access_revision) < BigInt(s.accessRevision)
         )
           throw new Error("Stale authority response");
+        if (receipts?.length) saveLargeRecordUndo(this.db, s, p);
         if (bounded) {
           const h = handover(p);
-          if (h.authority_epoch !== s.epoch)
-            throw new Error("Handover authority epoch mismatch");
-          if (
-            !s.certified &&
-            s.target !== null &&
-            h.target_position !== s.target
-          )
-            throw new Error("Fixed handover target changed during traversal");
-          if (
-            s.through !== null &&
-            BigInt(h.through_position) < BigInt(s.through)
-          )
-            throw new Error("Handover position regressed");
+          assertHandoverProgress(s, h);
           s.target = h.target_position;
           s.through = h.through_position;
           s.certified = h.complete;
@@ -299,6 +291,10 @@ export class RecordSyncCache {
         this.db
           .query("INSERT INTO ack_intents VALUES(?,?,?,?, 'pending')")
           .run(s.generation, s.clientId, p.next_cursor, p.checkpoint_revision);
+        if (receipts?.length) this.db.query("INSERT INTO large_record_receipts VALUES(?,?,?)")
+          .run(s.generation, p.next_cursor, JSON.stringify(receipts));
+        this.db.query("DELETE FROM large_record_stage WHERE generation=?").run(s.generation);
+        this.db.query("DELETE FROM large_record_chunks WHERE generation=?").run(s.generation);
       })
       .immediate();
   }
@@ -331,8 +327,14 @@ export class RecordSyncCache {
           expected_revision: r.revision,
           clientId: r.client,
           generation: s.generation,
+          ...this.receipts(s.generation, r.cursor),
         }
       : null;
+  }
+  private receipts(generation: string, cursor: string): Pick<AckIntent, "large_record_receipts"> {
+    const row = this.db.query("SELECT receipts FROM large_record_receipts WHERE generation=? AND cursor=?")
+      .get(generation, cursor) as { receipts: string } | null;
+    return row ? { large_record_receipts: JSON.parse(row.receipts) } : {};
   }
   ack(r: Registration, intent: AckIntent): void {
     this.db
@@ -353,6 +355,7 @@ export class RecordSyncCache {
         this.db
           .query("DELETE FROM ack_intents WHERE generation=? AND cursor=?")
           .run(s.generation, intent.cursor);
+        this.db.query("DELETE FROM large_record_undo WHERE generation=? AND cursor=?").run(s.generation, intent.cursor);
       })
       .immediate();
   }
