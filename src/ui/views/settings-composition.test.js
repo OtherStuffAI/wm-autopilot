@@ -56,7 +56,8 @@ describe('Settings page composition', () => {
   test('renders distinct Allowed and Admin controls for managed users', () => {
     expect(adminUsersPanels).toContain('admin-user-allowed-toggle');
     expect(adminUsersPanels).toContain('admin-user-admin-toggle');
-    expect(adminUsersPanels).toContain('Admin (bootstrap)');
-    expect(adminUsersPanels).toContain('toggleUserAdmin(user.npub, adminCheckbox.checked)');
+    const roleControl = readFileSync(new URL('../api/admin-role-control.js', import.meta.url), 'utf8');
+    expect(roleControl).toContain('Is Admin (bootstrap)');
+    expect(adminUsersPanels).toContain('onChange: toggleUserAdmin');
   });
 });

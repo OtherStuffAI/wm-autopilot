@@ -158,6 +158,7 @@ export interface ApiRoutesContext {
   liveThreadActivityRoutesContext: LiveThreadActivityRoutesContext;
   remoteInstructRoutesContext: RemoteInstructRoutesContext;
   cloudflareTunnelRoutesContext?: CloudflareTunnelRoutesContext;
+  isAppAdminNpub?: (npub: string | null | undefined) => boolean;
   workspaceDelegationStore: WorkspaceDelegationStore;
   sessionDispatchService?: SessionDispatchService;
 
@@ -439,12 +440,13 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
       if (response) return response;
     }
 
-    if (ctx.signingPolicyRoutesContext) {
+    if (ctx.signingPolicyRoutesContext && pathname.startsWith("/api/admin/signing-policies")) {
+      const signingAuth = await ctx.resolveNip98AuthContext(request, url, authContext);
       const signingPolicyResponse = await handleSigningPolicyApi(
         request,
         url,
         method,
-        authContext,
+        signingAuth,
         ctx.signingPolicyRoutesContext,
       );
       if (signingPolicyResponse) return signingPolicyResponse;
@@ -791,7 +793,9 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
 
     // Admin user routes (delegated to admin-users-routes.ts)
     if (pathname.startsWith("/api/admin/users") || pathname === "/api/admin/ports") {
-      const adminUsersResponse = await handleAdminUsersApi(request, url, method, authContext, ctx.adminUsersApiContext);
+      const adminAuth = await ctx.resolveNip98AuthContext(request, url, authContext);
+      const adminUsersResponse = await runWithRequestContext(adminAuth, () =>
+        handleAdminUsersApi(request, url, method, adminAuth, ctx.adminUsersApiContext));
       if (adminUsersResponse) return adminUsersResponse;
     }
 
@@ -880,6 +884,7 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
         ownerAuthContext,
         () =>
           handleOwnerSpaceApi(request, url, method, ownerAuthContext, {
+            isAdminNpub: ctx.isAppAdminNpub,
             workspaceDelegationStore: ctx.workspaceDelegationStore,
             resolveWorkspace: ctx.resolveWorkspace,
             buildAppsContext: ctx.buildAppsContext,

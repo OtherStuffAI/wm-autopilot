@@ -1,3 +1,4 @@
+import { cacheAdminUsers, cacheAdminUser } from "./admin-users-cache.js";
 /**
  * Admin user management — CRUD, selection state, picture cache, and ports tools.
  *
@@ -155,7 +156,8 @@ export function initAdminUsersApi(deps) {
 
   // ── List management ─────────────────────────────────────────────
 
-  const replaceAdminUsersList = (users) => {
+  const replaceAdminUsersList = async (users) => {
+    users = await cacheAdminUsers(state.identity.npub, users);
     if (!Array.isArray(users)) return;
     const hydrated = users.map((user) => applyCachedPictureToUser(user));
     hydrateAdminPictureCacheFromUsers(hydrated);
@@ -166,10 +168,10 @@ export function initAdminUsersApi(deps) {
     primeAdminUserPictures(hydrated);
   };
 
-  const upsertAdminUser = (user) => {
+  const upsertAdminUser = async (user) => {
     if (!user || typeof user !== "object") return;
-    const hydratedUser = applyCachedPictureToUser(user);
-    const items = Array.isArray(state.adminUsers.items) ? [...state.adminUsers.items] : [];
+    const items = await cacheAdminUser(state.identity.npub, user);
+    const hydratedUser = applyCachedPictureToUser(items.find((entry) => entry.normalizedNpub === user.normalizedNpub) ?? user);
     const idx = items.findIndex((entry) => entry.normalizedNpub === user.normalizedNpub);
     if (idx >= 0) {
       items[idx] = hydratedUser;
@@ -216,12 +218,12 @@ export function initAdminUsersApi(deps) {
       const users = Array.isArray(payload?.users) ? payload.users : null;
       const user = payload && typeof payload === "object" ? payload.user : null;
       if (Array.isArray(users)) {
-        replaceAdminUsersList(users);
+        await replaceAdminUsersList(users);
         resolvedUser = users.find(
           (entry) => normaliseNpubValue(entry?.normalizedNpub ?? entry?.npub) === normaliseNpubValue(key),
         );
       } else if (user && typeof user === "object") {
-        upsertAdminUser(user);
+        await upsertAdminUser(user);
         resolvedUser = user;
       }
       state.adminUsers.error = null;
@@ -288,7 +290,7 @@ export function initAdminUsersApi(deps) {
         throw new Error(message);
       }
       const users = Array.isArray(payload?.users) ? payload.users : [];
-      replaceAdminUsersList(users);
+      await replaceAdminUsersList(users);
       state.adminUsers.error = null;
       state.adminUsers.pending.clear();
       renderIfSettings();
@@ -327,10 +329,10 @@ export function initAdminUsersApi(deps) {
       const users = Array.isArray(payload?.users) ? payload.users : null;
       const user = payload && typeof payload === "object" ? payload.user : null;
       if (Array.isArray(users)) {
-        replaceAdminUsersList(users);
+        await replaceAdminUsersList(users);
         state.adminUsers.pending.clear();
       } else if (user && typeof user === "object") {
-        upsertAdminUser(user);
+        await upsertAdminUser(user);
       }
       state.adminUsers.error = null;
     } catch (error) {
@@ -379,10 +381,10 @@ export function initAdminUsersApi(deps) {
       const users = Array.isArray(responsePayload?.users) ? responsePayload.users : null;
       const user = responsePayload && typeof responsePayload === "object" ? responsePayload.user : null;
       if (Array.isArray(users)) {
-        replaceAdminUsersList(users);
+        await replaceAdminUsersList(users);
         state.adminUsers.pending.clear();
       } else if (user && typeof user === "object") {
-        upsertAdminUser(user);
+        await upsertAdminUser(user);
       }
       state.adminUsers.error = null;
     } catch (error) {
@@ -434,7 +436,7 @@ export function initAdminUsersApi(deps) {
       }
       const users = Array.isArray(payload?.users) ? payload.users : null;
       if (Array.isArray(users)) {
-        replaceAdminUsersList(users);
+        await replaceAdminUsersList(users);
         state.adminUsers.pending.clear();
         clearAdminSelection();
       }
@@ -514,7 +516,7 @@ export function initAdminUsersApi(deps) {
       }
       const users = Array.isArray(payload?.users) ? payload.users : null;
       if (Array.isArray(users)) {
-        replaceAdminUsersList(users);
+        await replaceAdminUsersList(users);
         state.adminUsers.pending.clear();
         clearAdminSelection();
       }
@@ -557,10 +559,10 @@ export function initAdminUsersApi(deps) {
       const users = Array.isArray(payload?.users) ? payload.users : null;
       const user = payload && typeof payload === "object" ? payload.user : null;
       if (Array.isArray(users)) {
-        replaceAdminUsersList(users);
+        await replaceAdminUsersList(users);
         state.adminUsers.pending.clear();
       } else if (user && typeof user === "object") {
-        upsertAdminUser(user);
+        await upsertAdminUser(user);
       }
       const resolvedUser =
         user && typeof user === "object"
@@ -619,9 +621,9 @@ export function initAdminUsersApi(deps) {
       const users = Array.isArray(data?.users) ? data.users : null;
       const user = data && typeof data === "object" ? data.user : null;
       if (Array.isArray(users)) {
-        replaceAdminUsersList(users);
+        await replaceAdminUsersList(users);
       } else if (user && typeof user === "object") {
-        upsertAdminUser(user);
+        await upsertAdminUser(user);
       }
       state.adminUsers.addDraft = "";
       state.adminUsers.addError = null;
@@ -701,9 +703,9 @@ export function initAdminUsersApi(deps) {
       const newPorts = Array.isArray(data?.newPorts) ? data.newPorts : [];
 
       if (Array.isArray(users)) {
-        replaceAdminUsersList(users);
+        await replaceAdminUsersList(users);
       } else if (user && typeof user === "object") {
-        upsertAdminUser(user);
+        await upsertAdminUser(user);
       }
 
       const portsDisplay = newPorts.length > 0 ? newPorts.join(", ") : "ports";
@@ -747,9 +749,9 @@ export function initAdminUsersApi(deps) {
       const newPorts = Array.isArray(data?.newPorts) ? data.newPorts : [];
 
       if (Array.isArray(users)) {
-        replaceAdminUsersList(users);
+        await replaceAdminUsersList(users);
       } else if (user && typeof user === "object") {
-        upsertAdminUser(user);
+        await upsertAdminUser(user);
       }
 
       if (user && Array.isArray(user.ports)) {

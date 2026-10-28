@@ -1,3 +1,4 @@
+import { adminUserStatus, createAdminRoleControl } from "./admin-role-control.js";
 /**
  * Admin user panel renderers — ports tool, user management,
  * selection controls, and filter.
@@ -165,6 +166,7 @@ export function initAdminUsersPanels(deps) {
     if (state.adminUsers.error) {
       const errorBox = document.createElement("div");
       errorBox.className = "wm-admin-users__error";
+      errorBox.setAttribute("role", "alert");
 
       const message = document.createElement("p");
       message.textContent = state.adminUsers.error;
@@ -244,7 +246,7 @@ export function initAdminUsersPanels(deps) {
           selectionCheckbox.setAttribute("aria-label", `Select ${label}`);
           row.setAttribute("aria-label", `User ${label}`);
           row.querySelector('[data-testid="admin-user-allowed-toggle"]')?.setAttribute("aria-label", `Toggle normal access for ${label}`);
-          row.querySelector('[data-testid="admin-user-admin-toggle"]')?.setAttribute("aria-label", `Toggle admin access for ${label}`);
+          row.querySelector('[data-testid="admin-user-admin-toggle"]')?.setAttribute("aria-label", `Is Admin for ${label}`);
           row.querySelector('[data-testid="admin-user-delete"]')?.setAttribute("aria-label", `Delete ${label}`);
           row.querySelector(".wm-admin-users__nickname input")?.setAttribute("aria-label", `Admin nickname for ${label}`);
         },
@@ -254,9 +256,8 @@ export function initAdminUsersPanels(deps) {
 
       const status = document.createElement("span");
       status.className = "wm-admin-users__status";
-      const accessLabel = user.approved || user.onboarded ? "Access: allowed" : "Access: blocked";
-      const adminLabel = user.admin ? "Admin: yes" : "Admin: no";
-      status.textContent = `${accessLabel} \u2022 ${adminLabel}`;
+      status.setAttribute("aria-live", "polite");
+      status.textContent = adminUserStatus(user);
 
       const nicknameForm = document.createElement("form");
       nicknameForm.className = "wm-admin-users__nickname";
@@ -318,24 +319,8 @@ export function initAdminUsersPanels(deps) {
 
       accessToggle.append(accessCheckbox, accessLabelEl);
 
-      const adminToggle = document.createElement("label");
-      adminToggle.className = "wm-admin-users__toggle";
-
-      const adminCheckbox = document.createElement("input");
-      adminCheckbox.type = "checkbox";
-      adminCheckbox.checked = Boolean(user.admin);
-      adminCheckbox.disabled = userPending || state.adminUsers.loading || Boolean(user.bootstrapAdmin);
-      adminCheckbox.setAttribute("aria-label", `Toggle admin access for ${name.textContent}`);
-      adminCheckbox.dataset.testid = "admin-user-admin-toggle";
-      adminCheckbox.addEventListener("change", () => {
-        if (adminCheckbox.disabled) return;
-        toggleUserAdmin(user.npub, adminCheckbox.checked);
-      });
-
-      const adminLabelEl = document.createElement("span");
-      adminLabelEl.textContent = user.bootstrapAdmin ? "Admin (bootstrap)" : "Admin";
-
-      adminToggle.append(adminCheckbox, adminLabelEl);
+      const adminToggle = createAdminRoleControl({ user, label: name.textContent,
+        busy: userPending || state.adminUsers.loading, isAdmin: state.identity.isAdmin, onChange: toggleUserAdmin });
 
       const deleteBtn = document.createElement("button");
       deleteBtn.type = "button";

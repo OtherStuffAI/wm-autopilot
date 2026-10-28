@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-28
+
+- Show active stable bot identities and profile names alongside humans in Settings Users, without requiring bot login. Use the existing durable admin role and labelled **Is Admin** controls; configured bootstrap and last-admin protections remain in place.
+- Let explicitly appointed human or bot admins manage every instance app through ordinary and owner-prefixed app APIs, independent of app ownership, profile custody or session ownership. Signers and app ownership remain intact; linked humans do not confer admin authority.
+- Apply admin promotion, demotion and bot deactivation to live app authorization and bounded broker signing. Preserve deliberately constrained signing policies, narrow delegations, exact-session queue restrictions and separate Tower permissions.
+
 ## 2026-10-25
 
 - Add direct NStack HTTPS address entry to Workspaces alongside saved NBrowser selection. Discover workspaces accessible to enabled local agents using existing signed Tower discovery; select, review, connect and retry through the same verified, duplicate-safe setup and monitoring. Invalid addresses, access failures and discovery errors remain visible.

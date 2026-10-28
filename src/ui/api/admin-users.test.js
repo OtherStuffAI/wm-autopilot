@@ -4,6 +4,18 @@ mock.module("../identity/profile.js", () => ({
   fetchAdminUserProfile: async () => ({}),
 }));
 
+const cachedViews = new Map();
+mock.module("./admin-users-cache.js", () => ({
+  cacheAdminUsers: async (viewer, users) => { cachedViews.set(viewer, structuredClone(users)); return structuredClone(cachedViews.get(viewer)); },
+  cacheAdminUser: async (viewer, user) => {
+    const users = cachedViews.get(viewer) ?? [];
+    const index = users.findIndex((entry) => entry.normalizedNpub === user.normalizedNpub);
+    if (index < 0) users.push(user); else users[index] = user;
+    cachedViews.set(viewer, structuredClone(users));
+    return structuredClone(cachedViews.get(viewer));
+  },
+}));
+
 const { initAdminUsersApi } = await import("./admin-users.js");
 
 function createState() {
@@ -46,6 +58,7 @@ function createApiHarness() {
 }
 
 afterEach(() => {
+  cachedViews.clear();
   delete globalThis.fetch;
   delete globalThis.confirm;
 });
@@ -123,4 +136,14 @@ describe("admin users UI API", () => {
       confirmSelfAdminDeletion: true,
     });
   });
+});
+
+test("Users list is read back from the administrator-scoped cache before rendering", async () => {
+  const { api, state } = createApiHarness();
+  const users = [{ npub: "npub1agent", normalizedNpub: "npub1agent", displayName: "Agent Delta", bot: true, admin: false }];
+  globalThis.fetch = async () => Response.json({ users });
+  await api.fetchAdminUsers();
+  expect(cachedViews.get("npub1viewer")).toEqual(users);
+  expect(state.adminUsers.items).toEqual(users);
+  expect(state.adminUsers.items).not.toBe(users);
 });

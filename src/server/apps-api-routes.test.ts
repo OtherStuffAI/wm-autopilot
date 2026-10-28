@@ -643,3 +643,113 @@ describe('handleAppsApi', () => {
     });
   });
 });
+
+test("explicit admin bot uses central app routes across owners without inherited or stale authority", async () => {
+  const { createApiRouteHandler } = await import("./api-routes");
+  const { resolveAppAuthority, withAppAdminAccess } = await import("../auth/app-admin");
+  const { createApprovedAppOwnerRule, createTrustedExecutionRule } = await import("../auth/trusted-execution");
+  const { deny } = await import("../auth/access-control");
+  let admin = true;
+  const isAdminNpub = (npub: string | null | undefined) => npub === "npub1bot" && admin;
+  const botAuth: RequestAuthContext = { npub: "npub1bot", subjectNpub: "npub1bot", signerNpub: "npub1bot",
+    delegatedOwnerNpub: "npub1custodian", targetOwnerNpub: "npub1bot", advisoryOwnerNpub: "npub1custodian",
+    actorNpub: "npub1bot", session: null, authMethod: "nip98" };
+  const root = mkdtempSync(join(tmpdir(), "admin-app-routes-"));
+  const apps = ["npub1owner-a", "npub1owner-b"].map((ownerNpub, index) => ({
+    id: `app-${index}`, ownerNpub, label: "App", root, scripts: {}, tmuxSession: `app-${index}`,
+    createdAt: "", updatedAt: "", webApp: true, webAppPort: 3000,
+  } satisfies AppRecord));
+  apps.push({ ...apps[0]!, id: "wingman-core" });
+  const executions: string[] = [];
+  const deployments: string[] = [];
+  writeFileSync(join(root, "captain-definition"), JSON.stringify({ schemaVersion: 2, imageName: "fixture:latest" }));
+  const trackedApps = new Map<string, Record<string, unknown>>();
+  const scope = { isAdmin: false, defaultDirectory: root, allowedDirectories: [root], aliasDirectory: null,
+    docsRoot: root, docsRootBoundary: root };
+  const trusted = createTrustedExecutionRule({ kind: "apps", isAdminNpub });
+  const configured = createApprovedAppOwnerRule({ isAdminNpub, isApprovedNpub: () => false });
+  const readAndLifecycle = withAppAdminAccess(() => deny("approval-required", 403), isAdminNpub);
+  const ensureApiAccess: AppsApiContext["ensureApiAccess"] = async (action, request, url, auth) => {
+    const rule = action === AccessActions.AppsManage ? trusted
+      : action === AccessActions.AppsSelfManage ? configured : readAndLifecycle;
+    const result = await rule({ action, request, url, auth });
+    return result?.allowed ? null : Response.json({ error: result?.reason }, { status: result?.status ?? 403 });
+  };
+  const buildAppsContext = (auth: RequestAuthContext, workspaceScopeOverride?: typeof scope,
+    canAccessAppOverride?: (app: AppRecord) => boolean) => createContext({
+      ...resolveAppAuthority({ auth, isAdminNpub, resolveWorkspace: () => scope, workspaceScopeOverride, canAccessAppOverride }),
+      ensureApiAccess,
+      appActions: ["setup", "build", "start", "stop", "restart"],
+      appRegistry: { ...createContext().appRegistry, listApps: async () => apps,
+        getApp: async (id) => apps.find((app) => app.id === id),
+        updateApp: async (id, updates) => {
+          const app = apps.find((app) => app.id === id)!;
+          Object.assign(app, Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined))); return app;
+        } },
+      appProcessManager: { ...createContext().appProcessManager,
+        ...Object.fromEntries(["setup", "build", "start", "stop", "restart"].map((action) => [action,
+          async (id: string) => { executions.push(`${action}:${id}`); return idleStatus(id); }])) },
+      buildAppResponse: (app) => ({ id: app.id, ownerNpub: app.ownerNpub, label: app.label }),
+      createCaproverTargetClientsFromEnv: () => [{ name: "fixture", serverUrl: "https://fixture.invalid", client: {
+        getApp: async () => ({ deployedVersion: 1 }),
+        getAppUrl: async () => "https://fixture.invalid/app",
+        deployFromTarball: async (name: string) => { deployments.push(name); },
+      } }] as never,
+      caproverStore: {
+        getAppByLocalAppId: () => null,
+        createApp: (input: Record<string, unknown>) => { const record = { ...input, id: input.appId }; trackedApps.set(String(record.id), record); return record; },
+        createDeployment: () => ({ id: "fixture-deployment" }),
+        updateDeployment: () => undefined,
+        updateApp: (id: string, update: Record<string, unknown>) => ({ ...trackedApps.get(id), ...update }),
+      } as unknown as AppsApiContext["caproverStore"],
+    });
+  const handler = createApiRouteHandler({ resolveWorkspace: () => scope,
+    browserLogHandler: async () => null,
+    resolveFeatureFlagStateForViewer: () => ({ effectiveState: "off" }),
+    resolveNip98AuthContext: async () => botAuth,
+    isAppAdminNpub: isAdminNpub,
+    buildAppsContext,
+    workspaceDelegationStore: { findActiveDelegation: () => null },
+    AccessActions, ensureApiAccess,
+  } as unknown as import("./api-routes").ApiRoutesContext);
+  const callRoute = (path: string, method: "GET" | "POST" | "PUT" = "GET", body?: unknown) => {
+    const request = new Request(`https://autopilot.example${path}`, { method,
+      ...(body ? { body: JSON.stringify(body) } : {}) });
+    return handler(request, new URL(request.url), method, { npub: null, session: null });
+  };
+  try {
+    const list = await callRoute("/api/apps");
+    expect(list.status).toBe(200);
+    expect((await list.json()).apps).toHaveLength(3);
+    for (const app of apps.slice(0, 2)) {
+      const prefix = `/api/owners/${app.ownerNpub}/apps`;
+      const ownerList = await callRoute(prefix);
+      expect(ownerList.status).toBe(200);
+      expect((await ownerList.json()).apps.every((item: AppRecord) => item.ownerNpub === app.ownerNpub)).toBe(true);
+      for (const base of ["/api/apps", prefix]) {
+        expect((await callRoute(`${base}/${app.id}`)).status).toBe(200);
+        expect((await callRoute(`${base}/${app.id}`, "PUT", { label: "Configured" })).status).toBe(200);
+        for (const action of ["setup", "build", "start", "stop", "restart"]) {
+          expect((await callRoute(`${base}/${app.id}/actions`, "POST", { action })).status).toBe(200);
+        }
+        // Authorization reaches payload validation without calling any deployment service.
+        const deploy = await callRoute(`${base}/${app.id}/deploy-to-caprover`, "POST", {});
+        expect(deploy.status).toBe(400);
+        expect((await deploy.json()).error).toBe("caproverName is required");
+        const deployed = await callRoute(`${base}/${app.id}/deploy-to-caprover`, "POST", { caproverName: app.id });
+        expect(deployed.status).toBe(200);
+        expect((await deployed.json()).success).toBe(true);
+      }
+      expect(app.ownerNpub).toMatch(/^npub1owner-/);
+    }
+    expect((await callRoute("/api/apps/wingman-core")).status).toBe(200);
+    expect(executions).toHaveLength(20);
+    expect(deployments).toEqual(["app-0", "app-0", "app-1", "app-1"]);
+    admin = false;
+    expect((await callRoute("/api/owners/npub1owner-a/apps/app-0/actions", "POST", { action: "start" })).status).toBe(403);
+    expect((await callRoute("/api/apps/app-0/actions", "POST", { action: "start" })).status).toBe(404);
+    expect((await callRoute("/api/apps/wingman-core")).status).toBe(403);
+    expect(executions).toHaveLength(20);
+    expect(botAuth.signerNpub).toBe("npub1bot");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

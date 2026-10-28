@@ -1,3 +1,6 @@
+import { classifyStoredBotUsers, listBotUserIdentities } from "./auth/bot-user-identities";
+import { resolveAppAuthority, withAppAdminAccess } from "./auth/app-admin";
+import { liveAdminAppSigningTargets } from "./signing/admin-app-signing";
 import { rebindNativeDirectChatRecovery } from "./agent-chat/direct-chat-native-recovery";
 import { createDirectChatRuntimeServices } from "./agent-chat/direct-chat-runtime-services";
 import { listSchedulerRunIdentities } from "./scheduler/run-identities";
@@ -209,7 +212,7 @@ import { resolveNip98AuthContext } from "./auth/nip98-auth";
 import { Nip98ReplayCache, verifyNip98Request } from "./auth/nip98-verifier";
 import { deriveNpubSegment, normaliseNpub, normaliseNpubList } from "./identity/npub-utils";
 import {
-  isEffectiveAdminNpub,
+  isActiveAdminNpub,
   listEffectiveAdminNpubs,
   seedBootstrapAdminUsers,
 } from "./auth/admin-npubs";
@@ -434,9 +437,12 @@ const wappPublisher = new TowerPgWappPublisher({
   authority: towerRegistrationIdentity,
   resolveSourceAppNpub: createWappSourceAppNpubResolver(backendConnectionStore),
 });
-const getEffectiveAdminNpubs = (): string[] => listEffectiveAdminNpubs(identityUserStore, configuredAdminNpubs);
 const isConfiguredAdminNpub = (npub: string | null | undefined): boolean =>
-  isEffectiveAdminNpub(npub, identityUserStore, configuredAdminNpubs);
+  isActiveAdminNpub(npub, identityUserStore, configuredAdminNpubs,
+    listBotUserIdentities(botKeyStore.listIdentities(), agentDefinitionStore.listProfiles()),
+    (botNpub) => Boolean(botKeyStore.getActiveKeyForBotNpub(botNpub) || wingmanInstanceIdentity?.npub === botNpub));
+const getEffectiveAdminNpubs = (): string[] => listEffectiveAdminNpubs(identityUserStore, configuredAdminNpubs)
+  .filter(isConfiguredAdminNpub);
 const APPROVED_WORK_ROLES = new Set(["approved", "onboard"]);
 const agentDispatchAdminOnlyEnabled = isAgentDispatchAdminOnlyEnabled();
 
@@ -509,6 +515,7 @@ const nightWatchApiHandler = createNightWatchApiHandler({
   featureFlagStore,
 });
 const botKeyStore = new BotKeyStore();
+classifyStoredBotUsers(identityUserStore, listBotUserIdentities(botKeyStore.listIdentities(), agentDefinitionStore.listProfiles()));
 const agentProfileMediaStore = new AgentProfileMediaStore();
 const brokerKeyVault = createBrokerKeyVaultBackend();
 const capabilityStateStore = new FileCapabilityBrokerStateStore(
@@ -722,7 +729,7 @@ registerAccessRule(AccessActions.FilesRead, requireApprovedWorkAccess());
 registerAccessRule(AccessActions.FilesWrite, requireAuthentication({ allowNip98: true }));
 registerAccessRule(AccessActions.FilesWrite, requireApprovedWorkAccess());
 registerAccessRule(AccessActions.AppsLifecycle, requireAuthentication({ allowNip98: true }));
-registerAccessRule(AccessActions.AppsLifecycle, requireApprovedWorkAccess());
+registerAccessRule(AccessActions.AppsLifecycle, withAppAdminAccess(requireApprovedWorkAccess(), isConfiguredAdminNpub));
 registerAccessRule(AccessActions.AppsSelfManage, requireAuthentication({ allowNip98: true }));
 registerAccessRule(AccessActions.AppsSelfManage, createApprovedAppOwnerRule({
   isAdminNpub: isConfiguredAdminNpub,
@@ -734,7 +741,7 @@ registerAccessRule(AccessActions.AppsManage, createTrustedExecutionRule({
   ...trustedExecutionRuleOptions,
 }));
 registerAccessRule(AccessActions.AppsRead, requireAuthentication({ allowNip98: true }));
-registerAccessRule(AccessActions.AppsRead, requireApprovedWorkAccess());
+registerAccessRule(AccessActions.AppsRead, withAppAdminAccess(requireApprovedWorkAccess(), isConfiguredAdminNpub));
 registerAccessRule(AccessActions.UiRestricted, requireAuthentication());
 registerAccessRule(AccessActions.TodosManage, requireAuthentication());
 registerAccessRule(AccessActions.TodosManage, requireApprovedWorkAccess());
@@ -846,6 +853,7 @@ const towerGitCredentialBroker = new TowerGitCredentialBroker({
 });
 const walletRuntime = createWalletRuntime(wingmanDataDir);
 const capabilityBroker = new CapabilityBroker({
+  liveNip98Targets: (input) => liveAdminAppSigningTargets({ ...input, autopilotUrl: config.baseUrl, isAdminNpub: isConfiguredAdminNpub }),
   importedSecrets: importedSecretStore,
   botKeyStore,
   keyVault: brokerKeyVault,
@@ -2915,6 +2923,7 @@ const handleApi = createApiRouteHandler({
     adminNpub,
     bootstrapAdminNpubs: configuredAdminNpubs,
     isAdminNpub: isConfiguredAdminNpub,
+    listBotIdentities: () => listBotUserIdentities(botKeyStore.listIdentities(), agentDefinitionStore.listProfiles()),
     config: { connectRelays: config.connectRelays },
     identityUserStore,
     manager,
@@ -3081,6 +3090,7 @@ const handleApi = createApiRouteHandler({
     getClient: createCloudflareTunnelClientFromEnv,
   },
   workspaceDelegationStore,
+  isAppAdminNpub: isConfiguredAdminNpub,
 
   // Stores accessed directly
   featureFlagStore,
@@ -3128,28 +3138,13 @@ const handleApi = createApiRouteHandler({
     };
   },
   buildAppsContext: (appsAuthContext, workspaceScopeOverride, canAccessAppOverride) => {
-    const effectiveAppsAuthContext = getEffectiveOwnerAuthContext(appsAuthContext);
-    const appsWorkspaceScope = workspaceScopeOverride ?? resolveWorkspace(effectiveAppsAuthContext);
-    const appsViewerNpub = getEffectiveOwnerNpub(effectiveAppsAuthContext);
-    const canAccessAppForRequest = (app: AppRecord): boolean => {
-      if (canAccessAppOverride) {
-        return canAccessAppOverride(app);
-      }
-      if (appsWorkspaceScope.isAdmin) return true;
-      if (!appsViewerNpub) return false;
-      return app.ownerNpub === appsViewerNpub;
-    };
+    const authority = resolveAppAuthority({ auth: appsAuthContext, isAdminNpub: isConfiguredAdminNpub,
+      resolveWorkspace, workspaceScopeOverride, canAccessAppOverride });
+    const appsViewerNpub = authority.viewerNpub;
     return {
       adminNpub,
       sharedInstanceAccess: sharedInstanceAccessEnabled,
-      workspaceScope: appsWorkspaceScope,
-      viewerNpub: appsViewerNpub,
-      canManageCore: Boolean(
-        appsWorkspaceScope.isAdmin
-        && !appsAuthContext.delegateRelationshipId
-        && normaliseNpub(appsAuthContext.subjectNpub ?? appsAuthContext.signerNpub ?? appsAuthContext.npub)
-          === appsViewerNpub
-      ),
+      ...authority,
       AccessActions,
       ensureApiAccess,
       normaliseOptionalString,
@@ -3161,7 +3156,6 @@ const handleApi = createApiRouteHandler({
       parsePortInput,
       parseBooleanFlag,
       appActions: APP_ACTIONS,
-      canAccessApp: canAccessAppForRequest,
       deriveDirectoryNameFromUrl,
       cloneRepositoryIntoWorkspace,
       scanDirectoryTree,

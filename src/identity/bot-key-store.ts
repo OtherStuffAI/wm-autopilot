@@ -85,6 +85,12 @@ class BotKeyStore {
     return result ?? null;
   }
 
+  listIdentities(): Array<{ botNpub: string; displayName: string; active: boolean }> {
+    return this.db.query<{ botNpub: string; displayName: string; isActive: number }, []>(
+      "SELECT bot_npub AS botNpub, display_name AS displayName, is_active AS isActive FROM bot_keys ORDER BY created_at ASC",
+    ).all().map((record) => ({ botNpub: record.botNpub, displayName: record.displayName, active: record.isActive === 1 }));
+  }
+
   listActiveKeysForUser(npub: string): BotKeyRecord[] {
     return this.listActiveKeys().filter((record) => record.userNpub === npub);
   }

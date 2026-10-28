@@ -117,6 +117,8 @@ describe("createStaticRouteHandler", () => {
       "/views/settings/workspace-settings-db.js",
       "/views/settings/settings-purpose.js",
       "/api/admin-user-identity.js",
+      "/api/admin-users-cache.js",
+      "/api/admin-role-control.js",
       "/skills/page-components.js",
       "/scheduler/run-identity.js",
     ]) {

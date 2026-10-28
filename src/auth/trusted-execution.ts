@@ -52,6 +52,8 @@ export function createApprovedAppOwnerRule(input: {
   isApprovedNpub: (npub: string | null | undefined) => boolean;
 }): AccessRule {
   return (context) => {
+    const actorNpub = normaliseNpub(context.auth.subjectNpub ?? context.auth.signerNpub ?? context.auth.actorNpub ?? context.auth.npub);
+    if (actorNpub && input.isAdminNpub(actorNpub)) return allow();
     const ownerNpub = normaliseNpub(context.auth.targetOwnerNpub ?? context.auth.npub ?? null);
     if (ownerNpub && (input.isAdminNpub(ownerNpub) || input.isApprovedNpub(ownerNpub))) {
       return allow();
@@ -72,7 +74,7 @@ export function createTrustedExecutionRule(input: {
       context.auth.subjectNpub ?? context.auth.signerNpub ?? context.auth.actorNpub ?? context.auth.npub ?? null,
     );
     const ownerNpub = normaliseNpub(context.auth.targetOwnerNpub ?? context.auth.npub ?? null);
-    const directAdmin = Boolean(actorNpub && input.isAdminNpub(actorNpub) && actorNpub === ownerNpub);
+    const directAdmin = Boolean(actorNpub && input.isAdminNpub(actorNpub) && (input.kind === "apps" || actorNpub === ownerNpub));
     const directApprovedSessionUser = Boolean(
       input.kind === "sessions" &&
       actorNpub &&

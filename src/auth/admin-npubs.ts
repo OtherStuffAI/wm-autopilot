@@ -65,12 +65,29 @@ export function wouldLeaveNoEffectiveAdmins(
   targetNpub: string | null | undefined,
   identityUserStore: Pick<AdminIdentityUserStore, "listUsers">,
   bootstrapAdminNpubs: Iterable<string>,
+  isAdminNpub?: (npub: string) => boolean,
 ): boolean {
   const normalizedTarget = normaliseNpub(targetNpub);
   if (!normalizedTarget) {
     return false;
   }
   const remaining = listEffectiveAdminNpubs(identityUserStore, bootstrapAdminNpubs)
-    .filter((adminNpub) => normaliseNpub(adminNpub) !== normalizedTarget);
+    .filter((adminNpub) => normaliseNpub(adminNpub) !== normalizedTarget && (!isAdminNpub || isAdminNpub(adminNpub)));
   return remaining.length === 0;
+}
+
+export function isActiveAdminNpub(
+  npub: string | null | undefined,
+  store: Pick<AdminIdentityUserStore, "listUsers">,
+  bootstrapAdmins: string[],
+  bots: Array<{ botNpub: string; active: boolean }>,
+  isBotIdentityActive?: (npub: string) => boolean,
+): boolean {
+  if (!isEffectiveAdminNpub(npub, store, bootstrapAdmins)) return false;
+  const normalized = normaliseNpub(npub);
+  if (!normalized) return false;
+  if (isNpubInList(normalized, bootstrapAdmins)) return true;
+  const bot = bots.find((record) => normaliseNpub(record.botNpub) === normalized);
+  if (bot) return bot.active && (isBotIdentityActive?.(normalized) ?? true);
+  return !store.listUsers().find((user) => normaliseNpub(user.normalizedNpub || user.npub) === normalized)?.roles.includes("bot");
 }

@@ -110,6 +110,10 @@ class AgentDefinitionStore {
     this.initialise();
   }
 
+  listProfiles(): AgentDefinitionRecord[] {
+    return this.listWhere("1 = 1", []);
+  }
+
   listForManagerNpub(npub: string): AgentDefinitionRecord[] {
     return this.listWhere('managed_by_npub = ?1', [npub]);
   }

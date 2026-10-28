@@ -1,3 +1,4 @@
+import { buildAdminUserList, isConfiguredAdminNpub, isBootstrapAdminNpub } from "./admin-user-list";
 /**
  * API route handlers for admin user management endpoints.
  * Extracted from server.ts to reduce file size.
@@ -5,11 +6,9 @@
 
 import {
   ADMIN_ROLE,
-  isEffectiveAdminNpub,
-  seedBootstrapAdminUsers,
   wouldLeaveNoEffectiveAdmins,
 } from "../auth/admin-npubs";
-import { isNpubInList, normaliseNpub } from "../identity/npub-utils";
+import { normaliseNpub } from "../identity/npub-utils";
 import type { RequestAuthContext } from "../auth/request-context";
 import type { AccessAction } from "../auth/access-control";
 import type { SessionSnapshot } from "../agents/process-manager";
@@ -19,6 +18,9 @@ type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEA
 // ---------- Types ----------
 
 export type AdminUserRecord = {
+  bot?: boolean;
+  displayName?: string | null;
+  active?: boolean;
   npub: string;
   normalizedNpub: string;
   alias: string;
@@ -33,6 +35,7 @@ export type AdminUserRecord = {
   activeSessionCount: number;
   ports: number[];
   admin: boolean;
+  assignedAdmin?: boolean;
   bootstrapAdmin: boolean;
   canDemoteAdmin: boolean;
 };
@@ -40,6 +43,7 @@ export type AdminUserRecord = {
 // ---------- Context supplied by server.ts ----------
 
 export interface AdminUsersApiContext {
+  listBotIdentities?: () => Array<{ botNpub: string; displayName: string; active: boolean }>;
   adminNpub: string | null;
   bootstrapAdminNpubs?: string[];
   isAdminNpub?: (npub: string | null | undefined) => boolean;
@@ -82,94 +86,6 @@ export interface AdminUsersApiContext {
 
 // ---------- Helpers ----------
 
-function buildAdminUserList(ctx: AdminUsersApiContext): AdminUserRecord[] {
-  seedBootstrapAdmins(ctx);
-  const activeSessions = ctx.manager?.listSessions?.() ?? [];
-  const identitySummaries = ctx.buildIdentitySummaries(activeSessions, ctx.adminNpub, { includeAll: true });
-  const storedRecords = ctx.identityUserStore.listUsers();
-  const storedMap = new Map(storedRecords.map((record) => [record.normalizedNpub, record] as const));
-  const summaryMap = new Map<string, (typeof identitySummaries)[number]>();
-
-  for (const summary of identitySummaries) {
-    if (!summary.normalizedNpub || !summary.npub) {
-      continue;
-    }
-    summaryMap.set(summary.normalizedNpub, summary);
-    const existing = storedMap.get(summary.normalizedNpub);
-    if (!existing) {
-      continue;
-    }
-    try {
-      ctx.identityUserStore.touchExisting(summary.npub, {
-        lastSeenAt: summary.lastSeenAt ?? null,
-      });
-    } catch (error) {
-      console.warn(`[admin] failed to sync identity ${summary.npub}:`, error);
-    }
-  }
-
-  const finalRecords = ctx.identityUserStore.listUsers();
-  const users: AdminUserRecord[] = finalRecords.map((record) => {
-    const summary = summaryMap.get(record.normalizedNpub ?? "");
-    const sessionCount = summary?.sessionIds.length ?? 0;
-    const activeSessionCount = summary?.activeSessionIds.length ?? 0;
-    const lastSeenAt = summary?.lastSeenAt ?? record.lastSeenAt ?? record.updatedAt ?? null;
-    const admin = isConfiguredAdminNpub(ctx, record.normalizedNpub);
-    const bootstrapAdmin = isBootstrapAdminNpub(ctx, record.normalizedNpub);
-    return {
-      npub: record.npub,
-      normalizedNpub: record.normalizedNpub,
-      alias: record.alias,
-      nickname: record.nickname ?? null,
-      pictureUrl: record.pictureUrl ?? null,
-      approved: record.roles.includes("approved") || record.roles.includes("onboard"),
-      onboarded: record.roles.includes("approved") || record.roles.includes("onboard"),
-      onboardedAt: record.onboardedAt,
-      roles: [...record.roles],
-      lastSeenAt,
-      sessionCount,
-      activeSessionCount,
-      ports: record.ports,
-      admin,
-      bootstrapAdmin,
-      canDemoteAdmin: admin && !bootstrapAdmin && !wouldLeaveNoEffectiveAdmins(
-        record.normalizedNpub,
-        ctx.identityUserStore,
-        ctx.bootstrapAdminNpubs ?? [],
-      ),
-    };
-  });
-
-  users.sort((a, b) => {
-    const left = (a.nickname || a.alias || a.npub || "").toLowerCase();
-    const right = (b.nickname || b.alias || b.npub || "").toLowerCase();
-    if (left === right) {
-      return (a.alias || "").localeCompare(b.alias || "");
-    }
-    return left.localeCompare(right);
-  });
-  return users;
-}
-
-function isConfiguredAdminNpub(ctx: AdminUsersApiContext, npub: string | null | undefined): boolean {
-  if (ctx.isAdminNpub) {
-    return ctx.isAdminNpub(npub);
-  }
-  return isEffectiveAdminNpub(npub, ctx.identityUserStore, ctx.bootstrapAdminNpubs ?? (ctx.adminNpub ? [ctx.adminNpub] : []));
-}
-
-function isBootstrapAdminNpub(ctx: AdminUsersApiContext, npub: string | null | undefined): boolean {
-  return isNpubInList(npub, ctx.bootstrapAdminNpubs ?? (ctx.adminNpub ? [ctx.adminNpub] : []));
-}
-
-function seedBootstrapAdmins(ctx: AdminUsersApiContext): void {
-  const bootstrapAdminNpubs = ctx.bootstrapAdminNpubs ?? (ctx.adminNpub ? [ctx.adminNpub] : []);
-  if (bootstrapAdminNpubs.length === 0) {
-    return;
-  }
-  seedBootstrapAdminUsers(ctx.identityUserStore, bootstrapAdminNpubs);
-}
-
 function adminMutationError(
   ctx: AdminUsersApiContext,
   authContext: RequestAuthContext,
@@ -188,7 +104,7 @@ function adminMutationError(
   if (isBootstrapAdminNpub(ctx, normalized)) {
     return Response.json({ error: "Bootstrap admins cannot be demoted while configured" }, { status: 400 });
   }
-  if (wouldLeaveNoEffectiveAdmins(normalized, ctx.identityUserStore, ctx.bootstrapAdminNpubs ?? [])) {
+  if (wouldLeaveNoEffectiveAdmins(normalized, ctx.identityUserStore, ctx.bootstrapAdminNpubs ?? [], (npub) => isConfiguredAdminNpub(ctx, npub))) {
     return Response.json({ error: "Cannot demote the last admin" }, { status: 400 });
   }
 
@@ -215,7 +131,7 @@ function deleteUserError(
   if (isBootstrapAdminNpub(ctx, normalized)) {
     return Response.json({ error: "Bootstrap admins cannot be deleted while configured" }, { status: 400 });
   }
-  if (wouldLeaveNoEffectiveAdmins(normalized, ctx.identityUserStore, ctx.bootstrapAdminNpubs ?? [])) {
+  if (wouldLeaveNoEffectiveAdmins(normalized, ctx.identityUserStore, ctx.bootstrapAdminNpubs ?? [], (npub) => isConfiguredAdminNpub(ctx, npub))) {
     return Response.json({ error: "Cannot delete the last admin" }, { status: 400 });
   }
   const viewerNpub = normaliseNpub(authContext.npub ?? null);
@@ -226,6 +142,11 @@ function deleteUserError(
     }, { status: 409 });
   }
   return null;
+}
+
+function markBotIdentity(ctx: AdminUsersApiContext, npub: string): void {
+  const bot = ctx.listBotIdentities?.().find((entry) => normaliseNpub(entry.botNpub) === normaliseNpub(npub));
+  if (bot) ctx.identityUserStore.setRole(npub, "bot", true);
 }
 
 // ---------- Main handler ----------
@@ -274,6 +195,7 @@ export async function handleAdminUsersApi(
           ? record.onboarded
           : true;
       ctx.identityUserStore.setRole(npubInput, "approved", approved);
+      markBotIdentity(ctx, npubInput);
       if (record.admin === true) {
         ctx.identityUserStore.setRole(npubInput, ADMIN_ROLE, true);
       }
@@ -312,6 +234,7 @@ export async function handleAdminUsersApi(
       if (adminValue !== null) {
         const blocked = adminMutationError(ctx, authContext, npubInput, adminValue, record);
         if (blocked) return blocked;
+        markBotIdentity(ctx, npubInput);
         ctx.identityUserStore.setRole(npubInput, ADMIN_ROLE, adminValue);
       }
       if (typeof accessValue === "boolean") {
@@ -365,7 +288,7 @@ export async function handleAdminUsersApi(
         skippedAdmin.push(original);
         continue;
       }
-      if (isConfiguredAdminNpub(ctx, normalized) && wouldLeaveNoEffectiveAdmins(normalized, ctx.identityUserStore, ctx.bootstrapAdminNpubs ?? [])) {
+      if (isConfiguredAdminNpub(ctx, normalized) && wouldLeaveNoEffectiveAdmins(normalized, ctx.identityUserStore, ctx.bootstrapAdminNpubs ?? [], (npub) => isConfiguredAdminNpub(ctx, npub))) {
         skippedLastAdmin.push(original);
         continue;
       }

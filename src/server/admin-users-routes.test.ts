@@ -267,3 +267,52 @@ describe("admin users routes", () => {
     expect(listResponse?.status).toBe(200);
   });
 });
+
+test("Users merges stable bots without login, deduplicates humans, and permits either admin grantor", async () => {
+  const adminOne = makeNpub();
+  const adminTwo = makeNpub();
+  const agent = makeNpub();
+  const ctx = createContext({ bootstrapAdminNpubs: [adminOne, adminTwo], enforceAdminAccess: true });
+  ctx.listBotIdentities = () => [
+    { botNpub: agent, displayName: "Agent Delta", active: true },
+    { botNpub: ` ${agent} `, displayName: "Agent Delta", active: true },
+    { botNpub: adminOne, displayName: "Same identity", active: true },
+    { botNpub: makeNpub(), displayName: "Inactive", active: false },
+  ];
+  async function callAs(npub: string, method: "GET" | "PATCH", payload?: unknown) {
+    const request = new Request("http://localhost/api/admin/users", { method,
+      ...(payload ? { body: JSON.stringify(payload) } : {}) });
+    return (await handleAdminUsersApi(request, new URL(request.url), method,
+      { npub, actorNpub: npub, session: null }, ctx))!;
+  }
+  const list = await (await callAs(adminOne, "GET")).json();
+  expect(list.users).toHaveLength(3);
+  expect(list.users.find((user: { npub: string }) => user.npub === agent)).toMatchObject({ displayName: "Agent Delta", bot: true, admin: false });
+  expect(ctx.identityUserStore.listUsers().find((user) => user.normalizedNpub === agent)).toBeUndefined();
+  expect((await callAs(agent, "PATCH", { npub: agent, admin: true })).status).toBe(403);
+  for (const grantor of [adminOne, adminTwo]) {
+    expect((await callAs(grantor, "PATCH", { npub: agent, admin: true })).status).toBe(200);
+    expect((await callAs(agent, "GET")).status).toBe(200);
+    expect(ctx.identityUserStore.listUsers().find((user) => user.normalizedNpub === agent)?.roles).toContain("bot");
+    expect((await callAs(grantor, "PATCH", { npub: agent, admin: false })).status).toBe(200);
+    expect((await callAs(agent, "GET")).status).toBe(403);
+  }
+});
+
+test("an inactive bot retains visible assigned admin and an actual admin can revoke it", async () => {
+  const admin = makeNpub(); const bot = makeNpub();
+  const ctx = createContext({ bootstrapAdminNpubs: [admin], enforceAdminAccess: true });
+  ctx.identityUserStore.setRole(bot, "admin", true);
+  ctx.identityUserStore.setRole(bot, "bot", true);
+  ctx.listBotIdentities = () => [{ botNpub: bot, displayName: "Agent Delta", active: false }];
+  ctx.isAdminNpub = (npub) => npub === admin;
+  const get = new Request("http://localhost/api/admin/users");
+  const auth = { npub: admin, actorNpub: admin, session: null };
+  const list = await (await handleAdminUsersApi(get, new URL(get.url), "GET", auth, ctx))!.json();
+  expect(list.users.find((user: { npub: string }) => user.npub === bot)).toMatchObject({ admin: false, assignedAdmin: true, active: false, canDemoteAdmin: true });
+  const patch = new Request(get.url, { method: "PATCH", body: JSON.stringify({ npub: bot, admin: false }) });
+  const response = (await handleAdminUsersApi(patch, new URL(patch.url), "PATCH", auth, ctx))!;
+  expect(response.status).toBe(200);
+  expect((await response.json()).user).toMatchObject({ admin: false, assignedAdmin: false });
+  expect(ctx.identityUserStore.listUsers().find((user) => user.normalizedNpub === bot)?.roles).not.toContain("admin");
+});

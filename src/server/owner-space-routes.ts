@@ -22,6 +22,7 @@ import {
   DelegationScopes,
   resolveOwnerAccess,
 } from "../auth/delegation-access";
+import { isAppAdmin } from "../auth/app-admin";
 import { normaliseNpub } from "../identity/npub-utils";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
@@ -32,6 +33,7 @@ interface OwnerRouteMatch {
 }
 
 export interface OwnerSpaceRoutesContext {
+  isAdminNpub?: (npub: string | null | undefined) => boolean;
   workspaceDelegationStore: WorkspaceDelegationStore;
   resolveWorkspace: (context?: RequestAuthContext) => WorkspaceScope;
   buildAppsContext: (
@@ -499,6 +501,16 @@ export async function handleOwnerSpaceApi(
     matched.subpath.startsWith("/apps/") ||
     matched.subpath === "/workspace/tree"
   ) {
+    if ((matched.subpath === "/apps" || matched.subpath.startsWith("/apps/"))
+      && isAppAdmin(authContext, ctx.isAdminNpub ?? (() => false))) {
+      const ownerAuth = createOwnerScopedAuthContext(authContext, matched.ownerNpub);
+      const rewrittenUrl = cloneUrlWithPath(url, `/api${matched.subpath}`);
+      if (matched.subpath === "/apps") rewrittenUrl.searchParams.set("npub", matched.ownerNpub);
+      const appsCtx = ctx.buildAppsContext(ownerAuth, undefined,
+        (app) => normaliseNpub(app.ownerNpub) === matched.ownerNpub);
+      return runWithRequestContext(ownerAuth, () => handleAppsApi(
+        createRewrittenRequest(request, rewrittenUrl), rewrittenUrl, method, ownerAuth, appsCtx));
+    }
     const requiredScope = await resolveOwnerAppsScope(request, method, matched.subpath);
     const access = resolveOwnerAccess(
       authContext,

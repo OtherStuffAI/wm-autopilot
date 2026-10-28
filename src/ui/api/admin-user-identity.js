@@ -13,7 +13,7 @@ export function createAdminUserIdentity({ user, avatar, abbreviateNpub, onLabel 
   name.dataset.testid = "admin-user-name";
 
   function showProfile(profile) {
-    const label = nickname || readableLabel(profile?.name) || alias || "Unnamed user";
+    const label = nickname || readableLabel(user.displayName) || readableLabel(profile?.name) || alias || "Unnamed user";
     name.textContent = label;
     applyAvatarImage(avatar, profile?.pictureUrl || user.pictureUrl, label);
     avatar.setAttribute("aria-hidden", "true");

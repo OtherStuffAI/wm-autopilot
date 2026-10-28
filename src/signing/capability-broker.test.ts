@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { Nip98ReplayCache, verifyNip98Request } from "../auth/nip98-verifier";
+import { liveAdminAppSigningTargets } from "./admin-app-signing";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { generateSecretKey, getPublicKey, nip19, verifyEvent } from "nostr-tools";
 
@@ -991,5 +994,102 @@ test("broker restricts queue capabilities to exact-session list and acknowledgem
       ] },
     })).status).toBe(403);
 
+  }
+});
+
+test("running admin bot gains bounded cross-owner signing and immediately loses it on demotion", async () => {
+  let admin = false;
+  broker = createBroker({ liveNip98Targets: (input) => liveAdminAppSigningTargets({ ...input,
+    autopilotUrl: "https://autopilot.example", isAdminNpub: (npub) => admin && npub === records.get(ownerA)!.botNpub }) });
+  const baseline = buildDefaultAgentCapabilityPolicy({ towerUrl: "https://tower.example",
+    autopilotUrl: "https://autopilot.example", ownerNpub: ownerA });
+  const issued = broker.issueSessionCapability({ sessionId: "session-a", ownerNpub: ownerA, policy: baseline });
+  const sign = (url: string, method = "GET", bodyHash?: string) => call("/api/mcp/capabilities/nip98", issued.token,
+    { sessionId: "session-a", url, method, ...(bodyHash ? { bodyHash } : {}) });
+  const target = "https://autopilot.example/api/owners/npub1foreign/apps/foreign/actions";
+  expect((await sign(target)).status).toBe(403);
+  admin = true;
+  for (const owner of ["npub1foreign-a", "npub1foreign-b"]) {
+    const response = await sign(`https://autopilot.example/api/owners/${owner}/apps/foreign/actions`, "POST", "a".repeat(64));
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    const event = JSON.parse(Buffer.from(payload.token.slice(6), "base64").toString());
+    expect(event.pubkey).toBe(botPubkeyA);
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.tags).toContainEqual(["payload", "a".repeat(64)]);
+  }
+  expect((await sign(target, "POST")).status).toBe(400);
+  expect((await sign(target.replace("autopilot.example", "tower.example"))).status).toBe(403);
+  expect((await sign(target.replace("autopilot.example", "foreign.example"))).status).toBe(403);
+  expect((await sign(target.replace("/apps/foreign/actions", "/sessions/other"))).status).toBe(403);
+  expect((await sign("https://autopilot.example/api/admin/users")).status).toBe(200);
+  admin = false;
+  expect((await sign(target)).status).toBe(403);
+  expect((await sign("https://autopilot.example/api/admin/users")).status).toBe(403);
+  // Owner-local baseline survives role revocation.
+  expect((await sign("https://autopilot.example/api/apps/foreign")).status).toBe(200);
+});
+
+test("admin role does not expand deliberate none or custom signing policies", async () => {
+  broker = createBroker({ liveNip98Targets: (input) => liveAdminAppSigningTargets({ ...input,
+    autopilotUrl: "https://autopilot.example", isAdminNpub: () => true }) });
+  for (const mode of ["none", "custom", "standard-agent"] as const) {
+    const constrained = mode === "none" ? buildDefaultAgentCapabilityPolicy({ towerUrl: "https://tower.example",
+      autopilotUrl: "https://autopilot.example", mode }) : { ...policy,
+        ...(mode === "standard-agent" ? { mode } : {}), nip98: { origins: ["https://autopilot.example"], methods: ["GET"], pathPrefixes: ["/api/apps"] } };
+    const issued = broker.issueSessionCapability({ sessionId: "session-a", ownerNpub: ownerA, policy: constrained });
+    const response = await call("/api/mcp/capabilities/nip98", issued.token, { sessionId: "session-a",
+      url: "https://autopilot.example/api/owners/npub1foreign/apps/other", method: "GET" });
+    expect(response.status).toBe(403);
+  }
+});
+
+test("admin signing round-trips bodyless DELETE and exact body hashes through API verification", async () => {
+  broker = createBroker({ liveNip98Targets: (input) => liveAdminAppSigningTargets({ ...input,
+    autopilotUrl: "https://autopilot.example", isAdminNpub: () => true }) });
+  const issued = broker.issueSessionCapability({ sessionId: "session-a", ownerNpub: ownerA,
+    policy: buildDefaultAgentCapabilityPolicy({ towerUrl: "https://tower.example", autopilotUrl: "https://autopilot.example", ownerNpub: ownerA }) });
+  for (const [method, body] of [["DELETE", ""], ["DELETE", "{\"confirm\":true}"],
+    ["POST", "{\"action\":\"start\"}"], ["PATCH", "{\"label\":\"Updated\"}"], ["PUT", "{\"label\":\"Updated\"}"]]) {
+    const url = "https://autopilot.example/api/owners/npub1other/apps/other";
+    const response = await call("/api/mcp/capabilities/nip98", issued.token, { sessionId: "session-a", url, method,
+      ...(body ? { bodyHash: createHash("sha256").update(body!).digest("hex") } : {}) });
+    expect(response.status).toBe(200);
+    const signed = await response.json();
+    const verify = (sentBody: string) => verifyNip98Request({ request: new Request(url, {
+      method, headers: { authorization: signed.token }, ...(sentBody ? { body: sentBody } : {}),
+    }), requestUrl: new URL(url), configuredBaseUrl: "https://autopilot.example", now: Math.floor(now / 1000), replayCache: new Nip98ReplayCache() });
+    expect((await verify(body!))?.signerNpub).toBe(records.get(ownerA)!.botNpub);
+    expect(await verify(`${body}tampered`)).toBeNull();
+  }
+});
+
+test("the same stable admin bot signs from sessions under either owner without inheriting custody roles", async () => {
+  const sharedBot = records.get(ownerA)!;
+  const localSessions = new Map(["one", "two"].map((id, index) => [id, {
+    ...sessions.get("session-a")!, id, npub: index === 0 ? ownerA : ownerB,
+    metadata: { agentChatBotNpub: sharedBot.botNpub },
+  } as SessionSnapshot]));
+  let promoted = false;
+  const localBroker = createBroker({ getSession: (id) => localSessions.get(id),
+    liveNip98Targets: (input) => liveAdminAppSigningTargets({ ...input,
+      autopilotUrl: "https://autopilot.example", isAdminNpub: (npub) => promoted && npub === sharedBot.botNpub }) });
+  for (const [sessionId, session] of localSessions) {
+    const issued = localBroker.issueSessionCapability({ sessionId, ownerNpub: session.npub!, identityManagerNpub: ownerA,
+      botNpub: sharedBot.botNpub, policy: buildDefaultAgentCapabilityPolicy({ towerUrl: "https://tower.example",
+        autopilotUrl: "https://autopilot.example", ownerNpub: session.npub }) });
+    const sign = async () => {
+      const input = request("/api/mcp/capabilities/nip98", issued.token, { sessionId,
+        url: "https://autopilot.example/api/owners/npub1third/apps/third", method: "GET" });
+      return (await localBroker.handle(input.request, input.url, "POST"))!;
+    };
+    promoted = false;
+    expect((await sign()).status).toBe(403);
+    promoted = true;
+    const response = await sign();
+    expect(response.status).toBe(200);
+    expect((await response.json()).signedBy).toBe(sharedBot.botNpub);
+    promoted = false;
+    expect((await sign()).status).toBe(403);
   }
 });

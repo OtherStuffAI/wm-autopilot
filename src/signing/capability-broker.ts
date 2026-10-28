@@ -220,6 +220,7 @@ interface CapabilityRecord {
 }
 
 export interface CapabilityBrokerDependencies {
+  liveNip98Targets?: (input: { botNpub: string; policy: SessionCapabilityPolicy; url: URL }) => NonNullable<Nip98Constraint["targets"]>;
   importedSecrets?: SecretStore;
   hasWappLoginAuthority?: (input: WappLoginRequest) => boolean;
   fetchWappLogin?: typeof fetch;
@@ -819,7 +820,14 @@ export class CapabilityBroker {
       return this.deniedNip98(authorized.capability,
         "Queue capability permits only exact-session list and acknowledgement", { parsed, method });
     }
-    const constraint = authorized.capability.policy.nip98;
+    const storedConstraint = authorized.capability.policy.nip98;
+    const liveTargets = this.deps.liveNip98Targets?.({
+      botNpub: authorized.capability.botNpub, policy: authorized.capability.policy, url: parsed,
+    }) ?? [];
+    const constraint = storedConstraint && liveTargets.length ? {
+      ...storedConstraint,
+      targets: [...(storedConstraint.targets ?? []), ...liveTargets],
+    } : storedConstraint;
     if (!constraint) return this.deniedNip98(authorized.capability, "NIP-98 policy is missing", { parsed, method });
     const allowAnyTarget = constraint.allowAnyTarget === true;
     const originTargets = constraint.targets?.filter((candidate) => candidate.origin === parsed.origin) ?? [];
