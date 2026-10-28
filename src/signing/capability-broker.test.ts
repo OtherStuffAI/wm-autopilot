@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Nip98ReplayCache, verifyNip98Request } from "../auth/nip98-verifier";
-import { liveAdminAppSigningTargets } from "./admin-app-signing";
+import { liveAdminSigningTargets } from "./admin-signing-targets";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { generateSecretKey, getPublicKey, nip19, verifyEvent } from "nostr-tools";
 
@@ -508,7 +508,7 @@ describe("CapabilityBroker", () => {
         content: "broker-backed Flight Deck reply",
         tags: [
           ["protocol", "flightdeck_pg_message_instruction"],
-          ["body_sha256", "ab".repeat(32)],
+          ["body_sha256", createHash("sha256").update("broker-backed Flight Deck reply").digest("hex")],
           ["workspace_id", "workspace-a"],
           ["channel_id", "channel-a"],
           ["thread_id", "thread-a"],
@@ -530,7 +530,7 @@ describe("CapabilityBroker", () => {
     expect(defaultPolicy.nostr?.kinds).toEqual([...DEFAULT_AGENT_NOSTR_EVENT_KINDS]);
 
     const issued = issue("session-a", ownerA, defaultPolicy);
-    for (const kind of [3_063, 24_242, 30_063, 32_267, 33_358]) {
+    for (const kind of [3_063, 30_063, 32_267]) {
       expect((await call("/api/mcp/capabilities/nostr-event", issued.token, {
         sessionId: "session-a",
         event: { kind, content: `default kind ${kind}`, tags: [] },
@@ -711,7 +711,7 @@ describe("CapabilityBroker", () => {
     expect((await call("/api/mcp/capabilities/nostr-event", fullAgent.token, {
       sessionId: "session-a",
       event: { kind: 27_235, content: "", tags: [["u", "https://other.example/"], ["method", "GET"]] },
-    })).status).toBe(200);
+    })).status).toBe(403);
     expect((await call("/api/mcp/capabilities/nip98", fullAgent.token, {
       sessionId: "session-a",
       url: "https://other.example/admin/root",
@@ -999,7 +999,7 @@ test("broker restricts queue capabilities to exact-session list and acknowledgem
 
 test("running admin bot gains bounded cross-owner signing and immediately loses it on demotion", async () => {
   let admin = false;
-  broker = createBroker({ liveNip98Targets: (input) => liveAdminAppSigningTargets({ ...input,
+  broker = createBroker({ liveNip98Targets: (input) => liveAdminSigningTargets({ ...input,
     autopilotUrl: "https://autopilot.example", isAdminNpub: (npub) => admin && npub === records.get(ownerA)!.botNpub }) });
   const baseline = buildDefaultAgentCapabilityPolicy({ towerUrl: "https://tower.example",
     autopilotUrl: "https://autopilot.example", ownerNpub: ownerA });
@@ -1018,10 +1018,10 @@ test("running admin bot gains bounded cross-owner signing and immediately loses 
     expect(verifyEvent(event)).toBe(true);
     expect(event.tags).toContainEqual(["payload", "a".repeat(64)]);
   }
-  expect((await sign(target, "POST")).status).toBe(400);
+  expect((await sign(target, "POST")).status).toBe(200);
   expect((await sign(target.replace("autopilot.example", "tower.example"))).status).toBe(403);
   expect((await sign(target.replace("autopilot.example", "foreign.example"))).status).toBe(403);
-  expect((await sign(target.replace("/apps/foreign/actions", "/sessions/other"))).status).toBe(403);
+  expect((await sign(target.replace("/apps/foreign/actions", "/sessions/other"))).status).toBe(200);
   expect((await sign("https://autopilot.example/api/admin/users")).status).toBe(200);
   admin = false;
   expect((await sign(target)).status).toBe(403);
@@ -1031,7 +1031,7 @@ test("running admin bot gains bounded cross-owner signing and immediately loses 
 });
 
 test("admin role does not expand deliberate none or custom signing policies", async () => {
-  broker = createBroker({ liveNip98Targets: (input) => liveAdminAppSigningTargets({ ...input,
+  broker = createBroker({ liveNip98Targets: (input) => liveAdminSigningTargets({ ...input,
     autopilotUrl: "https://autopilot.example", isAdminNpub: () => true }) });
   for (const mode of ["none", "custom", "standard-agent"] as const) {
     const constrained = mode === "none" ? buildDefaultAgentCapabilityPolicy({ towerUrl: "https://tower.example",
@@ -1045,7 +1045,7 @@ test("admin role does not expand deliberate none or custom signing policies", as
 });
 
 test("admin signing round-trips bodyless DELETE and exact body hashes through API verification", async () => {
-  broker = createBroker({ liveNip98Targets: (input) => liveAdminAppSigningTargets({ ...input,
+  broker = createBroker({ liveNip98Targets: (input) => liveAdminSigningTargets({ ...input,
     autopilotUrl: "https://autopilot.example", isAdminNpub: () => true }) });
   const issued = broker.issueSessionCapability({ sessionId: "session-a", ownerNpub: ownerA,
     policy: buildDefaultAgentCapabilityPolicy({ towerUrl: "https://tower.example", autopilotUrl: "https://autopilot.example", ownerNpub: ownerA }) });
@@ -1072,7 +1072,7 @@ test("the same stable admin bot signs from sessions under either owner without i
   } as SessionSnapshot]));
   let promoted = false;
   const localBroker = createBroker({ getSession: (id) => localSessions.get(id),
-    liveNip98Targets: (input) => liveAdminAppSigningTargets({ ...input,
+    liveNip98Targets: (input) => liveAdminSigningTargets({ ...input,
       autopilotUrl: "https://autopilot.example", isAdminNpub: (npub) => promoted && npub === sharedBot.botNpub }) });
   for (const [sessionId, session] of localSessions) {
     const issued = localBroker.issueSessionCapability({ sessionId, ownerNpub: session.npub!, identityManagerNpub: ownerA,

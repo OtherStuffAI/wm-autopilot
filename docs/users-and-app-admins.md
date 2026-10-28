@@ -23,14 +23,19 @@ still selects the named owner's apps and preserves that owner when creating an a
 App operation authorization checks the current authenticated principal, including
 when the target owner has no normal access approval.
 
-For standard agent signing, the broker checks the current bot role on each NIP-98
-request and adds only the relevant owner-prefixed app and Users/signing-policy
-management targets on the configured Autopilot origin. Existing running sessions
-therefore pick up promotions and demotions without capability reissue. A deliberate
-no-signing or narrower custom capability retains its signing restrictions. Requests
-with bodies retain exact NIP-98 payload hashes; bodyless DELETE requires no payload
-tag. API authorization independently checks the current role, so a previously signed
-request cannot preserve revoked app authority.
+For ordinary standard-agent and full-Nostr sessions, the broker checks the current
+bot role on every request. Admins can sign supported server administration requests
+at the configured Autopilot origin, including owner routes, WApps, sessions,
+pipelines, schedules, settings and Users. Existing sessions gain promotions and
+lose demotions without capability reissue. The API independently checks the current
+role. Deliberate no-signing and narrower capabilities keep their restrictions.
+
+Admins sign Nostr events as themselves beyond the standard kind list, with protocol
+validators and content/tag limits intact. NIP-44 uses the session identity and the
+ordinary wildcard peer policy; narrow peer policies remain narrow. External Tower
+ACLs, wallet spending budgets, credential custody and other-identity signing grants
+remain separate. See [Admin signing and authorization](admin-signing-and-authorization.md)
+for the complete operation/route inventory, binding rules and explicit exceptions.
 
 Deactivated bot keys and disabled/archived profiles cease to supply effective admin
 authority immediately. Stored role attribution is retained, so reactivation restores

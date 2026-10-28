@@ -74,7 +74,7 @@ export function createTrustedExecutionRule(input: {
       context.auth.subjectNpub ?? context.auth.signerNpub ?? context.auth.actorNpub ?? context.auth.npub ?? null,
     );
     const ownerNpub = normaliseNpub(context.auth.targetOwnerNpub ?? context.auth.npub ?? null);
-    const directAdmin = Boolean(actorNpub && input.isAdminNpub(actorNpub) && (input.kind === "apps" || actorNpub === ownerNpub));
+    const directAdmin = Boolean(actorNpub && input.isAdminNpub(actorNpub));
     const directApprovedSessionUser = Boolean(
       input.kind === "sessions" &&
       actorNpub &&

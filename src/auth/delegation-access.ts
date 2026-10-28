@@ -31,6 +31,7 @@ export interface OwnerAccessResolution {
   ownerNpub: string;
   subjectNpub: string;
   signerNpub: string;
+  /** Direct principal authority: the owner itself or an instance administrator. */
   selfAccess: boolean;
   delegation: WorkspaceDelegationRecord | null;
 }
@@ -89,6 +90,7 @@ export function resolveOwnerAccess(
   ownerNpub: string,
   findActiveDelegation: (ownerNpub: string, delegateNpub: string, scope?: string) => WorkspaceDelegationRecord | null,
   scope: string,
+  isAdminNpub?: (npub: string | null | undefined) => boolean,
 ): OwnerAccessResolution | null {
   const normalizedOwner = normaliseNpub(ownerNpub);
   const subjectNpub = getCallerSubjectNpub(authContext);
@@ -97,7 +99,7 @@ export function resolveOwnerAccess(
     return null;
   }
 
-  if (normalizedOwner === subjectNpub) {
+  if (normalizedOwner === subjectNpub || isAdminNpub?.(subjectNpub)) {
     return {
       ownerNpub: normalizedOwner,
       subjectNpub,

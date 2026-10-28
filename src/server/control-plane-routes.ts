@@ -37,6 +37,7 @@ interface AgentStore {
 }
 
 export interface ControlPlaneRoutesContext {
+  isAdminNpub?: (npub: string | null | undefined) => boolean;
   identity: WingmanInstanceIdentity | null;
   pipelineStore?: PipelineStore;
   providerCredentialContext?: import("../pipelines/classifier-openrouter-credentials").ClassifierOpenRouterCredentialContext["sessionApiContext"];
@@ -197,6 +198,7 @@ function authorisedAgents(
     route.ownerNpub,
     ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
     DelegationScopes.ControlPlaneRead,
+    ctx.isAdminNpub,
   );
   if (!access) return Response.json({ error: "control-plane-read-authority-required", requiredScope: DelegationScopes.ControlPlaneRead }, { status: 403 });
   const allowedIds = access.delegation?.resourceFilters?.agentIds;
@@ -236,6 +238,7 @@ export async function handleControlPlaneApi(
       ownerNpub,
       ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
       DelegationScopes.ControlPlaneRead,
+      ctx.isAdminNpub,
     );
     if (!access) {
       return noStore(Response.json({

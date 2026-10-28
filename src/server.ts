@@ -1,6 +1,7 @@
+import { isInstanceAdmin } from "./auth/admin-authority";
 import { classifyStoredBotUsers, listBotUserIdentities } from "./auth/bot-user-identities";
 import { resolveAppAuthority, withAppAdminAccess } from "./auth/app-admin";
-import { liveAdminAppSigningTargets } from "./signing/admin-app-signing";
+import { liveAdminSigningTargets } from "./signing/admin-signing-targets";
 import { rebindNativeDirectChatRecovery } from "./agent-chat/direct-chat-native-recovery";
 import { createDirectChatRuntimeServices } from "./agent-chat/direct-chat-runtime-services";
 import { listSchedulerRunIdentities } from "./scheduler/run-identities";
@@ -619,6 +620,11 @@ const schedulerEngine = new SchedulerEngine({
 const schedulerApiHandler = createSchedulerApiHandler({
   store: schedulerStore,
   engine: schedulerEngine,
+  isAdmin: () => isInstanceAdmin(getRequestContext(), isConfiguredAdminNpub),
+  listAllJobs: () => {
+    const auth = getRequestContext();
+    return !auth.targetOwnerNpub || auth.targetOwnerNpub === auth.subjectNpub;
+  },
   listRunIdentities: (ownerNpub) => listSchedulerRunIdentities(ownerNpub, botKeyStore, agentDefinitionStore.listForManagerNpub(ownerNpub)),
   getInstanceIdentity: () => wingmanInstanceIdentity,
   getActiveBotOwnerNpub: (botNpub) => botKeyStore.getActiveKeyForBotNpub(botNpub)?.userNpub ?? null,
@@ -626,10 +632,8 @@ const schedulerApiHandler = createSchedulerApiHandler({
     agentDefinitionStore.listForManagerNpub(ownerNpub).find((agent) => agent.botNpub === botNpub)?.agentId ?? null,
   getNpub: (request: Request) => {
     const ctx = getRequestContext();
+    if (ctx?.targetOwnerNpub && isInstanceAdmin(ctx, isConfiguredAdminNpub)) return ctx.targetOwnerNpub;
     if (ctx?.delegateRelationshipId && ctx.delegatedOwnerNpub) {
-      return ctx.delegatedOwnerNpub;
-    }
-    if (ctx?.delegatedByBot && ctx.delegatedOwnerNpub) {
       return ctx.delegatedOwnerNpub;
     }
     return ctx?.npub ?? null;
@@ -703,6 +707,7 @@ let sessionApiContextRef: SessionApiContext | null = null;
 const requireApprovedWorkAccess = (): AccessRule => {
   return (context) => {
     if (isCapabilityBoundSelfSessionMetadataOperation(context) || isCapabilityBoundSelfSessionQueueOperation(context)) return allow();
+    if (isInstanceAdmin(context.auth, isConfiguredAdminNpub)) return allow();
     const ownerNpub = getEffectiveOwnerNpub(context.auth);
     return isUserApprovedForWork(ownerNpub)
       ? allow()
@@ -742,12 +747,12 @@ registerAccessRule(AccessActions.AppsManage, createTrustedExecutionRule({
 }));
 registerAccessRule(AccessActions.AppsRead, requireAuthentication({ allowNip98: true }));
 registerAccessRule(AccessActions.AppsRead, withAppAdminAccess(requireApprovedWorkAccess(), isConfiguredAdminNpub));
-registerAccessRule(AccessActions.UiRestricted, requireAuthentication());
-registerAccessRule(AccessActions.TodosManage, requireAuthentication());
+registerAccessRule(AccessActions.UiRestricted, withAppAdminAccess(requireAuthentication(), isConfiguredAdminNpub));
+registerAccessRule(AccessActions.TodosManage, withAppAdminAccess(requireAuthentication(), isConfiguredAdminNpub));
 registerAccessRule(AccessActions.TodosManage, requireApprovedWorkAccess());
-registerAccessRule(AccessActions.ProjectsManage, requireAuthentication());
+registerAccessRule(AccessActions.ProjectsManage, withAppAdminAccess(requireAuthentication(), isConfiguredAdminNpub));
 registerAccessRule(AccessActions.ProjectsManage, requireApprovedWorkAccess());
-registerAccessRule(AccessActions.DeploymentsManage, requireAuthentication());
+registerAccessRule(AccessActions.DeploymentsManage, withAppAdminAccess(requireAuthentication(), isConfiguredAdminNpub));
 registerAccessRule(AccessActions.DeploymentsManage, requireApprovedWorkAccess());
 registerAccessRule(AccessActions.DelegationsManage, requireAuthentication({ allowNip98: true }));
 registerAccessRule(AccessActions.DelegationsManage, requireApprovedWorkAccess());
@@ -853,7 +858,8 @@ const towerGitCredentialBroker = new TowerGitCredentialBroker({
 });
 const walletRuntime = createWalletRuntime(wingmanDataDir);
 const capabilityBroker = new CapabilityBroker({
-  liveNip98Targets: (input) => liveAdminAppSigningTargets({ ...input, autopilotUrl: config.baseUrl, isAdminNpub: isConfiguredAdminNpub }),
+  isAdminNpub: isConfiguredAdminNpub,
+  liveNip98Targets: (input) => liveAdminSigningTargets({ ...input, autopilotUrl: config.baseUrl, isAdminNpub: isConfiguredAdminNpub }),
   importedSecrets: importedSecretStore,
   botKeyStore,
   keyVault: brokerKeyVault,
@@ -2471,8 +2477,7 @@ void ensureWingmanCoreRegistration(appRegistry, {
 });
 
 const isAdminContext = (authContext: RequestAuthContext): boolean => {
-  const normalized = normaliseNpub(authContext.npub ?? null);
-  return isConfiguredAdminNpub(normalized);
+  return isInstanceAdmin(authContext, isConfiguredAdminNpub);
 };
 
 /**
@@ -2762,6 +2767,7 @@ const remoteInstructRoutesContext: RemoteInstructRoutesContext = {
 const handleApi = createApiRouteHandler({
   skillApiContext: { manager: skillManager, resolveWorkspace },
   controlPlaneRoutesContext: {
+    isAdminNpub: isConfiguredAdminNpub,
     providerCredentialContext: sessionApiContext,
     pipelineStore,
     identity: wingmanInstanceIdentity,
@@ -2775,6 +2781,7 @@ const handleApi = createApiRouteHandler({
     schedulerStore,
   },
   liveThreadActivityRoutesContext: {
+    isAdminNpub: isConfiguredAdminNpub,
     workspaceDelegationStore,
     interceptStore: chatInterceptStateStore,
     turnStore: getDirectChatTurnStore(),
@@ -3014,6 +3021,7 @@ const handleApi = createApiRouteHandler({
     AccessActions,
   },
   pipelineApiContext: {
+    isAdminNpub: isConfiguredAdminNpub,
     store: pipelineStore,
     installedAppExecutionNpubs: owner => installedAppExecutionNpubs(owner, wappStore.list()),
     resultWebhooks,
@@ -3199,17 +3207,19 @@ const handleApi = createApiRouteHandler({
   }),
   buildWappsContext: (wappsAuthContext, canAccessAppOverride) => {
     const effectiveAuthContext = getEffectiveOwnerAuthContext(wappsAuthContext);
+    const isAdmin = isInstanceAdmin(wappsAuthContext, isConfiguredAdminNpub);
     const appsWorkspaceScope = resolveWorkspace(effectiveAuthContext);
     const appsViewerNpub = getEffectiveOwnerNpub(effectiveAuthContext);
     const canAccessAppForRequest = (app: AppRecord): boolean => {
       if (canAccessAppOverride) return canAccessAppOverride(app);
       if (sharedInstanceAccessEnabled && appsViewerNpub) return true;
-      if (appsWorkspaceScope.isAdmin) return true;
+      if (isAdmin) return true;
       if (!appsViewerNpub) return false;
       return app.ownerNpub === appsViewerNpub;
     };
     return {
       adminNpub,
+      isAdmin,
       viewerNpub: appsViewerNpub,
       actorNpub: wappsAuthContext.subjectNpub ?? wappsAuthContext.signerNpub ?? wappsAuthContext.npub,
       sourceWingmanUrl: config.baseUrl,

@@ -1,3 +1,4 @@
+import { adminPrincipal, isInstanceAdmin } from "../auth/admin-authority";
 import { secretAuthorityFromAuth } from "../secrets/secret-authority";
 import { MISSING_PIPELINE_HISTORY_REASON } from "./pipeline-history-resume";
 import { handleNativePipelineViewerApi } from "./pipeline-native-viewer-routes";
@@ -47,6 +48,9 @@ type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEA
 
 export interface PipelineApiContext {
   spaceExplainService?: SpaceExplainService;
+  isAdminNpub?: (npub: string | null | undefined) => boolean;
+  requestIsAdmin?: boolean;
+  requestedOwnerNpub?: string | null;
   store: PipelineStore;
   resultWebhooks?: ResultWebhookService;
   publicWaitClock?: { now: () => number; sleep: (ms: number) => Promise<void> };
@@ -69,6 +73,9 @@ export async function handlePipelineApi(
   authContext: RequestAuthContext,
   ctx: PipelineApiContext,
 ): Promise<Response | null> {
+  ctx = { ...ctx, requestIsAdmin: isInstanceAdmin(authContext, ctx.isAdminNpub ?? (() => false)),
+    requestedOwnerNpub: authContext.targetOwnerNpub && authContext.targetOwnerNpub !== adminPrincipal(authContext)
+      ? authContext.targetOwnerNpub : null };
   const pathname = url.pathname;
   const viewer = await handleNativePipelineViewerApi(request, url, authContext, ctx);
   if (viewer) return viewer;
@@ -250,7 +257,7 @@ export async function handlePipelineApi(
 
   if (pathname === "/api/pipelines/runs" && method === "GET") {
     const runs = ctx.store.listRunSummaries({
-      ownerNpub,
+      ownerNpub: ctx.requestIsAdmin && !ctx.requestedOwnerNpub ? null : ownerNpub,
       additionalOwnerNpubs: ctx.installedAppExecutionNpubs?.(ownerNpub),
       includeShared: Boolean(ctx.sharedInstanceAccess),
     });

@@ -81,6 +81,7 @@ export function canAccessPipelineRun(
     const root = ctx.store.getRun(rootId);
     return Boolean(root && canAccessPipelineRun(root, ownerNpub, ctx));
   }
+  if (ctx.requestIsAdmin) return !ctx.requestedOwnerNpub || run.ownerNpub === ctx.requestedOwnerNpub;
   if (run.ownerNpub === ownerNpub) return true;
   if (run.ownerNpub && ctx.installedAppExecutionNpubs?.(ownerNpub).includes(run.ownerNpub)) return true;
   if (ctx.store.publicCalls.isPublic(run.id)) return false;

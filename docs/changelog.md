@@ -2,6 +2,11 @@
 
 ## 2026-10-28
 
+- Apply the live human/agent Admin role consistently to supported server administration, including owner WApps, sessions, pipelines, schedules, control-plane reads and settings. Keep signer identity and resource ownership separate from creator or custody, and retain scoped delegation for nonadmins.
+- Expand ordinary admin session signing across supported Autopilot API families and self-signed event kinds without overriding narrow capabilities, crypto size/peer policies, external ACLs, wallet budgets or identity custody. Keep reserved authentication, Blossom and Flight Deck message protocols validated.
+- Remove implicit custodian authorization from verified NIP-98 requests; nonadmin cross-owner work requires active scoped owner delegation.
+- Verify NIP-98 once per API dispatch, bind bodies and bodyless methods correctly, reject invalid explicit proofs without cookie fallback, and give independent same-second requests distinct nonces while rejecting exact-token replay.
+
 - Show active stable bot identities and profile names alongside humans in Settings Users, without requiring bot login. Use the existing durable admin role and labelled **Is Admin** controls; configured bootstrap and last-admin protections remain in place.
 - Let explicitly appointed human or bot admins manage every instance app through ordinary and owner-prefixed app APIs, independent of app ownership, profile custody or session ownership. Signers and app ownership remain intact; linked humans do not confer admin authority.
 - Apply admin promotion, demotion and bot deactivation to live app authorization and bounded broker signing. Preserve deliberately constrained signing policies, narrow delegations, exact-session queue restrictions and separate Tower permissions.

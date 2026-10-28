@@ -1,7 +1,9 @@
+import { reservedEventError } from "./reserved-event-policy";
+import { adminMaySignEvent } from "./admin-signing-policy";
 import { consumeSessionSecret } from "../secrets/secret-session";
 import { SecretError } from "../secrets/secret-policy";
 import type { SecretStore } from "../secrets/secret-store";
-import { permitsSessionQueueSigning, containsSessionQueueAuthTarget } from "./session-queue-policy";
+import { permitsSessionQueueSigning } from "./session-queue-policy";
 import type { WalletConstraint, WalletBrokerAdapter } from "./wallet-types.ts";
 export type { WalletConstraint, WalletBrokerAdapter } from "./wallet-types.ts";
 import { executeWalletSpend, WALLET_READ_METHODS, WALLET_SPEND_METHODS, WalletBudgetError } from "./wallet-capability.ts";
@@ -92,6 +94,7 @@ export interface NostrConstraint {
   maxTags: number;
   maxTagBytes?: number;
   allowAnyKind?: boolean;
+  /** Legacy persisted field; generic authentication events are always denied. */
   allowNip98Kind?: boolean;
   allowedTagNames?: string[];
   requiredTags?: Array<[string, string]>;
@@ -220,6 +223,7 @@ interface CapabilityRecord {
 }
 
 export interface CapabilityBrokerDependencies {
+  isAdminNpub?: (npub: string) => boolean;
   liveNip98Targets?: (input: { botNpub: string; policy: SessionCapabilityPolicy; url: URL }) => NonNullable<Nip98Constraint["targets"]>;
   importedSecrets?: SecretStore;
   hasWappLoginAuthority?: (input: WappLoginRequest) => boolean;
@@ -902,6 +906,7 @@ export class CapabilityBroker {
         const tags = [["u", parsed.toString()], ["method", method]];
         if (bodyHash) tags.push(["payload", bodyHash]);
         tags.push(...canonicalExtraTags);
+        if (!exactPath?.extraTags) tags.push(["nonce", randomBytes(16).toString("hex")]);
         if (!exactPath?.extraTags?.omitSessionBinding) {
           const bindingMac = this.createSessionBindingMac(authorized.capability, {
             pubkey: authorized.capability.botPubkeyHex,
@@ -1068,7 +1073,8 @@ export class CapabilityBroker {
     const tags = template.tags;
     const constraint = authorized.capability.policy.nostr;
     if (!constraint) return this.denied(authorized.capability, "nostr.sign", "Nostr policy is missing");
-    if (!Number.isInteger(kind) || (kind === NIP98_KIND && !constraint.allowNip98Kind) || (!constraint.allowAnyKind && !constraint.kinds.includes(kind as number))) {
+    if (!Number.isSafeInteger(kind) || (kind as number) < 0 || (kind as number) > 65_535 || kind === NIP98_KIND || (!constraint.allowAnyKind && !constraint.kinds.includes(kind as number)
+      && !(this.deps.isAdminNpub?.(authorized.capability.botNpub) && adminMaySignEvent(authorized.capability.policy, kind as number)))) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event kind is not allowed");
     }
     let kindRules: NostrKindConstraint[];
@@ -1089,9 +1095,8 @@ export class CapabilityBroker {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event tags exceed policy", 400);
     }
     const stringTags = tags as string[][];
-    if (kind === NIP98_KIND && containsSessionQueueAuthTarget(stringTags)) {
-      return this.denied(authorized.capability, "nostr.sign", "Queue authentication requires the session-bound NIP-98 broker operation");
-    }
+    const protocolError = reservedEventError(kind as number, content, stringTags);
+    if (protocolError) return this.denied(authorized.capability, "nostr.sign", protocolError);
     const tagBytes = stringTags.reduce((total, tag) => total + tag.reduce((size, value) => size + Buffer.byteLength(value), 0), 0);
     if (tagBytes > (effectiveConstraint.maxTagBytes ?? 65_536)) {
       return this.denied(authorized.capability, "nostr.sign", "Nostr event tags exceed byte policy", 400);

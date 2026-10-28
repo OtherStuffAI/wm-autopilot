@@ -1,3 +1,4 @@
+import { createApiRequestAuth } from "./api-request-auth";
 import { handleSecretRoutes, type SecretRoutesContext } from "../secrets/secret-routes";
 /**
  * API route handlers for /api/* endpoints.
@@ -284,7 +285,14 @@ function resolveViewerDefaultAgent(ctx: ApiRoutesContext, viewerNpub: string | n
   return ctx.config.defaultAgent;
 }
 
-export function createApiRouteHandler(ctx: ApiRoutesContext) {
+export function createApiRouteHandler(context: ApiRoutesContext) {
+  const auth = createApiRequestAuth(context.resolveNip98AuthContext);
+  const handle = createResolvedApiRouteHandler({ ...context, resolveNip98AuthContext: auth.resolveOnce });
+  return (request: Request, url: URL, method: HttpMethod, current: RequestAuthContext): Promise<Response> =>
+    auth.run(request, url, current, effective => handle(request, url, method, effective));
+}
+
+function createResolvedApiRouteHandler(ctx: ApiRoutesContext) {
   return async (
     request: Request,
     url: URL,
@@ -891,6 +899,9 @@ export function createApiRouteHandler(ctx: ApiRoutesContext) {
             docsApiContext: ctx.docsApiContext,
             listDirectories: ctx.listDirectories,
             createDirectoryEntry: ctx.createDirectoryEntry,
+            pipelineApiHandler: ctx.pipelineApiContext ? (pipelineRequest, pipelineUrl, _method, auth) =>
+              handlePipelineHttp(pipelineRequest, pipelineUrl, auth, ctx.pipelineApiContext!, async () => auth,
+                undefined, ctx.config.baseUrl) : undefined,
             schedulerStore: ctx.schedulerStore,
             schedulerApiHandler: ctx.schedulerApiHandler,
             sessionApiHandler: (sessionRequest, sessionUrl, sessionMethod, sessionAuthContext) =>

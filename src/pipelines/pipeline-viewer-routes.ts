@@ -9,6 +9,7 @@ import { viewerCanReadRun, viewerGrantMatches, type ViewerContext } from "./pipe
 import { viewerDefinition, viewerRunSummary, viewerSnapshot } from "./pipeline-viewer-dto";
 
 export interface PipelineViewerRoutesContext {
+  isAdminNpub?: ControlPlaneRoutesContext["isAdminNpub"];
   identity: WingmanInstanceIdentity | null;
   providerCredentialContext?: ControlPlaneRoutesContext["providerCredentialContext"];
   store: PipelineStore;
@@ -30,7 +31,7 @@ export async function handlePipelineViewerApi(request: Request, url: URL, auth: 
   if (!ctx.identity || !serviceId) return reply({ error: "installation-identity-unavailable" }, 503);
   let owner: string;
   try { owner = decodeURIComponent(match[1]!); } catch { return reply({ error: "invalid-owner" }, 400); }
-  const access = resolveOwnerAccess(auth, owner, ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore), DelegationScopes.ControlPlaneRead);
+  const access = resolveOwnerAccess(auth, owner, ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore), DelegationScopes.ControlPlaneRead, ctx.isAdminNpub);
   if (!access) return reply({ error: "control-plane-read-authority-required" }, 403);
   // Resolve only provider settings for the authorized owner; never identity material.
   for (const secret of classifierOpenRouterSecrets({ ownerNpub: access.ownerNpub, sessionApiContext: ctx.providerCredentialContext ?? {} })) ctx.store.evidence.registerSecret(secret);

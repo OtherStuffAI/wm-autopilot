@@ -19,6 +19,8 @@ import type { WingmanInstanceIdentity } from "../identity/wingman-instance-ident
 
 export interface SchedulerApiDependencies {
   listRunIdentities?: (ownerNpub: string) => Array<{ botNpub: string; name: string }>;
+  isAdmin?: () => boolean;
+  listAllJobs?: () => boolean;
   store: SchedulerStore;
   engine: SchedulerEngine;
   getNpub: (request: Request) => string | null;
@@ -76,7 +78,7 @@ function handleListJobs(
   deps: SchedulerApiDependencies,
   userNpub: string,
 ): Response {
-  const jobs = deps.store.listJobs(userNpub);
+  const jobs = deps.store.listJobs(deps.isAdmin?.() && (deps.listAllJobs?.() ?? true) ? undefined : userNpub);
   return Response.json({ jobs });
 }
 
@@ -225,7 +227,7 @@ async function handleUpdateJob(
   request: Request,
 ): Promise<Response> {
   const existing = deps.store.getJob(jobId);
-  if (!existing || existing.userNpub !== userNpub) {
+  if (!existing || (existing.userNpub !== userNpub && !deps.isAdmin?.())) {
     return Response.json({ error: "Job not found" }, { status: 404 });
   }
 
@@ -237,11 +239,11 @@ async function handleUpdateJob(
     if (typeof body.botNpub !== "string") return Response.json({ error: "botNpub must be a string" }, { status: 400 });
     const botNpub = body.botNpub.trim();
     if (!botNpub) return Response.json({ error: "botNpub cannot be empty" }, { status: 400 });
-    if (deps.getActiveBotOwnerNpub?.(botNpub) !== userNpub) {
+    if (deps.getActiveBotOwnerNpub?.(botNpub) !== existing.userNpub) {
       return Response.json({ error: "botNpub must be an active bot identity owned by the scheduler owner" }, { status: 400 });
     }
     update.botNpub = botNpub;
-    update.agentId = deps.getAgentIdForBotNpub?.(botNpub, userNpub) ?? null;
+    update.agentId = deps.getAgentIdForBotNpub?.(botNpub, existing.userNpub) ?? null;
   }
   if (body.actionType === "session" || body.actionType === "pipeline" || body.actionType === "cleanup") {
     update.actionType = body.actionType;
@@ -371,7 +373,7 @@ function handleDeleteJob(
   jobId: string,
 ): Response {
   const existing = deps.store.getJob(jobId);
-  if (!existing || existing.userNpub !== userNpub) {
+  if (!existing || (existing.userNpub !== userNpub && !deps.isAdmin?.())) {
     return Response.json({ error: "Job not found" }, { status: 404 });
   }
   deps.engine.unscheduleJob(jobId);
@@ -387,7 +389,7 @@ async function handleTriggerJob(
   jobId: string,
 ): Promise<Response> {
   const existing = deps.store.getJob(jobId);
-  if (!existing || existing.userNpub !== userNpub) {
+  if (!existing || (existing.userNpub !== userNpub && !deps.isAdmin?.())) {
     return Response.json({ error: "Job not found" }, { status: 404 });
   }
   if (existing.triggerType === "unsupported") {
@@ -415,7 +417,7 @@ function handleListRuns(
   jobId: string,
 ): Response {
   const existing = deps.store.getJob(jobId);
-  if (!existing || existing.userNpub !== userNpub) {
+  if (!existing || (existing.userNpub !== userNpub && !deps.isAdmin?.())) {
     return Response.json({ error: "Job not found" }, { status: 404 });
   }
 

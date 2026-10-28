@@ -55,9 +55,30 @@ describe("resolveNip98AuthContext", () => {
     expect(resolved.npub).toBe("npub1bot");
     expect(resolved.actorNpub).toBe("npub1bot");
     expect(resolved.subjectNpub).toBe("npub1bot");
-    expect(resolved.delegatedOwnerNpub).toBe("npub1owner");
+    expect(resolved.delegatedOwnerNpub).toBeNull();
+    expect(resolved.advisoryOwnerNpub).toBe("npub1owner");
     expect(resolved.authMethod).toBe("nip98");
     expect(resolved.capabilitySessionId).toBe("session-1");
     expect(resolved.delegatedByBot).toBe(true);
   });
+});
+
+test("invalid explicit NIP-98 cannot fall back to an admin cookie", async () => {
+  const request = new Request("https://example/api/admin/users", { headers: { authorization: "Nostr invalid" } });
+  const resolved = await resolveNip98AuthContext(request, new URL(request.url), {
+    npub: "npub1admin", actorNpub: "npub1admin", session: { npub: "npub1admin" } as any,
+  }, { verifyNip98AuthHeader: async () => null });
+  expect(resolved.npub).toBeNull();
+  expect(resolved.session).toBeNull();
+});
+
+test("live admin bot keeps advisory custody separate from its effective owner", async () => {
+  const request = new Request("https://example/api/scheduler/jobs", { headers: { authorization: "Nostr proof" } });
+  const resolved = await resolveNip98AuthContext(request, new URL(request.url), { npub: null, session: null }, {
+    verifyNip98AuthHeader: async () => ({ signerNpub: "npub1bot" }), lookupBotOwnerNpub: () => "npub1custodian",
+  });
+  expect(resolved.subjectNpub).toBe("npub1bot");
+  expect(resolved.targetOwnerNpub).toBe("npub1bot");
+  expect(resolved.delegatedOwnerNpub).toBeNull();
+  expect(resolved.advisoryOwnerNpub).toBe("npub1custodian");
 });

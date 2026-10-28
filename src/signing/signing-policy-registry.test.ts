@@ -197,7 +197,7 @@ describe("SigningPolicyRegistry", () => {
       mode: "full-agent",
     }));
     expect(resolved.policyRefs).toContainEqual({ id: "custom-nostr", revision: 1 });
-    expect(resolved.policy.nostr).toMatchObject({ allowAnyKind: true, allowNip98Kind: true });
+    expect(resolved.policy.nostr).toMatchObject({ allowAnyKind: true });
     expect(resolved.policy.nostr?.kindRules ?? []).toEqual([]);
   });
 });

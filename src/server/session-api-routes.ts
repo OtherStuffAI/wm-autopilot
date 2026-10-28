@@ -243,6 +243,8 @@ const resolveSelfSpaceViewerNpub = (
   authContext: RequestAuthContext,
   ctx: SessionApiContext,
 ): string | null => {
+  const principal = normaliseNpub(authContext.subjectNpub ?? authContext.signerNpub ?? authContext.npub);
+  if (isConfiguredAdminNpub(ctx, principal)) return principal;
   if (isDelegatedBotAuth(authContext)) {
     return normaliseNpub(authContext.delegatedOwnerNpub ?? null);
   }
@@ -790,6 +792,7 @@ const resolveOwnerSessionAccess = (
     ownerNpub,
     ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
     scope,
+    (npub) => isConfiguredAdminNpub(ctx, npub),
   );
 
 const resolveOwnerSessionScope = (method: HttpMethod, remainder: string[]): string => {

@@ -14,6 +14,7 @@ interface TurnStore {
 }
 
 export interface LiveThreadActivityRoutesContext {
+  isAdminNpub?: (npub: string | null | undefined) => boolean;
   workspaceDelegationStore: WorkspaceDelegationStore;
   interceptStore: InterceptStore;
   turnStore: TurnStore;
@@ -100,7 +101,7 @@ export async function handleLiveThreadActivityApi(
   if (method !== 'GET') return json({ error: 'method-not-allowed' }, 405);
   if (auth.authMethod !== 'nip98') return json({ error: 'nip98-authentication-required' }, 401);
   const access = resolveOwnerAccess(auth, matched.ownerNpub,
-    ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore), DelegationScopes.ControlPlaneRead);
+    ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore), DelegationScopes.ControlPlaneRead, ctx.isAdminNpub);
   if (!access) return json({ error: 'control-plane-read-authority-required', requiredScope: DelegationScopes.ControlPlaneRead }, 403);
   const requested = requestContext(url, matched.ownerNpub, matched.threadId);
   if (!requested) return json({ error: 'live-thread-context-required' }, 400);

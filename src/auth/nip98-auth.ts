@@ -27,7 +27,11 @@ export async function resolveNip98AuthContext(
 
   const verified = await options.verifyNip98AuthHeader(request, url);
   if (!verified) {
-    return authContext;
+    if (!hasNip98Authorization) return authContext;
+    return { npub: null, actorNpub: null, signerNpub: null, subjectNpub: null,
+      targetOwnerNpub: null, delegatedOwnerNpub: null, advisoryOwnerNpub: null,
+      delegateRelationshipId: null, delegateScopes: null, capabilitySessionId: null,
+      session: null, error: "invalid-nip98-authorization" };
   }
   const signerNpub = verified.signerNpub;
 
@@ -40,10 +44,11 @@ export async function resolveNip98AuthContext(
     signerNpub,
     subjectNpub: signerNpub,
     targetOwnerNpub: signerNpub,
-    delegatedOwnerNpub: ownerNpub,
+    delegatedOwnerNpub: null,
     advisoryOwnerNpub: ownerNpub,
-    delegateRelationshipId: authContext.delegateRelationshipId ?? null,
-    delegateScopes: authContext.delegateScopes ?? null,
+    delegateRelationshipId: null,
+    delegateScopes: null,
+    delegateExecutionScope: null,
     session: null,
     authMethod: "nip98",
     capabilitySessionId: verified.capabilitySessionId ?? null,

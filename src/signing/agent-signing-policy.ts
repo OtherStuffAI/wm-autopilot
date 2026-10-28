@@ -149,7 +149,7 @@ export function buildDefaultAgentCapabilityPolicy(input: {
       maxTags: mode === "full-nostr" || mode === "full-agent" ? 1_024 : 256,
       maxTagBytes: mode === "full-nostr" || mode === "full-agent" ? 262_144 : 65_536,
       ...(mode === "full-nostr" || mode === "full-agent" ? { allowAnyKind: true } : {}),
-      ...(mode === "full-agent" ? { allowNip98Kind: true } : {}),
+
     },
     nip44: {
       encryptPeers: ["*"],

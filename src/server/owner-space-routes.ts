@@ -52,6 +52,7 @@ export interface OwnerSpaceRoutesContext {
     nameInput: unknown,
     scopeOverride?: WorkspaceScope,
   ) => Promise<unknown>;
+  pipelineApiHandler?: (request: Request, url: URL, method: HttpMethod, auth: RequestAuthContext) => Promise<Response | null>;
   schedulerStore: SchedulerStore;
   schedulerApiHandler: (request: Request, url: URL, method: HttpMethod) => Promise<Response | null>;
   sessionApiHandler?: (
@@ -318,6 +319,9 @@ export async function handleOwnerSpaceApi(
 
   if (matched.subpath === "/sessions" || matched.subpath.startsWith("/sessions/")) {
     if (!ctx.sessionApiHandler) return null;
+    if (isAppAdmin(authContext, ctx.isAdminNpub ?? (() => false))) {
+      return ctx.sessionApiHandler(request, url, method, authContext);
+    }
     const remainder = matched.subpath.slice("/sessions".length);
     const requiredScope = method === "GET" || method === "HEAD"
       ? DelegationScopes.SessionsRead
@@ -336,6 +340,17 @@ export async function handleOwnerSpaceApi(
       ctx.sessionApiHandler!(rewrittenRequest, rewrittenUrl, method, ownerAuthContext));
   }
 
+  if (matched.subpath === "/pipelines" || matched.subpath.startsWith("/pipelines/")) {
+    if (!isAppAdmin(authContext, ctx.isAdminNpub ?? (() => false))) {
+      return Response.json({ error: "admin-required" }, { status: 403 });
+    }
+    if (!ctx.pipelineApiHandler) return Response.json({ error: "pipelines-unavailable" }, { status: 503 });
+    const ownerAuth = createOwnerScopedAuthContext(authContext, matched.ownerNpub);
+    const rewrittenUrl = cloneUrlWithPath(url, `/api${matched.subpath}`);
+    return runWithRequestContext(ownerAuth, () => ctx.pipelineApiHandler!(
+      createRewrittenRequest(request, rewrittenUrl), rewrittenUrl, method, ownerAuth));
+  }
+
   if (matched.subpath === "/scheduler/jobs" || matched.subpath.startsWith("/scheduler/jobs/")) {
     const requiredScope = resolveOwnerSchedulerScope(method, matched.subpath);
     const access = resolveOwnerAccess(
@@ -343,6 +358,7 @@ export async function handleOwnerSpaceApi(
       matched.ownerNpub,
       ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
       requiredScope,
+      ctx.isAdminNpub,
     );
     if (!access) {
       return delegationDenial(ctx, authContext, matched.ownerNpub, requiredScope);
@@ -386,6 +402,7 @@ export async function handleOwnerSpaceApi(
       matched.ownerNpub,
       ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
       requiredScope,
+      ctx.isAdminNpub,
     );
     if (!access) {
       return delegationDenial(ctx, authContext, matched.ownerNpub, requiredScope);
@@ -415,6 +432,7 @@ export async function handleOwnerSpaceApi(
       matched.ownerNpub,
       ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
       requiredScope,
+      ctx.isAdminNpub,
     );
     if (!access) return delegationDenial(ctx, authContext, matched.ownerNpub, requiredScope);
     const ownerAuthContext = createOwnerScopedAuthContext(authContext, matched.ownerNpub, access, requiredScope);
@@ -517,6 +535,7 @@ export async function handleOwnerSpaceApi(
       matched.ownerNpub,
       ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
       requiredScope,
+      ctx.isAdminNpub,
     );
     if (!access) {
       return Response.json({ error: "Delegation required" }, { status: 403 });
@@ -563,6 +582,7 @@ export async function handleOwnerSpaceApi(
       matched.ownerNpub,
       ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
       requiredScope,
+      ctx.isAdminNpub,
     );
     if (!access) {
       return Response.json({ error: "Delegation required" }, { status: 403 });
@@ -595,6 +615,7 @@ export async function handleOwnerSpaceApi(
       matched.ownerNpub,
       ctx.workspaceDelegationStore.findActiveDelegation.bind(ctx.workspaceDelegationStore),
       requiredScope,
+      ctx.isAdminNpub,
     );
     if (!access) {
       return Response.json({ error: "Delegation required" }, { status: 403 });

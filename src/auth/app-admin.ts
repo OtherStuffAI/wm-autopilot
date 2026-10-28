@@ -1,3 +1,4 @@
+import { isInstanceAdmin } from "./admin-authority";
 import type { AppRecord } from "../apps/app-registry";
 import type { WorkspaceScope } from "../workspaces/workspace-scope";
 import { getEffectiveOwnerAuthContext, getEffectiveOwnerNpub } from "./effective-owner";
@@ -10,7 +11,7 @@ export function isAppAdmin(
   auth: RequestAuthContext,
   isAdminNpub: (npub: string | null | undefined) => boolean,
 ): boolean {
-  return isAdminNpub(normaliseNpub(auth.subjectNpub ?? auth.signerNpub ?? auth.actorNpub ?? auth.npub));
+  return isInstanceAdmin(auth, isAdminNpub);
 }
 
 export function withAppAdminAccess(rule: AccessRule, isAdminNpub: (npub: string | null | undefined) => boolean): AccessRule {

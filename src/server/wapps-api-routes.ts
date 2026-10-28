@@ -27,6 +27,7 @@ type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEA
 
 export interface WappsApiContext {
   adminNpub: string | null;
+  isAdmin?: boolean;
   viewerNpub: string | null;
   actorNpub?: string | null;
   sourceWingmanUrl: string;
@@ -137,7 +138,7 @@ function normalizeSchedule(value: unknown): WappSchedule | null | undefined {
 }
 
 function canAccessWapp(ctx: WappsApiContext, wapp: WappRecord): boolean {
-  if (ctx.adminNpub && ctx.viewerNpub === ctx.adminNpub) return true;
+  if (ctx.isAdmin || (ctx.adminNpub && ctx.viewerNpub === ctx.adminNpub)) return true;
   return Boolean(ctx.viewerNpub && (wapp.ownerNpub === ctx.viewerNpub || wapp.allowedNpubs.includes(ctx.viewerNpub)));
 }
 

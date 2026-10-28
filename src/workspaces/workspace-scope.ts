@@ -3,7 +3,7 @@ import { normalize, sep } from "node:path";
 
 import type { WingmanConfig } from "../config";
 import type { RequestAuthContext } from "../auth/request-context";
-import { getEffectiveOwnerNpub } from "../auth/effective-owner";
+import { adminPrincipal } from "../auth/admin-authority";
 import { isNpubInList } from "../identity/npub-utils";
 
 export type WorkspaceScope = {
@@ -31,7 +31,7 @@ export const resolveWorkspaceScope = (
   _systemDocsRoot: string,
   _systemDocsBoundary: string,
 ): WorkspaceScope => {
-  const normalizedNpub = getEffectiveOwnerNpub(context);
+  const normalizedNpub = adminPrincipal(context);
   const configuredAdmins = typeof adminNpubs === "string" ? [adminNpubs] : adminNpubs ?? [];
   const isAdmin = isNpubInList(normalizedNpub, configuredAdmins);
   const workspaceRoot = normalize(config.defaultWorkingDirectory);
