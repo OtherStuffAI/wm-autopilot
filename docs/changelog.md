@@ -2,6 +2,7 @@
 
 ## 2026-10-28
 
+- Document Full Agent's existing arbitrary dedicated NIP-98 signing and add composition coverage for durable mode selection, running-client replacement adoption, private connection independence, exact request binding and replay rejection. Generic kind 27235 signing remains reserved.
 - Allow ordinary Admin sessions to sign exact read-only Tower service/workspace/scope discovery requests through connections currently available to their own identity. Resolve only the selected HTTPS/FIPS endpoint; recheck live roles and connection grants without widening custom policies, workspace mutations or external ACLs.
 - Apply the live human/agent Admin role consistently to supported server administration, including owner WApps, sessions, pipelines, schedules, control-plane reads and settings. Keep signer identity and resource ownership separate from creator or custody, and retain scoped delegation for nonadmins.
 - Expand ordinary admin session signing across supported Autopilot API families and self-signed event kinds without overriding narrow capabilities, crypto size/peer policies, external ACLs, wallet budgets or identity custody. Keep reserved authentication, Blossom and Flight Deck message protocols validated.

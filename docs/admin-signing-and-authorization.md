@@ -48,6 +48,34 @@ kind 33358 requires its protocol tag, exact content hash and unambiguous workspa
 and channel tags. Tower still verifies that instruction and the exact NIP-98 request
 body against its own ACLs. These checks apply even to broad event-signing modes.
 
+## Selecting Full Agent Signing
+
+Settings → Signing policies → **Full agent signing** selects the instance-wide
+`full-agent` mode. **Full Nostr signing** broadens event signing while retaining
+scoped NIP-98 destinations. Full Agent's dedicated `nip98.sign` operation allows
+arbitrary destination origins, methods and paths as the session's own identity;
+it does not require a connection availability grant or a per-origin policy.
+Private Tower connection grants still control ordinary discovery and are not
+changed by this setting. External services retain their own ACLs.
+
+The UI saves `PUT /api/admin/signing-policies/mode`. The durable setting feeds
+session capability issuance; saving explicitly reissues active capabilities.
+Supported broker clients adopt replacements on their next signing call after
+`capability_reissued`, using `reissue-adopt` with the old session-bound bearer.
+The save result lists each session's replacement or restart-required error.
+Do not treat a saved setting alone as proof that every running process adopted it.
+The supported inventory reports `policyMode`, `currentMode`, `policyState` and
+`staleReasons`; these describe issuance, not proof of client adoption.
+
+Use `/api/mcp/capabilities/nip98` with the exact URL, method and SHA-256 of the
+actual body bytes when present. Generic `nostr-event` requests for kind 27235
+remain rejected in Full Agent mode. This reserved-kind rejection does not show
+that the dedicated NIP-98 destination is restricted. Exact URL/query, method,
+payload, signature and replay validation still apply. Exact-session queue and
+dedicated login/install challenge protocols, key custody and wallet budgets remain
+separate boundaries. If a dedicated request fails, record its safe error code,
+mode and stale reasons before considering a source correction.
+
 ## Autopilot API inventory
 
 `admin-signing-policy.ts` defines the supported administrative family boundary;
