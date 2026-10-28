@@ -2,6 +2,7 @@
 
 ## 2026-10-28
 
+- Allow ordinary Admin sessions to sign exact read-only Tower service/workspace/scope discovery requests through connections currently available to their own identity. Resolve only the selected HTTPS/FIPS endpoint; recheck live roles and connection grants without widening custom policies, workspace mutations or external ACLs.
 - Apply the live human/agent Admin role consistently to supported server administration, including owner WApps, sessions, pipelines, schedules, control-plane reads and settings. Keep signer identity and resource ownership separate from creator or custody, and retain scoped delegation for nonadmins.
 - Expand ordinary admin session signing across supported Autopilot API families and self-signed event kinds without overriding narrow capabilities, crypto size/peer policies, external ACLs, wallet budgets or identity custody. Keep reserved authentication, Blossom and Flight Deck message protocols validated.
 - Remove implicit custodian authorization from verified NIP-98 requests; nonadmin cross-owner work requires active scoped owner delegation.

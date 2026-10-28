@@ -1,7 +1,7 @@
 import { isInstanceAdmin } from "./auth/admin-authority";
 import { classifyStoredBotUsers, listBotUserIdentities } from "./auth/bot-user-identities";
 import { resolveAppAuthority, withAppAdminAccess } from "./auth/app-admin";
-import { liveAdminSigningTargets } from "./signing/admin-signing-targets";
+import { createLiveAdminSigningTargets } from "./signing/configured-tower-signing-targets";
 import { rebindNativeDirectChatRecovery } from "./agent-chat/direct-chat-native-recovery";
 import { createDirectChatRuntimeServices } from "./agent-chat/direct-chat-runtime-services";
 import { listSchedulerRunIdentities } from "./scheduler/run-identities";
@@ -859,7 +859,11 @@ const towerGitCredentialBroker = new TowerGitCredentialBroker({
 const walletRuntime = createWalletRuntime(wingmanDataDir);
 const capabilityBroker = new CapabilityBroker({
   isAdminNpub: isConfiguredAdminNpub,
-  liveNip98Targets: (input) => liveAdminSigningTargets({ ...input, autopilotUrl: config.baseUrl, isAdminNpub: isConfiguredAdminNpub }),
+  liveNip98Targets: createLiveAdminSigningTargets({
+    autopilotUrl: config.baseUrl,
+    isAdminNpub: isConfiguredAdminNpub,
+    listAvailableConnections: (npub) => backendConnectionStore.listAvailableForManagerNpub(npub),
+  }),
   importedSecrets: importedSecretStore,
   botKeyStore,
   keyVault: brokerKeyVault,

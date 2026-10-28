@@ -24,7 +24,7 @@ Admin does not impersonate another identity or bypass these transport safeguards
 | `identity.read` / `identity` | Read the capability's own public identity. |
 | `capability.refresh` / `refresh` | Renew the same active session/identity, including the explicit expired-token renewal path; no role or target escalation. |
 | `reissue-adopt` | Adopt only an explicit administrator-issued replacement for the same session. |
-| `nip98.sign` / `nip98` | Ordinary admins gain supported Autopilot administrative families at the configured origin. External targets retain their capability constraints. |
+| `nip98.sign` / `nip98` | Ordinary admins gain supported Autopilot administrative families at the configured origin and read-only discovery on currently available configured Tower connections. Other external targets retain their capability constraints. |
 | `nostr.sign` / `nostr-event` | Ordinary admins gain self-signing beyond the standard kind list, within valid integer kinds 0–65535 and existing content/tag limits. Per-kind rules still apply. |
 | `nip44.encrypt` / `nip44/encrypt` | Encrypt as self. Ordinary sessions already allow all peers; explicit peer/size limits remain. |
 | `nip44.decrypt` / `nip44/decrypt` | Decrypt as self. Cannot decrypt another identity's messages; peer/size and ciphertext validation remain. |
@@ -78,6 +78,48 @@ resource boundaries and operation-specific checks.
 | Auth/profile, uploads, logs, artifacts, configuration | Resolve the actual caller before dispatch. Login proofs, file ownership, upload/storage validation and supported public reads remain their normal protocols. |
 
 ## Binding and revocation
+
+### Configured Tower discovery
+
+An ordinary baseline Admin session can discover a configured Tower connection
+without already having a workspace bound to the session. The broker queries
+`BackendConnectionStore.listAvailableForManagerNpub` with the **actual signer
+npub** on every request. A connection must be owned by that signer, explicitly
+granted to that signer through the selected-users policy, or shared as a service.
+Custodian/profile-manager ownership, a session owner's subscriptions, Admin status
+alone, and user-created WApp Tower bindings do not make a connection available.
+
+Only exact GET requests under the selected endpoint's `/api/v4/flightdeck-pg`
+base are added: `/service`, `/workspaces`, and
+`/workspaces/<workspaceId>/descriptor`, `/me`, or `/scopes`. Tower's workspace
+listing authenticates the actor, optionally filters by app, and returns only
+actor-visible workspace summaries. Scope discovery still requires Tower's real
+workspace/app context and ACLs. Use returned records or an authoritative configured
+subscription for the workspace ID; never substitute an unrelated local workspace.
+An empty list or external denial is a discovery result, not a reason to grant access.
+
+`configured-tower-signing-targets.ts` resolves the connection's selected transport
+with the existing transport normalizer. HTTPS and FIPS endpoints are independent;
+an unselected endpoint, an old base URL, another port or host, and a WApp launch URL
+are not aliases. A configured base path is retained. This adds no proxy, fallback,
+network transport or workspace mutation authority. Existing explicit workspace-bound
+capabilities continue under their original constraints, including after Admin demotion.
+
+The separate `internal.wapp_tower_url` setting imports `WAPP_TOWER_URL`, `TOWER_URL`
+or `WINGMAN_TOWER_URL` through the settings registry and requires a restart when
+changed. It supplies baseline/runtime configuration, not a connection availability
+grant. Setting it merely to bypass a discovery denial is unnecessary when an
+authorized connection already exists. WApp binding URLs never enter this live policy.
+
+The live addition is restricted to the same ordinary Admin baseline as local
+administrative signing. No-signing, custom/narrow policies, removed signing
+operations and body-hash restrictions remain enforced. Removing connection
+availability, changing selected transport or demoting the signer removes the added
+discovery signing on its next request, including after same-policy refresh.
+Refresh does not snapshot these additions or widen stored policy; revoked or
+inactive sessions cannot use or refresh them. A previously issued external proof
+remains governed by its freshness/replay rules and Tower's own authorization;
+Autopilot cannot revoke a proof already delivered to another service.
 
 NIP-98 binds the exact URL including query, uppercase method and every body byte.
 A body-bearing request needs its matching payload tag; a bodyless request needs no
