@@ -27,6 +27,8 @@ export function initSchedulerStore({ showToast, syncOnInit = true }) {
     identities: [],
     identityStatus: "loading",
     loading: false,
+    syncing: false,
+    syncError: "",
     initialized: false,
     _liveQuerySub: null,
 
@@ -87,7 +89,9 @@ export function initSchedulerStore({ showToast, syncOnInit = true }) {
       }
     },
 
+    /** Refresh from the server. Returns true on success; failures stay visible via syncError. */
     async sync() {
+      this.syncing = true;
       try {
         const data = await fetchSchedulerJobs();
         const serverJobs = data.jobs || [];
@@ -98,8 +102,14 @@ export function initSchedulerStore({ showToast, syncOnInit = true }) {
           }
         });
         // liveQuery fires -> this.jobs updates
+        this.syncError = "";
+        return true;
       } catch (err) {
         console.warn("[scheduler-store] sync failed:", err);
+        this.syncError = err?.message || "Request failed";
+        return false;
+      } finally {
+        this.syncing = false;
       }
     },
 

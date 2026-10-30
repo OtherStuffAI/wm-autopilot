@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { identityIssue, identityName, runIdentityField } from "./run-identity.js";
 import { createSchedulerFormSupport } from "./form-support.js";
+import { getPageTemplate } from "./list-template.js";
 
 const identities = [{ botNpub: "npub-rick", name: "Rick" }];
 test("requires a visible owned choice and surfaces loading and unavailable states", () => {
@@ -28,5 +29,5 @@ test("create/edit controls expose inspectable npub and retain unavailable saved 
   expect(page).toContain('botNpub: job.botNpub || ""');
   expect(page).toContain('botNpub: this.editActionType === "cleanup" ? undefined : this.editForm.botNpub');
   expect(page).toContain('botNpub: this.actionType === "cleanup" ? undefined : this.form.botNpub');
-  expect(page).toContain('scheduler-saved-identity');
+  expect(getPageTemplate()).toContain('scheduler-saved-identity');
 });

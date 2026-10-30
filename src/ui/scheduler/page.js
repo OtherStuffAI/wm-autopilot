@@ -1,4 +1,4 @@
-import { identityIssue, identityName, runIdentityField } from "./run-identity.js";
+import { identityIssue, identityName } from "./run-identity.js";
 /**
  * Scheduler Page
  *
@@ -13,93 +13,40 @@ import Alpine from "/vendor/alpinejs/module.esm.js";
 import { fetchSchedulerJobRuns } from "./api.js";
 import { fetchPipelineDefinitions } from "../pipelines/api.js";
 import { attachDirAutocomplete } from "./dir-autocomplete.js";
-import { DEFAULT_AGENT, normalizeAgentValue, renderAgentOptions } from "../common/agent-options.js";
+import { DEFAULT_AGENT, normalizeAgentValue } from "../common/agent-options.js";
 import { state } from "../state/index.js";
 import { createSchedulerFormSupport } from "./form-support.js";
+import {
+  DEFAULT_SCHEDULE,
+  buildCron,
+  describeCron,
+  frequencyNeedsHour,
+  frequencyNeedsTime,
+  parseCron,
+} from "./schedule-helpers.js";
+import {
+  FIELD_LABELS,
+  actionKindLabel,
+  countJobs,
+  describeActiveWindow,
+  describeDraft,
+  describeJobWhat,
+  describeJobWhen,
+  filterJobs,
+  firstInvalidField,
+  jobStatus,
+  triggerKindLabel,
+  validateTriggerForm,
+} from "./trigger-view.js";
+import { getPageTemplate } from "./list-template.js";
 
-// ============================================================
-// Schedule → cron helpers
-// ============================================================
-
-/** Build a cron expression from the friendly schedule fields. */
-function buildCron(frequency, hour, minute, weekday) {
-  const mm = String(minute);
-  const hh = String(hour);
-  switch (frequency) {
-    case "every_minute":  return "* * * * *";
-    case "every_5min":    return "*/5 * * * *";
-    case "every_15min":   return "*/15 * * * *";
-    case "every_30min":   return "*/30 * * * *";
-    case "hourly":        return `${mm} * * * *`;
-    case "every_2h":      return `${mm} */2 * * *`;
-    case "every_3h":      return `${mm} */3 * * *`;
-    case "every_4h":      return `${mm} */4 * * *`;
-    case "every_6h":      return `${mm} */6 * * *`;
-    case "daily":         return `${mm} ${hh} * * *`;
-    case "weekdays":      return `${mm} ${hh} * * 1-5`;
-    case "weekly":        return `${mm} ${hh} * * ${weekday}`;
-    default:              return `${mm} ${hh} * * *`;
+function listTimezones() {
+  try {
+    const zones = Intl.supportedValuesOf("timeZone");
+    return zones.includes("UTC") ? zones : ["UTC", ...zones];
+  } catch {
+    return ["UTC"];
   }
-}
-
-/** Describe a cron expression in plain English. */
-function describeCron(expr) {
-  if (!expr) return "";
-  const map = {
-    "* * * * *": "Every minute",
-    "*/5 * * * *": "Every 5 minutes",
-    "*/15 * * * *": "Every 15 minutes",
-    "*/30 * * * *": "Every 30 minutes",
-  };
-  if (map[expr]) return map[expr];
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return expr;
-  const [mm, hh, , , dow] = parts;
-  const time = `${hh.padStart(2, "0")}:${mm.padStart(2, "0")}`;
-  if (parts[1] === "*") return `Hourly at :${mm.padStart(2, "0")}`;
-  if (parts[1].startsWith("*/")) return `Every ${parts[1].slice(2)}h at :${mm.padStart(2, "0")}`;
-  const days = { "0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday", "4": "Thursday", "5": "Friday", "6": "Saturday" };
-  if (dow === "1-5") return `Weekdays at ${time}`;
-  if (dow !== "*" && days[dow]) return `${days[dow]}s at ${time}`;
-  if (dow === "*") return `Daily at ${time}`;
-  return expr;
-}
-
-/** Check whether frequency needs a time picker. */
-function frequencyNeedsTime(freq) {
-  return ["hourly", "every_2h", "every_3h", "every_4h", "every_6h", "daily", "weekdays", "weekly"].includes(freq);
-}
-
-/** Check whether frequency needs hour picker (not just minute). */
-function frequencyNeedsHour(freq) {
-  return ["daily", "weekdays", "weekly"].includes(freq);
-}
-
-/** Parse a cron expression back into friendly schedule picker fields. */
-function parseCron(expr) {
-  if (!expr) return { frequency: "daily", hour: 9, minute: 0, weekday: "1" };
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return { frequency: "daily", hour: 9, minute: 0, weekday: "1" };
-  const [mm, hh, , , dow] = parts;
-
-  // Fixed-interval patterns
-  if (expr === "* * * * *") return { frequency: "every_minute", hour: 9, minute: 0, weekday: "1" };
-  if (expr === "*/5 * * * *") return { frequency: "every_5min", hour: 9, minute: 0, weekday: "1" };
-  if (expr === "*/15 * * * *") return { frequency: "every_15min", hour: 9, minute: 0, weekday: "1" };
-  if (expr === "*/30 * * * *") return { frequency: "every_30min", hour: 9, minute: 0, weekday: "1" };
-
-  const minute = parseInt(mm, 10) || 0;
-  const hour = parseInt(hh, 10) || 9;
-
-  if (hh === "*") return { frequency: "hourly", hour: 9, minute, weekday: "1" };
-  if (hh === "*/2") return { frequency: "every_2h", hour: 9, minute, weekday: "1" };
-  if (hh === "*/3") return { frequency: "every_3h", hour: 9, minute, weekday: "1" };
-  if (hh === "*/4") return { frequency: "every_4h", hour: 9, minute, weekday: "1" };
-  if (hh === "*/6") return { frequency: "every_6h", hour: 9, minute, weekday: "1" };
-  if (hh.startsWith("*/")) return { frequency: "every_6h", hour: 9, minute, weekday: "1" };
-  if (dow === "1-5") return { frequency: "weekdays", hour, minute, weekday: "1" };
-  if (dow !== "*") return { frequency: "weekly", hour, minute, weekday: dow };
-  return { frequency: "daily", hour, minute, weekday: "1" };
 }
 
 function getConfiguredDefaultAgent() {
@@ -145,8 +92,18 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
       return identityName(npub, store.identities, store.identityStatus);
     },
 
+    root: null,
+
     // Autocomplete cleanup handles
     _acCleanups: [],
+
+    // List filtering and pending confirmations
+    filters: { query: "", status: "all", type: "all" },
+    pending: { id: null, kind: null },
+    timezoneSuggestions: listTimezones(),
+
+    // Validation display state per form (errors appear after blur or a submit attempt)
+    touchState: { create: { attempted: false, touched: {} }, edit: { attempted: false, touched: {} } },
 
     // Create form state
     showForm: false,
@@ -155,12 +112,7 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
     pipelineDefinitions: [],
     form: formSupport.createFormValues(),
     // Schedule picker state (separate from form to keep API payload clean)
-    sched: {
-      frequency: "daily",
-      hour: 9,
-      minute: 0,
-      weekday: "1", // Monday
-    },
+    sched: { ...DEFAULT_SCHEDULE },
     submitting: false,
 
     // Edit state
@@ -175,6 +127,15 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
     runsJobId: null,
     runs: [],
     loadingRuns: false,
+    runsError: "",
+
+    // Template helpers
+    jobStatus,
+    triggerKindLabel,
+    actionKindLabel,
+    describeJobWhen,
+    describeJobWhat,
+    describeActiveWindow,
 
     get isCron() {
       return this.triggerType === "cron";
@@ -216,7 +177,136 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
       return this.sched.frequency === "weekly";
     },
 
+    get visibleJobs() {
+      return filterJobs(this.$store.scheduler.jobs, this.filters, (job) => this.identityName(job.botNpub));
+    },
+
+    get filtersActive() {
+      return Boolean(this.filters.query.trim()) || this.filters.status !== "all" || this.filters.type !== "all";
+    },
+
+    get countsText() {
+      const c = countJobs(this.$store.scheduler.jobs);
+      if (!c.total) return "";
+      const parts = [`${c.enabled} enabled`, `${c.disabled} disabled`];
+      if (c.unsupported) parts.push(`${c.unsupported} unsupported`);
+      return `${c.total} ${c.total === 1 ? "trigger" : "triggers"} · ${parts.join(" · ")}`;
+    },
+
+    get resultsText() {
+      if (!this.filtersActive) return "";
+      const shown = this.visibleJobs.length;
+      return `Showing ${shown} of ${this.$store.scheduler.jobs.length}`;
+    },
+
+    clearFilters() {
+      this.filters = { query: "", status: "all", type: "all" };
+    },
+
+    get createSummary() {
+      return this.draftSummary(false);
+    },
+
+    get editSummary() {
+      return this.draftSummary(true);
+    },
+
+    draftSummary(edit) {
+      const f = edit ? this.editForm : this.form;
+      if (!f || f.name === undefined) return "";
+      const identity = f.botNpub && this.$store.scheduler.identities.some((i) => i.botNpub === f.botNpub)
+        ? this.identityName(f.botNpub) : "";
+      return describeDraft({
+        actionType: edit ? this.editActionType : this.actionType,
+        triggerType: edit ? this.editTriggerType : this.triggerType,
+        form: f,
+        cronExpression: edit ? this.editComputedCron : this.computedCron,
+        identityName: identity,
+      });
+    },
+
+    // ----- Validation -----
+
+    errors(edit) {
+      const f = edit ? this.editForm : this.form;
+      const action = edit ? this.editActionType : this.actionType;
+      return validateTriggerForm({
+        actionType: action,
+        triggerType: edit ? this.editTriggerType : this.triggerType,
+        form: f,
+        identityMessage: this.identityIssue(action, f.botNpub),
+      });
+    },
+
+    touch(edit, key) {
+      this.touchState[edit ? "edit" : "create"].touched[key] = true;
+    },
+
+    fieldError(edit, key) {
+      const ts = this.touchState[edit ? "edit" : "create"];
+      const message = this.errors(edit)[key] || "";
+      if (!message) return "";
+      return ts.attempted || ts.touched[key] || key === "activeWindow" ? message : "";
+    },
+
+    errorSummary(edit) {
+      if (!this.touchState[edit ? "edit" : "create"].attempted) return "";
+      const keys = Object.keys(this.errors(edit));
+      if (!keys.length) return "";
+      const names = keys.map((key) => FIELD_LABELS[key] || key).join(", ");
+      return `Fix ${keys.length} ${keys.length === 1 ? "problem" : "problems"} before saving: ${names}.`;
+    },
+
+    resetTouch(edit) {
+      this.touchState[edit ? "edit" : "create"] = { attempted: false, touched: {} };
+    },
+
+    /** Mark the form as attempted; returns true when it can be submitted. */
+    checkValid(edit) {
+      const errors = this.errors(edit);
+      if (!Object.keys(errors).length) return true;
+      this.touchState[edit ? "edit" : "create"].attempted = true;
+      const mode = edit ? "edit" : "create";
+      const key = firstInvalidField(errors);
+      this.$nextTick(() => {
+        const root = this.root;
+        const target = key === "botNpub" ? root.querySelector(`#scheduler-${mode}-identity`)
+          : key === "activeWindow" ? root.querySelector(`#scheduler-${mode}-activeWindow input`)
+            : root.querySelector(`#scheduler-${mode}-${key}`);
+        if (target) target.focus();
+      });
+      return false;
+    },
+
+    hasActiveWindow(edit) {
+      const f = edit ? this.editForm : this.form;
+      return Boolean(f.activeStartTime || f.activeEndTime);
+    },
+
+    clearActiveWindow(edit) {
+      const f = edit ? this.editForm : this.form;
+      f.activeStartTime = "";
+      f.activeEndTime = "";
+    },
+
+    activeWindowHelp(edit) {
+      const f = edit ? this.editForm : this.form;
+      if (f.activeStartTime && f.activeEndTime) {
+        return `${describeActiveWindow(f.activeStartTime, f.activeEndTime, f.timezone)}. Outside this window the trigger is skipped.`;
+      }
+      return "Leave empty to run at any time, or set both times to limit when the trigger can fire each day.";
+    },
+
+    onActionChange(edit) {
+      const isCleanup = (edit ? this.editActionType : this.actionType) === "cleanup";
+      if (!isCleanup) return;
+      if (edit) this.editTriggerType = "cron";
+      else this.triggerType = "cron";
+    },
+
     init() {
+      // Handlers run with $el set to the clicked child, so keep the page root for focus lookups.
+      this.root = this.$el;
       this.loadPipelineDefinitions();
       // Watch showForm toggle to attach/detach autocomplete on create form
       this.$watch("showForm", (open) => {
@@ -260,7 +350,7 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
 
     _attachCreateAC() {
       this._detachAC();
-      const root = this.$el;
+      const root = this.root;
       const workDirInput = root.querySelector("[data-ac='create-workdir']");
       const workDirList = root.querySelector("[data-ac='create-workdir-list']");
       if (workDirInput && workDirList) {
@@ -275,7 +365,7 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
 
     _attachEditAC() {
       this._detachAC();
-      const root = this.$el;
+      const root = this.root;
       const workDirInput = root.querySelector("[data-ac='edit-workdir']");
       const workDirList = root.querySelector("[data-ac='edit-workdir-list']");
       if (workDirInput && workDirList) {
@@ -356,18 +446,27 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
       };
       this.syncModel(this.editForm);
       this.editSched = parseCron(job.cronExpression);
+      this.resetTouch(true);
+      this.cancelPending();
+      this.focusWhenReady("#scheduler-edit-name");
     },
 
-    cancelEdit() {
+    closeEdit() {
+      const id = this.editingJobId;
       this.editingJobId = null;
       this.editActionType = "session";
       this.editForm = {};
       this.editSched = {};
+      this.focusWhenReady(`[data-edit-btn="${id}"]`);
+    },
+
+    cancelEdit() {
+      this.closeEdit();
     },
 
     async saveEdit() {
       if (this.editSubmitting) return;
-      if (this.identityIssue(this.editActionType, this.editForm.botNpub)) return;
+      if (!this.checkValid(true)) return;
       this.editSubmitting = true;
       try {
         const payload = {
@@ -408,6 +507,9 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
           payload.watchDirectory = this.editForm.watchDirectory;
           payload.filePattern = this.editForm.filePattern;
         }
+        if (this.editTriggerType === "file_watcher" && this.editForm.activeStartTime && this.editForm.activeEndTime) {
+          payload.timezone = this.editForm.timezone;
+        }
         // Active window
         if (this.editForm.activeStartTime && this.editForm.activeEndTime) {
           payload.activeStartTime = this.editForm.activeStartTime;
@@ -417,30 +519,41 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
           payload.activeEndTime = null;
         }
         await this.$store.scheduler.update(this.editingJobId, payload);
-        this.editingJobId = null;
-        this.editActionType = "session";
-        this.editForm = {};
-        this.editSched = {};
+        this.closeEdit();
       } catch { /* store shows toast */ }
       this.editSubmitting = false;
     },
 
     async refresh() {
-      await this.$store.scheduler.sync();
-      showToast("Refreshed");
+      const ok = await this.$store.scheduler.sync();
+      if (ok) showToast("Refreshed");
+    },
+
+    toggleCreate() {
+      if (this.showForm) return this.cancelCreate();
+      this.resetTouch(false);
+      this.showForm = true;
+      this.focusWhenReady("#scheduler-create-name");
+    },
+
+    cancelCreate() {
+      this.showForm = false;
+      this.resetForm();
+      this.$nextTick(() => this.root.querySelector("#scheduler-new-trigger")?.focus());
     },
 
     resetForm() {
       this.actionType = "session";
       this.triggerType = "cron";
       this.form = this.createFormValues();
-      this.sched = { frequency: "daily", hour: 9, minute: 0, weekday: "1" };
+      this.sched = { ...DEFAULT_SCHEDULE };
+      this.resetTouch(false);
       this._detachAC();
     },
 
     async submitJob() {
       if (this.submitting) return;
-      if (this.identityIssue(this.actionType, this.form.botNpub)) return;
+      if (!this.checkValid(false)) return;
       this.submitting = true;
       try {
         const payload = {
@@ -478,6 +591,9 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
           payload.filePattern = this.form.filePattern;
         }
         // Active window (applies to cron and file_watcher)
+        if (this.triggerType === "file_watcher" && this.form.activeStartTime && this.form.activeEndTime) {
+          payload.timezone = this.form.timezone;
+        }
         if (this.form.activeStartTime && this.form.activeEndTime) {
           payload.activeStartTime = this.form.activeStartTime;
           payload.activeEndTime = this.form.activeEndTime;
@@ -485,8 +601,73 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
         await this.$store.scheduler.create(payload);
         this.showForm = false;
         this.resetForm();
+        this.$nextTick(() => this.root.querySelector("#scheduler-new-trigger")?.focus());
       } catch { /* store shows toast */ }
       this.submitting = false;
+    },
+
+
+    /** Focus once Alpine has rendered conditional (x-if) markup. */
+    focusWhenReady(selector) {
+      this.$nextTick(() => requestAnimationFrame(() => this.root.querySelector(selector)?.focus()));
+    },
+
+    askConfirm(job, kind) {
+      if (kind === "run" && job.triggerType === "unsupported") return;
+      this.pending = { id: job.id, kind };
+      this.$nextTick(() => this.root.querySelector(`[data-confirm="${job.id}"]`)?.focus());
+    },
+
+    cancelPending(job) {
+      const id = job?.id || this.pending.id;
+      this.pending = { id: null, kind: null };
+      if (job) this.$nextTick(() => this.root.querySelector(`[data-job-id="${id}"] .wm-trigger-card-actions button`)?.focus());
+    },
+
+    confirmLabel(job) {
+      return this.pending.kind === "delete" ? `Confirm delete ${job.name}` : `Confirm run ${job.name}`;
+    },
+
+    confirmText(job) {
+      return this.pending.kind === "delete"
+        ? `Delete "${job.name}"? Its schedule and run history link will be removed. This cannot be undone.`
+        : `Run "${job.name}" now? This starts a real run immediately, outside its normal ${job.triggerType === "file_watcher" ? "file trigger" : "schedule"}.`;
+    },
+
+    async confirmPending(job) {
+      const kind = this.pending.kind;
+      this.pending = { id: null, kind: null };
+      if (kind === "delete") {
+        if (this.runsJobId === job.id) this.closeRuns();
+        await this.$store.scheduler.remove(job.id);
+        this.$nextTick(() => this.root.querySelector("#scheduler-new-trigger")?.focus());
+      } else if (kind === "run") {
+        try {
+          await this.$store.scheduler.trigger(job.id);
+        } catch { /* store shows toast */ }
+      }
+    },
+
+    async showRuns(job) {
+      this.runsJobId = job.id;
+      this.runs = [];
+      this.runsError = "";
+      this.loadingRuns = true;
+      try {
+        const data = await fetchSchedulerJobRuns(job.id);
+        if (this.runsJobId === job.id) this.runs = data.runs || [];
+      } catch (err) {
+        if (this.runsJobId === job.id) this.runsError = `Couldn't load runs: ${err.message}`;
+      }
+      this.loadingRuns = false;
+    },
+
+    closeRuns(job) {
+      const id = job?.id || this.runsJobId;
+      this.runsJobId = null;
+      this.runs = [];
+      this.runsError = "";
+      if (job) this.$nextTick(() => this.root.querySelector(`[data-job-id="${id}"] .wm-trigger-card-actions button:nth-child(2)`)?.focus());
     },
 
     async toggleEnabled(job) {
@@ -496,49 +677,11 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
       } catch { /* store shows toast */ }
     },
 
-    async triggerJob(job) {
-      if (job.triggerType === "unsupported") return;
-      try {
-        await this.$store.scheduler.trigger(job.id);
-      } catch { /* store shows toast */ }
-    },
-
-    async deleteJob(job) {
-      if (!confirm(`Delete trigger "${job.name}"?`)) return;
-      await this.$store.scheduler.remove(job.id);
-    },
-
-    async showRuns(job) {
-      this.runsJobId = job.id;
-      this.loadingRuns = true;
-      try {
-        const data = await fetchSchedulerJobRuns(job.id);
-        this.runs = data.runs || [];
-      } catch (err) {
-        showToast(`Failed to load runs: ${err.message}`, { type: "error" });
-        this.runs = [];
-      }
-      this.loadingRuns = false;
-    },
-
-    closeRuns() {
-      this.runsJobId = null;
-      this.runs = [];
-    },
-
     formatTime(iso) {
       return this.$store.scheduler.formatTime(iso);
     },
 
-    describeJobCron(expr) {
-      return describeCron(expr);
-    },
 
-    describeJobAction(job) {
-      if ((job.actionType || "session") === "pipeline") return "PIPELINE";
-      if ((job.actionType || "session") === "cleanup") return "CLEANUP";
-      return String(job.agent || "").toUpperCase();
-    },
 
     resolvePipelineDefinition(id) {
       if (!id) return null;
@@ -560,18 +703,6 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
       return definition?.name || id || "Pipeline";
     },
 
-    describeTrigger(job) {
-      if (job.triggerType === "unsupported") return "Unsupported trigger";
-      if (job.triggerType === "file_watcher") {
-        const pat = job.filePattern && job.filePattern !== "*" ? ` (${job.filePattern})` : "";
-        return `Watching: ${job.watchDirectory}${pat}`;
-      }
-      let desc = describeCron(job.cronExpression);
-      if (job.activeStartTime && job.activeEndTime) {
-        desc += ` (${job.activeStartTime}\u2013${job.activeEndTime})`;
-      }
-      return desc;
-    },
 
     setPipelineDefaultInput(edit = false) {
       const form = edit ? this.editForm : this.form;
@@ -610,618 +741,8 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
       }
     },
 
-    statusColor(status) {
-      if (status === "success") return "#22c55e";
-      if (status === "error") return "#ef4444";
-      return "#eab308";
-    },
   }));
 
   return { renderPage, ensureLoaded };
 }
 
-// ============================================================
-// Hour / minute option generators (used in template)
-// ============================================================
-
-function hourOptions() {
-  let opts = "";
-  for (let h = 0; h < 24; h++) {
-    const label = String(h).padStart(2, "0");
-    opts += `<option value="${h}">${label}</option>`;
-  }
-  return opts;
-}
-
-function minuteOptions() {
-  let opts = "";
-  for (let m = 0; m < 60; m += 5) {
-    const label = String(m).padStart(2, "0");
-    opts += `<option value="${m}">${label}</option>`;
-  }
-  return opts;
-}
-
-// ============================================================
-// Alpine HTML Template
-// ============================================================
-
-function getPageTemplate() {
-  return `
-  <!-- Header -->
-  <div class="wm-scheduler-header">
-    <h2 style="margin: 0; flex: 1;">Triggers</h2>
-    <button type="button" class="wm-btn wm-btn--sm" @click="refresh()">Refresh</button>
-    <button type="button" class="wm-btn wm-btn--sm wm-btn--primary" @click="showForm = !showForm">
-      <span x-text="showForm ? 'Cancel' : '+ New Trigger'"></span>
-    </button>
-  </div>
-
-  <!-- Create Form -->
-  <template x-if="showForm">
-    <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
-
-      <!-- Trigger Type Selector -->
-      <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
-        <button type="button" class="wm-btn wm-btn--sm"
-          :class="triggerType === 'cron' ? 'wm-btn--primary' : ''"
-          @click="triggerType = 'cron'">Schedule</button>
-        <button type="button" class="wm-btn wm-btn--sm"
-          :class="triggerType === 'file_watcher' ? 'wm-btn--primary' : ''"
-          @click="triggerType = 'file_watcher'"
-          x-show="!isCleanupAction">File Watcher</button>
-      </div>
-
-      <!-- Action Type Selector -->
-      <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
-        <button type="button" class="wm-btn wm-btn--sm"
-          :class="actionType === 'session' ? 'wm-btn--primary' : ''"
-          @click="actionType = 'session'">Agent Session</button>
-        <button type="button" class="wm-btn wm-btn--sm"
-          :class="actionType === 'pipeline' ? 'wm-btn--primary' : ''"
-          @click="actionType = 'pipeline'">Pipeline</button>
-        <button type="button" class="wm-btn wm-btn--sm"
-          :class="actionType === 'cleanup' ? 'wm-btn--primary' : ''"
-          @click="actionType = 'cleanup'; triggerType = 'cron'">Cleanup</button>
-      </div>
-
-      ${runIdentityField()}
-      <!-- Row 1: Name + Agent/Pipeline -->
-      <div class="wm-scheduler-grid-fields">
-        <div class="wm-form-group">
-          <label>Trigger Name</label>
-          <input type="text" class="wm-input" x-model="form.name" placeholder="e.g. Daily code review">
-        </div>
-        <div class="wm-form-group" x-show="isSessionAction">
-          <label>Engine</label>
-          <select class="wm-select" x-model="form.agent" @change="syncModel(form)"
-            aria-label="Engine" data-testid="scheduler-create-agent">
-            ${renderAgentOptions()}
-          </select>
-        </div>
-        <div class="wm-form-group" x-show="isSessionAction">
-          <label>Model</label>
-          <select class="wm-select" x-model="form.model"
-            aria-label="Model" data-testid="scheduler-create-model">
-            <template x-for="model in modelOptions(form.agent)" :key="model">
-              <option :value="model" x-text="getModelOptionLabel(model)"></option>
-            </template>
-          </select>
-        </div>
-        <div class="wm-form-group" x-show="isPipelineAction">
-          <label>Pipeline</label>
-          <select class="wm-select" x-model="form.pipelineDefinitionId" @change="setPipelineDefaultInput(false)">
-            <option value="">Select pipeline</option>
-            <template x-for="definition in pipelineDefinitions" :key="definition.id">
-              <option :value="definition.id" x-text="definition.name"></option>
-            </template>
-          </select>
-        </div>
-        <div class="wm-form-group" x-show="isPipelineAction">
-          <label>Pipeline engine (optional)</label>
-          <select class="wm-select" x-model="form.pipelineAgent" aria-label="Pipeline engine" data-testid="scheduler-create-pipeline-engine">
-            <option value="">Use pipeline default</option>
-            ${renderAgentOptions()}
-          </select>
-        </div>
-      </div>
-
-      <!-- Row 2: Working Directory -->
-      <div class="wm-form-group" style="margin-top: 0.75rem;" x-show="isSessionAction">
-        <label>Working Directory</label>
-        <div class="wm-scheduler-path-field">
-          <input type="text" class="wm-input" x-model="form.workingDirectory" placeholder="/path/to/project"
-            data-ac="create-workdir" list="create-workdir-suggestions" autocomplete="off"
-            aria-label="Working Directory" data-testid="scheduler-create-working-directory">
-          <button type="button" class="wm-btn wm-btn--sm"
-            @click="browseDirectory(form, 'workingDirectory', 'Select Working Directory')"
-            aria-label="Browse for working directory" data-testid="scheduler-create-working-directory-browse">Browse…</button>
-        </div>
-        <datalist id="create-workdir-suggestions" data-ac="create-workdir-list"></datalist>
-      </div>
-
-      <!-- Pipeline input -->
-      <div class="wm-form-group" style="margin-top: 0.75rem;" x-show="isPipelineAction">
-        <label>Pipeline Input</label>
-        <textarea class="wm-input" x-model="form.pipelineInput" rows="7" spellcheck="false" style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;"></textarea>
-      </div>
-
-      <template x-if="isCleanupAction">
-        <div style="margin-top: 0.75rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px; border: 1px solid var(--border-primary);">
-          <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0;">
-            Stops automatic sessions marked nextAction=stop, plus prompt-ready automatic sessions inactive for over 60 minutes.
-          </p>
-        </div>
-      </template>
-
-      <!-- Row 3a: Schedule Picker (cron only) -->
-      <template x-if="isCron">
-        <div style="margin-top: 0.75rem;">
-          <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.25rem;">Schedule</label>
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-            <select class="wm-select" x-model="sched.frequency">
-              <option value="every_minute">Every minute</option>
-              <option value="every_5min">Every 5 minutes</option>
-              <option value="every_15min">Every 15 minutes</option>
-              <option value="every_30min">Every 30 minutes</option>
-              <option value="hourly">Hourly</option>
-              <option value="every_2h">Every 2 hours</option>
-              <option value="every_3h">Every 3 hours</option>
-              <option value="every_4h">Every 4 hours</option>
-              <option value="every_6h">Every 6 hours</option>
-              <option value="daily">Daily</option>
-              <option value="weekdays">Weekdays</option>
-              <option value="weekly">Weekly</option>
-            </select>
-            <template x-if="needsWeekday">
-              <select class="wm-select" x-model="sched.weekday">
-                <option value="1">Monday</option>
-                <option value="2">Tuesday</option>
-                <option value="3">Wednesday</option>
-                <option value="4">Thursday</option>
-                <option value="5">Friday</option>
-                <option value="6">Saturday</option>
-                <option value="0">Sunday</option>
-              </select>
-            </template>
-            <template x-if="needsTime">
-              <span style="font-size: 0.85rem; color: var(--text-secondary);">at</span>
-            </template>
-            <template x-if="needsHour">
-              <select class="wm-select" x-model.number="sched.hour">
-                ${hourOptions()}
-              </select>
-            </template>
-            <template x-if="needsHour">
-              <span style="font-size: 0.85rem; color: var(--text-secondary);">:</span>
-            </template>
-            <template x-if="needsTime">
-              <select class="wm-select" x-model.number="sched.minute">
-                ${minuteOptions()}
-              </select>
-            </template>
-          </div>
-          <small style="color: var(--text-secondary); margin-top: 4px; display: block;" x-text="cronDescription"></small>
-        </div>
-      </template>
-
-      <!-- Row 3b: File Watcher fields -->
-      <template x-if="isFileWatcher">
-        <div style="margin-top: 0.75rem;">
-          <div class="wm-scheduler-grid-split">
-            <div class="wm-form-group">
-              <label>Watch Directory</label>
-              <div class="wm-scheduler-path-field">
-                <input type="text" class="wm-input" x-model="form.watchDirectory" placeholder="/path/to/watch"
-                  data-ac="create-watchdir" list="create-watchdir-suggestions" autocomplete="off"
-                  aria-label="Watch Directory" data-testid="scheduler-create-watch-directory">
-                <button type="button" class="wm-btn wm-btn--sm"
-                  @click="browseDirectory(form, 'watchDirectory', 'Select Watch Directory')"
-                  aria-label="Browse for watch directory" data-testid="scheduler-create-watch-directory-browse">Browse…</button>
-              </div>
-              <datalist id="create-watchdir-suggestions" data-ac="create-watchdir-list"></datalist>
-            </div>
-            <div class="wm-form-group">
-              <label>File Pattern</label>
-              <input type="text" class="wm-input" x-model="form.filePattern" placeholder="*.json">
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <!-- Active Window -->
-      <div style="margin-top: 0.75rem;">
-          <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.25rem;">Active Window <span style="font-weight: 400; color: var(--text-secondary);">(optional)</span></label>
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-            <input type="time" class="wm-input" style="width: 8rem;" x-model="form.activeStartTime" placeholder="HH:MM">
-            <span style="font-size: 0.85rem; color: var(--text-secondary);">to</span>
-            <input type="time" class="wm-input" style="width: 8rem;" x-model="form.activeEndTime" placeholder="HH:MM">
-          </div>
-          <small style="color: var(--text-secondary); margin-top: 4px; display: block;">
-            <template x-if="form.activeStartTime && form.activeEndTime">
-              <span x-text="'Only fires between ' + form.activeStartTime + ' and ' + form.activeEndTime + ' (' + form.timezone + ')'"></span>
-            </template>
-            <template x-if="!form.activeStartTime || !form.activeEndTime">
-              <span>Leave empty to run at any time. Set to restrict when the trigger fires.</span>
-            </template>
-          </small>
-      </div>
-
-      <!-- Row 4: Initial Prompt -->
-      <div class="wm-form-group" style="margin-top: 0.75rem;" x-show="isSessionAction">
-        <label>Initial Prompt</label>
-        <textarea class="wm-input" x-model="form.initialPrompt" rows="4" placeholder="What should the agent do?"></textarea>
-      </div>
-
-      <template x-if="isCron">
-        <div class="wm-scheduler-timezone" style="margin-top: 0.75rem;">
-          <span style="font-size: 0.8rem; color: var(--text-secondary);">TZ:</span>
-          <input type="text" class="wm-input wm-scheduler-timezone-input" x-model="form.timezone">
-        </div>
-      </template>
-
-      <!-- Submit row -->
-      <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; border-top: 1px solid var(--border-primary); padding-top: 0.75rem;">
-        <button type="button" class="wm-btn wm-btn--sm" @click="showForm = false; resetForm()">Cancel</button>
-        <button type="button" class="wm-btn wm-btn--sm wm-btn--primary" @click="submitJob()"
-          :disabled="submitting || !!identityIssue(actionType, form.botNpub) || !form.name || (actionType === 'session' && (!form.workingDirectory || !form.initialPrompt)) || (actionType === 'pipeline' && !form.pipelineDefinitionId) || (triggerType === 'file_watcher' && !form.watchDirectory)">
-          <span x-text="submitting ? 'Creating\u2026' : 'Create Trigger'"></span>
-        </button>
-      </div>
-    </div>
-  </template>
-
-  <!-- Loading -->
-  <template x-if="$store.scheduler.loading">
-    <p style="color: var(--text-secondary);">Loading\u2026</p>
-  </template>
-
-  <!-- Empty state -->
-  <template x-if="!$store.scheduler.loading && $store.scheduler.jobs.length === 0 && !showForm">
-    <p style="color: var(--text-secondary);">No triggers yet. Create one to get started.</p>
-  </template>
-
-  <!-- Job list -->
-  <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-    <template x-for="job in $store.scheduler.jobs" :key="job.id">
-      <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 0.75rem;">
-        <div class="wm-scheduler-job-row">
-          <!-- Enable toggle -->
-          <button
-            type="button"
-            class="wm-btn wm-btn--sm"
-            :style="'min-width: 2.5rem; color: ' + (job.enabled ? '#22c55e' : '#6b7280')"
-            @click="toggleEnabled(job)"
-            :disabled="job.triggerType === 'unsupported'"
-            :title="job.triggerType === 'unsupported' ? job.unsupportedReason : (job.enabled ? 'Disable' : 'Enable')"
-            x-text="job.enabled ? 'ON' : 'OFF'"
-          ></button>
-
-          <!-- Job info -->
-          <div class="wm-scheduler-job-info">
-            <div style="display: flex; align-items: baseline; gap: 0.5rem;">
-              <strong x-text="job.name" style="font-size: 0.95rem;"></strong>
-              <span x-show="job.actionType !== 'cleanup'" data-testid="scheduler-saved-identity" style="overflow-wrap:anywhere">
-                Run as: <span x-text="identityName(job.botNpub)"></span>
-                <details><summary aria-label="Inspect saved Run as npub">npub</summary><code x-text="job.botNpub || 'Identity missing'" style="user-select:text"></code></details>
-              </span>
-              <span x-text="describeJobAction(job)" style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;"></span>
-              <span x-text="describeTrigger(job)" style="font-size: 0.75rem; color: var(--accent-primary);"></span>
-            </div>
-            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
-              <template x-if="(job.actionType || 'session') === 'pipeline'">
-                <span x-text="pipelineName(job.pipelineDefinitionId)" style="opacity: 0.8;"></span>
-              </template>
-              <template x-if="(job.actionType || 'session') === 'cleanup'">
-                <span style="opacity: 0.8;">Stops terminal or stale automatic sessions</span>
-              </template>
-              <template x-if="(job.actionType || 'session') === 'session'">
-                <span x-text="job.workingDirectory" style="opacity: 0.8;"></span>
-              </template>
-              <template x-if="job.nextRunAt && job.triggerType === 'cron'">
-                <span> &middot; Next: <span x-text="formatTime(job.nextRunAt)"></span></span>
-              </template>
-              <template x-if="job.lastRunAt">
-                <span> &middot; Last: <span x-text="formatTime(job.lastRunAt)"></span></span>
-              </template>
-            </div>
-          </div>
-
-          <!-- Actions -->
-          <button type="button" class="wm-btn wm-btn--sm" @click="startEdit(job)" title="Edit" x-show="editingJobId !== job.id && job.triggerType !== 'unsupported'">Edit</button>
-          <button type="button" class="wm-btn wm-btn--sm" @click="showRuns(job)" title="View runs">Runs</button>
-          <button type="button" class="wm-btn wm-btn--sm" @click="triggerJob(job)" title="Run now" :disabled="job.triggerType === 'unsupported'">Trigger</button>
-          <button type="button" class="wm-btn wm-btn--sm wm-btn--danger" @click="deleteJob(job)" title="Delete">&times;</button>
-        </div>
-
-        <template x-if="job.triggerType === 'unsupported' && editingJobId !== job.id">
-          <div role="status" style="margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: var(--bg-primary); border-radius: 6px; border: 1px solid var(--border-primary); color: var(--text-secondary); font-size: 0.8rem;" x-text="job.unsupportedReason"></div>
-        </template>
-
-        <!-- Trigger ID (collapsible) -->
-        <template x-if="editingJobId !== job.id">
-          <div style="margin-top: 0.5rem;">
-            <details>
-              <summary style="cursor: pointer; font-size: 0.8rem; color: var(--text-secondary);">Trigger ID</summary>
-              <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; padding: 0.5rem; background: var(--bg-primary); border-radius: 4px;">
-                <code style="font-size: 0.75rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" x-text="job.id"></code>
-                <button type="button" class="wm-btn wm-btn--sm" style="font-size: 0.7rem; padding: 2px 8px;"
-                  @click="copyToClipboard(job.id, 'Trigger ID')">Copy</button>
-              </div>
-            </details>
-          </div>
-        </template>
-
-        <!-- Prompt preview (shown when NOT editing) -->
-        <template x-if="editingJobId !== job.id && (job.actionType || 'session') === 'session'">
-          <details style="margin-top: 0.5rem;">
-            <summary style="cursor: pointer; font-size: 0.8rem; color: var(--text-secondary);">Prompt</summary>
-            <pre style="font-size: 0.8rem; white-space: pre-wrap; margin: 0.25rem 0 0; padding: 0.5rem; background: var(--bg-primary); border-radius: 4px; max-height: 200px; overflow: auto;" x-text="job.initialPrompt"></pre>
-          </details>
-        </template>
-        <template x-if="editingJobId !== job.id && (job.actionType || 'session') === 'pipeline'">
-          <details style="margin-top: 0.5rem;">
-            <summary style="cursor: pointer; font-size: 0.8rem; color: var(--text-secondary);">Pipeline Input</summary>
-            <pre style="font-size: 0.8rem; white-space: pre-wrap; margin: 0.25rem 0 0; padding: 0.5rem; background: var(--bg-primary); border-radius: 4px; max-height: 200px; overflow: auto;" x-text="formatPipelineInput(job.pipelineInputJson)"></pre>
-          </details>
-        </template>
-
-        <!-- Inline Edit Form -->
-        <template x-if="editingJobId === job.id">
-          <div style="margin-top: 0.75rem; border-top: 1px solid var(--border-primary); padding-top: 0.75rem;">
-
-            <!-- Trigger Type Selector -->
-            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
-              <button type="button" class="wm-btn wm-btn--sm"
-                :class="editTriggerType === 'cron' ? 'wm-btn--primary' : ''"
-                @click="editTriggerType = 'cron'">Schedule</button>
-              <button type="button" class="wm-btn wm-btn--sm"
-                :class="editTriggerType === 'file_watcher' ? 'wm-btn--primary' : ''"
-                @click="editTriggerType = 'file_watcher'"
-                x-show="!editIsCleanupAction">File Watcher</button>
-            </div>
-
-            <!-- Action Type Selector -->
-            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
-              <button type="button" class="wm-btn wm-btn--sm"
-                :class="editActionType === 'session' ? 'wm-btn--primary' : ''"
-                @click="editActionType = 'session'">Agent Session</button>
-              <button type="button" class="wm-btn wm-btn--sm"
-                :class="editActionType === 'pipeline' ? 'wm-btn--primary' : ''"
-                @click="editActionType = 'pipeline'">Pipeline</button>
-              <button type="button" class="wm-btn wm-btn--sm"
-                :class="editActionType === 'cleanup' ? 'wm-btn--primary' : ''"
-                @click="editActionType = 'cleanup'; editTriggerType = 'cron'">Cleanup</button>
-            </div>
-
-            ${runIdentityField(true)}
-            <!-- Row 1: Name + Agent/Pipeline -->
-            <div class="wm-scheduler-grid-fields">
-              <div class="wm-form-group">
-                <label>Trigger Name</label>
-                <input type="text" class="wm-input" x-model="editForm.name">
-              </div>
-              <div class="wm-form-group" x-show="editIsSessionAction">
-                <label>Engine</label>
-                <select class="wm-select" x-model="editForm.agent" @change="syncModel(editForm)"
-                  aria-label="Engine" data-testid="scheduler-edit-agent">
-                  ${renderAgentOptions()}
-                </select>
-              </div>
-              <div class="wm-form-group" x-show="editIsSessionAction">
-                <label>Model</label>
-                <select class="wm-select" x-model="editForm.model"
-                  aria-label="Model" data-testid="scheduler-edit-model">
-                  <template x-for="model in modelOptions(editForm.agent)" :key="model">
-                    <option :value="model" x-text="getModelOptionLabel(model)"></option>
-                  </template>
-                </select>
-              </div>
-              <div class="wm-form-group" x-show="editIsPipelineAction">
-                <label>Pipeline</label>
-                <select class="wm-select" x-model="editForm.pipelineDefinitionId" @change="setPipelineDefaultInput(true)">
-                  <option value="">Select pipeline</option>
-                  <template x-for="definition in pipelineDefinitions" :key="definition.id">
-                    <option :value="definition.id" x-text="definition.name"></option>
-                  </template>
-                </select>
-              </div>
-              <div class="wm-form-group" x-show="editIsPipelineAction">
-                <label>Pipeline engine (optional)</label>
-                <select class="wm-select" x-model="editForm.pipelineAgent" aria-label="Pipeline engine" data-testid="scheduler-edit-pipeline-engine">
-                  <option value="">Use pipeline default</option>
-                  ${renderAgentOptions()}
-                </select>
-              </div>
-            </div>
-
-            <!-- Row 2: Working Directory -->
-            <div class="wm-form-group" style="margin-top: 0.75rem;" x-show="editIsSessionAction">
-              <label>Working Directory</label>
-              <div class="wm-scheduler-path-field">
-                <input type="text" class="wm-input" x-model="editForm.workingDirectory"
-                  data-ac="edit-workdir" list="edit-workdir-suggestions" autocomplete="off"
-                  aria-label="Working Directory" data-testid="scheduler-edit-working-directory">
-                <button type="button" class="wm-btn wm-btn--sm"
-                  @click="browseDirectory(editForm, 'workingDirectory', 'Select Working Directory')"
-                  aria-label="Browse for working directory" data-testid="scheduler-edit-working-directory-browse">Browse…</button>
-              </div>
-              <datalist id="edit-workdir-suggestions" data-ac="edit-workdir-list"></datalist>
-            </div>
-
-            <!-- Pipeline input -->
-            <div class="wm-form-group" style="margin-top: 0.75rem;" x-show="editIsPipelineAction">
-              <label>Pipeline Input</label>
-              <textarea class="wm-input" x-model="editForm.pipelineInput" rows="7" spellcheck="false" style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;"></textarea>
-            </div>
-
-            <template x-if="editIsCleanupAction">
-              <div style="margin-top: 0.75rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px; border: 1px solid var(--border-primary);">
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0;">
-                  Stops automatic sessions marked nextAction=stop, plus prompt-ready automatic sessions inactive for over 60 minutes.
-                </p>
-              </div>
-            </template>
-
-            <!-- Row 3a: Schedule Picker (cron only) -->
-            <template x-if="editIsCron">
-              <div style="margin-top: 0.75rem;">
-                <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.25rem;">Schedule</label>
-                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                  <select class="wm-select" x-model="editSched.frequency">
-                    <option value="every_minute">Every minute</option>
-                    <option value="every_5min">Every 5 minutes</option>
-                    <option value="every_15min">Every 15 minutes</option>
-                    <option value="every_30min">Every 30 minutes</option>
-                    <option value="hourly">Hourly</option>
-                    <option value="every_2h">Every 2 hours</option>
-                    <option value="every_3h">Every 3 hours</option>
-                    <option value="every_4h">Every 4 hours</option>
-                    <option value="every_6h">Every 6 hours</option>
-                    <option value="daily">Daily</option>
-                    <option value="weekdays">Weekdays</option>
-                    <option value="weekly">Weekly</option>
-                  </select>
-                  <template x-if="editNeedsWeekday">
-                    <select class="wm-select" x-model="editSched.weekday">
-                      <option value="1">Monday</option>
-                      <option value="2">Tuesday</option>
-                      <option value="3">Wednesday</option>
-                      <option value="4">Thursday</option>
-                      <option value="5">Friday</option>
-                      <option value="6">Saturday</option>
-                      <option value="0">Sunday</option>
-                    </select>
-                  </template>
-                  <template x-if="editNeedsTime">
-                    <span style="font-size: 0.85rem; color: var(--text-secondary);">at</span>
-                  </template>
-                  <template x-if="editNeedsHour">
-                    <select class="wm-select" x-model.number="editSched.hour">
-                      ${hourOptions()}
-                    </select>
-                  </template>
-                  <template x-if="editNeedsHour">
-                    <span style="font-size: 0.85rem; color: var(--text-secondary);">:</span>
-                  </template>
-                  <template x-if="editNeedsTime">
-                    <select class="wm-select" x-model.number="editSched.minute">
-                      ${minuteOptions()}
-                    </select>
-                  </template>
-                </div>
-                <small style="color: var(--text-secondary); margin-top: 4px; display: block;" x-text="editCronDescription"></small>
-              </div>
-            </template>
-
-            <!-- Row 3b: File Watcher fields -->
-            <template x-if="editIsFileWatcher">
-              <div style="margin-top: 0.75rem;">
-                <div class="wm-scheduler-grid-split">
-                  <div class="wm-form-group">
-                    <label>Watch Directory</label>
-                    <div class="wm-scheduler-path-field">
-                      <input type="text" class="wm-input" x-model="editForm.watchDirectory"
-                        data-ac="edit-watchdir" list="edit-watchdir-suggestions" autocomplete="off"
-                        aria-label="Watch Directory" data-testid="scheduler-edit-watch-directory">
-                      <button type="button" class="wm-btn wm-btn--sm"
-                        @click="browseDirectory(editForm, 'watchDirectory', 'Select Watch Directory')"
-                        aria-label="Browse for watch directory" data-testid="scheduler-edit-watch-directory-browse">Browse…</button>
-                    </div>
-                    <datalist id="edit-watchdir-suggestions" data-ac="edit-watchdir-list"></datalist>
-                  </div>
-                  <div class="wm-form-group">
-                    <label>File Pattern</label>
-                    <input type="text" class="wm-input" x-model="editForm.filePattern">
-                  </div>
-                </div>
-              </div>
-            </template>
-
-            <!-- Active Window -->
-            <div style="margin-top: 0.75rem;">
-                <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.25rem;">Active Window <span style="font-weight: 400; color: var(--text-secondary);">(optional)</span></label>
-                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                  <input type="time" class="wm-input" style="width: 8rem;" x-model="editForm.activeStartTime" placeholder="HH:MM">
-                  <span style="font-size: 0.85rem; color: var(--text-secondary);">to</span>
-                  <input type="time" class="wm-input" style="width: 8rem;" x-model="editForm.activeEndTime" placeholder="HH:MM">
-                </div>
-                <small style="color: var(--text-secondary); margin-top: 4px; display: block;">
-                  <template x-if="editForm.activeStartTime && editForm.activeEndTime">
-                    <span x-text="'Only fires between ' + editForm.activeStartTime + ' and ' + editForm.activeEndTime + ' (' + editForm.timezone + ')'"></span>
-                  </template>
-                  <template x-if="!editForm.activeStartTime || !editForm.activeEndTime">
-                    <span>Leave empty to run at any time.</span>
-                  </template>
-                </small>
-            </div>
-
-            <!-- Row 4: Initial Prompt -->
-            <div class="wm-form-group" style="margin-top: 0.75rem;" x-show="editIsSessionAction">
-              <label>Initial Prompt</label>
-              <textarea class="wm-input" x-model="editForm.initialPrompt" rows="4"></textarea>
-            </div>
-
-            <template x-if="editIsCron">
-              <div class="wm-scheduler-timezone" style="margin-top: 0.75rem;">
-                <span style="font-size: 0.8rem; color: var(--text-secondary);">TZ:</span>
-                <input type="text" class="wm-input wm-scheduler-timezone-input" x-model="editForm.timezone">
-              </div>
-            </template>
-
-            <!-- Save / Cancel -->
-            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; border-top: 1px solid var(--border-primary); padding-top: 0.75rem;">
-              <button type="button" class="wm-btn wm-btn--sm" @click="cancelEdit()">Cancel</button>
-              <button type="button" class="wm-btn wm-btn--sm wm-btn--primary" @click="saveEdit()"
-                :disabled="editSubmitting || !!identityIssue(editActionType, editForm.botNpub) || !editForm.name || (editActionType === 'session' && (!editForm.workingDirectory || !editForm.initialPrompt)) || (editActionType === 'pipeline' && !editForm.pipelineDefinitionId) || (editTriggerType === 'file_watcher' && !editForm.watchDirectory)">
-                <span x-text="editSubmitting ? 'Saving\u2026' : 'Save Changes'"></span>
-              </button>
-            </div>
-          </div>
-        </template>
-      </div>
-    </template>
-  </div>
-
-  <!-- Run History Panel -->
-  <template x-if="runsJobId">
-    <div style="margin-top: 1rem; background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 0.75rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
-        <strong>Run History</strong>
-        <button type="button" class="wm-btn wm-btn--sm" @click="closeRuns()">Close</button>
-      </div>
-      <template x-if="loadingRuns">
-        <p style="color: var(--text-secondary); font-size: 0.85rem;">Loading\u2026</p>
-      </template>
-      <template x-if="!loadingRuns && runs.length === 0">
-        <p style="color: var(--text-secondary); font-size: 0.85rem;">No runs yet.</p>
-      </template>
-      <template x-if="!loadingRuns && runs.length > 0">
-        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-          <template x-for="run in runs" :key="run.id">
-            <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.85rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border-primary);">
-              <span :style="'color: ' + statusColor(run.status) + '; font-weight: 600;'" x-text="run.status"></span>
-              <span x-text="formatTime(run.startedAt)" style="color: var(--text-secondary);"></span>
-              <template x-if="run.sessionId">
-                <a :href="'/live/' + run.sessionId"
-                   style="font-family: monospace; font-size: 0.75rem; color: var(--accent-primary); text-decoration: none;"
-                   x-text="run.sessionId.slice(0, 8) + '\u2026'"
-                   title="Open session"></a>
-              </template>
-              <template x-if="run.pipelineRunId">
-                <a :href="'/pipelines/runs/' + run.pipelineRunId"
-                   style="font-family: monospace; font-size: 0.75rem; color: var(--accent-primary); text-decoration: none;"
-                   x-text="run.pipelineRunId.slice(0, 8) + '\u2026'"
-                   title="Open pipeline run"></a>
-              </template>
-              <template x-if="run.errorMessage">
-                <span style="color: #ef4444; font-size: 0.8rem;" x-text="run.errorMessage"></span>
-              </template>
-            </div>
-          </template>
-        </div>
-      </template>
-    </div>
-  </template>
-  `;
-}

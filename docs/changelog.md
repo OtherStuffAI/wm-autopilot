@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-30
+
+- Rework Triggers setup and management. Create and edit share one guided form (When / What / Who runs it / Active window) with plain-language trigger and action choices, per-field help, inline validation (including timezone and pipeline JSON), a live summary sentence, and focus management. The list now shows status, readable schedule with timezone, target, identity, next/last run, an accessible enable switch, search and status/type filters, inline confirmation for Run now and Delete, visible refresh errors with retry, and clearer empty, loading and run-history states.
+- Trigger types, payloads, owner identity handling and run behaviour are unchanged, except that file-watcher triggers with an active window now save the chosen timezone instead of the server default. Frontend-only; reload the browser to pick up the change, no Autopilot restart needed.
+
 ## 2026-10-28
 
 - Document Full Agent's existing arbitrary dedicated NIP-98 signing and add composition coverage for durable mode selection, running-client replacement adoption, private connection independence, exact request binding and replay rejection. Generic kind 27235 signing remains reserved.
