@@ -146,3 +146,29 @@ export function describeSchedule(cronExpression, timezone) {
   if (!text) return "";
   return timezone ? `${text} (${timezone})` : text;
 }
+
+/** The zone this browser shows run timestamps in (IANA name). */
+export function displayTimezone() {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return zone && isValidTimezone(zone) ? zone : "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/** "30 Oct, 14:05 AWST" — a run timestamp with its display zone abbreviation. */
+export function formatTimestamp(iso, timezone) {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return String(iso);
+  const timeZone = timezone && isValidTimezone(timezone) ? timezone : undefined;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone,
+    timeZoneName: "short",
+  });
+}

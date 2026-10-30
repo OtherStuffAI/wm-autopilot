@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildCron, describeCron, parseCron } from "./schedule-helpers.js";
+import { buildCron, describeCron, displayTimezone, formatTimestamp, parseCron } from "./schedule-helpers.js";
 
 const roundTrip = (expr) => {
   const s = parseCron(expr);
@@ -46,5 +46,24 @@ describe("parseCron edit round-trip", () => {
     expect(describeCron("0 0 * * *")).toBe("Daily at 00:00");
     expect(describeCron("30 8 * * 1-5")).toBe("Weekdays at 08:30");
     expect(describeCron("0 */4 * * *")).toBe("Every 4h at :00");
+  });
+});
+
+describe("timestamp display zone", () => {
+  test("labels the zone and converts into it", () => {
+    const perth = formatTimestamp("2026-10-30T06:05:00Z", "Australia/Perth");
+    expect(perth).toContain("2:05");
+    expect(perth).toMatch(/GMT\+8|AWST/);
+    expect(formatTimestamp("2026-10-30T06:05:00Z", "UTC")).toMatch(/UTC/);
+  });
+
+  test("handles empty, invalid and unknown-zone input", () => {
+    expect(formatTimestamp("")).toBe("—");
+    expect(formatTimestamp("nope")).toBe("nope");
+    expect(formatTimestamp("2026-10-30T06:05:00Z", "Not/AZone")).toMatch(/\d/);
+  });
+
+  test("reports a valid browser zone", () => {
+    expect(displayTimezone().length).toBeGreaterThan(0);
   });
 });

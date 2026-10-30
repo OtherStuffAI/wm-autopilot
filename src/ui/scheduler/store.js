@@ -7,6 +7,7 @@
 
 import Alpine from "/vendor/alpinejs/module.esm.js";
 import { Dexie, schedulerDb, JobStore } from "./db.js";
+import { displayTimezone, formatTimestamp } from "./schedule-helpers.js";
 import {
   fetchSchedulerJobs,
   createSchedulerJob,
@@ -184,18 +185,12 @@ export function initSchedulerStore({ showToast, syncOnInit = true }) {
 
     // ----- Helpers -----
 
+    get displayTimezone() {
+      return displayTimezone();
+    },
+
     formatTime(iso) {
-      if (!iso) return "—";
-      try {
-        return new Date(iso).toLocaleString(undefined, {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-      } catch {
-        return iso;
-      }
+      return formatTimestamp(iso);
     },
 
     cleanup() {

@@ -38,6 +38,7 @@ function toolbar() {
       <select class="wm-select" x-model="filters.type" data-testid="scheduler-filter-type">${options(TYPE_FILTERS)}</select></label>
     <button type="button" class="wm-btn wm-btn--sm" x-show="filtersActive" @click="clearFilters()">Clear filters</button>
     <p class="wm-trigger-help" role="status" aria-live="polite" x-text="resultsText"></p>
+    <p class="wm-trigger-help" data-testid="scheduler-display-timezone" x-text="'Next run, last run and history times are shown in ' + $store.scheduler.displayTimezone + ' (this browser). Each schedule runs in its own timezone.'"></p>
   </div>`;
 }
 
@@ -70,7 +71,7 @@ function confirmation() {
 
 function runHistory() {
   return `<div class="wm-trigger-runs" x-show="runsJobId === job.id" role="region" :aria-label="'Run history for ' + job.name">
-    <div class="wm-trigger-runs-head"><strong>Run history</strong>
+    <div class="wm-trigger-runs-head"><strong>Run history</strong> <span class="wm-trigger-meta" x-text="'Times in ' + $store.scheduler.displayTimezone"></span>
       <button type="button" class="wm-btn wm-btn--sm" @click="closeRuns(job)">Close</button></div>
     <p class="wm-trigger-state" role="status" x-show="loadingRuns">Loading runs…</p>
     <div class="wm-trigger-banner wm-trigger-banner--error" role="alert" x-show="runsError">
