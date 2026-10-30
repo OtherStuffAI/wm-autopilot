@@ -6,7 +6,7 @@
 
 import { renderAgentOptions } from "../common/agent-options.js";
 import { runIdentityField } from "./run-identity.js";
-import { FREQUENCY_OPTIONS, WEEKDAY_OPTIONS } from "./schedule-helpers.js";
+import { CUSTOM_FREQUENCY_LABEL, FREQUENCY_OPTIONS, WEEKDAY_OPTIONS } from "./schedule-helpers.js";
 
 const NAMES = {
   create: {
@@ -74,7 +74,7 @@ function whenSection(n) {
         <div class="wm-form-group wm-trigger-field">
           <label for="scheduler-${n.mode}-frequency">Repeat</label>
           <div class="wm-trigger-schedule-row">
-            <select id="scheduler-${n.mode}-frequency" class="wm-select" x-model="${n.sched}.frequency" data-testid="scheduler-${n.mode}-frequency">${options(FREQUENCY_OPTIONS)}</select>
+            <select id="scheduler-${n.mode}-frequency" class="wm-select" x-model="${n.sched}.frequency" data-testid="scheduler-${n.mode}-frequency">${options(FREQUENCY_OPTIONS)}<template x-if="${n.sched}.frequency === 'custom'"><option value="custom">${CUSTOM_FREQUENCY_LABEL}</option></template></select>
             <template x-if="${n.needsWeekday}">
               <select class="wm-select" x-model="${n.sched}.weekday" aria-label="Day of week">${options(WEEKDAY_OPTIONS)}</select>
             </template>

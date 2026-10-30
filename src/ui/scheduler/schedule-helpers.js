@@ -1,10 +1,11 @@
 /** Pure schedule helpers shared by the trigger form and list. */
 
 /** Build a cron expression from the friendly schedule fields. */
-export function buildCron(frequency, hour, minute, weekday) {
+export function buildCron(frequency, hour, minute, weekday, customCron = "") {
   const mm = String(minute);
   const hh = String(hour);
   switch (frequency) {
+    case "custom":        return customCron;
     case "every_minute":  return "* * * * *";
     case "every_5min":    return "*/5 * * * *";
     case "every_15min":   return "*/15 * * * *";
@@ -32,7 +33,10 @@ export function describeCron(expr) {
   };
   if (map[expr]) return map[expr];
   const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return expr;
+  const candidate = parts.length === 5 ? friendlyCandidate(parts.join(" ")) : null;
+  if (!candidate || buildCron(candidate.frequency, candidate.hour, candidate.minute, candidate.weekday) !== parts.join(" ")) {
+    return `Custom schedule: ${expr.trim()}`;
+  }
   const [mm, hh, , , dow] = parts;
   const time = `${hh.padStart(2, "0")}:${mm.padStart(2, "0")}`;
   if (parts[1] === "*") return `Hourly at :${mm.padStart(2, "0")}`;
@@ -54,31 +58,49 @@ export function frequencyNeedsHour(freq) {
   return ["daily", "weekdays", "weekly"].includes(freq);
 }
 
-/** Parse a cron expression back into friendly schedule picker fields. */
-export function parseCron(expr) {
-  if (!expr) return { frequency: "daily", hour: 9, minute: 0, weekday: "1" };
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return { frequency: "daily", hour: 9, minute: 0, weekday: "1" };
-  const [mm, hh, , , dow] = parts;
+/** Frequency used when a saved expression has no exact friendly equivalent. */
+export const CUSTOM_FREQUENCY = "custom";
 
-  // Fixed-interval patterns
-  if (expr === "* * * * *") return { frequency: "every_minute", hour: 9, minute: 0, weekday: "1" };
-  if (expr === "*/5 * * * *") return { frequency: "every_5min", hour: 9, minute: 0, weekday: "1" };
-  if (expr === "*/15 * * * *") return { frequency: "every_15min", hour: 9, minute: 0, weekday: "1" };
-  if (expr === "*/30 * * * *") return { frequency: "every_30min", hour: 9, minute: 0, weekday: "1" };
+const FIXED_FREQUENCIES = {
+  "* * * * *": "every_minute",
+  "*/5 * * * *": "every_5min",
+  "*/15 * * * *": "every_15min",
+  "*/30 * * * *": "every_30min",
+};
+const HOUR_STEP_FREQUENCIES = { "*": "hourly", "*/2": "every_2h", "*/3": "every_3h", "*/4": "every_4h", "*/6": "every_6h" };
+const PLAIN_NUMBER = /^\d{1,2}$/;
 
-  const minute = parseInt(mm, 10) || 0;
-  const hour = parseInt(hh, 10) || 9;
-
-  if (hh === "*") return { frequency: "hourly", hour: 9, minute, weekday: "1" };
-  if (hh === "*/2") return { frequency: "every_2h", hour: 9, minute, weekday: "1" };
-  if (hh === "*/3") return { frequency: "every_3h", hour: 9, minute, weekday: "1" };
-  if (hh === "*/4") return { frequency: "every_4h", hour: 9, minute, weekday: "1" };
-  if (hh === "*/6") return { frequency: "every_6h", hour: 9, minute, weekday: "1" };
-  if (hh.startsWith("*/")) return { frequency: "every_6h", hour: 9, minute, weekday: "1" };
+function friendlyCandidate(expr) {
+  const parts = expr.split(" ");
+  if (parts.length !== 5) return null;
+  const [mm, hh, dom, mon, dow] = parts;
+  if (FIXED_FREQUENCIES[expr]) return { frequency: FIXED_FREQUENCIES[expr], hour: 9, minute: 0, weekday: "1" };
+  if (dom !== "*" || mon !== "*" || !PLAIN_NUMBER.test(mm)) return null;
+  const minute = Number(mm);
+  if (HOUR_STEP_FREQUENCIES[hh] && dow === "*") return { frequency: HOUR_STEP_FREQUENCIES[hh], hour: 9, minute, weekday: "1" };
+  if (!PLAIN_NUMBER.test(hh)) return null;
+  const hour = Number(hh);
+  if (dow === "*") return { frequency: "daily", hour, minute, weekday: "1" };
   if (dow === "1-5") return { frequency: "weekdays", hour, minute, weekday: "1" };
-  if (dow !== "*") return { frequency: "weekly", hour, minute, weekday: dow };
-  return { frequency: "daily", hour, minute, weekday: "1" };
+  if (/^[0-6]$/.test(dow)) return { frequency: "weekly", hour, minute, weekday: dow };
+  return null;
+}
+
+/**
+ * Parse a cron expression into friendly picker fields. Only expressions the
+ * picker reproduces exactly (and whose minute is a selectable 5-minute step)
+ * map to a friendly frequency; anything else becomes `custom` and keeps the
+ * original text, so opening and saving an edit never rewrites the schedule.
+ */
+export function parseCron(expr) {
+  const text = typeof expr === "string" ? expr.trim().replace(/\s+/g, " ") : "";
+  if (!text) return { ...DEFAULT_SCHEDULE };
+  const candidate = friendlyCandidate(text);
+  const exact = candidate
+    && candidate.minute % 5 === 0 && candidate.minute < 60 && candidate.hour < 24
+    && buildCron(candidate.frequency, candidate.hour, candidate.minute, candidate.weekday) === text;
+  if (exact) return candidate;
+  return { frequency: CUSTOM_FREQUENCY, hour: 9, minute: 0, weekday: "1", customCron: expr.trim() };
 }
 
 export const DEFAULT_SCHEDULE = Object.freeze({ frequency: "daily", hour: 9, minute: 0, weekday: "1" });
@@ -97,6 +119,9 @@ export const FREQUENCY_OPTIONS = Object.freeze([
   ["weekdays", "Weekdays (Mon–Fri)"],
   ["weekly", "Weekly"],
 ]);
+
+/** Shown only while a saved schedule has no friendly equivalent. */
+export const CUSTOM_FREQUENCY_LABEL = "Custom (keep current expression)";
 
 export const WEEKDAY_OPTIONS = Object.freeze([
   ["1", "Monday"], ["2", "Tuesday"], ["3", "Wednesday"], ["4", "Thursday"],

@@ -158,7 +158,7 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
     },
 
     get computedCron() {
-      return buildCron(this.sched.frequency, this.sched.hour, this.sched.minute, this.sched.weekday);
+      return buildCron(this.sched.frequency, this.sched.hour, this.sched.minute, this.sched.weekday, this.sched.customCron);
     },
 
     get cronDescription() {
@@ -404,7 +404,7 @@ export function initSchedulerPage({ showToast, openDirectoryBrowser }) {
     },
 
     get editComputedCron() {
-      return buildCron(this.editSched.frequency, this.editSched.hour, this.editSched.minute, this.editSched.weekday);
+      return buildCron(this.editSched.frequency, this.editSched.hour, this.editSched.minute, this.editSched.weekday, this.editSched.customCron);
     },
 
     get editCronDescription() {
