@@ -636,3 +636,97 @@ test("child pipeline agents inherit root Flight Deck context instead of mapped i
   expect(body.runId).toBe(c.id); expect(body.workspace.workspaceId).toBe("trusted-workspace");
   expect(body.chat).toMatchObject({ channelId: "trusted-channel", threadId: "trusted-thread" }); expect(body.bot.npub).toBe("npub1trusted");
 });
+
+for (const outcome of ["saved", "legacy", "uncertain_retry", "missing_base", "bad_protocol", "bad_session", "missing_protocol", "missing_session", "edit_lease_held", "document_edit_protocol_conflict", "permission_denied", "document_recovery_created", "row_version_conflict"] as const) {
+  test(`MCP doc_update negotiated authority: ${outcome}`, async () => {
+    const store = new PipelineStore(join(tmpdir(), `wingman-mcp-concurrent-${randomUUID()}.sqlite`));
+    const run = store.createRun({ definitionId: "document", name: "document", scope: "shared", input: {
+      workspace: { workspaceId: "workspace-1", backendBaseUrl: "http://tower.test", sourceAppNpub: "npub-app", subscriptionId: "sub-1" },
+      record: { recordId: "doc-1", recordFamily: "document" },
+    } });
+    const sessions = new Map([["caller-1", buildSession({ id: "caller-1", metadata: { AGENT: true, flowRunId: run.id } })]]);
+    const botSecret = generateSecretKey();
+    const botPubkeyHex = getPublicKey(botSecret);
+    const callbacks: any[] = [];
+    const handler = createWingmanMcpApiHandler(makeDeps(sessions, {
+      pipelineStore: store,
+      getBotIdentityForSubscription: () => ({ botSecret, botPubkeyHex, botNpub: nip19.npubEncode(botPubkeyHex) }),
+      documentDirectStore: { getBySession: () => null, recordCallback: (value: unknown) => callbacks.push(value) } as any,
+    }));
+    const calls: Array<{ path: string; method: string; body: any }> = [];
+    let canonicalWrites = 0;
+    const peerSessions = new Map([["peer-web-session", "peer-token"]]);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const request = new Request(input, init);
+      const url = new URL(request.url);
+      const body = await request.clone().json().catch(() => null);
+      calls.push({ path: url.pathname, method: request.method, body });
+      expect(request.headers.get("authorization")).toStartWith("Nostr ");
+      if (url.pathname.includes("flightdeck-pg")) expect(request.headers.get("x-flightdeck-pg-app-npub")).toBe("npub-app");
+      if (url.pathname.endsWith("/edit-leases")) {
+        expect(url.searchParams.get("entity_type")).toBe("document");
+        expect(url.searchParams.get("entity_id")).toBe("doc-1");
+        return Response.json({ document_edit_protocol: "document_edit_session_v1",
+          ...(outcome === "legacy" ? {} : { document_edit_protocols: ["document_concurrent_edit_v1"] }), lease: { id: "peer-web-lease" } });
+      }
+      if (url.pathname.endsWith("/acquire")) {
+        if (outcome === "legacy") {
+          expect(body).toEqual({ entity_type: "document", entity_id: "doc-1", ttl_seconds: 120 });
+          return Response.json({ lease: { lease_token: "bot-token" } });
+        }
+        expect(body.document_edit_protocol).toBe("document_concurrent_edit_v1");
+        expect(body.editor_session_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+        expect(body.takeover).toBeUndefined();
+        expect(body.expected_lease_id).toBeUndefined();
+        if (["edit_lease_held", "document_edit_protocol_conflict", "permission_denied"].includes(outcome)) {
+          return Response.json({ error: outcome, code: outcome }, { status: outcome === "permission_denied" ? 403 : 409 });
+        }
+        peerSessions.set(body.editor_session_id, "bot-token");
+        return Response.json({ document_edit_protocol: outcome === "missing_protocol" ? undefined : outcome === "bad_protocol" ? "document_edit_session_v1" : "document_concurrent_edit_v1",
+          lease: { lease_token: "bot-token", editor_session_id: outcome === "missing_session" ? undefined : outcome === "bad_session" ? "wrong" : body.editor_session_id },
+          doc: { row_version: 8 }, canonical_version: { version_id: "doc-1:8" }, taken_over: false }, { status: 201 });
+      }
+      if (url.pathname.endsWith("/storage/prepare")) return Response.json({ object_id: "uploaded-draft" });
+      if (url.pathname.startsWith("/api/v4/storage/uploaded-draft")) return Response.json({ ok: true });
+      if (url.pathname.endsWith("/docs/doc-1") || url.pathname.endsWith("/docs/doc-1/body")) {
+        if (request.method === "GET") return Response.json({ doc: { id: "doc-1", row_version: outcome === "document_recovery_created" ? 8 : 6, storage_object_id: "base" },
+          canonical_version: { version_id: outcome === "document_recovery_created" ? "doc-1:8" : "doc-1:6", row_version: outcome === "document_recovery_created" ? 8 : 6, storage_object_id: "base", body_sha256_hex: "a".repeat(64) } });
+        expect(body).toMatchObject({ row_version: 6, base_version_id: "doc-1:6", base_body_sha256_hex: "a".repeat(64), lease_token: "bot-token", storage_object_id: "uploaded-draft" });
+        if (outcome === "uncertain_retry") {
+          if (canonicalWrites === 0) { canonicalWrites++; throw new Error("Uncertain delivery"); }
+          return Response.json({ error: "Uncertain delivery recovery preserved", code: "document_recovery_created" }, { status: 409 });
+        }
+        if (["document_recovery_created", "row_version_conflict"].includes(outcome)) return Response.json({ error: outcome, code: outcome, details: { recovery_id: "recovery-1" } }, { status: 409 });
+        return Response.json({ doc: { id: "doc-1", row_version: 7 } });
+      }
+      throw new Error(`Unexpected request ${request.method} ${url.pathname}`);
+    }) as typeof fetch;
+    const url = new URL("http://localhost/api/mcp/wingman/flightdeck");
+    const invoke = () => handler(new Request(url, { method: "POST", body: JSON.stringify({ sessionId: "caller-1", action: "doc_update", documentId: "doc-1", body: "Preserve draft", ...(outcome === "legacy" || outcome === "missing_base" ? {} : { captured_base: { row_version: 6, base_version_id: "doc-1:6", base_body_sha256_hex: "a".repeat(64) } }), summary: "Summary", metadata: { test: true } }) }), url, "POST");
+    const succeeds = outcome === "saved" || outcome === "legacy";
+    try {
+      const read = await handler(new Request(url, { method: "POST", body: JSON.stringify({ sessionId: "caller-1", action: "doc_get", documentId: "doc-1" }) }), url, "POST");
+      expect(read?.status).toBe(200);
+      expect((await read!.json()).captured_base).toMatchObject({ row_version: outcome === "document_recovery_created" ? 8 : 6,
+        base_version_id: outcome === "document_recovery_created" ? "doc-1:8" : "doc-1:6", base_body_sha256_hex: "a".repeat(64) });
+      const response = await invoke();
+      expect(response?.status).toBe(succeeds ? 200 : 500);
+      if (!succeeds) expect((await response!.json()).error).toContain(
+        ["bad_protocol", "bad_session", "missing_protocol", "missing_session"].includes(outcome) ? "update refused" : outcome === "missing_base" ? "requires captured_base" : outcome === "uncertain_retry" ? "Uncertain delivery" : outcome);
+      if (outcome === "uncertain_retry") {
+        expect((await invoke())?.status).toBe(500);
+        expect(canonicalWrites).toBe(1);
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(calls.filter(call => call.path.endsWith("/acquire"))).toHaveLength(outcome === "missing_base" ? 0 : outcome === "uncertain_retry" ? 2 : 1);
+    const saves = succeeds || outcome === "uncertain_retry" || outcome === "document_recovery_created" || outcome === "row_version_conflict";
+    expect(calls.filter(call => call.method === "PATCH")).toHaveLength(outcome === "uncertain_retry" ? 2 : saves ? 1 : 0);
+    expect(calls.filter(call => call.path.includes("storage"))).toHaveLength(outcome === "uncertain_retry" ? 6 : saves ? 3 : 0);
+    expect(peerSessions.get("peer-web-session")).toBe("peer-token");
+    expect(callbacks).toHaveLength(outcome === "uncertain_retry" ? 2 : 1);
+    expect(callbacks[0]).toMatchObject({ sessionId: "caller-1", documentId: "doc-1", kind: "document_update", state: succeeds ? "succeeded" : "failed" });
+  });
+}

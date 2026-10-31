@@ -356,7 +356,7 @@ describe('flightdeck pg cli', () => {
     expect(requests.some((request) => request.url === 'http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/tasks/task-1/state' && request.method === 'POST')).toBe(true);
   });
 
-  for (const outcome of ["saved", "document_recovery_created", "row_version_conflict", "bad_echo"]) {
+  for (const outcome of ["saved", "document_recovery_created", "row_version_conflict", "bad_echo", "missing_base"]) {
     test(`bot document concurrent update: ${outcome}`, async () => {
       const { router } = makeFlightDeckRouter();
       const calls: Array<{ method: string; path: string; body: any }> = [];
@@ -367,6 +367,10 @@ describe('flightdeck pg cli', () => {
         const path = new URL(request.url).pathname;
         const body = request.method === "POST" || request.method === "PATCH" ? await request.clone().json().catch(() => null) : null;
         calls.push({ method: request.method, path, body });
+        if (outcome === "document_recovery_created" && path.endsWith("/docs/doc-1") && request.method === "GET") {
+          return Response.json({ doc: { row_version: 8, storage_object_id: "new-base" }, canonical_version: {
+            row_version: 8, storage_object_id: "new-base", version_id: "doc-1:8", body_sha256_hex: "b".repeat(64) } });
+        }
         if (path.endsWith("/edit-leases")) {
           return Response.json({ document_edit_protocol: "document_edit_session_v1",
             document_edit_protocols: ["document_concurrent_edit_v1"], lease: { id: "peer-web-lease" } });
@@ -392,11 +396,12 @@ describe('flightdeck pg cli', () => {
       const bodyFile = join(tempDir, "draft.md");
       writeFileSync(bodyFile, "Preserve this draft");
       const result = await runFlightDeckPgCli(["doc", "update", "doc-1", "--body-file", bodyFile, "--workspace", "workspace-1",
+        ...(outcome === "missing_base" ? [] : ["--base-row-version", "3", "--base-version-id", "doc-1:3", "--base-body-sha256-hex", "a".repeat(64)]),
         "--json", "--key", testKey, "--app-npub", "npub1app", "--tower-url", "http://tower.test"], { fetchImpl: fetchImpl as typeof fetch });
       rmSync(tempDir, { recursive: true, force: true });
       expect(result.exitCode).toBe(outcome === "saved" ? 0 : 1);
-      expect(calls.filter(call => call.path.endsWith("/acquire"))).toHaveLength(1);
-      expect(calls.filter(call => call.method === "PATCH")).toHaveLength(outcome === "bad_echo" ? 0 : 1);
+      expect(calls.filter(call => call.path.endsWith("/acquire"))).toHaveLength(outcome === "missing_base" ? 0 : 1);
+      expect(calls.filter(call => call.method === "PATCH")).toHaveLength(outcome === "bad_echo" || outcome === "missing_base" ? 0 : 1);
       expect(peerActive).toBe(true);
       expect(JSON.stringify(calls)).not.toContain(peerToken);
       if (outcome === "bad_echo") expect(calls.some(call => call.path.endsWith("/storage/prepare"))).toBe(false);

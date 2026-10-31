@@ -1,8 +1,8 @@
+import { capturedDocumentBase, documentUpdateBase, requireCapturedDocumentBase, type CapturedDocumentBase } from "./document-update-base.ts";
 import { ContextTreeClient } from "./context-tree.ts";
 import { acquireDocumentEditLease } from "./document-edit-lease.ts";
 import { FlightDeckPgResponseError } from "./response-error.ts";
 import { readFlightDeckHistory } from "./thread-history.ts";
-import { flightDeckDocumentBase } from "../agent-chat/flightdeck-document-base";
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { basename, dirname, parse, relative, sep } from 'node:path';
@@ -422,19 +422,21 @@ export class FlightDeckPgClient {
     workspaceId: string,
     documentId: string,
     includeBody: boolean,
-  ): Promise<FlightDeckPgDocumentResult & { body_text?: string | null }> {
+  ): Promise<FlightDeckPgDocumentResult & { body_text?: string | null; captured_base: CapturedDocumentBase | null }> {
     const result = await fetchFlightDeckPgDocument({ ...this.base({ workspaceId }), documentId, includeBody });
-    return includeBody ? { ...result, body_text: decodeFlightDeckPgDocumentBody(result) } : result;
+    return { ...result, captured_base: result.canonical_version ? capturedDocumentBase(result) : null, ...(includeBody ? { body_text: decodeFlightDeckPgDocumentBody(result) } : {}) };
   }
 
-  async updateDoc(workspaceId: string, documentId: string, body: string) {
+  async updateDoc(workspaceId: string, documentId: string, body: string, capturedBase?: CapturedDocumentBase) {
+    if (capturedBase !== undefined) requireCapturedDocumentBase(capturedBase);
     const current = await fetchFlightDeckPgDocument({ ...this.base({ workspaceId }), documentId });
     const doc = current.doc as { row_version?: number; title?: string | null } | undefined;
     const rowVersion = Number(doc?.row_version);
     if (!Number.isInteger(rowVersion) || rowVersion < 1) throw new Error('Flight Deck PG doc update requires doc.row_version from doc show response.');
     const leaseToken = await acquireDocumentEditLease(workspaceId, documentId,
-      (method, path, query, payload) => this.signedJson(method, path, query, payload));
-    return await updateFlightDeckPgDocument({ ...this.base({ workspaceId }), documentId, title: doc?.title ?? undefined, body, rowVersion, leaseToken, ...flightDeckDocumentBase(current) });
+      (method, path, query, payload) => this.signedJson(method, path, query, payload),
+      () => { requireCapturedDocumentBase(capturedBase); });
+    return await updateFlightDeckPgDocument({ ...this.base({ workspaceId }), documentId, title: doc?.title ?? undefined, body, leaseToken, ...documentUpdateBase(current, capturedBase) });
   }
 
   async moveDoc(workspaceId: string, documentId: string, destinationChannelId: string, destinationScopeId?: string | null) {

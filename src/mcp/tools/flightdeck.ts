@@ -68,6 +68,11 @@ export const flightdeckDocGetDescription =
 export const flightdeckDocUpdateSchema = {
   document_id: z.string().min(1).describe("Flight Deck document id"),
   body: z.string().min(1).describe("Updated document body"),
+  captured_base: z.object({
+    row_version: z.number().int().positive(),
+    base_version_id: z.string().min(1),
+    base_body_sha256_hex: z.string().regex(/^[0-9a-f]{64}$/i),
+  }).optional().describe("Required for concurrent updates: copy row_version and canonical version_id/body_sha256_hex from the doc_get used to author this draft; retain on retry"),
 };
 export const flightdeckDocUpdateDescription =
   "Update a Flight Deck PG document body through Tower typed document routes, acquiring an edit lease first. Never falls back to Yoke.";

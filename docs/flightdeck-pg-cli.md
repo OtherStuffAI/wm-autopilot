@@ -94,12 +94,22 @@ legacy marker does not select concurrent mode. Servers without the capability
 retain legacy acquisition; inspection errors and refused or inconsistent
 concurrent acquisition fail without legacy retry or takeover.
 
-The body retains the canonical version, hash and row version captured before
-acquisition, even if acquisition returns a newer head. A racing save therefore
-uses Tower's existing CAS/recovery behavior, rather than relabelling the draft
-against a newer base. The helper performs one save without renewal or automatic
-merge/retry. On conflict or uncertain delivery, retain the input body file and
-inspect Tower's canonical/recovery records before an explicit reconciliation.
+CLI `doc show --body` and MCP `doc_get` return `captured_base` with the
+coherent `row_version`, `base_version_id`, and `base_body_sha256_hex` for that
+read (null if an older server omits canonical identity). Preserve this identity
+with the draft. MCP `doc_update` accepts it as `captured_base`; CLI updates use
+`--base-row-version`, `--base-version-id`, and `--base-body-sha256-hex`.
+Concurrent updates without a complete captured base fail before acquiring or
+uploading. Fetch and review before drafting; do not attach a newer base to an
+older draft. Old servers retain their existing implicit-base behavior when no
+captured identity is supplied.
+
+Both MCP and CLI submit the captured identity unchanged, even if the latest
+read or acquisition returns a newer head. Tower preserves stale work through
+its CAS/recovery contract. The helper performs one save without renewal or
+automatic merge/retry. On conflict or uncertain delivery, retain the draft and
+its captured base and inspect canonical/recovery records before explicitly
+reconciling. Retrying must keep the original base; never refresh it blindly.
 Task and scope lease behavior is unchanged.
 
 This is source support only until the concurrent Tower schema/server and the

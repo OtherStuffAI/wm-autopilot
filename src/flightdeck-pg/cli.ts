@@ -165,7 +165,10 @@ async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagM
     includeComments: !flags.has('--no-comments'),
     downloadStorage: !flags.has('--no-storage'),
   });
-  if (area === 'doc' && action === 'update') return await client.updateDoc(workspaceId, requiredArg(id, 'doc id'), readTextFile(requiredFlag(flags, '--body-file', 'body file')));
+  if (area === 'doc' && action === 'update') return await client.updateDoc(workspaceId, requiredArg(id, 'doc id'), readTextFile(requiredFlag(flags, '--body-file', 'body file')),
+    flags.get('--base-row-version') || flags.get('--base-version-id') || flags.get('--base-body-sha256-hex') ? {
+      row_version: Number(flags.get('--base-row-version')), base_version_id: String(flags.get('--base-version-id') ?? ''), base_body_sha256_hex: String(flags.get('--base-body-sha256-hex') ?? ''),
+    } : undefined);
   if (area === 'doc' && action === 'move') return await client.moveDoc(workspaceId, requiredArg(id, 'doc id'), requiredFlag(flags, '--destination-channel', 'destination channel id'), stringFlag(flags, '--destination-scope'));
   if (area === 'doc' && action === 'comments') return await client.listDocComments(workspaceId, requiredArg(id, 'doc id'), limit);
   if (area === 'doc' && action === 'reply') return await client.replyDoc(workspaceId, requiredArg(id, 'doc id'), requiredFlag(flags, '--body', 'body'), stringFlag(flags, '--comment'));

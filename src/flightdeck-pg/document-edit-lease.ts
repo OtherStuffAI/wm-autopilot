@@ -5,13 +5,14 @@ const concurrentProtocol = "document_concurrent_edit_v1";
 type SignedJson = (method: string, path: string, query?: Record<string, string>, body?: unknown) => Promise<unknown>;
 
 /** Negotiate once: a refused or inconsistent concurrent acquire must never retry legacy. */
-export async function acquireDocumentEditLease(workspaceId: string, documentId: string, request: SignedJson): Promise<string> {
+export async function acquireDocumentEditLease(workspaceId: string, documentId: string, request: SignedJson, beforeConcurrentAcquire?: () => void): Promise<string> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/edit-leases`;
   const inspection = await request("GET", path, { entity_type: "document", entity_id: documentId }) as {
     document_edit_protocols?: unknown;
   };
   const concurrent = Array.isArray(inspection.document_edit_protocols)
     && inspection.document_edit_protocols.includes(concurrentProtocol);
+  if (concurrent) beforeConcurrentAcquire?.();
   const editorSessionId = concurrent ? randomUUID() : undefined;
   const result = await request("POST", `${path}/acquire`, undefined, {
     entity_type: "document",

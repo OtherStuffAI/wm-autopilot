@@ -1,8 +1,9 @@
+import { capturedDocumentBase, documentUpdateBase, requireCapturedDocumentBase } from "../flightdeck-pg/document-update-base.ts";
+import { acquireNegotiatedDocumentEditLease } from "../agent-chat/document-edit-lease.ts";
 import { handleContextTreeHelper } from "./context-tree-helper.ts";
 import { rootPipelineRunId } from "../pipelines/pipeline-run-authority";
 import { invokeNativeProjectTool } from '../pipelines/native-project-tool.ts';
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
-import { flightDeckDocumentBase } from "../agent-chat/flightdeck-document-base";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
@@ -1457,6 +1458,7 @@ async function handleFlightDeckHelper(
       ok: true,
       ...result,
       body_text: decodeFlightDeckPgDocumentBody(result),
+      captured_base: result.canonical_version ? capturedDocumentBase(result) : null,
     });
   }
 
@@ -1468,6 +1470,7 @@ async function handleFlightDeckHelper(
       return jsonError("body, title, summary, or metadata is required", 400);
     }
     try {
+      if (body.captured_base !== undefined) requireCapturedDocumentBase(body.captured_base);
       const current = await fetchFlightDeckPgDocument({ ...pg, documentId });
       const rowVersion = Number(asObject(current.doc).row_version);
       if (!Number.isFinite(rowVersion) || rowVersion <= 0) {
@@ -1475,18 +1478,9 @@ async function handleFlightDeckHelper(
         deps.documentDirectStore?.recordCallback({ sessionId, kind: 'document_update', documentId, state: 'failed', error });
         return jsonError(error, 409);
       }
-      const lease = await acquireFlightDeckPgEditLease({
-        ...pg,
-        entityType: "document",
-        entityId: documentId,
-        ttlSeconds: 120,
+      const leaseToken = await acquireNegotiatedDocumentEditLease({ ...pg, documentId,
+        beforeConcurrentAcquire: () => { requireCapturedDocumentBase(body.captured_base); },
       });
-      const leaseToken = asString(asObject(lease.lease).lease_token);
-      if (!leaseToken) {
-        const error = `Document ${documentId} edit lease did not include a token`;
-        deps.documentDirectStore?.recordCallback({ sessionId, kind: 'document_update', documentId, state: 'failed', error });
-        return jsonError(error, 409);
-      }
       const result = await updateFlightDeckPgDocument({
         ...pg,
         documentId,
@@ -1494,9 +1488,8 @@ async function handleFlightDeckHelper(
         body: docBody,
         summary: body.summary === undefined ? undefined : asString(body.summary),
         metadata: body.metadata === undefined ? undefined : asObject(body.metadata),
-        rowVersion,
         leaseToken,
-        ...flightDeckDocumentBase(current),
+        ...documentUpdateBase(current, body.captured_base),
       });
       deps.documentDirectStore?.recordCallback({ sessionId, kind: 'document_update', documentId, state: 'succeeded' });
       return jsonOk({ ok: true, result });
