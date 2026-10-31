@@ -15,3 +15,14 @@ Repeat/concurrent setup is serialized and reuses canonical identities. A paused,
 Browser state uses the existing Workspaces Dexie database and Alpine live queries. Only whitelisted public metadata is cached. Provider handles, signing keys, signatures and credentials are not cached. Cancel stops the local flow and ignores late responses; setup already accepted by the server may finish, so inspect workspace health afterward. Changing browser identity invalidates discovery; it does not revoke separately authorized persistent Autopilot connections.
 
 Source activation requires an operator-controlled restart of the existing Bun Autopilot after review. Reload the Workspaces page afterward and verify real NBrowser consent, local agent membership, event catch-up, both Agent Direct and pipeline targeting, and recovery on the intended NStack. Isolated browser fixtures test the real UI/modules with synthetic provider/network callbacks; they do not establish live NStack acceptance.
+
+## Ambulando HTTPS agent discovery
+
+An nStack may explicitly advertise this installation's public HTTPS origin via
+Tower's `NSTACK_AUTOPILOT_PUBLIC_ORIGIN`. Authenticated owner control-plane health,
+agent discovery and agent read views remain available when the FIPS listener is
+unavailable. Owner/delegation scope, agent resource filters and instruction
+visibility checks are unchanged. FIPS manifests and signed FIPS connection
+packages still require their approved listening endpoint; choosing FIPS never
+falls back to HTTPS. Activating the owner-read change requires an approved
+Autopilot restart; no restart is implied by a source build or client update.

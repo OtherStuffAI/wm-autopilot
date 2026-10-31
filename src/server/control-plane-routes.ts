@@ -267,7 +267,11 @@ export async function handleControlPlaneApi(
   if (authContext.authMethod !== "nip98") {
     return noStore(Response.json({ error: "nip98-authentication-required" }, { status: 401 }));
   }
-  const installation = readyInstallation(ctx);
+  // Owner reads authenticate independently of transport. Only the FIPS manifest
+  // promises a listening private endpoint; HTTPS health/agents remain usable.
+  const installation = route.resource === "manifest" ? readyInstallation(ctx)
+    : ctx.identity ? { identity: ctx.identity, fips: ctx.getFipsEndpoint() }
+      : Response.json({ error: "installation-identity-unavailable" }, { status: 503 });
   if (installation instanceof Response) return noStore(installation);
   const access = authorisedAgents(route, authContext, ctx);
   if (access instanceof Response) return noStore(access);

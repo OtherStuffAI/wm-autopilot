@@ -273,6 +273,13 @@ describe("control-plane routes", () => {
     const manifest = await request(`/api/owners/${owner}/control-plane/v1/manifest`, owner, ctx);
     expect(manifest?.status).toBe(503);
 
+    for (const resource of ["health", "agents", "agents/agent-visible/overview"]) {
+      const readable = await request(`/api/owners/${owner}/control-plane/v1/${resource}`, owner, ctx);
+      expect(readable?.status).toBe(200);
+    }
+    const denied = await request(`/api/owners/${owner}/control-plane/v1/agents`, delegate, context({ fips: "unavailable", delegation: null }));
+    expect(denied?.status).toBe(403);
+
     const mismatch = context({ fips: "mismatch" });
     const mismatchResponse = await handleControlPlaneApi(new Request(packageUrl), packageUrl, "GET", auth(owner), mismatch);
     expect(mismatchResponse?.status).toBe(503);
