@@ -1,4 +1,5 @@
 import { ContextTreeClient } from "./context-tree.ts";
+import { acquireDocumentEditLease } from "./document-edit-lease.ts";
 import { FlightDeckPgResponseError } from "./response-error.ts";
 import { readFlightDeckHistory } from "./thread-history.ts";
 import { flightDeckDocumentBase } from "../agent-chat/flightdeck-document-base";
@@ -431,9 +432,8 @@ export class FlightDeckPgClient {
     const doc = current.doc as { row_version?: number; title?: string | null } | undefined;
     const rowVersion = Number(doc?.row_version);
     if (!Number.isInteger(rowVersion) || rowVersion < 1) throw new Error('Flight Deck PG doc update requires doc.row_version from doc show response.');
-    const leaseResult = await acquireFlightDeckPgEditLease({ ...this.base({ workspaceId }), entityType: 'document', entityId: documentId });
-    const leaseToken = String(leaseResult.lease?.lease_token || '');
-    if (!leaseToken) throw new Error('Flight Deck PG edit lease acquire did not return lease_token.');
+    const leaseToken = await acquireDocumentEditLease(workspaceId, documentId,
+      (method, path, query, payload) => this.signedJson(method, path, query, payload));
     return await updateFlightDeckPgDocument({ ...this.base({ workspaceId }), documentId, title: doc?.title ?? undefined, body, rowVersion, leaseToken, ...flightDeckDocumentBase(current) });
   }
 

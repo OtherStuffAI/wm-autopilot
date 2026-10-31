@@ -356,6 +356,54 @@ describe('flightdeck pg cli', () => {
     expect(requests.some((request) => request.url === 'http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/tasks/task-1/state' && request.method === 'POST')).toBe(true);
   });
 
+  for (const outcome of ["saved", "document_recovery_created", "row_version_conflict", "bad_echo"]) {
+    test(`bot document concurrent update: ${outcome}`, async () => {
+      const { router } = makeFlightDeckRouter();
+      const calls: Array<{ method: string; path: string; body: any }> = [];
+      const peerToken = "peer-web-token";
+      let peerActive = true;
+      const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const path = new URL(request.url).pathname;
+        const body = request.method === "POST" || request.method === "PATCH" ? await request.clone().json().catch(() => null) : null;
+        calls.push({ method: request.method, path, body });
+        if (path.endsWith("/edit-leases")) {
+          return Response.json({ document_edit_protocol: "document_edit_session_v1",
+            document_edit_protocols: ["document_concurrent_edit_v1"], lease: { id: "peer-web-lease" } });
+        }
+        if (path.endsWith("/edit-leases/acquire")) {
+          expect(body.document_edit_protocol).toBe("document_concurrent_edit_v1");
+          expect(body.takeover).toBeUndefined();
+          return Response.json({ document_edit_protocol: outcome === "bad_echo" ? "document_edit_session_v1" : "document_concurrent_edit_v1",
+            lease: { lease_token: "bot-token", editor_session_id: body.editor_session_id },
+            // A newer acquire snapshot must never relabel the draft's captured base.
+            doc: { row_version: 8 }, canonical_version: { version_id: "doc-1:8" }, taken_over: false }, { status: 201 });
+        }
+        if (path.endsWith("/docs/doc-1") && request.method === "PATCH") {
+          expect(body).toMatchObject({ row_version: 3, base_version_id: "doc-1:3", base_body_sha256_hex: "a".repeat(64), lease_token: "bot-token" });
+          if (outcome !== "saved") return Response.json({ code: outcome, error: outcome, recovery: { id: "recovery-1" } }, { status: 409 });
+          return Response.json({ doc: { id: "doc-1", row_version: 4 } });
+        }
+        if (path.includes("/edit-leases/") && !path.endsWith("/acquire")) peerActive = false;
+        return router(request);
+      };
+      globalThis.fetch = fetchImpl as typeof fetch;
+      const tempDir = mkdtempSync(join(tmpdir(), "concurrent-doc-"));
+      const bodyFile = join(tempDir, "draft.md");
+      writeFileSync(bodyFile, "Preserve this draft");
+      const result = await runFlightDeckPgCli(["doc", "update", "doc-1", "--body-file", bodyFile, "--workspace", "workspace-1",
+        "--json", "--key", testKey, "--app-npub", "npub1app", "--tower-url", "http://tower.test"], { fetchImpl: fetchImpl as typeof fetch });
+      rmSync(tempDir, { recursive: true, force: true });
+      expect(result.exitCode).toBe(outcome === "saved" ? 0 : 1);
+      expect(calls.filter(call => call.path.endsWith("/acquire"))).toHaveLength(1);
+      expect(calls.filter(call => call.method === "PATCH")).toHaveLength(outcome === "bad_echo" ? 0 : 1);
+      expect(peerActive).toBe(true);
+      expect(JSON.stringify(calls)).not.toContain(peerToken);
+      if (outcome === "bad_echo") expect(calls.some(call => call.path.endsWith("/storage/prepare"))).toBe(false);
+      if (outcome === "document_recovery_created") expect(JSON.stringify(result)).toContain("document_recovery_created");
+    });
+  }
+
   test('moves tasks and documents through explicit typed routes', async () => {
     const requests: Request[] = [];
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -765,6 +813,9 @@ function makeFlightDeckRouter(): {
     }
     if (url.pathname === '/api/v4/flightdeck-pg/workspaces/workspace-1/tasks/task-1/comments' && method === 'POST') {
       return Response.json({ comment: { id: 'comment-2' } });
+    }
+    if (url.pathname.endsWith('/edit-leases') && method === 'GET') {
+      return Response.json({ document_edit_protocol: 'document_edit_session_v1' });
     }
     if (url.pathname === '/api/v4/flightdeck-pg/workspaces/workspace-1/edit-leases/acquire' && method === 'POST') {
       return Response.json({ lease: { lease_token: 'lease-1' } });

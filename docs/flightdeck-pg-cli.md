@@ -85,3 +85,24 @@ bun test src/flightdeck-pg/*.test.ts 'clis/wingman*.test.ts'
 Use `flightdeck context-tree help` for explicit workspace/scope exploration and
 management commands. See [Context Tree agent tools](context-tree-agent-tools.md)
 for typed CLI/MCP contracts, target ACLs, pagination and confirmed deletion.
+
+Document body updates inspect Tower's `document_edit_protocols` capability array
+before acquiring authority. When it advertises `document_concurrent_edit_v1`,
+the helper uses a fresh UUID editor session and requires both the protocol echo
+and the matching lease session ID before uploading or saving. The singular
+legacy marker does not select concurrent mode. Servers without the capability
+retain legacy acquisition; inspection errors and refused or inconsistent
+concurrent acquisition fail without legacy retry or takeover.
+
+The body retains the canonical version, hash and row version captured before
+acquisition, even if acquisition returns a newer head. A racing save therefore
+uses Tower's existing CAS/recovery behavior, rather than relabelling the draft
+against a newer base. The helper performs one save without renewal or automatic
+merge/retry. On conflict or uncertain delivery, retain the input body file and
+inspect Tower's canonical/recovery records before an explicit reconciliation.
+Task and scope lease behavior is unchanged.
+
+This is source support only until the concurrent Tower schema/server and the
+updated Autopilot runtime are activated by the operator. Capability inspection
+is the activation gate; do not run old Tower server code against active
+concurrent sessions.
