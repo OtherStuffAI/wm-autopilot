@@ -95,3 +95,43 @@ describe('DocumentDirectRuntime', () => {
     expect(compactDocumentDiff('one\ntwo\nthree', 'one\nchanged\nthree')).toContain('-two\n+changed');
   });
 });
+
+describe('DocumentDirectRuntime strict-inbox catch-up after migration', () => {
+  const handle = (f: ReturnType<typeof fixture>, event: Record<string, unknown>) => f.runtime.handle({ subscription: f.subscription, botIdentity: f.botIdentity, event: event as any });
+
+  test('comment mentions, review requests and versioned mentions re-delivered with another event id run once', async () => {
+    const f = fixture();
+    const comment = f.event('legacy-comment', 'document_comment_mention_added');
+    await handle(f, comment); await f.runtime.waitForIdle();
+    await handle(f, { ...comment, event_id: 'notification-1' }); await f.runtime.waitForIdle();
+    expect(f.prompts).toHaveLength(1);
+    const review = (id: string) => ({ event_id: id, event_type: 'flightdeck_pg.full_document_review_requested', entity_type: 'doc', entity_id: 'doc-1',
+      operation: 'updated', actor_npub: 'npub-human', payload: { document_id: 'doc-1', invocation_id: 'inv-1', agent: { npub: 'npub-exampleAgent' } } });
+    await handle(f, review('legacy-review')); await f.runtime.waitForIdle();
+    await handle(f, review('notification-2:review')); await f.runtime.waitForIdle();
+    expect(f.prompts).toHaveLength(2);
+    const mention = (id: string, version: number) => ({ ...f.event(id), entity_row_version: version });
+    await handle(f, mention('legacy-mention', 7)); await f.runtime.waitForIdle();
+    await handle(f, mention('notification-3', 7)); await f.runtime.waitForIdle();
+    expect(f.prompts).toHaveLength(3);
+    await handle(f, mention('notification-4', 8)); await f.runtime.waitForIdle();
+    await handle(f, { ...f.event('new-comment', 'document_comment_mention_added'), payload: { document_id: 'doc-1', comment_id: 'comment-2',
+      added_mentions: [{ type: 'agent', npub: 'npub-exampleAgent' }] } }); await f.runtime.waitForIdle();
+    expect(f.prompts).toHaveLength(5);
+  });
+
+  test('rows written before source keys existed still match on their stored comment or invocation id', async () => {
+    const f = fixture();
+    const db = (f.store as any).db;
+    const routingKey = 'document-direct:v1:npub-tower:workspace-1:npub-exampleAgent:doc-1';
+    db.query(`INSERT INTO document_direct_events (routing_key,event_signature,event_id,reason,source_comment_id,source_json,state,created_at)
+      VALUES (?1,'old-sig-1','old-1','document_comment_mention_added','comment-1','{}','completed','2026-11-02T00:00:00Z')`).run(routingKey);
+    db.query(`INSERT INTO document_direct_events (routing_key,event_signature,event_id,reason,source_comment_id,source_json,state,created_at)
+      VALUES (?1,'old-sig-2','old-2','full_document_review_requested',NULL,'{"invocation_id":"inv-old"}','completed','2026-11-02T00:00:00Z')`).run(routingKey);
+    await handle(f, { ...f.event('notification-1', 'document_comment_mention_added') }); await f.runtime.waitForIdle();
+    await handle(f, { event_id: 'notification-2:review', event_type: 'flightdeck_pg.full_document_review_requested', entity_type: 'doc', entity_id: 'doc-1',
+      operation: 'updated', actor_npub: 'npub-human', payload: { document_id: 'doc-1', invocation_id: 'inv-old', agent: { npub: 'npub-exampleAgent' } } });
+    await f.runtime.waitForIdle();
+    expect(f.prompts).toHaveLength(0);
+  });
+});

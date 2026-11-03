@@ -379,3 +379,54 @@ describe('TaskDirectRuntime', () => {
     expect(f.publications).toHaveLength(0);
   });
 });
+
+describe('TaskDirectRuntime strict-inbox catch-up after migration', () => {
+  const handle = (f: ReturnType<typeof fixture>, event: Record<string, unknown>) => f.runtime.handle({ subscription: f.subscription, botIdentity: f.botIdentity, event: event as any });
+
+  test('a comment or description change re-delivered with another event id runs once; new changes still run', async () => {
+    const f = fixture();
+    const legacyComment = f.taskCommentEvent('e1', 'npub-exampleAgent');
+    await handle(f, legacyComment); await f.runtime.waitForIdle();
+    // Inbox catch-up: same comment, the notification id as event id.
+    await handle(f, { ...legacyComment, event_id: 'notification-1', id: 'notification-1' }); await f.runtime.waitForIdle();
+    expect(f.prompts).toHaveLength(1);
+    const described = (id: string, version: number) => ({ ...f.taskEvent(id, { newly_added_mentions: [{ type: 'agent', npub: 'npub-exampleAgent' }] }), entity_row_version: version });
+    await handle(f, described('e2', 4)); await f.runtime.waitForIdle();
+    await handle(f, described('notification-2', 4)); await f.runtime.waitForIdle();
+    expect(f.prompts).toHaveLength(2);
+    await handle(f, described('notification-3', 5)); await f.runtime.waitForIdle();
+    await handle(f, f.taskCommentEvent('e9', 'npub-exampleAgent')); await f.runtime.waitForIdle();
+    expect(f.prompts).toHaveLength(4);
+    expect(f.publications).toHaveLength(4);
+  });
+
+  test('a re-delivery while the original is in flight is not queued again', async () => {
+    const f = fixture();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const send = (f.runtime as any).deps.sendFinalResponse;
+    (f.runtime as any).deps.sendFinalResponse = async (...args: any[]) => { await held; return send(...args); };
+    const legacyComment = f.taskCommentEvent('e1', 'npub-exampleAgent');
+    await handle(f, legacyComment);
+    await Bun.sleep(10);
+    expect((await handle(f, { ...legacyComment, event_id: 'notification-1', id: 'notification-1' })).handled).toBe(true);
+    release();
+    await f.runtime.waitForIdle();
+    expect(f.prompts).toHaveLength(1);
+    expect(f.publications).toHaveLength(1);
+  });
+
+  test('a trigger whose turn failed can run again when re-delivered', async () => {
+    const f = fixture();
+    let failing = true;
+    const send = (f.runtime as any).deps.sendFinalResponse;
+    (f.runtime as any).deps.sendFinalResponse = async (...args: any[]) => { if (failing) throw new Error('agent crashed'); return send(...args); };
+    const legacyComment = f.taskCommentEvent('e1', 'npub-exampleAgent');
+    await handle(f, legacyComment); await f.runtime.waitForIdle().catch(() => {});
+    expect(f.publications).toHaveLength(0);
+    failing = false;
+    await handle(f, { ...legacyComment, event_id: 'notification-1', id: 'notification-1' }); await f.runtime.waitForIdle();
+    expect(f.prompts).toHaveLength(1);
+    expect(f.publications).toHaveLength(1);
+  });
+});

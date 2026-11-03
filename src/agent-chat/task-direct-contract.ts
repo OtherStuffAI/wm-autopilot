@@ -11,6 +11,11 @@ export interface TaskDirectTrigger {
   taskId: string;
   eventId: string;
   eventSignature: string;
+  /**
+   * Stable source identity shared by the legacy event and the strict-inbox notification for the same change (the
+   * comment, or the task/assignment at its outbox version); null when the event carries none. Event ids differ.
+   */
+  sourceKey: string | null;
   reasonsByAgentNpub: Map<string, TaskDirectTriggerReason[]>;
   latestChange: Record<string, unknown>;
 }
@@ -148,10 +153,14 @@ export function normaliseTaskDirectTrigger(event: FlightDeckPgEvent): TaskDirect
 
   const version = event.entity_row_version ?? event.row_version ?? payload.row_version ?? '';
   const signatureSource = JSON.stringify({ eventId, taskId, version, change: Object.keys(change).length ? change : payload });
+  const commentId = event.entity_type === 'task_comment' ? text(payload.comment_id) ?? text(comment.id) ?? text(event.entity_id) : null;
+  const sourceKey = commentId ? `comment:${commentId}`
+    : version !== '' && version !== null ? `${event.entity_type === 'task_assignment' ? 'assigned' : 'task'}:${taskId}:v${version}` : null;
   return {
     taskId,
     eventId,
     eventSignature: createHash('sha256').update(signatureSource).digest('hex'),
+    sourceKey,
     reasonsByAgentNpub: new Map([...reasons].map(([npub, values]) => [npub, [...values]])),
     latestChange: Object.keys(change).length ? change : payload,
   };

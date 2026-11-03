@@ -163,6 +163,9 @@ export class DocumentDirectStore {
         error TEXT, attempted_at TEXT NOT NULL, completed_at TEXT
       );
     `);
+    const columns = new Set((this.db.query('PRAGMA table_info(document_direct_events)').all() as Array<{ name: string }>).map((c) => c.name));
+    if (!columns.has('source_key')) this.db.exec('ALTER TABLE document_direct_events ADD COLUMN source_key TEXT');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_document_direct_events_source ON document_direct_events (routing_key, source_key)');
   }
 
   get(routingKey: string): DocumentDirectState | null {
@@ -196,12 +199,24 @@ export class DocumentDirectStore {
     return this.get(state.routingKey)!;
   }
 
+  /**
+   * Queues a trigger once per routing key, by event signature AND by stable source identity: the same request
+   * re-delivered with another event id (for example a strict-inbox catch-up after migration) is not queued again while
+   * queued or after completion. Rows written before source keys existed still match on their stored comment id or
+   * review invocation id.
+   */
   enqueue(routingKey: string, trigger: DocumentDirectTrigger): boolean {
+    if (trigger.sourceKey && this.db.query(`SELECT 1 AS seen FROM document_direct_events WHERE routing_key=?1 AND (source_key=?2
+        OR (?3 IS NOT NULL AND reason='document_comment_mention_added' AND source_comment_id=?3)
+        OR (?4 IS NOT NULL AND reason='full_document_review_requested' AND json_extract(source_json,'$.invocation_id')=?4))`)
+      .get(routingKey, trigger.sourceKey, trigger.reason === 'document_comment_mention_added' ? trigger.sourceCommentId : null, trigger.invocationId)) {
+      return false;
+    }
     return this.db.query(`INSERT OR IGNORE INTO document_direct_events
-      (routing_key,event_signature,event_id,reason,source_comment_id,source_json,state,created_at)
-      VALUES (?1,?2,?3,?4,?5,?6,'queued',?7)`)
+      (routing_key,event_signature,event_id,reason,source_comment_id,source_json,state,created_at,source_key)
+      VALUES (?1,?2,?3,?4,?5,?6,'queued',?7,?8)`)
       .run(routingKey, trigger.eventSignature, trigger.eventId, trigger.reason, trigger.sourceCommentId,
-        JSON.stringify(trigger.source), new Date().toISOString()).changes > 0;
+        JSON.stringify(trigger.source), new Date().toISOString(), trigger.sourceKey).changes > 0;
   }
 
   queued(routingKey: string): QueuedDocumentEvent[] {

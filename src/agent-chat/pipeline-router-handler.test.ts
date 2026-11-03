@@ -195,3 +195,22 @@ test('Jev receives inert history and usefulness instructions; selected run keeps
   expect(started.invocation.prompt).toBe(source.message.body);
   expect(started.invocation.frmNpub).toBe('npub1requester');
 });
+
+test('a strict-inbox catch-up of an already routed message starts nothing: the source claim is subscription-independent', async () => {
+  const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
+  const store = new PipelineStore(path); const starts: any[] = []; const published: any[] = [];
+  const handler = createPipelineRouterHandler({ readContext: async () => ({ version: 1, messages: [] }), store,
+    dispatchOutcomeStore: new FlightDeckDispatchOutcomeStore(path), callbackOrigin: 'http://localhost',
+    getSessionApiContext: () => ({ userSettingsStore: { getAll: () => ({ openrouter_api_key: 'owner-key' }) } }) as any,
+    listDefinitions: async () => [definition('council', 4)],
+    decide: async () => ({ model: 'jev-1', usage: {}, latencyMs: 1,
+      answers: { pipeline: { type: 'choice', choice: 'council', confidence: .9, probabilities: { council: .9, no_match: .1 } } } }) as any,
+    startRun: async (input: any) => { starts.push(input); return { run: { id: 'run-1' }, input: input.invocation, resolution: {} } as any; },
+    publish: async (input: any) => { published.push(input); return { message: { id: `ack-${published.length}` } } as any; } });
+  const legacy = request();
+  await handler(legacy);
+  const inbox = { ...request(), subscription: { ...legacy.subscription, subscriptionId: 'inbox-sub' } };
+  await handler(inbox);
+  expect(starts).toHaveLength(1);
+  expect(published).toHaveLength(1);
+});

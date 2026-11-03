@@ -14,6 +14,13 @@ export interface DocumentDirectTrigger {
   reason: DocumentDirectTriggerReason;
   targetAgentNpubs: string[];
   sourceCommentId: string | null;
+  /** Review requests: the invocation they belong to. */
+  invocationId: string | null;
+  /**
+   * Stable source identity shared by the legacy event and the strict-inbox notification for the same request (the
+   * comment, the review invocation, or the document at its mention version); null when the event carries none.
+   */
+  sourceKey: string | null;
   source: Record<string, unknown>;
 }
 
@@ -77,14 +84,22 @@ export function normaliseDocumentDirectTrigger(event: FlightDeckPgEvent): Docume
   if (!reason || targets.length === 0) return null;
 
   const source = Object.keys(payload).length ? payload : record(event);
-  const signature = JSON.stringify({ eventId, documentId, reason, source, version: event.entity_row_version ?? event.row_version ?? null });
+  const version = event.entity_row_version ?? event.row_version ?? null;
+  const signature = JSON.stringify({ eventId, documentId, reason, source, version });
+  const sourceCommentId = text(payload.comment_id) ?? text(comment.id);
+  const invocationId = reason === 'full_document_review_requested' ? text(payload.invocation_id) ?? text(invocation.id) : null;
+  const sourceKey = reason === 'document_comment_mention_added' ? (sourceCommentId ? `comment:${sourceCommentId}` : null)
+    : reason === 'full_document_review_requested' ? (invocationId ? `review:${invocationId}` : null)
+      : version !== null && version !== undefined ? `mention:${documentId}:v${version}` : null;
   return {
     documentId,
     eventId,
     eventSignature: createHash('sha256').update(signature).digest('hex'),
     reason,
     targetAgentNpubs: targets,
-    sourceCommentId: text(payload.comment_id) ?? text(comment.id),
+    sourceCommentId,
+    invocationId,
+    sourceKey,
     source,
   };
 }

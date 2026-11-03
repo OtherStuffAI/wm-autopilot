@@ -104,6 +104,9 @@ export class TaskDirectStore {
         published_comment_id TEXT, state TEXT NOT NULL, updated_at TEXT NOT NULL
       );
     `);
+    const columns = new Set((this.db.query('PRAGMA table_info(task_direct_events)').all() as Array<{ name: string }>).map((c) => c.name));
+    if (!columns.has('source_key')) this.db.exec('ALTER TABLE task_direct_events ADD COLUMN source_key TEXT');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_task_direct_events_source ON task_direct_events (routing_key, source_key)');
   }
 
   get(routingKey: string): TaskDirectState | null {
@@ -129,10 +132,18 @@ export class TaskDirectStore {
     return this.get(state.routingKey)!;
   }
 
+  /**
+   * A trigger is accepted once per routing key, by event signature AND by stable source identity: the same change
+   * re-delivered with another event id (for example a strict-inbox catch-up after migration) is not run again while it
+   * is queued or after it was handled. A failed turn releases its rows, so the source can run again.
+   */
   acceptEvent(routingKey: string, trigger: TaskDirectTrigger): boolean {
+    if (trigger.sourceKey && this.db.query('SELECT 1 AS seen FROM task_direct_events WHERE routing_key=?1 AND source_key=?2').get(routingKey, trigger.sourceKey)) {
+      return false;
+    }
     return this.db.query(`INSERT OR IGNORE INTO task_direct_events
-      (routing_key,event_signature,event_id,created_at) VALUES (?1,?2,?3,?4)`)
-      .run(routingKey, trigger.eventSignature, trigger.eventId, new Date().toISOString()).changes > 0;
+      (routing_key,event_signature,event_id,created_at,source_key) VALUES (?1,?2,?3,?4,?5)`)
+      .run(routingKey, trigger.eventSignature, trigger.eventId, new Date().toISOString(), trigger.sourceKey).changes > 0;
   }
 
   releaseEvents(routingKey: string, signatures: string[]): void {
