@@ -87,10 +87,12 @@ describe('strict-inbox session calls act only for their own origin notification'
       expect(await code(resolveInboxWriteOrigin(owner(), 'chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-1' }), f.stores))).toBe('ok');
       expect(await code(resolveInboxWriteOrigin(owner(), 'doc_create', ids({ channelId: 'channel-1' }), f.stores))).toBe('ok');
       expect(await code(resolveInboxWriteOrigin(owner(), 'file_upload', ids({ channelId: 'channel-1' }), f.stores))).toBe('ok');
+      expect(await code(resolveInboxWriteOrigin(owner(), 'task_create', ids({ channelId: 'channel-1' }), f.stores))).toBe('ok');
       // Other locations are refused even though other handled notifications bind them (no cross-notification fallback).
       for (const [action, where] of [
         ['task_comment', ids({ taskId: 'task-1' })], ['doc_reply', ids({ documentId: 'doc-1' })],
         ['chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-other' })], ['doc_create', ids({ channelId: 'channel-other' })], ['file_upload', ids({})],
+        ['task_create', ids({ channelId: 'channel-other' })], ['task_create', ids({})],
       ] as const) {
         expect([action, await code(resolveInboxWriteOrigin(owner(), action, where, f.stores))]).toEqual([action, [403, 'agent_inbox_write_unbound']]);
       }

@@ -19,9 +19,9 @@ import { capturedDocumentBase } from '../flightdeck-pg/document-update-base';
 export const INBOX_READ_ACTIONS = new Set(['thread_read', 'doc_get', 'doc_comments', 'task_comments', 'task_get', 'attachment_get']);
 export const INBOX_SCOPED_WRITE_ACTIONS = new Set(['doc_update', 'task_state']);
 /** Writes allowed only into a location a handled notification binds (Autopilot-side; Tower re-checks when classified). */
-export const INBOX_BOUND_WRITE_ACTIONS = new Set(['chat_reply', 'task_comment', 'doc_reply', 'doc_create', 'file_upload']);
+export const INBOX_BOUND_WRITE_ACTIONS = new Set(['chat_reply', 'task_comment', 'doc_reply', 'doc_create', 'task_create', 'file_upload']);
 /** Creations bound to the origin's channel. */
-const INBOX_CHANNEL_CREATE_ACTIONS = new Set(['doc_create', 'file_upload']);
+const INBOX_CHANNEL_CREATE_ACTIONS = new Set(['doc_create', 'task_create', 'file_upload']);
 export const INBOX_REFUSED_ACTIONS = new Set(['transport_prepare', 'transport_request', 'record_sync_request', 'daily_scope_get', 'daily_scope_upsert']);
 
 export interface InboxSessionTarget {

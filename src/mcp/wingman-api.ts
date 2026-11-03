@@ -26,6 +26,7 @@ import type { RuntimeBotIdentity } from "../agent-chat/types";
 import {
   acquireFlightDeckPgEditLease,
   createFlightDeckPgChannelDocument,
+  createFlightDeckPgChannelTask,
   createFlightDeckPgChannelMessage,
   createFlightDeckPgDocumentComment,
   createFlightDeckPgTaskComment,
@@ -1496,6 +1497,31 @@ async function handleFlightDeckAction(
       title,
       body: docBody,
       summary: asString(body.summary),
+      metadata: {
+        autopilot_mcp_helper: true,
+        source_session_id: sessionId,
+        source_pipeline_run_id: resolved.runId,
+        source_record_id: asString(resolved.record.recordId),
+        ...asObject(body.metadata),
+      },
+    });
+    return jsonOk({ ok: true, result });
+  }
+
+  if (action === "task_create") {
+    const channelId = resolveChannelId(resolved, body);
+    const title = asString(body.title);
+    if (!channelId) return jsonError("channelId is required", 400);
+    if (!title) return jsonError("title is required", 400);
+    const result = await createFlightDeckPgChannelTask({
+      ...pg,
+      channelId,
+      title,
+      description: asString(body.description),
+      state: asString(body.state) ?? undefined,
+      priority: asString(body.priority) ?? undefined,
+      // Only an explicit thread; the session's own thread is not attached implicitly.
+      threadId: asString(body.threadId) ?? asString(body.thread_id),
       metadata: {
         autopilot_mcp_helper: true,
         source_session_id: sessionId,

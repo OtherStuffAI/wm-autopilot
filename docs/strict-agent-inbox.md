@@ -62,7 +62,7 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
   - An origin is live only while its attempt is being dispatched, or after it was handled. It must also be at or after the subscription floor and not revoked. Failed, suppressed, revoked and pre-floor notifications never act, and there is no renewal (`agent_inbox_origin_expired`). A session without an origin gets `agent_inbox_no_origin`.
 - **Reads.** These come only from the origin's bound context (or an earlier turn of the same session): thread, task, document and comments. Generic Tower transport, record sync and context-tree helpers are refused.
 - **Writes.**
-  - `chat reply`, `task comment`, `doc reply`, `doc create` and `file upload` go through the Autopilot helper with the bot's own key.
+  - `chat reply`, `task comment`, `doc reply`, `doc create`, `task create` and `file upload` go through the Autopilot helper with the bot's own key.
   - They are allowed only into the thread, task, document or channel of the current origin. Otherwise the error is `agent_inbox_write_unbound`.
   - Tower re-checks binding for classified bots.
 - **File upload.** The helper uses the existing storage prepare → PUT → complete flow and then links the object as a channel file. Uploads are limited to 25 MiB.

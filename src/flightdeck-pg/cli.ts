@@ -155,6 +155,13 @@ async function dispatchInboxSession(
       body: readTextFile(requiredFlag(flags, '--body-file', 'body file')),
     });
   }
+  if (command === 'task create') {
+    return helper('task_create', {
+      channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, title: requiredFlag(flags, '--title', 'title'),
+      description: stringFlag(flags, '--body') ?? stringFlag(flags, '--description') ?? null,
+      state: stringFlag(flags, '--state') ?? null, priority: stringFlag(flags, '--priority') ?? null, threadId: stringFlag(flags, '--thread') ?? null,
+    });
+  }
   if (command === 'file upload') {
     const path = requiredFlag(flags, '--path', 'path');
     const file = Bun.file(path);

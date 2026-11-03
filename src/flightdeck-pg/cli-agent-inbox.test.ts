@@ -141,4 +141,22 @@ describe('flightdeck CLI in a strict-inbox agent session', () => {
     expect(helperBodies.some((body) => body.action === 'transport_prepare')).toBe(false);
     expect(r.towerRequests).toEqual([]);
   });
+
+  test('task create goes through the origin-bound helper with the requested channel; never generic transport', async () => {
+    const helperBodies: Array<Record<string, unknown>> = [];
+    const r = router({ task_create: { ok: true, result: { task: { id: 'task-9' } } } });
+    const capture = (async (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).pathname === '/api/mcp/wingman/flightdeck') helperBodies.push(await request.clone().json());
+      return r.fetchImpl(input, init);
+    }) as typeof fetch;
+    globalThis.fetch = capture;
+    const created = await runFlightDeckPgCli(['task', 'create', '--title', 'Follow up', '--body', 'Details', '--priority', 'rock', '--json'], { fetchImpl: capture });
+    expect(created.exitCode).toBe(0);
+    expect(JSON.parse(created.stdout!).result.task.id).toBe('task-9');
+    expect(helperBodies.find((body) => body.action === 'task_create')).toMatchObject({
+      action: 'task_create', channelId: 'channel-1', title: 'Follow up', description: 'Details', priority: 'rock', threadId: null,
+    });
+    expect(r.towerRequests).toEqual([]);
+  });
 });
