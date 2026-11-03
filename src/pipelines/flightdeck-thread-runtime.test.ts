@@ -269,7 +269,7 @@ describe("strict-inbox pipeline invocation routing", () => {
     });
     return { runtime, towerReads, sent };
   }
-  const scope = (channelId: string, thread: string) => ({ notification: { id: "n-1", seq: 1, state: "active" } as any, profileNpub: "npub1piper",
+  const scope = (channelId: string, thread: string) => ({ notification: { id: "n-1", seq: 1, state: "active" } as any, profileNpub: "npub1piper", subscriptionId: "piper-sub",
     context: { channel: { id: channelId, scope_id: "scope-9" }, trigger: { type: "message", message: { id: "m-1", channel_id: channelId, thread_id: thread } } } as any });
 
   test("resolves the route from the bound notification with zero workspace scans", async () => {
@@ -304,5 +304,78 @@ describe("strict-inbox pipeline invocation routing", () => {
     await expect(unbound.runtime.send({ ...invocation, channelId: "channel-7", message: "x", pipelineRunId: "run-1" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
     expect([...bound.towerReads, ...unbound.towerReads]).toEqual([]);
     expect(unbound.sent).toEqual([]);
+  });
+});
+
+describe("trusted agent subscription selection after per-bot inbox migration", () => {
+  const otherWorkspaceId = "00000000-0000-4000-8000-0000000000aa";
+  const record = (subscriptionId: string, botNpub: string, extra: Record<string, unknown> = {}) => ({
+    workspaceId: invocation.workspaceId, subscriptionId, backendBaseUrl: "https://tower.test", sourceAppNpub: "npub1app",
+    botNpub, lifecycleStatus: "active", managedByNpub: "npub1owner", ...extra,
+  });
+  function migratedRuntime(records: Array<Record<string, unknown>>, links: string[]) {
+    const signers: string[] = [];
+    const sentVia: string[] = [];
+    const runtime = createFlightDeckThreadRuntime({
+      agentStore: { getByBotNpub: (npub) => ({ agentId: npub === "npub1piper" ? "piper" : "rick", managedByNpub: "npub1owner",
+        enabled: true, archived: false, botNpub: npub }) as never },
+      // Stale link: Piper was once accepted into the shared subscription's legacy audience.
+      profileStore: { listWorkspacesForProfile: (profileId) => profileId === "piper"
+        ? links.map((subscriptionId) => ({ profileId, managedByNpub: "npub1owner", subscriptionId, workspaceId: invocation.workspaceId })) as never
+        : [] },
+      subscriptionStore: { listAll: () => records as never },
+      resolveTrustedAgentNpub: () => "npub1piper",
+      withAgentIdentity: async (agent, operation) => { signers.push(agent.botNpub); return await operation({ botNpub: agent.botNpub } as never); },
+      fetchScopes: async () => ({ scopes: [{ id: "scope-1" }], next_cursor: null }),
+      fetchChannels: async () => ({ channels: [{ id: "channel-1", scope_id: "scope-1" }], next_cursor: null }),
+      fetchMessages: async () => ({ messages: [{ id: invocation.threadId }], next_cursor: null }),
+      createMessage: async (params: any) => { sentVia.push(params.subscriptionId); return { message: { id: "message-1" } }; },
+      inboxBinding: { isInboxSubscription: () => false, runOriginChannel: () => null },
+    });
+    return { runtime, signers, sentVia };
+  }
+  const shared = record("shared-sub", "npub1default");
+  const own = record("piper-sub", "npub1piper", { agentProfileId: "piper" });
+  const inboxScope = (subscriptionId: string, profileNpub = "npub1piper") => ({
+    notification: { id: "n-1", seq: 1, state: "active" } as any, profileNpub, subscriptionId,
+    context: { channel: { id: "channel-1", scope_id: "scope-1" }, trigger: { type: "message", message: { id: "m-1", channel_id: "channel-1", thread_id: invocation.threadId } } } as any,
+  });
+
+  test("own profile-bound subscription wins over a stale shared-subscription link", async () => {
+    const { runtime, signers, sentVia } = migratedRuntime([shared, own], ["shared-sub"]);
+    await runtime.send({ ...invocation, pipelineRunId: "run-1", scopeId: "scope-1", channelId: "channel-1", message: "Answer" });
+    expect(sentVia).toEqual(["piper-sub"]);
+    expect(signers).toEqual(["npub1piper"]);
+  });
+
+  test("the current inbox notification binds its exact subscription", async () => {
+    const { agentInboxScope } = await import("../agent-chat/agent-inbox-scope");
+    const { runtime } = migratedRuntime([shared, own], ["shared-sub"]);
+    const resolved = await agentInboxScope.run(inboxScope("piper-sub"), () => runtime.resolve(invocation, "npub1owner", "npub1piper"));
+    expect(resolved).toMatchObject({ senderNpub: "npub1piper", agentProfileId: "piper" });
+  });
+
+  test("a notification bound to another subscription or identity refuses instead of choosing", async () => {
+    const { agentInboxScope } = await import("../agent-chat/agent-inbox-scope");
+    const { runtime, signers } = migratedRuntime([shared, own], ["shared-sub"]);
+    await expect(agentInboxScope.run(inboxScope("shared-sub"), () => runtime.resolve(invocation, "npub1owner", "npub1piper")))
+      .rejects.toThrow("does not match the current inbox notification subscription");
+    await expect(agentInboxScope.run(inboxScope("piper-sub", "npub1other"), () => runtime.resolve(invocation, "npub1owner", "npub1piper")))
+      .rejects.toThrow("does not match the current inbox notification subscription");
+    await expect(agentInboxScope.run(inboxScope("missing-sub"), () => runtime.resolve(invocation, "npub1owner", "npub1piper")))
+      .rejects.toThrow("does not match the current inbox notification subscription");
+    expect(signers).toEqual([]);
+  });
+
+  test("several own profile-bound subscriptions in one workspace refuse", async () => {
+    const { runtime } = migratedRuntime([shared, own, record("piper-sub-2", "npub1piper", { agentProfileId: "piper" })], ["shared-sub"]);
+    await expect(runtime.send({ ...invocation, pipelineRunId: "run-1", message: "Answer" }))
+      .rejects.toThrow("resolves several profile-bound subscriptions");
+  });
+
+  test("shared-only legacy agents and other workspaces keep the linked single-match rule", async () => {
+    const legacy = migratedRuntime([shared, record("piper-other", "npub1piper", { agentProfileId: "piper", workspaceId: otherWorkspaceId })], ["shared-sub"]);
+    await legacy.runtime.send({ ...invocation, pipelineRunId: "run-1", scopeId: "scope-1", channelId: "channel-1", message: "Answer" });
+    expect(legacy.sentVia).toEqual(["shared-sub"]);
   });
 });

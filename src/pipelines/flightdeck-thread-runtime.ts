@@ -188,6 +188,10 @@ function selectManagedSubscription(
   if (ownerNpub && !owned.length) throw new Error(`No active requested-owner subscription resolves workspace ${workspaceId}`);
   const candidates = ownerNpub ? owned : active;
   const preferredAgent = preferredBotNpub ? deps.agentStore.getByBotNpub(preferredBotNpub) : null;
+  if (preferredBotNpub) {
+    const own = selectOwnProfileSubscription(candidates, workspaceId, preferredBotNpub, preferredAgent);
+    if (own) return own;
+  }
   const linkedSubscriptionIds = preferredAgent?.managedByNpub && deps.profileStore
     ? new Set(deps.profileStore.listWorkspacesForProfile(preferredAgent.agentId, preferredAgent.managedByNpub)
       .filter((workspace) => workspace.workspaceId === workspaceId)
@@ -210,6 +214,34 @@ function selectManagedSubscription(
       : `Workspace ${workspaceId} resolves to multiple managed-agent subscriptions`);
   }
   return candidates[0]!;
+}
+
+/**
+ * A trusted agent's own subscription, ahead of any legacy shared-subscription link it still carries. The current strict
+ * inbox notification binds its exact subscription; otherwise a single profile-bound subscription of the agent's own
+ * identity. A notification bound to another identity, workspace or subscription refuses. `null` means "no own binding":
+ * the caller keeps the legacy single-match rule.
+ */
+function selectOwnProfileSubscription(
+  candidates: WorkspaceSubscriptionRecord[],
+  workspaceId: string,
+  botNpub: string,
+  agent: AgentDefinitionRecord | null,
+): WorkspaceSubscriptionRecord | null {
+  const scope = agentInboxScope.getStore();
+  if (scope) {
+    const bound = candidates.find((record) => record.subscriptionId === scope.subscriptionId);
+    if (scope.profileNpub !== botNpub || !bound || bound.botNpub !== botNpub || bound.workspaceId !== workspaceId) {
+      throw new Error(`Trusted agent ${botNpub} does not match the current inbox notification subscription for workspace ${workspaceId}`);
+    }
+    return bound;
+  }
+  if (!agent?.agentId) return null;
+  const own = candidates.filter((record) => record.botNpub === botNpub && record.agentProfileId === agent.agentId);
+  if (own.length > 1) {
+    throw new Error(`Trusted agent ${botNpub} resolves several profile-bound subscriptions for workspace ${workspaceId}`);
+  }
+  return own[0] ?? null;
 }
 
 async function resolveThreadChannel(
