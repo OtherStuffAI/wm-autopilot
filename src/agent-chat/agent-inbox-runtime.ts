@@ -3,7 +3,7 @@ import {
   type AgentInboxAckOutcome, type AgentInboxEnvelope, type AgentInboxRequestContext,
 } from './agent-inbox-client';
 import { beginActiveInboxAttempt } from './agent-inbox-origins';
-import { AgentInboxUnboundReadError, agentInboxScope, synthesizeInboxEvents, type AgentInboxContext } from './agent-inbox-scope';
+import { AgentInboxUnboundReadError, agentInboxScope, flowLinkedTaskMarkers, synthesizeInboxEvents, type AgentInboxContext } from './agent-inbox-scope';
 import type { AgentInboxStore } from './agent-inbox-store';
 import type { FlightDeckPgEvent } from './tower-client';
 import type { WorkspaceSubscriptionRecord } from './types';
@@ -155,6 +155,10 @@ export class AgentInboxProcessor {
       }
       return 'retry';
     }
+    // Agent flow steps (predecessors, approvals) are not supported through the strict inbox: a flow-linked task is never
+    // run as an ordinary task. Flight Deck PG tasks carry no flow linkage today; this fails closed if one ever does.
+    const flowMarkers = flowLinkedTaskMarkers(context);
+    if (flowMarkers) return this.finish(record, request, subscriptionId, n, 'failed_permanent', 'agent_inbox_flow_unsupported', flowMarkers.join(','));
     const profileNpub = request.botIdentity.botNpub;
     const events = synthesizeInboxEvents(n, context, profileNpub);
     if (!events.length) return this.finish(record, request, subscriptionId, n, 'suppressed', 'unsupported_kind');

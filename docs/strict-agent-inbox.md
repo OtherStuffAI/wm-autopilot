@@ -105,4 +105,6 @@ A chat reply whose structured mentions include the bot itself (`{"type":"agent",
 
 - **Self-mentions.** Projection of a deliberate self-address needs the matching Tower contract (reason `self_mention`). Until Tower runs it, a bot that mentions itself is not notified. Do not classify such bots before then.
 - **Approvals and flow steps.** These still exist only on the legacy feed.
+  - Flight Deck PG tasks carry no flow linkage, so inbox task triggers are handled like legacy Flight Deck PG task events.
+  - If a task's inbox context ever carries flow markers, the trigger is acknowledged `failed_permanent` with code `agent_inbox_flow_unsupported`. It is never run as an ordinary task.
 - **Activation.** Source changes take effect only after an Autopilot restart.

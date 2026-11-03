@@ -149,6 +149,22 @@ export function inboxAwareFetchers<T extends Record<string, AnyFn>>(real: T): T 
   return out as T;
 }
 
+const FLOW_KEYS = ['flow_id', 'flow_run_id', 'flow_step', 'flowId', 'flowRunId', 'flowStep', 'flow'];
+
+/**
+ * Flow linkage present on the notification's task (top level or task metadata), or null. A flow-linked task needs the
+ * legacy flow handling (predecessors, approvals), which the strict inbox does not provide.
+ */
+export function flowLinkedTaskMarkers(context: AgentInboxContext): string[] | null {
+  const task = context.trigger?.task;
+  if (!task || typeof task !== 'object') return null;
+  const metadata = task.metadata && typeof task.metadata === 'object' ? task.metadata as Record<string, unknown> : {};
+  const present = (source: Record<string, unknown>, prefix: string) => FLOW_KEYS
+    .filter((key) => source[key] !== undefined && source[key] !== null && source[key] !== '').map((key) => `${prefix}${key}`);
+  const markers = [...present(task, ''), ...present(metadata, 'metadata.')];
+  return markers.length ? markers : null;
+}
+
 /**
  * Builds the legacy-shaped event(s) the existing handlers consume from a strict notification + its context. Addressing
  * is exactly the notification (this profile only); no other recipient is ever named.
