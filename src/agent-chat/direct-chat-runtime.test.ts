@@ -1607,7 +1607,17 @@ test('fresh human reactivates a live idle native session without replaying an ol
 });
 
 describe('strict-inbox session isolation', () => {
-  const inboxScope = { notification: { id: 'n-1', seq: 1, state: 'active' } as any, context: { trigger: null } as any, profileNpub: 'npub1bot' };
+  // Realistic recipient-bound context for the fixture thread (as Tower supplies it), not an empty placeholder.
+  const inboxScope = {
+    notification: { id: 'n-1', seq: 1, state: 'active', kind: 'chat_mention',
+      source: { type: 'message', id: 'm2', channel_id: 'channel-1', thread_id: 'thread-1', task_id: null, doc_id: null } } as any,
+    context: {
+      channel: { id: 'channel-1', workspace_id: 'workspace-1', scope_id: 'scope-1', kind: 'channel' },
+      trigger: { type: 'message', message: { id: 'm2', workspace_id: 'workspace-1', channel_id: 'channel-1', thread_id: 'thread-1', body: 'after migration' } },
+      window: { messages: [{ id: 'm1', workspace_id: 'workspace-1', channel_id: 'channel-1', thread_id: 'thread-1', body: 'hello' }], truncated: false },
+    } as any,
+    profileNpub: 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg',
+  };
 
   test('an inbox delivery never reuses or natively resumes a legacy-era session; it starts a fresh generation', async () => {
     const { agentInboxScope } = await import('./agent-inbox-scope');
