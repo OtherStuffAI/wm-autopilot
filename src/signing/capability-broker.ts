@@ -1,3 +1,4 @@
+import { learningGrantTagRefusal, splitLearningGrantTags } from "./learning-grant-tag";
 import { reservedEventError } from "./reserved-event-policy";
 import { adminMaySignEvent } from "./admin-signing-policy";
 import { consumeSessionSecret } from "../secrets/secret-session";
@@ -225,6 +226,8 @@ interface CapabilityRecord {
 export interface CapabilityBrokerDependencies {
   isAdminNpub?: (npub: string) => boolean;
   liveNip98Targets?: (input: { botNpub: string; policy: SessionCapabilityPolicy; url: URL }) => NonNullable<Nip98Constraint["targets"]>;
+  /** The learning delegation the operator mapped to a bot on a Tower origin (signed `learning_grant_id` tags only). */
+  learningGrantFor?: (botNpub: string, towerOrigin: string) => string | null;
   importedSecrets?: SecretStore;
   hasWappLoginAuthority?: (input: WappLoginRequest) => boolean;
   fetchWappLogin?: typeof fetch;
@@ -872,13 +875,20 @@ export class CapabilityBroker {
       return this.deniedNip98(authorized.capability, "NIP-98 body hash is required for this method", { parsed, method, allowedMethods }, 400);
     }
     const createdAt = Math.floor(this.now() / 1000);
-    const tagError = allowAnyTarget ? null : validateNip98ExtraTags(extraTags, exactPath?.extraTags, createdAt);
+    // A learning delegation tag is signed only on allowlisted learning routes with the operator-mapped delegation
+    // (whatever the target policy); every other extra tag keeps the exact-path challenge policy.
+    const { grant: learningGrantTags, rest: challengeTags } = splitLearningGrantTags(extraTags);
+    const learningRefusal = learningGrantTagRefusal({ grant: learningGrantTags, url: parsed, method,
+      botNpub: authorized.capability.botNpub, learningGrantFor: this.deps.learningGrantFor });
+    if (learningRefusal) return this.deniedNip98(authorized.capability, learningRefusal, { parsed, method }, 403);
+    const tagError = allowAnyTarget ? null : validateNip98ExtraTags(challengeTags, exactPath?.extraTags, createdAt);
     if (tagError) return this.deniedNip98(authorized.capability, tagError, { parsed, method }, 400);
     const challengeTagOrder = new Map(exactPath?.extraTags?.allowed.map((rule, index) => [rule.name, index]) ?? []);
-    const canonicalExtraTags = exactPath?.extraTags
-      ? [...extraTags].sort((left, right) => (challengeTagOrder.get(left[0] as Nip98ExtraTagRule["name"]) ?? Number.MAX_SAFE_INTEGER)
+    const canonicalChallengeTags = exactPath?.extraTags
+      ? [...challengeTags].sort((left, right) => (challengeTagOrder.get(left[0] as Nip98ExtraTagRule["name"]) ?? Number.MAX_SAFE_INTEGER)
         - (challengeTagOrder.get(right[0] as Nip98ExtraTagRule["name"]) ?? Number.MAX_SAFE_INTEGER))
-      : extraTags;
+      : challengeTags;
+    const canonicalExtraTags = [...canonicalChallengeTags, ...learningGrantTags];
     if (exactPath?.extraTags) {
       const requestId = canonicalExtraTags.find((tag) => tag[0] === "nonce")?.[1] ?? "";
       const expectedBodyHash = createHash("sha256").update(JSON.stringify({ request_id: requestId })).digest("hex");
@@ -886,8 +896,9 @@ export class CapabilityBroker {
         return this.deniedNip98(authorized.capability, "NIP-98 challenge payload hash does not match the exact request body", { parsed, method }, 400);
       }
     }
-    const challengeFingerprint = canonicalExtraTags.length > 0
-      ? createHash("sha256").update(JSON.stringify([parsed.toString(), method, bodyHash ?? null, canonicalExtraTags])).digest("hex")
+    // One-time challenges only; a learning delegation tag alone is an ordinary repeatable request (fresh nonce below).
+    const challengeFingerprint = canonicalChallengeTags.length > 0
+      ? createHash("sha256").update(JSON.stringify([parsed.toString(), method, bodyHash ?? null, canonicalChallengeTags])).digest("hex")
       : null;
     if (challengeFingerprint && authorized.capability.usedChallenges.has(challengeFingerprint)) {
       return this.deniedNip98(authorized.capability, "NIP-98 challenge has already been signed", { parsed, method });

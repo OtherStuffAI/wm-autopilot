@@ -1093,3 +1093,46 @@ test("the same stable admin bot signs from sessions under either owner without i
     expect((await sign()).status).toBe(403);
   }
 });
+
+describe("CapabilityBroker learning delegation tag", () => {
+  // Synthetic grant ids only.
+  const GRANT = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const learningPolicy = { nip98: { ...policy.nip98!, pathPrefixes: ["/api/v4/flightdeck-pg", "/api/v4/learning"] } };
+  const sign = (url: string, method: string, tags?: string[][]) => call("/api/mcp/capabilities/nip98", issue("session-a", ownerA, learningPolicy).token,
+    { sessionId: "session-a", url, method, ...(method === "POST" ? { bodyHash: "ab".repeat(32) } : {}), ...(tags ? { tags } : {}) });
+  const tagsOf = async (response: Response) => JSON.parse(Buffer.from(((await response.json()) as { token: string }).token.slice(6), "base64").toString("utf8")).tags as string[][];
+
+  beforeEach(() => {
+    broker = createBroker({ learningGrantFor: (botNpub, origin) => (botNpub === records.get(ownerA)!.botNpub && origin === "https://tower.example" ? GRANT : null) });
+  });
+
+  test("signs the operator-mapped delegation on allowlisted learning routes, repeatably", async () => {
+    for (const [url, method] of [["https://tower.example/api/v4/learning/mastery", "GET"], ["https://tower.example/api/v4/learning/curriculum/traverse?goal=moon", "GET"],
+      ["https://tower.example/api/v4/learning/plans", "POST"]] as const) {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const response = await sign(url, method, [["learning_grant_id", GRANT]]);
+        expect([url, attempt, response.status]).toEqual([url, attempt, 200]);
+        const tags = await tagsOf(response);
+        expect(tags).toContainEqual(["learning_grant_id", GRANT]);
+        expect(tags.some((tag) => tag[0] === "nonce")).toBe(true);
+      }
+    }
+  });
+
+  test("refuses another delegation, another route or Tower, or a duplicated tag; requests without the tag are unchanged", async () => {
+    const refused: Array<[string, string, string[][]]> = [
+      ["https://tower.example/api/v4/learning/mastery", "GET", [["learning_grant_id", "1a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"]]],
+      ["https://tower.example/api/v4/learning/evidence", "GET", [["learning_grant_id", GRANT]]],
+      ["https://tower.example/api/v4/learning/profile", "POST", [["learning_grant_id", GRANT]]],
+      ["https://tower.example/api/v4/flightdeck-pg/tasks", "POST", [["learning_grant_id", GRANT]]],
+      ["https://tower.example/api/v4/learning/mastery", "GET", [["learning_grant_id", GRANT], ["learning_grant_id", GRANT]]],
+    ];
+    for (const [url, method, tags] of refused) {
+      const response = await sign(url, method, tags);
+      expect([url, response.status]).toEqual([url, 403]);
+    }
+    expect((await sign("https://tower.example/api/v4/learning/mastery", "GET")).status).toBe(200);
+    broker = createBroker();
+    expect((await sign("https://tower.example/api/v4/learning/mastery", "GET", [["learning_grant_id", GRANT]])).status).toBe(403);
+  });
+});

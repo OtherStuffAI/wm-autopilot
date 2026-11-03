@@ -190,6 +190,7 @@ import { configureFlightDeckPipelineInvocation } from "./pipelines/flightdeck-in
 import { createFlightDeckThreadRuntime } from "./pipelines/flightdeck-thread-runtime";
 import { createPipelineRouterHandler } from './agent-chat/pipeline-router-handler';
 import { snapshotWorkerInboxOrigin } from './agent-chat/agent-inbox-origins';
+import { learningGrantMappingStore } from './agent-chat/learning-grant-mappings';
 import {
   buildAgentUrl,
   normaliseHostForUrl,
@@ -860,6 +861,7 @@ const towerGitCredentialBroker = new TowerGitCredentialBroker({
 const walletRuntime = createWalletRuntime(wingmanDataDir);
 const capabilityBroker = new CapabilityBroker({
   isAdminNpub: isConfiguredAdminNpub,
+  learningGrantFor: (botNpub, towerOrigin) => learningGrantMappingStore().forBot(botNpub, towerOrigin)?.grantId ?? null,
   liveNip98Targets: createLiveAdminSigningTargets({
     autopilotUrl: config.baseUrl,
     isAdminNpub: isConfiguredAdminNpub,
