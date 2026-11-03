@@ -66,6 +66,10 @@ describe("createStaticRouteHandler", () => {
     expect(response?.headers.get("content-type")).toBe("application/javascript; charset=utf-8");
     expect(response?.headers.get("cache-control")).toBe("no-cache");
 
+    const profileSelect = await handler.serveBeforeApi(new Request("http://localhost/views/settings/bot-profile-select.js"), "/views/settings/bot-profile-select.js");
+    expect(profileSelect?.status).toBe(200);
+    expect(profileSelect?.headers.get("content-type")).toBe("application/javascript; charset=utf-8");
+
     const dispatchRequest = new Request("http://localhost/fd-dispatch/view.js");
     const dispatchResponse = await handler.serveBeforeApi(dispatchRequest, "/fd-dispatch/view.js");
     expect(dispatchResponse?.status).toBe(200);

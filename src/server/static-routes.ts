@@ -3,7 +3,7 @@ import {
   type StaticAssetService,
 } from "./static-assets";
 
-export const STATIC_ASSET_VERSION = "65";
+export const STATIC_ASSET_VERSION = "66";
 
 const SPA_ROUTE_PREFIXES = [
   "/apps",
