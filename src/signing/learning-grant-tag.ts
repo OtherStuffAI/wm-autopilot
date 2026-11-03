@@ -33,7 +33,8 @@ export function learningGrantTagRefusal(input: {
   if (input.grant.length !== 1) return "NIP-98 learning_grant_id tag must occur exactly once";
   if (!LEARNING_ROUTES.has(`${input.method.toUpperCase()} ${input.url.pathname}`)) return "NIP-98 learning_grant_id tag is not allowed for this route";
   const mapped = input.learningGrantFor?.(input.botNpub, input.url.origin) ?? null;
-  if (!mapped || mapped.toLowerCase() !== String(input.grant[0]![1] ?? "").trim().toLowerCase()) {
+  // Byte-for-byte: Tower requires the signed tag to equal the x-learning-grant-id header exactly (lowercase UUID as mapped).
+  if (!mapped || mapped !== input.grant[0]![1]) {
     return "NIP-98 learning_grant_id is not the delegation configured for this agent on this Tower";
   }
   return null;

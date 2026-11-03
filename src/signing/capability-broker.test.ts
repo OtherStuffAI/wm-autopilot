@@ -1122,6 +1122,9 @@ describe("CapabilityBroker learning delegation tag", () => {
   test("refuses another delegation, another route or Tower, or a duplicated tag; requests without the tag are unchanged", async () => {
     const refused: Array<[string, string, string[][]]> = [
       ["https://tower.example/api/v4/learning/mastery", "GET", [["learning_grant_id", "1a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"]]],
+      ["https://tower.example/api/v4/learning/mastery", "GET", [["learning_grant_id", GRANT.toUpperCase()]]],
+      ["https://tower.example/api/v4/learning/mastery", "GET", [["learning_grant_id", ` ${GRANT}`]]],
+      ["https://tower.example/api/v4/learning/mastery/", "GET", [["learning_grant_id", GRANT]]],
       ["https://tower.example/api/v4/learning/evidence", "GET", [["learning_grant_id", GRANT]]],
       ["https://tower.example/api/v4/learning/profile", "POST", [["learning_grant_id", GRANT]]],
       ["https://tower.example/api/v4/flightdeck-pg/tasks", "POST", [["learning_grant_id", GRANT]]],
