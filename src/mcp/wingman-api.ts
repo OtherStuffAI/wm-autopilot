@@ -6,7 +6,8 @@ import { invokeNativeProjectTool } from '../pipelines/native-project-tool.ts';
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
 import { applyFlightDeckMentions } from "./flightdeck-mentions.ts";
 import { parseSessionFileUpload, uploadSessionFileToChannel } from "./flightdeck-file-upload.ts";
-import { INBOX_BOUND_WRITE_ACTIONS, INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, inboxOriginOwner, inboxSelfAddress, isInboxSession, resolveInboxReadOrigin, resolveInboxSessionScope, resolveInboxWriteOrigin, runInScope, workReceiptOf, type BoundOrigin } from "./agent-inbox-session-helper";
+import { inboxAwareFetchers, inboxOriginOwner, inboxSelfAddress, isInboxSession, runInScope, workReceiptOf, type BoundOrigin } from "./agent-inbox-session-helper";
+import { routeInboxHelperCall } from "./agent-inbox-helper-route";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
@@ -1414,36 +1415,22 @@ async function handleFlightDeckHelper(
   const missing = requireFlightDeckPgContext(resolved);
   if (missing) return missing;
   if (isInboxSession(resolved.subscriptionId)) {
-    // Strict-inbox profile: reads only from the bound notification context; generic Tower proxies refused.
-    if (action.startsWith("context_tree_") || INBOX_REFUSED_ACTIONS.has(action)) {
-      return Response.json({ error: `${action} is not available to a strict-inbox agent session.`, code: "agent_inbox_unbound_action" }, { status: 403 });
-    }
-    // Every call acts for the exact notification this session (or its run/worker snapshot) acts for; never another.
-    const owner = inboxOriginOwner({ session: resolved.session, rootRunId: resolved.rootRunId, subscriptionId: resolved.subscriptionId });
-    const ids = {
-      channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
-      taskId: action.startsWith("task_") ? resolveTaskId(resolved, body) : null, documentId: action.startsWith("doc_") ? resolveDocumentId(resolved, body) : null,
-    };
-    let writeOrigin: BoundOrigin | undefined;
-    if (INBOX_BOUND_WRITE_ACTIONS.has(action)) {
-      const origin = resolveInboxWriteOrigin(owner, action, ids);
-      if (origin instanceof Response) return origin;
-      writeOrigin = origin;
-    }
-    if (INBOX_READ_ACTIONS.has(action) || INBOX_SCOPED_WRITE_ACTIONS.has(action)) {
-      const inboxTarget = {
+    // Strict-inbox profile: every call acts for the session's exact origin notification (or a Tower work receipt for the
+    // bot's own output); generic Tower proxies are refused.
+    return routeInboxHelperCall({
+      action, body,
+      owner: inboxOriginOwner({ session: resolved.session, rootRunId: resolved.rootRunId, subscriptionId: resolved.subscriptionId }),
+      ids: {
+        channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
+        taskId: action.startsWith("task_") ? resolveTaskId(resolved, body) : null, documentId: action.startsWith("doc_") ? resolveDocumentId(resolved, body) : null,
+      },
+      target: {
         subscriptionId: resolved.subscriptionId, backendConnectionId: resolved.backendConnectionId ?? null, backendBaseUrl: resolved.backendBaseUrl!,
         workspaceId: resolved.workspaceId!, appNpub: resolved.appNpub!, botIdentity: resolved.botIdentity!,
-      };
-      const origin = INBOX_SCOPED_WRITE_ACTIONS.has(action) ? resolveInboxWriteOrigin(owner, action, ids) : resolveInboxReadOrigin(owner, inboxLocation(action, ids));
-      if (origin instanceof Response) return origin;
-      const scope = await resolveInboxSessionScope(inboxTarget, origin);
-      if (scope instanceof Response) return scope;
-      if (action === "attachment_get") return answerInboxAttachment(inboxTarget, scope, asString(body.storageObjectId) ?? asString(body.storage_object_id));
-      if (INBOX_READ_ACTIONS.has(action)) return answerInboxRead(action, scope);
-      return runInScope(scope, () => handleFlightDeckAction(deps, request, action, body, sessionId, resolved, origin));
-    }
-    return handleFlightDeckAction(deps, request, action, body, sessionId, resolved, writeOrigin);
+      },
+      runAction: (origin) => handleFlightDeckAction(deps, request, action, body, sessionId, resolved, origin),
+      runScoped: (scope, origin) => runInScope(scope, () => handleFlightDeckAction(deps, request, action, body, sessionId, resolved, origin)),
+    });
   }
   return handleFlightDeckAction(deps, request, action, body, sessionId, resolved);
 }

@@ -159,4 +159,13 @@ describe('flightdeck CLI in a strict-inbox agent session', () => {
     });
     expect(r.towerRequests).toEqual([]);
   });
+
+  test('file show reads only receipted file metadata through the helper', async () => {
+    const r = router({ file_get: { ok: true, receipted: true, file: { id: 'file-9' } } });
+    const shown = await runFlightDeckPgCli(['file', 'show', 'file-9', '--json'], { fetchImpl: r.fetchImpl });
+    expect(shown.exitCode).toBe(0);
+    expect(JSON.parse(shown.stdout!)).toMatchObject({ receipted: true, file: { id: 'file-9' } });
+    expect(r.helperActions.filter((a) => a !== 'context')).toEqual(['file_get']);
+    expect(r.towerRequests).toEqual([]);
+  });
 });

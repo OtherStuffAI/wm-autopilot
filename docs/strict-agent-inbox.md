@@ -77,6 +77,17 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 - **Replies.** Pipeline replies go only to the thread of the notification that started the run, while it is live.
 - **Learning pipelines are not compatible with a classified bot.** They call Tower `/api/v4/learning/*`, and Tower's ceiling refuses those routes for a classified bot.
 
+## Work receipts (own output follow-ups)
+
+Creates from a strict-inbox session (`doc create`, `task create`, `file upload`) send `origin_notification_id`. Tower may then mint a version-bound `work_receipt`, which the helper returns unchanged.
+- Autopilot keeps only receipts Tower returned for the exact entity and origin it sent. They narrow what the session may do and never grant beyond Tower.
+- When the session's origin does not bind that entity, the receipt lets the bot follow up on its own output:
+  - `doc show`/`doc update`, `task show`/`task state`, a top-level `task comment`, and `file show` (metadata only).
+  - Only the session that acted for the receipt's origin (or a worker or manager sharing it) may use it, and only while that origin is live.
+  - Only at the receipted version. A human edit, or a different body or file version, gives `409 agent_inbox_work_output_changed` with no content.
+  - After the bot's own update, Autopilot follows the advanced receipt Tower returns. If Tower returns none, the receipt is dropped and later follow-ups fail closed.
+- Comments, comment replies, attachments, file downloads and history are never served through a receipt.
+
 ## Self-address
 
 A chat reply whose structured mentions include the bot itself (`{"type":"agent","npub":<own npub>}`) is a deliberate self-address.

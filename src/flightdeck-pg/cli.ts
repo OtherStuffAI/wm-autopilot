@@ -177,6 +177,8 @@ async function dispatchInboxSession(
   if (command === 'task comments') return helper('task_comments', { taskId });
   if (command === 'doc show') return helper('doc_get', { documentId: id, includeBody: flags.has('--body') });
   if (command === 'doc comments') return helper('doc_comments', { documentId: id });
+  // Metadata of a file this agent created, at the version Tower receipted (no bytes).
+  if (command === 'file show') return helper('file_get', { fileId: requiredArg(id, 'file id') });
   if (command === 'attachment download') {
     const out = requiredFlag(flags, '--out', 'output path');
     const result = await helper('attachment_get', { storageObjectId: id, channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, threadId: stringFlag(flags, '--thread') ?? defaults.threadId ?? null });
