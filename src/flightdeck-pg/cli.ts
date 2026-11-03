@@ -76,7 +76,10 @@ export async function runFlightDeckPgCli(argv: string[], io: {
       fetchImpl: io.fetchImpl,
     }));
     const defaults = await resolveCommandDefaults(client, parsed.positionals, flags);
-    const result = await dispatch(client, parsed.positionals, flags, defaults);
+    const inboxSession = objectValue(initialContext?.agentInbox).mode === 'inbox_required';
+    const result = inboxSession && sessionId
+      ? await dispatchInboxSession(client, parsed.positionals, flags, defaults, { sessionId, wingmanUrl, fetchImpl: io.fetchImpl })
+      : await dispatch(client, parsed.positionals, flags, defaults);
     const text = formatOutput(result, flags.has('--json'));
     io.stdout?.(text);
     return { exitCode: 0, stdout: text };
@@ -112,6 +115,50 @@ export async function fetchFlightDeckDispatchContext(input: {
   } catch (error) {
     throw new Error(`Autopilot Flight Deck context helper failed: ${(error as Error).message}`);
   }
+}
+
+// Strict-inbox agent sessions: reads come only from the bound notification context served by the Autopilot helper;
+// writes go to Tower (which enforces notification binding); every other broad read is refused here.
+const INBOX_PASSTHROUGH_COMMANDS = new Set(['chat reply', 'task comment', 'doc reply', 'doc create', 'context']);
+
+async function dispatchInboxSession(
+  client: FlightDeckPgClient, args: string[], flags: FlagMap, defaults: FlightDeckPgCliDefaults,
+  broker: { sessionId: string; wingmanUrl: string | null; fetchImpl?: typeof fetch },
+): Promise<unknown> {
+  const [area, action, id] = args;
+  const command = `${area ?? ''} ${action ?? ''}`.trim();
+  if (INBOX_PASSTHROUGH_COMMANDS.has(command) || area === 'context') return dispatch(client, args, flags, defaults);
+  const helper = async (helperAction: string, params: Record<string, unknown>) => {
+    const brokerUrl = Bun.env.WINGMAN_BROKER_URL?.trim().replace(/\/$/, '') || broker.wingmanUrl?.trim().replace(/\/$/, '') || '';
+    return callCapabilityBroker<Record<string, unknown>>('/api/mcp/wingman/flightdeck', { action: helperAction, ...params }, {
+      wingmanUrl: brokerUrl, sessionId: broker.sessionId, capabilityToken: Bun.env.WINGMAN_CAPABILITY?.trim() ?? '', fetch: broker.fetchImpl,
+    });
+  };
+  const threadId = id ?? defaults.threadId ?? null;
+  const taskId = id ?? defaults.taskId ?? null;
+  if (command === 'thread read') return helper('thread_read', { channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, threadId });
+  if (command === 'task show') return helper('task_get', { taskId });
+  if (command === 'task comments') return helper('task_comments', { taskId });
+  if (command === 'doc show') return helper('doc_get', { documentId: id, includeBody: flags.has('--body') });
+  if (command === 'doc comments') return helper('doc_comments', { documentId: id });
+  // Writes whose pre-reads (row version, canonical base) must also come from the bound context.
+  if (command === 'task state') return helper('task_state', { taskId, state: requiredFlag(flags, '--state', 'state') });
+  if (command === 'doc update') {
+    const hasBase = flags.get('--base-row-version') || flags.get('--base-version-id') || flags.get('--base-body-sha256-hex');
+    return helper('doc_update', {
+      documentId: id, body: readTextFile(requiredFlag(flags, '--body-file', 'body file')),
+      ...(hasBase ? { captured_base: { row_version: Number(flags.get('--base-row-version')), base_version_id: String(flags.get('--base-version-id') ?? ''), base_body_sha256_hex: String(flags.get('--base-body-sha256-hex') ?? '') } } : {}),
+    });
+  }
+  if (command === 'doc download' || area === 'doc-download') {
+    const documentId = area === 'doc-download' ? action : id;
+    const out = area === 'doc-download' ? (id ?? stringFlag(flags, '--out')) : requiredFlag(flags, '--out', 'output path');
+    const result = await helper('doc_get', { documentId });
+    if (!out) throw new Error('Missing required output path.');
+    await Bun.write(out, String(result.body_text ?? ''));
+    return { ok: true, documentId, out, bounded: true, notification_id: result.notification_id ?? null };
+  }
+  throw Object.assign(new Error(`'${command}' is not available to a strict-inbox agent session: reads are limited to the notified thread, task or document (agent_inbox_unbound_action).`), { code: 'agent_inbox_unbound_action' });
 }
 
 async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagMap, defaults: FlightDeckPgCliDefaults): Promise<unknown> {

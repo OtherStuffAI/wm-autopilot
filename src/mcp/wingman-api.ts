@@ -4,6 +4,7 @@ import { handleContextTreeHelper } from "./context-tree-helper.ts";
 import { rootPipelineRunId } from "../pipelines/pipeline-run-authority";
 import { invokeNativeProjectTool } from '../pipelines/native-project-tool.ts';
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
+import { INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxRead, inboxAwareFetchers, inboxLocation, isInboxSession, resolveInboxSessionScope, runInScope } from "./agent-inbox-session-helper";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
@@ -1399,11 +1400,45 @@ async function handleFlightDeckHelper(
         npub: resolved.botIdentity?.botNpub ?? asString(asObject(resolved.root.agent).botNpub),
         available: Boolean(resolved.botIdentity),
       },
+      // Strict-inbox sessions read only through bound notification context (CLI routes reads via this helper).
+      agentInbox: isInboxSession(resolved.subscriptionId) ? { mode: "inbox_required" } : null,
     });
   }
 
   const missing = requireFlightDeckPgContext(resolved);
   if (missing) return missing;
+  if (isInboxSession(resolved.subscriptionId)) {
+    // Strict-inbox profile: reads only from the bound notification context; generic Tower proxies refused.
+    if (action.startsWith("context_tree_") || INBOX_REFUSED_ACTIONS.has(action)) {
+      return Response.json({ error: `${action} is not available to a strict-inbox agent session.`, code: "agent_inbox_unbound_action" }, { status: 403 });
+    }
+    if (INBOX_READ_ACTIONS.has(action) || INBOX_SCOPED_WRITE_ACTIONS.has(action)) {
+      const scope = await resolveInboxSessionScope({
+        subscriptionId: resolved.subscriptionId, backendConnectionId: resolved.backendConnectionId ?? null, backendBaseUrl: resolved.backendBaseUrl!,
+        workspaceId: resolved.workspaceId!, appNpub: resolved.appNpub!, botIdentity: resolved.botIdentity!,
+      }, inboxLocation(action, {
+        channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
+        taskId: action.startsWith("task_") ? resolveTaskId(resolved, body) : null, documentId: action.startsWith("doc_") ? resolveDocumentId(resolved, body) : null,
+      }));
+      if (scope instanceof Response) return scope;
+      if (INBOX_READ_ACTIONS.has(action)) return answerInboxRead(action, scope);
+      return runInScope(scope, () => handleFlightDeckAction(deps, request, action, body, sessionId, resolved));
+    }
+  }
+  return handleFlightDeckAction(deps, request, action, body, sessionId, resolved);
+}
+
+const scopedDocReads = inboxAwareFetchers({ fetchDocument: fetchFlightDeckPgDocument });
+const scopedTaskReads = inboxAwareFetchers({ fetchTask: fetchFlightDeckPgTask });
+
+async function handleFlightDeckAction(
+  deps: WingmanMcpApiDependencies,
+  request: Request,
+  action: string,
+  body: JsonObject,
+  sessionId: string,
+  resolved: FlightDeckMcpContext,
+): Promise<Response> {
   if (action.startsWith("context_tree_")) {
     return handleContextTreeHelper({ action, body, request, sessionId,
       workspaceId: resolved.workspaceId!, backendBaseUrl: resolved.backendBaseUrl!,
@@ -1471,7 +1506,7 @@ async function handleFlightDeckHelper(
     }
     try {
       if (body.captured_base !== undefined) requireCapturedDocumentBase(body.captured_base);
-      const current = await fetchFlightDeckPgDocument({ ...pg, documentId });
+      const current = await scopedDocReads.fetchDocument({ ...pg, documentId });
       const rowVersion = Number(asObject(current.doc).row_version);
       if (!Number.isFinite(rowVersion) || rowVersion <= 0) {
         const error = `Document ${documentId} did not include a valid row_version`;
@@ -1655,7 +1690,7 @@ async function handleFlightDeckHelper(
     const state = asString(body.state);
     if (!taskId) return jsonError("taskId is required", 400);
     if (!state) return jsonError("state is required", 400);
-    const taskResult = await fetchFlightDeckPgTask({ ...pg, taskId });
+    const taskResult = await scopedTaskReads.fetchTask({ ...pg, taskId });
     const rowVersion = Number(asObject(taskResult.task).row_version);
     if (!Number.isFinite(rowVersion) || rowVersion <= 0) {
       return jsonError(`Task ${taskId} did not include a valid row_version`, 409);
