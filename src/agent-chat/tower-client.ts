@@ -831,7 +831,10 @@ export async function reconcileFlightDeckPgEventSubscriptionAgents(params: {
     }
     throw Object.assign(new Error(error.message), error);
   }
-  const payload = await response.json() as Partial<FlightDeckPgEventSubscriptionAgentsResult>;
+  return parseEventSubscriptionAgentsResult(await response.json() as Partial<FlightDeckPgEventSubscriptionAgentsResult>);
+}
+
+function parseEventSubscriptionAgentsResult(payload: Partial<FlightDeckPgEventSubscriptionAgentsResult>): FlightDeckPgEventSubscriptionAgentsResult {
   const acceptedAudience = payload.audience_npubs ?? payload.agent_npubs;
   if (!Array.isArray(acceptedAudience) || acceptedAudience.some((npub) => typeof npub !== 'string')) {
     throw Object.assign(new Error('Tower event subscription audience response omitted audience_npubs and agent_npubs.'), {
@@ -855,6 +858,40 @@ export async function reconcileFlightDeckPgEventSubscriptionAgents(params: {
     audience_npubs: normalizedAudience,
     rejected_audience: payload.rejected_audience ?? [],
   };
+}
+
+
+/** Tower's exact current event-subscription registration for this identity: the accepted legacy audience npubs. */
+export async function fetchFlightDeckPgEventSubscriptionAgents(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
+  backendBaseUrl: string;
+  workspaceId: string;
+  appNpub: string;
+  botIdentity: RuntimeBotIdentity;
+  signal?: AbortSignal;
+}): Promise<FlightDeckPgEventSubscriptionAgentsResult> {
+  const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/event-subscription-agents`;
+  const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
+    botIdentity: params.botIdentity,
+    url,
+    method: 'GET',
+  });
+  const response = await fetchPgRequest(params, url, {
+    method: 'GET',
+    headers: { Accept: 'application/json', Authorization: authorization, 'x-flightdeck-pg-app-npub': params.appNpub },
+    signal: params.signal,
+  });
+  if (!response.ok) {
+    const error = await parseTowerError(response, 'flightdeck_pg_event_subscription_agents');
+    if (response.status === 404) {
+      error.detailCode = 'flightdeck_pg_event_subscription_agents_contract_missing';
+      error.message = 'Tower does not expose the managed-agent event subscription contract.';
+    }
+    throw Object.assign(new Error(error.message), error);
+  }
+  return parseEventSubscriptionAgentsResult(await response.json() as Partial<FlightDeckPgEventSubscriptionAgentsResult>);
 }
 
 export async function fetchFlightDeckPgScopeChannels(params: {

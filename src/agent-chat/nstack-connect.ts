@@ -18,11 +18,13 @@ type DiscoveryIdentity = RuntimeBotIdentity & { towerTransport?: RemoteTowerTran
 
 type Manager = Pick<WorkspaceSubscriptionManager,
   "listAgentsForManager" | "listBackendConnectionsForManager" | "listForManager"
-  | "importAgentConnectPackage" | "reconnectForManager">;
+  | "importAgentConnectPackage" | "reconnectForManager" | "isAcceptedLegacyAudienceMember">;
 interface ConnectInput {
   manager: Manager;
   managedByNpub: string;
   workspaces: NStackWorkspaceConnection[];
+  /** The bot profile chosen to serve new connections. Without it only bots that already have a subscription reconnect. */
+  agentProfileId?: string | null;
   resolveIdentity: (npub: string) => Promise<DiscoveryIdentity | null>;
   fetchDescriptor?: typeof fetchDescriptor;
 }
@@ -116,8 +118,21 @@ async function connectSelected(input: ConnectInput) {
     try {
       const backend = input.manager.listBackendConnectionsForManager(input.managedByNpub)
         .find((row) => normaliseBackendBaseUrl(row.backendBaseUrl) === connection.directHttpsUrl && row.serviceNpub === connection.serviceNpub);
-      const agents = input.manager.listAgentsForManager(input.managedByNpub).filter((agent) => agent.enabled && !agent.archived);
-      if (!agents.length) throw new Error("No enabled local agents. Create a local agent and add its public identity to the workspace first.");
+      const enabled = input.manager.listAgentsForManager(input.managedByNpub).filter((agent) => agent.enabled && !agent.archived);
+      if (!enabled.length) throw new Error("No enabled local agents. Create a local agent and add its public identity to the workspace first.");
+      const rows = input.manager.listForManager(input.managedByNpub);
+      const servesAgent = (row: (typeof rows)[number], agent: (typeof enabled)[number]) => row.agentProfileId
+        ? row.agentProfileId === agent.agentId
+        : row.botNpub === agent.botNpub || input.manager.isAcceptedLegacyAudienceMember(row, agent.agentId);
+      // Only the chosen profile, or bots this workspace already serves, are verified: no membership probing of every bot.
+      const agents = enabled.filter((agent) => input.agentProfileId ? agent.agentId === input.agentProfileId
+        : rows.some((row) => normaliseBackendBaseUrl(row.backendBaseUrl) === connection.directHttpsUrl
+          && row.workspaceId === connection.workspaceId && servesAgent(row, agent)));
+      if (!agents.length) {
+        throw new Error(input.agentProfileId
+          ? "The chosen bot profile is not an enabled local agent."
+          : "Choose the bot profile that should serve this workspace; each bot connects with its own strict inbox.");
+      }
       for (const agent of agents) {
         let identity: DiscoveryIdentity | null;
         try { identity = await input.resolveIdentity(agent.botNpub); }
@@ -135,7 +150,7 @@ async function connectSelected(input: ConnectInput) {
           const existing = input.manager.listForManager(input.managedByNpub).find((row) =>
             normaliseBackendBaseUrl(row.backendBaseUrl) === connection.directHttpsUrl
             && row.workspaceId === descriptor.workspaceId && row.sourceAppNpub === descriptor.appNpub
-            && (row.botNpub === agent.botNpub || !row.agentProfileId));
+            && servesAgent(row, agent));
           if (existing) {
             if (!subscriptionIds.includes(existing.subscriptionId)) subscriptionIds.push(existing.subscriptionId);
             if (existing.lifecycleStatus !== "active" || existing.sseStatus === "disabled") { preserved++; continue; }

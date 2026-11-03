@@ -43,13 +43,19 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 - **Existing profile-bound subscription:**
   - `POST /api/agent-chat/subscriptions/<id>/agent-inbox {"mode":"inbox_required"}`.
   - `{"mode":"legacy"}` rolls back. A classified bot then stops receiving dispatch; it is never given broader access.
-- **Inbox-first creation or migration:**
-  - Use `POST /api/agent-chat/subscriptions` (direct create or update, for example migrating an existing profile without a fresh package) or `POST /api/agent-chat/agent-connect/import`.
-  - Pass `agentProfileId` and `"agentInboxMode":"inbox_required"`.
-  - The mode is set before any verification or event connection, so the new subscription never calls `/me`, `/events` or audience routes.
-  - Other values are rejected, as is a request without a profile.
-  - Creating a profile subscription in legacy mode and opting in later leaves a short window in which broad events reach that subscription's stored diagnostics.
-  - **Compatibility limitation:** the NStack connect onboarding flow does not pass this option. It still creates legacy-mode subscriptions, and existing connections are unchanged.
+- **New bot connections (default):**
+  - Every new subscription is a profile-bound Flight Deck PG strict inbox. This covers the Workspaces UI, `POST /api/agent-chat/subscriptions`, `POST /api/agent-chat/agent-connect/import`, NStack connect and SBIP-0009 kind 33357 discovery, all through `createOrUpdate`.
+  - The mode is set before any verification or event connection, so a new bot never calls `/me`, `/events` or audience routes. Omitting `agentInboxMode` does not change this; `"inbox_required"` is still accepted, other values are rejected.
+  - The profile must be named exactly: `agentProfileId` (UI and NStack offer a bot profile choice), or the 33357 recipient when it maps to an owned profile. Autopilot never probes local bots' workspace membership to pick one.
+  - Without a profile and with no existing shared record to reconnect, the request fails with `400 agent_inbox_profile_required` before any key generation, backend health check or Tower request. A new connection without a full Flight Deck PG descriptor fails with `agent_inbox_flightdeck_pg_required`.
+  - Before its inbox loop creates a Tower inbox subscription, polls or dispatches anything, a newly connected bot must be under Tower's notification-only ceiling. Autopilot reads the existing `GET …/agent-notifications/access-profile`. If the ceiling is absent, it self-classifies with the existing `PUT` and accepts only Tower's confirmation. It re-verifies on every loop start. If it cannot verify, the subscription is `blocked` (`agent_inbox_ceiling_unverified`) and nothing is dispatched.
+  - Such a subscription can never be moved to the legacy feed (`409 agent_inbox_downgrade_refused`). Subscriptions that operators migrated before this change keep their explicit rollback.
+  - A profile-bound request never reuses or re-binds a profileless (shared) record of the same bot npub; it gets its own record.
+  - A replayed or older 33357 event never re-enrolls a workspace the bot was locally disconnected from, under any binding.
+- **Existing records:** reconnect with their mode unchanged; there is no global cutover. Migrate a profile deliberately with the opt-in route above or with `agentInboxMode` on an update.
+- **Legacy shared audience (existing shared records only):**
+  - It never grows. Before registering, Autopilot reads Tower's exact existing registration (`GET …/event-subscription-agents`, as the shared identity). It then requests only eligible profiles that hold an accepted-audience link to that subscription AND whose current npub Tower already registers. Links only narrow, since a profile's npub can change. `legacy_broad_feed_consent` is never sent.
+  - If the registration cannot be read, or eligible bots exist but none qualifies, legacy delivery stops (`flightdeck_pg_legacy_audience_unrecoverable`, row `blocked`) with no audience `PUT` and no `/events`. When Tower denies audience management, only the profile whose npub is the subscription's own identity is served.
 - **Shared audience cleanup:** a migrated bot leaves the shared subscription's audience when that subscription reconciles. Reconciliation happens on reconnect or through `POST /api/agent-chat/subscriptions/actions/refresh-audiences`. Tower classification also removes the bot's audience rows.
 
 ## Sessions after migration

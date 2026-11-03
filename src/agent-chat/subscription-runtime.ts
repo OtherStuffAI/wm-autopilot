@@ -89,6 +89,7 @@ import {
   fetchFlightDeckPgEvents,
   fetchFlightDeckPgWorkspaceMe,
   reconcileFlightDeckPgEventSubscriptionAgents,
+  fetchFlightDeckPgEventSubscriptionAgents,
   fetchWorkspaceKeyMappings,
   fetchRecordHistory,
   normaliseBackendBaseUrl,
@@ -104,6 +105,7 @@ import { hydrateDirectChatThread, hydrateFlightDeckPgChatEvent } from './direct-
 import { AgentInboxProcessor } from './agent-inbox-runtime';
 import { buildBotSubscriptionRows, type BotSubscriptionRow } from './bot-subscription-status';
 import { classifyAgentNotificationOnly, readAgentAccessProfile } from './agent-inbox-client';
+import { ensureNotificationOnlyCeiling } from './agent-inbox-ceiling';
 import { agentInboxStore, type AgentInboxMode, type AgentInboxState, type AgentInboxStore } from './agent-inbox-store';
 import { inboxAwareFetchers } from './agent-inbox-scope';
 import { normaliseDirectChatMessage } from './direct-chat-contract';
@@ -423,6 +425,41 @@ function isRevokedWorkspaceSubscription(record: WorkspaceSubscriptionRecord): bo
 
 function isFlightDeckPgSubscription(record: WorkspaceSubscriptionRecord): boolean {
   return Boolean(record.workspaceId && record.workspaceServiceNpub);
+}
+
+/** Whether a discovery event is older than (or loses to) what this record already applied, or predates its local disconnect. */
+function isSupersededDiscovery(
+  record: WorkspaceSubscriptionRecord,
+  discoveryEvent: NonNullable<CreateWorkspaceSubscriptionInput['discoveryEvent']>,
+): boolean {
+  const currentCreatedAt = record.discoveryEventCreatedAt;
+  const sameTimestampWins = currentCreatedAt === discoveryEvent.createdAt
+    && Boolean(record.discoveryEventId)
+    && record.discoveryEventId! < discoveryEvent.eventId;
+  const staleReplacement = currentCreatedAt != null && (
+    currentCreatedAt > discoveryEvent.createdAt || sameTimestampWins
+  );
+  const disconnectedAt = Math.floor(Date.parse(record.lifecycleChangedAt || record.updatedAt) / 1000);
+  const disconnectedWatermark = Math.max(
+    Number.isFinite(disconnectedAt) ? disconnectedAt : 0,
+    currentCreatedAt ?? 0,
+  );
+  return staleReplacement
+    || (record.lifecycleStatus === 'locally_disconnected' && discoveryEvent.createdAt <= disconnectedWatermark);
+}
+
+/** Actionable refusal for a new bot connection that is not an exact profile-bound Flight Deck PG strict inbox. */
+function newEnrollmentError(agentProfile: AgentDefinitionRecord | null, workspaceId: string | null): Error {
+  if (!agentProfile) {
+    return Object.assign(
+      new Error('New workspace connections need a bot profile: choose the bot profile that should serve this workspace (each bot connects with its own strict inbox), then connect again.'),
+      { statusCode: 400, detailCode: 'agent_inbox_profile_required', code: 'agent_inbox_profile_required' },
+    );
+  }
+  return Object.assign(
+    new Error(`New bot connections require a Flight Deck PG workspace (${!workspaceId ? 'workspace id' : 'workspace service npub'} missing); update the connection package and connect again.`),
+    { statusCode: 400, detailCode: 'agent_inbox_flightdeck_pg_required', code: 'agent_inbox_flightdeck_pg_required' },
+  );
 }
 
 function isFlightDeckPgMessageRevisionEvent(event: FlightDeckPgEvent): boolean {
@@ -923,6 +960,7 @@ export interface WorkspaceSubscriptionManagerDependencies {
   fetchFlightDeckPgEvents?: typeof fetchFlightDeckPgEvents;
   connectFlightDeckPgEventStream?: typeof connectFlightDeckPgEventStream;
   reconcileFlightDeckPgEventSubscriptionAgents?: typeof reconcileFlightDeckPgEventSubscriptionAgents;
+  fetchFlightDeckPgEventSubscriptionAgents?: typeof fetchFlightDeckPgEventSubscriptionAgents;
   fetchFlightDeckPgChannelMessages?: typeof fetchFlightDeckPgChannelMessages;
   fetchFlightDeckPgChannel?: typeof fetchFlightDeckPgChannel;
   fetchFlightDeckPgWorkroomContext?: typeof fetchFlightDeckPgWorkroomContext;
@@ -1075,6 +1113,8 @@ function canUseBackendConnection(
 
 export class WorkspaceSubscriptionManager {
   private readonly flightDeckSingleActorFallbackProfiles = new Map<string, string>();
+  /** Shared subscriptions' audience npubs as Tower last verified them (exact registration; never derived locally). */
+  private readonly flightDeckVerifiedLegacyAudience = new Map<string, Set<string>>();
   private readonly store: WorkspaceSubscriptionStore;
   private readonly agentStore: AgentDefinitionStore;
   private readonly backendStore: BackendConnectionStore;
@@ -1097,6 +1137,7 @@ export class WorkspaceSubscriptionManager {
   private readonly fetchFlightDeckPgEventsImpl: typeof fetchFlightDeckPgEvents;
   private readonly connectFlightDeckPgEventStreamImpl: typeof connectFlightDeckPgEventStream;
   private readonly reconcileFlightDeckPgEventSubscriptionAgentsImpl: typeof reconcileFlightDeckPgEventSubscriptionAgents;
+  private readonly fetchFlightDeckPgEventSubscriptionAgentsImpl: typeof fetchFlightDeckPgEventSubscriptionAgents;
   private readonly fetchFlightDeckPgChannelMessagesImpl: typeof fetchFlightDeckPgChannelMessages;
   private readonly fetchFlightDeckPgChannelImpl: typeof fetchFlightDeckPgChannel;
   private readonly inboxStore: AgentInboxStore;
@@ -1152,6 +1193,8 @@ export class WorkspaceSubscriptionManager {
     this.connectFlightDeckPgEventStreamImpl = deps.connectFlightDeckPgEventStream ?? connectFlightDeckPgEventStream;
     this.reconcileFlightDeckPgEventSubscriptionAgentsImpl = deps.reconcileFlightDeckPgEventSubscriptionAgents
       ?? reconcileFlightDeckPgEventSubscriptionAgents;
+    this.fetchFlightDeckPgEventSubscriptionAgentsImpl = deps.fetchFlightDeckPgEventSubscriptionAgents
+      ?? fetchFlightDeckPgEventSubscriptionAgents;
     // Inside a strict-inbox notification scope these answer only from the notification's bound Tower context.
     const chatFetchers = inboxAwareFetchers({
       fetchMessages: deps.fetchFlightDeckPgChannelMessages ?? fetchFlightDeckPgChannelMessages,
@@ -2445,11 +2488,12 @@ export class WorkspaceSubscriptionManager {
     });
   }
 
-  async connectNStackForManager(managedByNpub: string, workspaces: NStackWorkspaceConnection[]) {
+  async connectNStackForManager(managedByNpub: string, workspaces: NStackWorkspaceConnection[], agentProfileId?: string | null) {
     return connectNStackWorkspaces({
       manager: this,
       managedByNpub,
       workspaces,
+      agentProfileId: agentProfileId ?? null,
       resolveIdentity: async (npub) => {
         const identity = await this.resolveStoredBotIdentity(npub);
         if (!identity) return null;
@@ -2489,8 +2533,11 @@ export class WorkspaceSubscriptionManager {
     const agentProfiles = await this.resolveAgentConnectImportProfiles({
       managedByNpub: input.managedByNpub,
       explicitAgentProfileId: agentProfileId,
-      validation,
     });
+    // Refuse before creating or health-checking a backend connection when nothing existing could be reconnected.
+    if (!agentProfiles[0] && !this.hasProfilelessSubscription(validation.workspaceOwnerNpub, validation.sourceAppNpub, validation.workspaceId)) {
+      throw newEnrollmentError(null, validation.workspaceId);
+    }
     let backendConnection = await this.createOrReuseBackendConnection({
       managedByNpub: input.managedByNpub,
       backendBaseUrl: validation.service.directHttpsUrl,
@@ -2552,67 +2599,15 @@ export class WorkspaceSubscriptionManager {
     };
   }
 
+  /**
+   * Only an exact, owned profile (explicit or the discovery recipient's) binds an import. Without one the import may
+   * reconnect an existing shared record unchanged; it never probes local bots' workspace membership to pick one.
+   */
   private async resolveAgentConnectImportProfiles(input: {
     managedByNpub: string;
     explicitAgentProfileId: string | null;
-    validation: AgentConnectValidationResult;
   }): Promise<Array<AgentDefinitionRecord | null>> {
-    if (input.explicitAgentProfileId) {
-      return [this.resolveOwnedAgentProfile(input.explicitAgentProfileId, input.managedByNpub)];
-    }
-
-    if (!input.validation.workspaceId) {
-      const identity = await this.resolveCreateBotIdentity(input.managedByNpub, null);
-      if (identity.botSecret !== this.getInstanceIdentity()?.secretKey) {
-        identity.botSecret.fill(0);
-      }
-      return [null];
-    }
-
-    const candidates = this.agentStore.listForManagerNpub(input.managedByNpub)
-      .filter((agent) => agent.enabled && agent.archived !== true);
-    if (!candidates.length) {
-      const identity = await this.resolveCreateBotIdentity(input.managedByNpub, null);
-      if (identity.botSecret !== this.getInstanceIdentity()?.secretKey) {
-        identity.botSecret.fill(0);
-      }
-      return [null];
-    }
-
-    const accepted: AgentDefinitionRecord[] = [];
-    for (const agent of candidates) {
-      const botIdentity = await this.resolveStoredBotIdentity(agent.botNpub).catch(() => null);
-      if (!botIdentity) continue;
-      try {
-        const me = await this.fetchFlightDeckPgWorkspaceMeImpl({
-          backendBaseUrl: input.validation.service.directHttpsUrl,
-          workspaceId: input.validation.workspaceId,
-          appNpub: input.validation.sourceAppNpub,
-          botIdentity,
-        });
-        if (me?.membership) accepted.push(agent);
-      } catch {
-        // Non-members are expected during discovery; keep probing other local bots.
-      } finally {
-        if (botIdentity.botSecret !== this.getInstanceIdentity()?.secretKey) {
-          botIdentity.botSecret.fill(0);
-        }
-      }
-    }
-
-    if (!accepted.length) {
-      throw Object.assign(
-        new Error('No enabled local bot profile is a member of this Flight Deck PG workspace. Add one of this Autopilot instance’s bot npubs to the workspace, then import AgentConnect again.'),
-        { statusCode: 403 },
-      );
-    }
-
-    const defaultAgent = this.getDefaultAgentForManager(input.managedByNpub);
-    return accepted.sort((left, right) => {
-      if (left.agentId === defaultAgent?.agentId) return -1;
-      if (right.agentId === defaultAgent?.agentId) return 1;
-      return left.agentId.localeCompare(right.agentId);
-    });
+    return [input.explicitAgentProfileId ? this.resolveOwnedAgentProfile(input.explicitAgentProfileId, input.managedByNpub) : null];
   }
 
   async createOrUpdate(input: CreateWorkspaceSubscriptionInput): Promise<WorkspaceSubscriptionRecord> {
@@ -2669,6 +2664,10 @@ export class WorkspaceSubscriptionManager {
     const agentProfile = input.agentProfileId
       ? this.resolveOwnedAgentProfile(input.agentProfileId, input.managedByNpub)
       : null;
+    // Fail before any key generation, backend health check or Tower request when no profileless record could match.
+    if (!agentProfile && !this.hasProfilelessSubscription(workspaceOwnerNpub, sourceAppNpub, workspaceId)) {
+      throw newEnrollmentError(agentProfile, workspaceId);
+    }
     const botIdentity = await this.resolveCreateBotIdentity(input.managedByNpub, agentProfile);
     if (agentProfile && botIdentity.botNpub !== agentProfile.botNpub) {
       throw new Error(`Agent Profile ${agentProfile.agentId} bot key does not match its botNpub.`);
@@ -2718,6 +2717,8 @@ export class WorkspaceSubscriptionManager {
       legacyRecord
       && legacyIdentityCompatible
       && (!legacyRecord.managedByNpub || legacyRecord.managedByNpub === input.managedByNpub)
+      // Never reuse (and so re-bind) a record of another profile binding, notably a shared profileless one.
+      && (legacyRecord.agentProfileId ?? null) === (agentProfile?.agentId ?? null)
       && legacyRecord.sourceAppNpub === sourceAppNpub
       && (
         legacyRecord.backendConnectionId === (backendConnection?.backendConnectionId ?? null)
@@ -2727,9 +2728,22 @@ export class WorkspaceSubscriptionManager {
         )
       ),
     );
-    let record = scopedRecord
-      ?? instanceRecord
-      ?? (canReuseLegacyRecord ? legacyRecord : null)
+    const existingRecord = scopedRecord ?? instanceRecord ?? (canReuseLegacyRecord ? legacyRecord : null);
+    // Safe onboarding boundary: a NEW subscription is only ever a profile-bound Flight Deck PG strict inbox, opted in
+    // before any verification or connection. Existing records reconnect with their mode unchanged.
+    if (!existingRecord) {
+      // A replayed or older discovery never re-enrolls a workspace this bot was disconnected from under another binding.
+      const supersedingSibling = input.discoveryEvent && this.store.listAll().find((candidate) =>
+        candidate.botNpub === botIdentity.botNpub && candidate.workspaceOwnerNpub === workspaceOwnerNpub
+        && candidate.sourceAppNpub === sourceAppNpub && (!workspaceId || !candidate.workspaceId || candidate.workspaceId === workspaceId)
+        && (!candidate.managedByNpub || candidate.managedByNpub === input.managedByNpub)
+        && isSupersededDiscovery(candidate, input.discoveryEvent!));
+      if (supersedingSibling) return supersedingSibling;
+      if (!agentProfile || !workspaceId || !workspaceServiceNpub) throw newEnrollmentError(agentProfile, workspaceId);
+      input = { ...input, agentInboxMode: 'inbox_required' };
+    }
+    const safeEnrollment = !existingRecord;
+    let record = existingRecord
       ?? this.store.createDefault({
         managedByNpub: input.managedByNpub,
         workspaceOwnerNpub,
@@ -2750,25 +2764,8 @@ export class WorkspaceSubscriptionManager {
       });
 
     const discoveryEvent = input.discoveryEvent;
-    if (discoveryEvent) {
-      const currentCreatedAt = record.discoveryEventCreatedAt;
-      const sameTimestampWins = currentCreatedAt === discoveryEvent.createdAt
-        && Boolean(record.discoveryEventId)
-        && record.discoveryEventId! < discoveryEvent.eventId;
-      const staleReplacement = currentCreatedAt != null && (
-        currentCreatedAt > discoveryEvent.createdAt || sameTimestampWins
-      );
-      const disconnectedAt = Math.floor(Date.parse(record.lifecycleChangedAt || record.updatedAt) / 1000);
-      const disconnectedWatermark = Math.max(
-        Number.isFinite(disconnectedAt) ? disconnectedAt : 0,
-        currentCreatedAt ?? 0,
-      );
-      if (
-        staleReplacement
-        || (record.lifecycleStatus === 'locally_disconnected' && discoveryEvent.createdAt <= disconnectedWatermark)
-      ) {
-        return record;
-      }
+    if (discoveryEvent && isSupersededDiscovery(record, discoveryEvent)) {
+      return record;
     }
 
     record.backendConnectionId = backendConnection?.backendConnectionId ?? record.backendConnectionId ?? null;
@@ -2799,6 +2796,8 @@ export class WorkspaceSubscriptionManager {
         throw Object.assign(new Error('Inbox-first creation requires a profile-bound Flight Deck PG subscription.'), { detailCode: 'agent_inbox_profile_required' });
       }
       this.inboxStore.setMode(record.subscriptionId, 'inbox_required', `autopilot:${record.subscriptionId}`);
+      // A new bot is held to Tower's notification-only ceiling before its inbox loop may poll or dispatch.
+      if (safeEnrollment) this.inboxStore.requireNotificationOnly(record.subscriptionId);
     }
     if (isFlightDeckPgSubscription(record)) {
       record = await this.prepareFlightDeckPgSubscription(record, botIdentity);
@@ -3129,9 +3128,6 @@ export class WorkspaceSubscriptionManager {
     if (!record) {
       return null;
     }
-    if (isFlightDeckPgSubscription(record) && record.onboardingSource === 'agent_connect_import' && !record.agentProfileId) {
-      return this.reconnectUnboundFlightDeckPgImport(record);
-    }
     if (isRevokedWorkspaceSubscription(record)) {
       throw new Error('Subscription access was revoked by Tower verification and cannot be reconnected.');
     }
@@ -3144,76 +3140,6 @@ export class WorkspaceSubscriptionManager {
       allowRegisterWhenInactive: false,
       reason: 'operator_reconnect',
     });
-  }
-
-  private async reconnectUnboundFlightDeckPgImport(record: WorkspaceSubscriptionRecord): Promise<WorkspaceSubscriptionRecord> {
-    if (!record.workspaceId) {
-      throw new Error('Flight Deck PG workspace id is required to reconnect this AgentConnect subscription.');
-    }
-    const backendConnection = record.backendConnectionId
-      ? this.backendStore.getById(record.backendConnectionId)
-      : await this.createOrReuseBackendConnection({
-          managedByNpub: record.managedByNpub ?? '',
-          backendBaseUrl: record.backendBaseUrl,
-          serviceNpub: record.towerServiceNpub ?? null,
-          setupWorkspaceOwnerNpub: record.workspaceOwnerNpub,
-          setupSourceAppNpub: record.sourceAppNpub,
-          setupSourceAppSchemaNamespace: record.sourceAppSchemaNamespace,
-          setupConnectionTokenRef: record.connectionTokenRef,
-          setupCapabilityDefaults: record.capabilityDefaults ?? [],
-        });
-    if (!backendConnection) {
-      throw new Error('Backend connection not found for this AgentConnect subscription.');
-    }
-    const validation: AgentConnectValidationResult = {
-      managedByNpub: record.managedByNpub ?? '',
-      service: {
-        directHttpsUrl: backendConnection.backendBaseUrl || record.backendBaseUrl,
-        serviceNpub: record.towerServiceNpub ?? backendConnection.serviceNpub ?? null,
-        relayUrls: backendConnection.relayUrls ?? [],
-        openapiUrl: backendConnection.openapiUrl ?? null,
-        docsUrl: backendConnection.docsUrl ?? null,
-        healthUrl: backendConnection.healthUrl ?? null,
-      },
-      workspaceOwnerNpub: record.workspaceOwnerNpub,
-      workspaceId: record.workspaceId,
-      workspaceServiceNpub: record.workspaceServiceNpub ?? null,
-      workspaceTitle: null,
-      sourceAppNpub: record.sourceAppNpub,
-      sourceAppSchemaNamespace: record.sourceAppSchemaNamespace ?? null,
-      supportedVersion: backendConnection.supportedVersion ?? '6',
-      connectionTokenRef: record.connectionTokenRef ?? `agent-connect:${record.workspaceOwnerNpub}:${record.sourceAppNpub}:${Date.parse(record.createdAt)}`,
-      capabilityDefaults: record.capabilityDefaults ?? [],
-    };
-    const agentProfiles = await this.resolveAgentConnectImportProfiles({
-      managedByNpub: record.managedByNpub ?? '',
-      explicitAgentProfileId: null,
-      validation,
-    });
-    const subscriptions: WorkspaceSubscriptionRecord[] = [];
-    for (const agentProfile of agentProfiles) {
-      const importResult = buildAgentConnectImportResult(validation, backendConnection);
-      const subscription = await this.createOrUpdate({
-        ...importResult.subscriptionInput,
-        agentProfileId: agentProfile?.agentId ?? null,
-        onboardingSource: 'agent_connect_import',
-      });
-      this.profilePolicyStore.ensureProfileWorkspaceForSubscription({
-        managedByNpub: record.managedByNpub ?? '',
-        agentProfileId: agentProfile?.agentId ?? null,
-        agentLabel: agentProfile?.label ?? null,
-        agentNpub: subscription.botNpub,
-        subscription,
-        backendConnection,
-        relayOnboardingStatus: subscription.wsKeyStatus === 'active' ? 'ready' : 'verified',
-        workspaceTitle: validation.workspaceTitle,
-      });
-      subscriptions.push(subscription);
-    }
-    if (!subscriptions.some((subscription) => subscription.subscriptionId === record.subscriptionId)) {
-      this.removeForManager(record.subscriptionId, record.managedByNpub ?? '');
-    }
-    return subscriptions[0]!;
   }
 
   async refreshKeysForManager(subscriptionId: string, npub: string): Promise<WorkspaceSubscriptionRecord | null> {
@@ -3310,6 +3236,16 @@ export class WorkspaceSubscriptionManager {
         source_33357_event_id: grant.event.id,
       },
     };
+  }
+
+  /**
+   * Whether any existing profileless (shared) subscription could match, so a profileless request may go on to the exact
+   * existing-record lookup (which also covers instance-owned records reconnected by another approved manager).
+   */
+  private hasProfilelessSubscription(workspaceOwnerNpub: string, sourceAppNpub: string, workspaceId: string | null): boolean {
+    return this.store.listAll().some((record) => !record.agentProfileId
+      && record.workspaceOwnerNpub === workspaceOwnerNpub && record.sourceAppNpub === sourceAppNpub
+      && (!workspaceId || !record.workspaceId || record.workspaceId === workspaceId));
   }
 
   private resolveOwnedAgentProfile(agentProfileId: string, managedByNpub: string): AgentDefinitionRecord {
@@ -3874,6 +3810,11 @@ export class WorkspaceSubscriptionManager {
     if (mode === 'inbox_required' && !record.agentProfileId) {
       throw new Error('The strict agent inbox is per bot identity: enable it on a profile-bound subscription.');
     }
+    if (mode !== 'inbox_required' && this.inboxStore.get(subscriptionId)?.requireNotificationOnly) {
+      throw Object.assign(new Error('This bot was connected with its own strict inbox and cannot be moved to the broad legacy feed.'), {
+        statusCode: 409, detailCode: 'agent_inbox_downgrade_refused',
+      });
+    }
     const state = this.inboxStore.setMode(subscriptionId, mode, `autopilot:${record.subscriptionId}`);
     if (record.sseStatus !== 'disabled' && !isRevokedWorkspaceSubscription(record)) {
       await this.repairSubscription(record, { refreshWorkspaceKey: false, reconnect: true, allowRegisterWhenInactive: false, reason: 'operator_reconnect' });
@@ -3927,6 +3868,8 @@ export class WorkspaceSubscriptionManager {
         });
       },
     });
+    // Verified once per loop start: a safely enrolled bot never polls or dispatches before Tower confirms its ceiling.
+    let ceilingVerified = false;
     while (!signal.aborted && !runtime.removed && runtime.abortController?.signal === signal) {
       let record = this.store.getBySubscriptionId(subscriptionId);
       if (!record || !record.workspaceId) return;
@@ -3935,12 +3878,17 @@ export class WorkspaceSubscriptionManager {
       if (!identity) {
         result = { status: 'halt', code: 'agent_inbox_profile_key_missing', message: 'No active key exists for this bot identity.' };
       } else {
+        const context = {
+          backendConnectionId: record.backendConnectionId, subscriptionId: record.subscriptionId, backendBaseUrl: record.backendBaseUrl,
+          workspaceId: record.workspaceId, appNpub: record.sourceAppNpub, botIdentity: identity, signal,
+          ...(this.agentInboxFetch ? { fetchImpl: this.agentInboxFetch } : {}),
+        };
         try {
-          result = await processor.pollOnce(record, {
-            backendConnectionId: record.backendConnectionId, subscriptionId: record.subscriptionId, backendBaseUrl: record.backendBaseUrl,
-            workspaceId: record.workspaceId, appNpub: record.sourceAppNpub, botIdentity: identity, signal,
-            ...(this.agentInboxFetch ? { fetchImpl: this.agentInboxFetch } : {}),
-          });
+          const ceiling = ceilingVerified || !this.inboxStore.get(subscriptionId)?.requireNotificationOnly
+            ? null
+            : await ensureNotificationOnlyCeiling(context);
+          if (ceiling?.status === 'verified') ceilingVerified = true;
+          result = ceiling && ceiling.status !== 'verified' ? ceiling : await processor.pollOnce(record, context);
         } catch (error) {
           result = { status: 'backoff', code: getErrorDetailCode(error) ?? 'agent_inbox_failed', message: error instanceof Error ? error.message : String(error) };
         } finally {
@@ -4010,7 +3958,36 @@ export class WorkspaceSubscriptionManager {
     await this.ensureFlightDeckPgConnected(staleRecord, runtime.botIdentity, false);
   }
 
+  /** Whether this profile, under its current npub, is in the shared subscription's Tower-verified legacy audience. */
+  isAcceptedLegacyAudienceMember(record: WorkspaceSubscriptionRecord, agentId: string): boolean {
+    return this.enabledFlightDeckAudience(record).some((profile) => profile.agentId === agentId);
+  }
+
+  /**
+   * A shared subscription's legacy audience: eligible profiles with a local accepted link whose CURRENT npub Tower
+   * verified as registered. Links only narrow (a profile's npub can change); Tower's exact registration proves identity.
+   * Empty until a reconcile verified it. In single-actor fallback only the subscription's own identity is served.
+   */
   private enabledFlightDeckAudience(record: WorkspaceSubscriptionRecord): AgentDefinitionRecord[] {
+    const fallbackAgentId = this.flightDeckSingleActorFallbackProfiles.get(record.subscriptionId);
+    if (fallbackAgentId) {
+      return this.eligibleLegacyAudienceProfiles(record)
+        .filter((profile) => profile.agentId === fallbackAgentId && profile.botNpub === record.botNpub);
+    }
+    const registered = this.flightDeckVerifiedLegacyAudience.get(record.subscriptionId);
+    return registered ? this.linkedLegacyAudienceProfiles(record).filter((profile) => registered.has(profile.botNpub)) : [];
+  }
+
+  /** Eligible profiles linked to this shared subscription by an accepted-audience row (not the subscription's own-npub row). */
+  private linkedLegacyAudienceProfiles(record: WorkspaceSubscriptionRecord): AgentDefinitionRecord[] {
+    if (!record.managedByNpub) return [];
+    const linked = new Set(this.profilePolicyStore.listProfileIdsForSubscription(record.subscriptionId, record.managedByNpub));
+    linked.delete(record.botNpub);
+    return this.eligibleLegacyAudienceProfiles(record).filter((profile) => linked.has(profile.agentId));
+  }
+
+  /** Profiles that would qualify for a shared subscription's legacy audience, before accepted-audience provenance. */
+  private eligibleLegacyAudienceProfiles(record: WorkspaceSubscriptionRecord): AgentDefinitionRecord[] {
     if (!record.managedByNpub || record.agentProfileId) return [];
     const inboxProfiles = this.inboxRequiredProfileIds(record);
     return this.agentStore.listForManagerNpub(record.managedByNpub)
@@ -4019,6 +3996,60 @@ export class WorkspaceSubscriptionManager {
       // A profile opted into the strict inbox is served only there: never fanned into the legacy visibility audience.
       .filter((profile) => !inboxProfiles.has(profile.agentId))
       .sort((left, right) => left.botNpub.localeCompare(right.botNpub));
+  }
+
+  /**
+   * Fails closed when a shared subscription has eligible profiles but none is both locally linked and registered with
+   * Tower under its current npub: legacy delivery stops instead of registering a guessed (broader) audience.
+   */
+  private refuseUnrecoverableLegacyAudience(record: WorkspaceSubscriptionRecord, eligible: AgentDefinitionRecord[]): never {
+    const message = 'No bot of this shared workspace subscription is verifiably registered with Tower under its current identity, so legacy delivery is stopped rather than enrolling bots implicitly. Connect each bot with its own profile-bound strict inbox.';
+    record.lastRoutingResult = buildFailureDiagnostic(
+      'flightdeck_pg_legacy_audience_unrecoverable',
+      message,
+      'flightdeck_pg_legacy_audience_unrecoverable',
+      { subscription_id: record.subscriptionId, unaccepted_agent_ids: eligible.map((profile) => profile.agentId), retryable: false },
+    );
+    this.saveRecord(this.recomputeHealth(record));
+    throw Object.assign(new Error(message), { detailCode: 'flightdeck_pg_legacy_audience_unrecoverable', retryable: false });
+  }
+
+  /**
+   * Tower denies multi-identity audience management: serve only the profile whose npub IS the subscription's own
+   * connected identity (no other bot can be inferred). Any other failure propagates and stops legacy delivery.
+   */
+  private useSingleActorFallbackOrThrow(
+    record: WorkspaceSubscriptionRecord,
+    eligible: AgentDefinitionRecord[],
+    botIdentity: RuntimeBotIdentity,
+    error: unknown,
+  ): string[] {
+    const directActorProfile = botIdentity.botNpub === record.botNpub
+      ? eligible.find((profile) => profile.botNpub === botIdentity.botNpub)
+      : undefined;
+    if (getErrorDetailCode(error) !== 'permission_denied' || !directActorProfile) throw error;
+    this.flightDeckSingleActorFallbackProfiles.set(record.subscriptionId, directActorProfile.agentId);
+    record.lastRoutingResult = buildSuccessDiagnostic(
+      'Tower does not grant multi-identity event subscription management; using the connected agent identity directly.',
+      {
+        subscription_id: record.subscriptionId,
+        agent_id: directActorProfile.agentId,
+        agent_npub: directActorProfile.botNpub,
+        mode: 'single_actor',
+      },
+    );
+    this.saveRecord(this.recomputeHealth(record));
+    const backendConnection = record.backendConnectionId ? this.backendStore.getById(record.backendConnectionId) : null;
+    this.profilePolicyStore.ensureProfileWorkspaceForSubscription({
+      managedByNpub: record.managedByNpub!,
+      agentProfileId: directActorProfile.agentId,
+      agentLabel: directActorProfile.label,
+      agentNpub: directActorProfile.botNpub,
+      subscription: record,
+      backendConnection,
+      relayOnboardingStatus: record.healthStatus === 'healthy' ? 'ready' : 'verified',
+    });
+    return [];
   }
 
   /** Profiles with an inbox-required, profile-bound subscription in the same workspace as `record`. */
@@ -4037,9 +4068,23 @@ export class WorkspaceSubscriptionManager {
     if (!record.workspaceId) return [];
     // Retained profile-bound subscriptions use Tower's backward-compatible single-actor contract.
     if (record.agentProfileId) return [];
-    const profiles = this.enabledFlightDeckAudience(record);
-    const requested = [...new Set(profiles.map((profile) => profile.botNpub))];
+    const workspaceId = record.workspaceId;
     this.flightDeckSingleActorFallbackProfiles.delete(record.subscriptionId);
+    this.flightDeckVerifiedLegacyAudience.delete(record.subscriptionId);
+    const eligible = this.eligibleLegacyAudienceProfiles(record);
+    const request = { backendConnectionId: record.backendConnectionId, backendBaseUrl: record.backendBaseUrl, workspaceId,
+      appNpub: record.sourceAppNpub, botIdentity, signal };
+    let registered: Set<string>;
+    try {
+      // Tower's exact existing registration is the only proof of consent; any failure stops legacy delivery.
+      registered = new Set((await this.fetchFlightDeckPgEventSubscriptionAgentsImpl(request)).audience_npubs);
+    } catch (error) {
+      return this.useSingleActorFallbackOrThrow(record, eligible, botIdentity, error);
+    }
+    const profiles = this.linkedLegacyAudienceProfiles(record).filter((profile) => registered.has(profile.botNpub));
+    if (eligible.length > 0 && profiles.length === 0) this.refuseUnrecoverableLegacyAudience(record, eligible);
+    // Only a subset of the existing registration is ever requested (no legacy_broad_feed_consent): never an addition.
+    const requested = [...new Set(profiles.map((profile) => profile.botNpub))];
     if (requested.length > 32) {
       throw Object.assign(new Error('A Flight Deck event subscription supports at most 32 enabled Agent Direct profiles.'), {
         detailCode: 'flightdeck_pg_event_subscription_agents_too_many',
@@ -4047,39 +4092,9 @@ export class WorkspaceSubscriptionManager {
     }
     let result: Awaited<ReturnType<typeof reconcileFlightDeckPgEventSubscriptionAgents>>;
     try {
-      result = await this.reconcileFlightDeckPgEventSubscriptionAgentsImpl({
-        backendConnectionId: record.backendConnectionId, backendBaseUrl: record.backendBaseUrl,
-        workspaceId: record.workspaceId,
-        appNpub: record.sourceAppNpub,
-        botIdentity,
-        agentNpubs: requested,
-        signal,
-      });
+      result = await this.reconcileFlightDeckPgEventSubscriptionAgentsImpl({ ...request, agentNpubs: requested });
     } catch (error) {
-      const directActorProfile = profiles.find((profile) => profile.botNpub === botIdentity.botNpub);
-      if (getErrorDetailCode(error) !== 'permission_denied' || !directActorProfile) throw error;
-      this.flightDeckSingleActorFallbackProfiles.set(record.subscriptionId, directActorProfile.agentId);
-      record.lastRoutingResult = buildSuccessDiagnostic(
-        'Tower does not grant multi-identity event subscription management; using the connected agent identity directly.',
-        {
-          subscription_id: record.subscriptionId,
-          agent_id: directActorProfile.agentId,
-          agent_npub: directActorProfile.botNpub,
-          mode: 'single_actor',
-        },
-      );
-      this.saveRecord(this.recomputeHealth(record));
-      const backendConnection = record.backendConnectionId ? this.backendStore.getById(record.backendConnectionId) : null;
-      this.profilePolicyStore.ensureProfileWorkspaceForSubscription({
-        managedByNpub: record.managedByNpub!,
-        agentProfileId: directActorProfile.agentId,
-        agentLabel: directActorProfile.label,
-        agentNpub: directActorProfile.botNpub,
-        subscription: record,
-        backendConnection,
-        relayOnboardingStatus: record.healthStatus === 'healthy' ? 'ready' : 'verified',
-      });
-      return [];
+      return this.useSingleActorFallbackOrThrow(record, eligible, botIdentity, error);
     }
     const accepted = [...new Set(result.audience_npubs ?? result.agent_npubs)].sort();
     if (accepted.some((npub) => !requested.includes(npub))) {
@@ -4087,6 +4102,7 @@ export class WorkspaceSubscriptionManager {
         detailCode: 'flightdeck_pg_event_subscription_agents_mismatch',
       });
     }
+    this.flightDeckVerifiedLegacyAudience.set(record.subscriptionId, new Set(accepted));
     const reportedRejections = new Map(
       (result.rejected_audience ?? []).map((rejection) => [rejection.npub, rejection.code]),
     );
@@ -6910,6 +6926,7 @@ export class WorkspaceSubscriptionManager {
 
   private stopRuntime(subscriptionId: string, removed: boolean): void {
     this.flightDeckSingleActorFallbackProfiles.delete(subscriptionId);
+    this.flightDeckVerifiedLegacyAudience.delete(subscriptionId);
     this.flightDeckPgEventWatchdog.stop(subscriptionId);
     const runtime = this.runtimes.get(subscriptionId);
     if (!runtime) {

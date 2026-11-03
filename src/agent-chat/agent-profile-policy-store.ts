@@ -462,6 +462,16 @@ class AgentProfilePolicyStore {
     ).all(profileId, managedByNpub).map((row) => this.mapWorkspace(row as Record<string, string | number | null>));
   }
 
+  /**
+   * Profile ids holding a profile-workspace row for one subscription. For a shared (profileless) subscription these rows
+   * are written only for profiles Tower accepted into its event audience, so they are the persisted accepted audience.
+   */
+  listProfileIdsForSubscription(subscriptionId: string, managedByNpub: string): string[] {
+    return (this.db.query(
+      'SELECT DISTINCT profile_id FROM agent_profile_workspaces WHERE subscription_id = ?1 AND managed_by_npub = ?2 ORDER BY profile_id',
+    ).all(subscriptionId, managedByNpub) as Array<{ profile_id: string }>).map((row) => row.profile_id);
+  }
+
   deleteProfile(profileId: string, managedByNpub: string): boolean {
     const result = this.db.query(
       'DELETE FROM agent_profiles WHERE profile_id = ?1 AND managed_by_npub = ?2',

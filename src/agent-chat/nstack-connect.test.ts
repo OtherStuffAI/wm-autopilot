@@ -18,7 +18,9 @@ function fixture() {
   const secrets: Uint8Array[] = [];
   let deniedWorkspace: string | null = null;
   let deniedAgent: string | null = null;
+  const probes: string[] = [];
   const manager = {
+    isAcceptedLegacyAudienceMember: () => false,
     listAgentsForManager: () => ["a", "b"].map((id) => ({ agentId: id, botNpub: id, label: id, enabled: true })),
     listBackendConnectionsForManager: () => [{ backendConnectionId: "backend", backendBaseUrl: connection.directHttpsUrl, serviceNpub: connection.serviceNpub }],
     listForManager: () => records,
@@ -38,12 +40,14 @@ function fixture() {
       const botSecret = new Uint8Array(32).fill(7); secrets.push(botSecret);
       return { botNpub: npub, botPubkeyHex: "0".repeat(64), botSecret };
     },
+    agentProfileId: null as string | null,
     fetchDescriptor: async ({ connection: selected, identity }: any) => {
+      probes.push(identity.botNpub);
       if (selected.workspaceId === deniedWorkspace || identity.botNpub === deniedAgent) throw new Error("HTTP 403: membership required");
       return descriptor(selected);
     },
   };
-  return { input, records, imports, reconnects, secrets, denyWorkspace: (id: string | null) => { deniedWorkspace = id; }, denyAgent: (id: string) => { deniedAgent = id; } };
+  return { input, records, imports, reconnects, secrets, probes, denyWorkspace: (id: string | null) => { deniedWorkspace = id; }, denyAgent: (id: string) => { deniedAgent = id; } };
 }
 
 describe("consented NStack setup", () => {
@@ -65,19 +69,40 @@ describe("consented NStack setup", () => {
       expect(() => verifiedNStackDescriptor(connection, { ...raw, identity: { ...raw.identity, [field]: "other" } })).toThrow("identity");
     }
   });
-  test("concurrent retries and duplicate display names reuse subscriptions and connection", async () => {
+  test("concurrent retries and duplicate display names reuse the chosen bot's subscription and connection", async () => {
     const f = fixture();
+    f.input.agentProfileId = "a";
     f.input.workspaces = [connection, { ...connection, name: "Ambulando" }, { ...connection, name: "Flight Deck" }];
     const results = await Promise.all([connectNStackWorkspaces(f.input), connectNStackWorkspaces(f.input)]);
-    expect(f.imports).toHaveLength(2);
-    expect(f.records).toHaveLength(2);
+    expect(f.imports).toHaveLength(1);
+    expect(f.records).toHaveLength(1);
     expect(results[0]?.results).toHaveLength(1);
     expect(results[1]?.results[0]?.status).toBe("monitoring");
-    expect(f.imports.map((row) => row.agentProfileId)).toEqual(["a", "b"]);
+    expect(f.imports.map((row) => row.agentProfileId)).toEqual(["a"]);
+    expect(f.probes).not.toContain("b");
     expect(f.secrets.every((secret) => secret.every((byte) => byte === 0))).toBe(true);
+  });
+  test("without a chosen profile no local bot is probed or connected", async () => {
+    const f = fixture();
+    const result = await connectNStackWorkspaces(f.input);
+    expect(result.results[0]).toMatchObject({ status: "failed", message: expect.stringContaining("Choose the bot profile") });
+    expect(f.probes).toEqual([]);
+    expect(f.imports).toEqual([]);
+  });
+  test("without a chosen profile only bots already serving the workspace are re-verified", async () => {
+    const f = fixture();
+    f.input.agentProfileId = "a";
+    await connectNStackWorkspaces(f.input);
+    f.input.agentProfileId = null;
+    f.probes.length = 0;
+    const result = await connectNStackWorkspaces(f.input);
+    expect(result.results[0]?.status).toBe("monitoring");
+    expect(f.probes).toEqual(["a"]);
+    expect(f.imports).toHaveLength(1);
   });
   test("partial workspace failure can retry without disturbing successful agents", async () => {
     const f = fixture();
+    f.input.agentProfileId = "a";
     f.input.workspaces.push({ ...connection, workspaceId: "workspace-2" });
     f.denyWorkspace("workspace-2");
     const first = await connectNStackWorkspaces(f.input);
@@ -85,17 +110,21 @@ describe("consented NStack setup", () => {
     f.denyWorkspace(null);
     const second = await connectNStackWorkspaces(f.input);
     expect(second.results.map((row) => row.status)).toEqual(["monitoring", "monitoring"]);
-    expect(f.imports).toHaveLength(4);
+    expect(f.imports).toHaveLength(2);
   });
-  test("one nonmember does not fail a usable workspace and remains visible", async () => {
+  test("a chosen nonmember bot fails visibly without trying other bots", async () => {
     const f = fixture(); f.denyAgent("b");
+    f.input.agentProfileId = "b";
     const result = await connectNStackWorkspaces(f.input);
-    expect(result.results[0]?.status).toBe("monitoring");
+    expect(result.results[0]?.status).toBe("failed");
     expect(result.results[0]?.errors).toEqual(["b: HTTP 403: membership required"]);
-    expect(f.imports).toHaveLength(1);
+    expect(f.probes).toEqual(["b"]);
+    expect(f.imports).toHaveLength(0);
   });
   test("preserves paused/disconnected/revoked state; reconnects unhealthy active subscriptions", async () => {
-    const f = fixture(); await connectNStackWorkspaces(f.input);
+    const f = fixture();
+    for (const agentProfileId of ["a", "b"]) { f.input.agentProfileId = agentProfileId; await connectNStackWorkspaces(f.input); }
+    f.input.agentProfileId = null;
     f.records[0].sseStatus = "disabled";
     f.records[1].healthStatus = "degraded";
     const result = await connectNStackWorkspaces(f.input);

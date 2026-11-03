@@ -335,3 +335,28 @@ describe('crash safety around handler acceptance (fresh processor = process rest
     expect(w.acks).toEqual([['k', 'handled', null]]);
   });
 });
+
+describe('notification-only requirement on the inbox state', () => {
+  test('migrates an existing state table and is one-way', async () => {
+    const { Database } = await import('bun:sqlite');
+    const dir = mkdtempSync(join(tmpdir(), 'inbox-ceiling-'));
+    try {
+      const dbPath = join(dir, 'db.sqlite');
+      const legacy = new Database(dbPath);
+      legacy.exec(`CREATE TABLE agent_inbox_state (subscription_id TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'legacy', consumer_id TEXT,
+        tower_subscription_id TEXT, cursor TEXT, floor_at TEXT, last_ok_at TEXT, last_error_code TEXT, last_error_class TEXT, last_error_at TEXT,
+        last_gap TEXT, updated_at TEXT NOT NULL); INSERT INTO agent_inbox_state (subscription_id, mode, updated_at) VALUES ('old', 'inbox_required', 'x');`);
+      legacy.close();
+      const store = new AgentInboxStore(dbPath);
+      expect(store.get('old')?.requireNotificationOnly).toBe(false);
+      store.setMode('new', 'inbox_required', 'c');
+      expect(store.requireNotificationOnly('new')?.requireNotificationOnly).toBe(true);
+      store.setMode('new', 'inbox_required', 'c');
+      store.update('new', { lastErrorCode: null });
+      expect(store.get('new')?.requireNotificationOnly).toBe(true);
+      expect(store.get('old')?.requireNotificationOnly).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

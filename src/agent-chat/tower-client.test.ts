@@ -13,6 +13,7 @@ import {
   fetchFlightDeckPgEvents,
   parseTowerError,
   reconcileFlightDeckPgEventSubscriptionAgents,
+  fetchFlightDeckPgEventSubscriptionAgents,
   upsertFlightDeckPgAgentActivity,
   upsertFlightDeckPgDailyScope,
 } from './tower-client';
@@ -152,6 +153,32 @@ describe('Flight Deck PG Tower client', () => {
     expect(JSON.parse(String(request!.init?.body))).toEqual({ agent_npubs: ['npub1Builder', 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg'] });
     expect(result?.audience_npubs).toEqual(['npub1Builder', 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp3nq5gg']);
     expect(result?.rejected_audience).toEqual([]);
+  });
+
+  test('reads the exact existing audience registration with a signed GET and maps a missing contract', async () => {
+    const botSecret = generateSecretKey();
+    const botPubkeyHex = getPublicKey(botSecret);
+    const botNpub = nip19.npubEncode(botPubkeyHex);
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    let missing = false;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url, init });
+      return missing ? Response.json({ error: 'not found' }, { status: 404 }) : Response.json({ agent_npubs: ['npub1z', 'npub1a'], audience_npubs: ['npub1z', 'npub1a'] });
+    }) as typeof fetch;
+    const params = { backendBaseUrl: 'http://tower.test', workspaceId: 'workspace-1', appNpub: 'npub1app', botIdentity: { botNpub, botPubkeyHex, botSecret } };
+    try {
+      expect((await fetchFlightDeckPgEventSubscriptionAgents(params)).audience_npubs).toEqual(['npub1a', 'npub1z']);
+      missing = true;
+      await expect(fetchFlightDeckPgEventSubscriptionAgents(params)).rejects.toMatchObject({ detailCode: 'flightdeck_pg_event_subscription_agents_contract_missing' });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(requests[0]!.url).toEndWith('/api/v4/flightdeck-pg/workspaces/workspace-1/event-subscription-agents');
+    expect(requests[0]!.init?.method).toBe('GET');
+    expect(requests[0]!.init?.body).toBeUndefined();
+    const authorization = new Headers(requests[0]!.init?.headers).get('Authorization')!;
+    expect(nip98Tag(decodeNip98Event(authorization.replace(/^Nostr /, '')), 'method')).toBe('GET');
   });
 
   test('prefers the identity-neutral audience response and preserves rejection diagnostics', async () => {

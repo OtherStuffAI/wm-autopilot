@@ -25,6 +25,8 @@ export interface AgentInboxState {
   lastErrorClass: string | null;
   lastErrorAt: string | null;
   lastGap: string | null;
+  /** Set once for a new safe enrollment: Tower's notification-only ceiling must be verified before any dispatch. */
+  requireNotificationOnly: boolean;
   updatedAt: string;
 }
 
@@ -98,6 +100,10 @@ export class AgentInboxStore {
       );
       CREATE INDEX IF NOT EXISTS idx_agent_inbox_ledger_binding ON agent_inbox_ledger (subscription_id, seq);
     `);
+    const stateColumns = new Set((this.db.query('PRAGMA table_info(agent_inbox_state)').all() as Array<{ name: string }>).map((c) => c.name));
+    if (!stateColumns.has('require_notification_only')) {
+      this.db.exec('ALTER TABLE agent_inbox_state ADD COLUMN require_notification_only INTEGER NOT NULL DEFAULT 0');
+    }
     const columns = new Set((this.db.query('PRAGMA table_info(agent_inbox_ledger)').all() as Array<{ name: string }>).map((c) => c.name));
     for (const column of ['envelope_json', 'source_channel_id', 'source_thread_id', 'source_task_id', 'source_doc_id']) {
       if (!columns.has(column)) this.db.exec(`ALTER TABLE agent_inbox_ledger ADD COLUMN ${column} TEXT`);
@@ -111,7 +117,7 @@ export class AgentInboxStore {
     return row ? {
       subscriptionId: row.subscription_id, mode: row.mode, consumerId: row.consumer_id, towerSubscriptionId: row.tower_subscription_id,
       cursor: row.cursor, floorAt: row.floor_at, lastOkAt: row.last_ok_at, lastErrorCode: row.last_error_code, lastErrorClass: row.last_error_class,
-      lastErrorAt: row.last_error_at, lastGap: row.last_gap, updatedAt: row.updated_at,
+      lastErrorAt: row.last_error_at, lastGap: row.last_gap, requireNotificationOnly: row.require_notification_only === 1, updatedAt: row.updated_at,
     } : null;
   }
 
@@ -130,7 +136,15 @@ export class AgentInboxStore {
     return this.get(subscriptionId)!;
   }
 
-  update(subscriptionId: string, patch: Partial<Omit<AgentInboxState, 'subscriptionId' | 'updatedAt' | 'mode'>>): AgentInboxState | null {
+  /** One-way: a safely enrolled bot must run under Tower's notification-only ceiling and can never be downgraded. */
+  requireNotificationOnly(subscriptionId: string): AgentInboxState | null {
+    this.ensureSchema();
+    this.db.query('UPDATE agent_inbox_state SET require_notification_only = 1, updated_at = ?2 WHERE subscription_id = ?1')
+      .run(subscriptionId, new Date().toISOString());
+    return this.get(subscriptionId);
+  }
+
+  update(subscriptionId: string, patch: Partial<Omit<AgentInboxState, 'subscriptionId' | 'updatedAt' | 'mode' | 'requireNotificationOnly'>>): AgentInboxState | null {
     const columns: Record<string, string> = {
       consumerId: 'consumer_id', towerSubscriptionId: 'tower_subscription_id', cursor: 'cursor', floorAt: 'floor_at', lastOkAt: 'last_ok_at',
       lastErrorCode: 'last_error_code', lastErrorClass: 'last_error_class', lastErrorAt: 'last_error_at', lastGap: 'last_gap',

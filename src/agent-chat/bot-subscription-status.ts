@@ -80,6 +80,8 @@ function errorOf(record: WorkspaceSubscriptionRecord, inbox: AgentInboxState | n
   };
 }
 
+const LEGACY_AUDIENCE_UNRECOVERABLE = 'flightdeck_pg_legacy_audience_unrecoverable';
+
 /** Audience members Tower reported as rejected on the shared subscription's last reconciliation. */
 function rejectedAudience(record: WorkspaceSubscriptionRecord): Map<string, string> {
   const details = record.lastRoutingResult?.details as { rejected_audience?: unknown } | undefined;
@@ -140,12 +142,16 @@ export function buildBotSubscriptionRows(inputs: BotSubscriptionInputs): BotSubs
     }
     const inactive = isInactive(record);
     const audience = inactive ? [] : inputs.sharedAudience(record);
+    // Legacy delivery stopped because the accepted audience could not be recovered: report it, never "serving".
+    const unrecoverable = !inactive && (record.lastErrorCode === LEGACY_AUDIENCE_UNRECOVERABLE
+      || record.lastRoutingResult?.code === LEGACY_AUDIENCE_UNRECOVERABLE);
     rows.push({
       ...baseRow(record, inputs),
       rowId: `shared:${record.subscriptionId}`,
       kind: 'shared',
-      status: inactive ? 'disconnected' : 'legacy_shared',
-      statusDetail: inactive ? record.lastErrorCode ?? record.lifecycleStatus ?? 'disabled' : null,
+      status: inactive ? 'disconnected' : unrecoverable ? 'blocked' : 'legacy_shared',
+      statusDetail: inactive ? record.lastErrorCode ?? record.lifecycleStatus ?? 'disabled'
+        : unrecoverable ? record.lastRoutingResult?.message ?? LEGACY_AUDIENCE_UNRECOVERABLE : null,
       sharedSubscriptionId: null,
       agentId: null,
       botLabel: null,

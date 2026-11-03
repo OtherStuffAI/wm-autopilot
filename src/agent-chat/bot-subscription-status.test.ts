@@ -54,4 +54,16 @@ describe('per-bot subscription rows', () => {
       inboxState: () => inbox({ towerSubscriptionId: null, lastErrorCode: 'agent_inbox_unsupported' }), sharedAudience: () => [], workspaceName: () => null });
     expect(row).toMatchObject({ status: 'blocked', statusDetail: 'agent_inbox_unsupported' });
   });
+
+  test('a shared subscription whose accepted audience could not be verified is blocked and serves no bot', () => {
+    const message = 'No bot of this shared workspace subscription is verifiably registered with Tower under its current identity.';
+    const rows = buildBotSubscriptionRows({
+      subscriptions: [sub({ subscriptionId: 'shared', sseStatus: 'backoff', lastErrorCode: 'flightdeck_pg_legacy_audience_unrecoverable',
+        lastRoutingResult: { ok: false, code: 'flightdeck_pg_legacy_audience_unrecoverable', message, at: '2026-11-03T04:00:00.000Z', details: {} } })],
+      agents, inboxState: () => null, sharedAudience: () => [], workspaceName: () => null,
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'shared', status: 'blocked', statusDetail: message, servedAgentIds: [],
+      error: { code: 'flightdeck_pg_legacy_audience_unrecoverable' } });
+  });
 });

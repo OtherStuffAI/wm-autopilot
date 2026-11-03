@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { isolatedAgentInboxStore } from './agent-inbox-store.test-helper';
 import { Buffer } from 'node:buffer';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -14,6 +15,7 @@ import { DispatchRouteStore } from './dispatch-pipelines/route-store';
 import { WorkspaceSubscriptionManager } from './subscription-runtime';
 import { WorkspaceSubscriptionStore } from './workspace-subscription-store';
 import { encodeFlightDeckPgEventCursor } from './tower-client';
+import { validateAgentConnectPackage } from './agent-connect-import';
 import { PipelineStore } from '../pipelines/pipeline-store';
 import { BrokerKeyNotProvisionedError } from '../signing/broker-key-vault';
 import type {
@@ -187,7 +189,10 @@ function createTestManager(
   const agentStore = new AgentDefinitionStore(dbPath);
   const backendStore = new BackendConnectionStore(dbPath);
   const profilePolicyStore = new AgentProfilePolicyStore(dbPath);
+  // Tower's existing event-subscription registration for the shared identity (exact npubs).
+  const towerAudience = new Set<string>();
   const manager = new WorkspaceSubscriptionManager({
+    agentInboxStore: isolatedAgentInboxStore(),
     store,
     agentStore,
     backendStore,
@@ -209,6 +214,7 @@ function createTestManager(
     }),
     fetchFlightDeckPgEvents: async () => ({ events: [], next_cursor: null }),
     reconcileFlightDeckPgEventSubscriptionAgents: async ({ agentNpubs }) => ({ agent_npubs: [...agentNpubs].sort() }),
+    fetchFlightDeckPgEventSubscriptionAgents: async () => ({ agent_npubs: [...towerAudience].sort(), audience_npubs: [...towerAudience].sort() }),
     fetchFlightDeckPgChannelMessages: async () => ({ messages: [], next_cursor: null }),
     fetchFlightDeckPgWorkroomContext: async () => ({ isWorkroom: false, workroom: null, participant: null, appTargets: [], recentEvents: [], recentLinks: [], openApprovals: [] }),
     botKeyStore: {
@@ -261,7 +267,7 @@ function createTestManager(
     });
   };
 
-  return { manager, store, agentStore, backendStore, profilePolicyStore, managerInternals };
+  return { manager, store, agentStore, backendStore, profilePolicyStore, managerInternals, towerAudience };
 }
 
 function saveAgent(agentStore: AgentDefinitionStore, input: Partial<AgentDefinitionRecord> & { agentId: string; botNpub: string; managedByNpub: string }) {
@@ -314,8 +320,74 @@ function saveBackendConnection(
   });
 }
 
+type LegacySubscriptionSeed = {
+  managedByNpub: string;
+  workspaceOwnerNpub: string;
+  backendBaseUrl: string;
+  sourceAppNpub: string;
+  towerServiceNpub?: string | null;
+  workspaceId?: string | null;
+  workspaceServiceNpub?: string | null;
+  onboardingSource?: WorkspaceSubscriptionRecord['onboardingSource'];
+};
+
+/**
+ * A pre-isolation shared (profileless) subscription for the identity a profileless request resolves. New profileless
+ * subscriptions are refused, so legacy-runtime tests start from this existing record, which requests then reconnect.
+ */
+async function seedLegacySharedSubscription(
+  manager: WorkspaceSubscriptionManager,
+  store: WorkspaceSubscriptionStore,
+  seed: LegacySubscriptionSeed | { managedByNpub: string; packageJson: string | Record<string, unknown> },
+): Promise<WorkspaceSubscriptionRecord> {
+  const fields: LegacySubscriptionSeed = 'packageJson' in seed
+    ? (() => {
+        const validation = validateAgentConnectPackage({ managedByNpub: seed.managedByNpub, packageJson: seed.packageJson });
+        return {
+          managedByNpub: seed.managedByNpub, workspaceOwnerNpub: validation.workspaceOwnerNpub,
+          backendBaseUrl: validation.service.directHttpsUrl, sourceAppNpub: validation.sourceAppNpub,
+          towerServiceNpub: validation.service.serviceNpub, workspaceId: validation.workspaceId,
+          workspaceServiceNpub: validation.workspaceServiceNpub, onboardingSource: 'agent_connect_import' as const,
+        };
+      })()
+    : seed;
+  const identity = await (manager as unknown as {
+    resolveCreateBotIdentity: (managedByNpub: string, agentProfile: null) => Promise<RuntimeBotIdentity>;
+  }).resolveCreateBotIdentity(fields.managedByNpub, null);
+  return store.save(store.createDefault({
+    managedByNpub: fields.managedByNpub, workspaceOwnerNpub: fields.workspaceOwnerNpub,
+    backendBaseUrl: fields.backendBaseUrl, towerServiceNpub: fields.towerServiceNpub ?? null,
+    workspaceId: fields.workspaceId ?? null, workspaceServiceNpub: fields.workspaceServiceNpub ?? null,
+    botNpub: identity.botNpub, sourceAppNpub: fields.sourceAppNpub, onboardingSource: fields.onboardingSource ?? 'manual',
+  }));
+}
+
+/** Records that Tower accepted these profiles (under their current npubs) into a shared subscription's legacy audience. */
+function seedAcceptedAudience(
+  harness: { profilePolicyStore: AgentProfilePolicyStore; agentStore: AgentDefinitionStore; towerAudience: Set<string> },
+  subscription: WorkspaceSubscriptionRecord,
+  agentIds: string[],
+): void {
+  const { profilePolicyStore, agentStore, towerAudience } = harness;
+  for (const agentId of agentIds) {
+    const agent = agentStore.getByAgentId(agentId)!;
+    towerAudience.add(agent.botNpub);
+    profilePolicyStore.ensureProfileWorkspaceForSubscription({
+      managedByNpub: subscription.managedByNpub!, agentProfileId: agent.agentId, agentLabel: agent.label,
+      agentNpub: agent.botNpub, subscription,
+    });
+  }
+}
+
+/** Runs the shared subscription's audience reconcile so its Tower-verified legacy audience is established. */
+async function verifyLegacyAudience(manager: WorkspaceSubscriptionManager, subscription: WorkspaceSubscriptionRecord): Promise<string[]> {
+  return await (manager as unknown as {
+    reconcileFlightDeckAudience: (record: WorkspaceSubscriptionRecord, identity: RuntimeBotIdentity) => Promise<string[]>;
+  }).reconcileFlightDeckAudience(subscription, { botNpub: subscription.botNpub, botPubkeyHex: 'a'.repeat(64), botSecret: new Uint8Array(32) });
+}
+
 describe('WorkspaceSubscriptionManager', () => {
-  test('keeps one Flight Deck subscription and reconciles its enabled Agent Direct audience', async () => {
+  test('keeps one Flight Deck subscription and reconciles only its accepted Agent Direct audience', async () => {
     const dbPath = makeTempDb();
     const BuilderRecord = {
       ...makeBotKeyRecord('npub1Builder'),
@@ -329,7 +401,7 @@ describe('WorkspaceSubscriptionManager', () => {
     const vaultResolutions: string[] = [];
     const signingNpubs: string[] = [];
     const reconciledAudiences: string[][] = [];
-    const { manager, store, agentStore } = createTestManager(dbPath, botKeys, undefined, null, undefined, {
+    const { manager, store, agentStore, profilePolicyStore, towerAudience } = createTestManager(dbPath, botKeys, undefined, null, undefined, {
       brokerKeyVault: {
         provision: () => undefined,
         remove: async () => undefined,
@@ -367,6 +439,14 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(subscriptions).toHaveLength(1);
     expect(subscriptions[0]?.subscriptionId).toBe(base.subscriptionId);
     const baseIdentity = manager.getRuntimeBotIdentity(base.subscriptionId)!;
+    // Builder was never accepted into this shared audience: legacy delivery stops instead of enrolling it.
+    await expect((manager as unknown as {
+      reconcileFlightDeckAudience: (record: WorkspaceSubscriptionRecord, identity: RuntimeBotIdentity) => Promise<string[]>;
+    }).reconcileFlightDeckAudience(subscriptions[0]!, baseIdentity)).rejects.toMatchObject({
+      detailCode: 'flightdeck_pg_legacy_audience_unrecoverable',
+    });
+    expect(reconciledAudiences.flat()).not.toContain('npub1Builder');
+    seedAcceptedAudience({ profilePolicyStore, agentStore, towerAudience }, base, ['Builder']);
     await (manager as unknown as {
       reconcileFlightDeckAudience: (record: WorkspaceSubscriptionRecord, identity: RuntimeBotIdentity) => Promise<string[]>;
     }).reconcileFlightDeckAudience(subscriptions[0]!, baseIdentity);
@@ -391,7 +471,7 @@ describe('WorkspaceSubscriptionManager', () => {
   test('refreshes active shared Flight Deck audiences idempotently for one manager', async () => {
     const dbPath = makeTempDb();
     const reconciledAudiences: string[][] = [];
-    const { manager, store, agentStore } = createTestManager(
+    const { manager, store, agentStore, profilePolicyStore, towerAudience } = createTestManager(
       dbPath,
       new Map([['npub1base', makeBotKeyRecord('npub1base')]]),
       undefined,
@@ -420,6 +500,9 @@ describe('WorkspaceSubscriptionManager', () => {
     saveAgent(agentStore, { agentId: 'no-chat', botNpub: 'npub1nochat', managedByNpub: 'npub1manager', directChat: { enabled: false, sessionAgent: 'codex', directory: '/tmp/no-chat', model: null, idleRetentionMinutes: 60 } });
     saveAgent(agentStore, { agentId: 'ineligible', botNpub: 'npub1ineligible', managedByNpub: 'npub1manager', capabilities: ['task_dispatch'], directChat: { enabled: true, sessionAgent: 'codex', directory: '/tmp/ineligible', model: null, idleRetentionMinutes: 60 } });
     saveAgent(agentStore, { agentId: 'other-owner', botNpub: 'npub1other', managedByNpub: 'npub1othermanager', directChat: { enabled: true, sessionAgent: 'codex', directory: '/tmp/other', model: null, idleRetentionMinutes: 60 } });
+    seedAcceptedAudience({ profilePolicyStore, agentStore, towerAudience }, base, ['rick', 'piper', 'disabled', 'archived', 'no-chat', 'ineligible']);
+    // An eligible profile created after the shared registration never joins its audience.
+    saveAgent(agentStore, { agentId: 'newcomer', botNpub: 'npub1newcomer', managedByNpub: 'npub1manager', directChat: { enabled: true, sessionAgent: 'codex', directory: '/tmp/newcomer', model: null, idleRetentionMinutes: 60 } });
 
     const first = await manager.refreshFlightDeckAudiencesForManager('npub1manager');
     const second = await manager.refreshFlightDeckAudiencesForManager('npub1manager');
@@ -435,9 +518,77 @@ describe('WorkspaceSubscriptionManager', () => {
     ]);
   });
 
+  test('a profile remapped to a new npub never joins the shared audience through its old accepted link', async () => {
+    const dbPath = makeTempDb();
+    const putAudiences: string[][] = [];
+    const harness = createTestManager(dbPath, new Map(), undefined, null, undefined, {
+      reconcileFlightDeckPgEventSubscriptionAgents: async ({ agentNpubs }) => {
+        putAudiences.push([...agentNpubs]);
+        return { agent_npubs: [...agentNpubs].sort() };
+      },
+    });
+    const { store, agentStore } = harness;
+    const shared = store.save(store.createDefault({
+      managedByNpub: 'npub1manager', workspaceOwnerNpub: 'npub1manager',
+      backendBaseUrl: 'https://tower.example.com', towerServiceNpub: 'npub1tower',
+      workspaceId: 'workspace-1', workspaceServiceNpub: 'npub1workspace',
+      botNpub: 'npub1base', sourceAppNpub: 'npub1app',
+    }));
+    saveDirectChatAgent(agentStore, { agentId: 'Builder', botNpub: 'npub1Builder', managedByNpub: 'npub1manager' });
+    saveDirectChatAgent(agentStore, { agentId: 'Mick', botNpub: 'npub1Mick', managedByNpub: 'npub1manager' });
+    seedAcceptedAudience(harness, shared, ['Builder', 'Mick']);
+    // Same profile id, new identity: Tower never registered npub1BuilderNew.
+    agentStore.save({ ...agentStore.getByAgentId('Builder')!, botNpub: 'npub1BuilderNew', updatedAt: new Date().toISOString() });
+
+    expect(await verifyLegacyAudience(harness.manager, shared)).toEqual(['npub1Mick']);
+    expect(harness.manager.isAcceptedLegacyAudienceMember(shared, 'Builder')).toBe(false);
+
+    agentStore.save({ ...agentStore.getByAgentId('Mick')!, botNpub: 'npub1MickNew', updatedAt: new Date().toISOString() });
+    await expect(verifyLegacyAudience(harness.manager, shared))
+      .rejects.toMatchObject({ detailCode: 'flightdeck_pg_legacy_audience_unrecoverable' });
+    expect(putAudiences).toEqual([['npub1Mick']]);
+    expect(putAudiences.flat()).not.toContain('npub1BuilderNew');
+  });
+
+  test('the subscription\'s own-npub link row and an unreadable Tower registration never prove an audience', async () => {
+    const dbPath = makeTempDb();
+    const putAudiences: string[][] = [];
+    let registrationReadable = true;
+    const harness = createTestManager(dbPath, new Map(), undefined, null, undefined, {
+      reconcileFlightDeckPgEventSubscriptionAgents: async ({ agentNpubs }) => {
+        putAudiences.push([...agentNpubs]);
+        return { agent_npubs: [...agentNpubs].sort() };
+      },
+      fetchFlightDeckPgEventSubscriptionAgents: async () => {
+        if (!registrationReadable) throw Object.assign(new Error('Tower unavailable'), { detailCode: 'tower_unavailable' });
+        return { agent_npubs: ['npub1base', 'npub1Builder'], audience_npubs: ['npub1base', 'npub1Builder'] };
+      },
+    });
+    const { store, agentStore, profilePolicyStore } = harness;
+    const shared = store.save(store.createDefault({
+      managedByNpub: 'npub1manager', workspaceOwnerNpub: 'npub1manager',
+      backendBaseUrl: 'https://tower.example.com', towerServiceNpub: 'npub1tower',
+      workspaceId: 'workspace-1', workspaceServiceNpub: 'npub1workspace',
+      botNpub: 'npub1base', sourceAppNpub: 'npub1app',
+    }));
+    // A profile whose id equals the subscription npub, linked only by the subscription's own-npub row.
+    saveDirectChatAgent(agentStore, { agentId: 'npub1base', botNpub: 'npub1base', managedByNpub: 'npub1manager' });
+    profilePolicyStore.ensureProfileWorkspaceForSubscription({ managedByNpub: 'npub1manager', agentNpub: 'npub1base', subscription: shared });
+
+    await expect(verifyLegacyAudience(harness.manager, shared))
+      .rejects.toMatchObject({ detailCode: 'flightdeck_pg_legacy_audience_unrecoverable' });
+
+    saveDirectChatAgent(agentStore, { agentId: 'Builder', botNpub: 'npub1Builder', managedByNpub: 'npub1manager' });
+    profilePolicyStore.ensureProfileWorkspaceForSubscription({ managedByNpub: 'npub1manager', agentProfileId: 'Builder', agentNpub: 'npub1Builder', subscription: shared });
+    registrationReadable = false;
+    await expect(verifyLegacyAudience(harness.manager, shared)).rejects.toMatchObject({ detailCode: 'tower_unavailable' });
+    expect(harness.manager.isAcceptedLegacyAudienceMember(shared, 'Builder')).toBe(false);
+    expect(putAudiences).toEqual([]);
+  });
+
   test('continues with Tower accepted profiles and records rejected audience diagnostics', async () => {
     const dbPath = makeTempDb();
-    const { manager, store, agentStore, managerInternals } = createTestManager(
+    const { store, agentStore, profilePolicyStore, managerInternals, towerAudience } = createTestManager(
       dbPath,
       new Map(),
       undefined,
@@ -459,6 +610,7 @@ describe('WorkspaceSubscriptionManager', () => {
     }));
     saveDirectChatAgent(agentStore, { agentId: 'Builder', botNpub: 'npub1Builder', managedByNpub: 'npub1manager' });
     saveDirectChatAgent(agentStore, { agentId: 'Mick', botNpub: 'npub1Mick', managedByNpub: 'npub1manager' });
+    seedAcceptedAudience({ profilePolicyStore, agentStore, towerAudience }, subscription, ['Builder', 'Mick']);
 
     const accepted = await managerInternals.reconcileFlightDeckAudience(subscription, {
       botNpub: 'npub1base', botPubkeyHex: 'a'.repeat(64), botSecret: new Uint8Array(32),
@@ -476,7 +628,7 @@ describe('WorkspaceSubscriptionManager', () => {
 
   test('fails retryably with a persisted diagnostic when Tower accepts no configured profiles', async () => {
     const dbPath = makeTempDb();
-    const { store, agentStore, managerInternals } = createTestManager(
+    const { store, agentStore, profilePolicyStore, managerInternals, towerAudience } = createTestManager(
       dbPath,
       new Map(),
       undefined,
@@ -497,6 +649,7 @@ describe('WorkspaceSubscriptionManager', () => {
       botNpub: 'npub1base', sourceAppNpub: 'npub1app',
     }));
     saveDirectChatAgent(agentStore, { agentId: 'Mick', botNpub: 'npub1Mick', managedByNpub: 'npub1manager' });
+    seedAcceptedAudience({ profilePolicyStore, agentStore, towerAudience }, subscription, ['Mick']);
 
     await expect(managerInternals.reconcileFlightDeckAudience(subscription, {
       botNpub: 'npub1base', botPubkeyHex: 'a'.repeat(64), botSecret: new Uint8Array(32),
@@ -517,7 +670,7 @@ describe('WorkspaceSubscriptionManager', () => {
     const dbPath = makeTempDb();
     const instanceIdentity = makeInstanceIdentity();
     const directInputs: Array<{ audienceAgentNpubs?: string[] }> = [];
-    const { manager, store, agentStore, managerInternals } = createTestManager(
+    const { manager, store, agentStore, profilePolicyStore, managerInternals, towerAudience } = createTestManager(
       dbPath,
       new Map(),
       undefined,
@@ -545,6 +698,9 @@ describe('WorkspaceSubscriptionManager', () => {
         }),
       },
     );
+    await seedLegacySharedSubscription(manager, store, {
+      managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
+    });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -564,6 +720,7 @@ describe('WorkspaceSubscriptionManager', () => {
       updatedAt: new Date().toISOString(),
     });
     saveDirectChatAgent(agentStore, { agentId: 'Other', botNpub: 'npub1Other', managedByNpub: 'npub1manager' });
+    seedAcceptedAudience({ profilePolicyStore, agentStore, towerAudience }, imported.subscription, [connectedProfile.agentId, 'Other']);
 
     const accepted = await managerInternals.reconcileFlightDeckAudience(imported.subscription, {
       botNpub: instanceIdentity.npub,
@@ -634,6 +791,7 @@ describe('WorkspaceSubscriptionManager', () => {
     const dbPath = makeTempDb();
     const store = new WorkspaceSubscriptionStore(dbPath);
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       botKeyStore: {
         getActiveKeyForUser: () => null,
@@ -667,6 +825,7 @@ describe('WorkspaceSubscriptionManager', () => {
     let pullAttempts = 0;
     let reconnectRequested = false;
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       chatRecordPullMaxAttempts: 3,
       chatRecordPullRetryDelayMs: 1,
@@ -758,6 +917,7 @@ describe('WorkspaceSubscriptionManager', () => {
     const store = new WorkspaceSubscriptionStore(dbPath);
     const agentStore = new AgentDefinitionStore(dbPath);
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       botKeyStore: {
@@ -823,12 +983,14 @@ describe('WorkspaceSubscriptionManager', () => {
   test('saves a Flight Deck PG agent without legacy group keys', async () => {
     const dbPath = makeTempDb();
     const instanceIdentity = makeInstanceIdentity();
-    const { manager, agentStore } = createTestManager(dbPath, new Map(), undefined, instanceIdentity);
-    await manager.createOrUpdate({
+    const { manager, store, agentStore } = createTestManager(dbPath, new Map(), undefined, instanceIdentity);
+    const input = {
       managedByNpub: 'npub1manager', workspaceOwnerNpub: 'npub1owner', workspaceServiceNpub: 'npub1workspace-service',
       workspaceId: 'workspace-pg', backendBaseUrl: 'https://tower.example.com', sourceAppNpub: 'npub1sourceapp',
-      onboardingSource: 'nostr_33357',
-    });
+      onboardingSource: 'nostr_33357' as const,
+    };
+    await seedLegacySharedSubscription(manager, store, input);
+    await manager.createOrUpdate(input);
     const onboarded = agentStore.getByBotNpub(instanceIdentity.npub)!;
     const saved = await manager.saveAgentForManager({ managedByNpub: 'npub1manager', agentId: onboarded.agentId, label: 'Athena',
       botNpub: instanceIdentity.npub, workspaceOwnerNpub: 'npub1workspace-service', workingDirectory: '/tmp/athena',
@@ -842,7 +1004,7 @@ describe('WorkspaceSubscriptionManager', () => {
   test('does not let a retired onboarding identity overwrite a rotated Agent Profile', async () => {
     const dbPath = makeTempDb();
     const retiredIdentity = makeInstanceIdentity({ npub: 'npub1retired' });
-    const { manager, agentStore } = createTestManager(dbPath, new Map(), undefined, retiredIdentity);
+    const { manager, store, agentStore } = createTestManager(dbPath, new Map(), undefined, retiredIdentity);
     const input = {
       managedByNpub: 'npub1manager',
       workspaceOwnerNpub: 'npub1owner',
@@ -852,6 +1014,7 @@ describe('WorkspaceSubscriptionManager', () => {
       sourceAppNpub: 'npub1sourceapp',
       onboardingSource: 'nostr_33357' as const,
     };
+    await seedLegacySharedSubscription(manager, store, input);
     await manager.createOrUpdate(input);
     const onboarded = agentStore.getByBotNpub(retiredIdentity.npub)!;
     agentStore.save({
@@ -880,12 +1043,12 @@ describe('WorkspaceSubscriptionManager', () => {
 
     const first = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
-      packageJson: makeConnectPackage(),
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
       agentProfileId: 'wm-one',
     });
     const second = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
-      packageJson: makeConnectPackage(),
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
       agentProfileId: 'wm-two',
     });
 
@@ -937,6 +1100,7 @@ describe('WorkspaceSubscriptionManager', () => {
       '======AGENTCONNECT-TOKEN======',
     ].join('\n');
 
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: tokenText });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: tokenText,
@@ -972,6 +1136,7 @@ describe('WorkspaceSubscriptionManager', () => {
       instanceIdentity,
     );
 
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1originalmanager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const original = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1originalmanager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -1003,6 +1168,7 @@ describe('WorkspaceSubscriptionManager', () => {
       instanceIdentity,
     );
     const packageJson = makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice');
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1originalmanager', packageJson });
     const original = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1originalmanager',
       packageJson,
@@ -1042,6 +1208,7 @@ describe('WorkspaceSubscriptionManager', () => {
       undefined,
       instanceIdentity,
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1originalmanager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const original = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1originalmanager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -1081,13 +1248,15 @@ describe('WorkspaceSubscriptionManager', () => {
       instanceIdentity,
     );
 
-    const manual = await manager.createOrUpdate({
+    const manualInput = {
       managedByNpub: 'npub1manager',
       workspaceOwnerNpub: 'npub1workspace',
       backendBaseUrl: 'https://tower.example.com',
       towerServiceNpub: 'npub1service',
       sourceAppNpub: 'npub1sourceapp',
-    });
+    };
+    await seedLegacySharedSubscription(manager, store, manualInput);
+    const manual = await manager.createOrUpdate(manualInput);
 
     expect(manual.onboardingSource).toBe('manual');
 
@@ -1124,6 +1293,7 @@ describe('WorkspaceSubscriptionManager', () => {
       dispatchPipelineRuntime,
     );
 
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackage({
@@ -1164,7 +1334,7 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(activated?.dispatchRouteIds?.toSorted()).toEqual(routes.map((route) => route.routeId).toSorted());
   });
 
-  test('imports AgentConnect for every local bot profile accepted by the PG workspace', async () => {
+  test('a profileless AgentConnect import refuses a new workspace without probing any local bot', async () => {
     const dbPath = makeTempDb();
     const rick = RICK_BOT_NPUB;
     const mick = 'npub1n9ca7rz3rlaumhqukkvxpxh95d85kgar2gxrz526h89h4pav25aqm9m6mz';
@@ -1198,21 +1368,18 @@ describe('WorkspaceSubscriptionManager', () => {
     saveAgent(agentStore, { agentId: 'brick', label: 'Brick', botNpub: brick, managedByNpub: 'npub1manager' });
     agentStore.setDefaultForManagerNpub('npub1manager', 'rick');
 
-    const imported = await manager.importAgentConnectPackage({
+    await expect(manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
       onboardingSource: 'agent_connect_import',
-    });
+    })).rejects.toMatchObject({ statusCode: 400, detailCode: 'agent_inbox_profile_required' });
 
-    expect(imported.subscription.botNpub).toBe(rick);
-    expect(imported.subscriptions?.map((subscription) => subscription.botNpub).sort()).toEqual([mick, rick].sort());
-    expect(store.listAll().map((subscription) => subscription.botNpub).sort()).toEqual([mick, rick].sort());
-    expect(probes.filter((npub) => npub === brick)).toHaveLength(1);
-    expect(probes).toContain(rick);
-    expect(probes).toContain(mick);
+    expect(store.listAll()).toEqual([]);
+    expect(probes).toEqual([]);
+    expect(memberBots.size).toBe(2);
   });
 
-  test('reconnect replaces an unbound PG AgentConnect subscription with accepted local bot profiles', async () => {
+  test('reconnect keeps an unbound PG AgentConnect subscription unchanged without probing other bots', async () => {
     const dbPath = makeTempDb();
     const rick = RICK_BOT_NPUB;
     const stale = 'npub1s4658awhcachmhzk5jhsg256gzdl7e4gh5a9zq8skjyt7g3k2axql224qz';
@@ -1261,12 +1428,12 @@ describe('WorkspaceSubscriptionManager', () => {
 
     const repaired = await manager.reconnectForManager(staleRecord.subscriptionId, 'npub1manager');
 
-    expect(repaired?.botNpub).toBe(rick);
-    expect(repaired?.agentProfileId).toBe('rick');
-    expect(store.getBySubscriptionId(staleRecord.subscriptionId)).toBeNull();
-    expect(store.listAll().map((subscription) => subscription.botNpub)).toEqual([rick]);
-    expect(probes).toContain(rick);
-    expect(probes).toContain(stale);
+    expect(repaired?.subscriptionId).toBe(staleRecord.subscriptionId);
+    expect(repaired?.botNpub).toBe(stale);
+    expect(repaired?.agentProfileId ?? null).toBeNull();
+    expect(store.listAll().map((subscription) => subscription.subscriptionId)).toEqual([staleRecord.subscriptionId]);
+    // Only the record's own identity is used; other local bots are never probed for membership.
+    expect(probes).not.toContain(rick);
   });
 
   test('reconnect repairs a failed bound Flight Deck PG subscription without creating a legacy workspace key', async () => {
@@ -1280,6 +1447,7 @@ describe('WorkspaceSubscriptionManager', () => {
       },
       fetchFlightDeckPgEvents: async () => ({ events: [], next_cursor: null }),
     });
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -1318,7 +1486,7 @@ describe('WorkspaceSubscriptionManager', () => {
       requirePipelineRoutes: true,
     });
     const instanceIdentity = makeInstanceIdentity();
-    const { manager, agentStore, managerInternals } = createTestManager(
+    const { manager, store, agentStore, managerInternals } = createTestManager(
       dbPath,
       new Map(),
       undefined,
@@ -1334,6 +1502,7 @@ describe('WorkspaceSubscriptionManager', () => {
       });
     };
 
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackage({
@@ -1358,7 +1527,7 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(routeStore.listForSubscription(imported.subscription.subscriptionId)).toHaveLength(3);
   });
 
-  test('createOrUpdate creates the auto agent for 33357 Flight Deck PG workspaces', async () => {
+  test('createOrUpdate reconnecting an existing 33357 Flight Deck PG subscription creates its auto agent', async () => {
     const dbPath = makeTempDb();
     const routeStore = new DispatchRouteStore(dbPath);
     const dispatchPipelineRuntime = new DispatchPipelineRuntime({
@@ -1369,7 +1538,7 @@ describe('WorkspaceSubscriptionManager', () => {
       requirePipelineRoutes: true,
     });
     const instanceIdentity = makeInstanceIdentity();
-    const { manager, agentStore, managerInternals } = createTestManager(
+    const { manager, store, agentStore, managerInternals } = createTestManager(
       dbPath,
       new Map(),
       undefined,
@@ -1381,6 +1550,11 @@ describe('WorkspaceSubscriptionManager', () => {
       registerCalled = true;
       throw new Error('legacy registration should not run for PG workspaces');
     };
+    await seedLegacySharedSubscription(manager, store, {
+      managedByNpub: 'npub1manager', workspaceOwnerNpub: 'npub1workspaceowner', towerServiceNpub: 'npub1tower',
+      workspaceId: 'workspace-1', workspaceServiceNpub: 'npub1workspaceservice', backendBaseUrl: 'https://tower.example.com',
+      sourceAppNpub: 'npub1sourceapp', onboardingSource: 'nostr_33357',
+    });
 
     const subscription = await manager.createOrUpdate({
       managedByNpub: 'npub1manager',
@@ -1406,12 +1580,17 @@ describe('WorkspaceSubscriptionManager', () => {
   test('createOrUpdate migrates legacy private agent workspace directories to the dispatch directory', async () => {
     const dbPath = makeTempDb();
     const instanceIdentity = makeInstanceIdentity();
-    const { manager, agentStore } = createTestManager(
+    const { manager, store, agentStore } = createTestManager(
       dbPath,
       new Map(),
       undefined,
       instanceIdentity,
     );
+    await seedLegacySharedSubscription(manager, store, {
+      managedByNpub: 'npub1manager', workspaceOwnerNpub: 'npub1workspaceowner', towerServiceNpub: 'npub1tower',
+      workspaceId: 'workspace-1', workspaceServiceNpub: 'npub1workspaceservice', backendBaseUrl: 'https://tower.example.com',
+      sourceAppNpub: 'npub1sourceapp', onboardingSource: 'nostr_33357',
+    });
     const agentId = 'fd-npub1wingmanbot-workspace1-npub1sourceapp';
     saveAgent(agentStore, {
       agentId,
@@ -1466,6 +1645,7 @@ describe('WorkspaceSubscriptionManager', () => {
       fetchFlightDeckPgChannel: async () => ({ id: channelId, workspace_id: workspaceId, kind: 'channel', metadata: {} }),
       fetchFlightDeckPgChannelMessages: async () => ({ messages: [message], next_cursor: null }),
     });
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace(workspaceId, 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace(workspaceId, 'npub1workspaceservice'),
@@ -1504,7 +1684,7 @@ describe('WorkspaceSubscriptionManager', () => {
       ['npub1Builder', makeBotKeyRecord('npub1Builder')],
       ['npub1Mick', makeBotKeyRecord('npub1Mick')],
     ]);
-    const { manager, store, agentStore } = createTestManager(dbPath, botKeys, undefined, instanceIdentity, undefined, {
+    const { manager, store, agentStore, profilePolicyStore, towerAudience } = createTestManager(dbPath, botKeys, undefined, instanceIdentity, undefined, {
       chatRuntime: {
         handleDirectChat: async (input: { audienceAgentNpubs?: string[] }) => {
           directInputs.push(input);
@@ -1514,6 +1694,7 @@ describe('WorkspaceSubscriptionManager', () => {
       fetchFlightDeckPgChannel: async () => ({ id: 'channel-1', workspace_id: 'workspace-1', metadata: {} }),
       fetchFlightDeckPgChannelMessages: async () => ({ messages, next_cursor: null }),
     });
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -1521,6 +1702,8 @@ describe('WorkspaceSubscriptionManager', () => {
     });
     saveDirectChatAgent(agentStore, { agentId: 'Builder', botNpub: 'npub1Builder', managedByNpub: 'npub1manager' });
     saveDirectChatAgent(agentStore, { agentId: 'Mick', botNpub: 'npub1Mick', managedByNpub: 'npub1manager' });
+    seedAcceptedAudience({ profilePolicyStore, agentStore, towerAudience }, imported.subscription, ['Builder', 'Mick']);
+    await verifyLegacyAudience(manager, imported.subscription);
     const internals = manager as unknown as {
       handleFlightDeckPgEvent: (
         record: WorkspaceSubscriptionRecord,
@@ -1651,6 +1834,7 @@ describe('WorkspaceSubscriptionManager', () => {
         }),
       },
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -1755,6 +1939,7 @@ describe('WorkspaceSubscriptionManager', () => {
         }),
       },
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -1844,6 +2029,7 @@ describe('WorkspaceSubscriptionManager', () => {
         }),
       },
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -1904,6 +2090,7 @@ describe('WorkspaceSubscriptionManager', () => {
         }),
       },
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackage() });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackage({
@@ -1972,6 +2159,7 @@ describe('WorkspaceSubscriptionManager', () => {
         },
       },
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2019,6 +2207,7 @@ describe('WorkspaceSubscriptionManager', () => {
         },
       },
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2105,7 +2294,7 @@ describe('WorkspaceSubscriptionManager', () => {
       visible_to_audience_npubs: [RICK_BOT_NPUB],
       payload: {},
     };
-    const { manager, store, agentStore } = createTestManager(
+    const { manager, store, agentStore, profilePolicyStore, towerAudience } = createTestManager(
       dbPath,
       new Map([[RICK_BOT_NPUB, makeBotKeyRecord(RICK_BOT_NPUB)]]),
       undefined,
@@ -2172,6 +2361,9 @@ describe('WorkspaceSubscriptionManager', () => {
         } as never,
       },
     );
+    await seedLegacySharedSubscription(manager, store, {
+      managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace(workspaceId, 'npub1workspaceservice'),
+    });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace(workspaceId, 'npub1workspaceservice'),
@@ -2182,6 +2374,7 @@ describe('WorkspaceSubscriptionManager', () => {
       botNpub: RICK_BOT_NPUB,
       managedByNpub: 'npub1manager',
     });
+    seedAcceptedAudience({ profilePolicyStore, agentStore, towerAudience }, imported.subscription, ['Rick Agent Direct']);
     accessChecks = 0;
     const runtime = (manager as unknown as {
       runtimes: Map<string, { abortController: AbortController | null }>;
@@ -2228,6 +2421,7 @@ describe('WorkspaceSubscriptionManager', () => {
         return { events: [], next_cursor: null };
       },
     });
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2282,6 +2476,7 @@ describe('WorkspaceSubscriptionManager', () => {
         });
       },
     });
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2337,6 +2532,7 @@ describe('WorkspaceSubscriptionManager', () => {
         signal?.addEventListener('abort', () => reject(new Error('poll aborted')), { once: true });
       }),
     });
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2382,6 +2578,9 @@ describe('WorkspaceSubscriptionManager', () => {
           signal?.addEventListener('abort', () => reject(new Error('poll aborted')), { once: true });
         }),
       });
+      await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
+      await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
+      await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
       const imported = await manager.importAgentConnectPackage({
         managedByNpub: 'npub1manager',
         packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2776,6 +2975,7 @@ describe('WorkspaceSubscriptionManager', () => {
         }),
       },
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2813,7 +3013,7 @@ describe('WorkspaceSubscriptionManager', () => {
       ['npub1Builder', makeBotKeyRecord('npub1Builder')],
       ['npub1Mick', makeBotKeyRecord('npub1Mick')],
     ]);
-    const { manager, store, agentStore } = createTestManager(dbPath, botKeys, undefined, instanceIdentity, undefined, {
+    const { manager, store, agentStore, profilePolicyStore, towerAudience } = createTestManager(dbPath, botKeys, undefined, instanceIdentity, undefined, {
       reconcileFlightDeckPgEventSubscriptionAgents: async () => ({
         agent_npubs: ['npub1Builder'],
         audience_npubs: ['npub1Builder'],
@@ -2844,6 +3044,7 @@ describe('WorkspaceSubscriptionManager', () => {
         next_cursor: null,
       }),
     });
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2851,6 +3052,7 @@ describe('WorkspaceSubscriptionManager', () => {
     });
     saveDirectChatAgent(agentStore, { agentId: 'Builder', botNpub: 'npub1Builder', managedByNpub: 'npub1manager' });
     saveDirectChatAgent(agentStore, { agentId: 'Mick', botNpub: 'npub1Mick', managedByNpub: 'npub1manager' });
+    seedAcceptedAudience({ profilePolicyStore, agentStore, towerAudience }, imported.subscription, ['Builder', 'Mick']);
 
     await (manager as unknown as {
       runFlightDeckPgLiveEventLoop: (
@@ -2875,7 +3077,7 @@ describe('WorkspaceSubscriptionManager', () => {
       ensureFlightDeckPgConnected: (record: WorkspaceSubscriptionRecord, botIdentity: RuntimeBotIdentity, startup: boolean) => Promise<void>;
       stopRuntime: (subscriptionId: string, removed: boolean) => void;
     };
-    const { manager } = createTestManager(dbPath, new Map(), undefined, instanceIdentity, undefined, {
+    const { manager, store } = createTestManager(dbPath, new Map(), undefined, instanceIdentity, undefined, {
       flightDeckPgEventPollIntervalMs: 1,
       connectFlightDeckPgEventStream: async () => {
         liveConnections += 1;
@@ -2887,6 +3089,7 @@ describe('WorkspaceSubscriptionManager', () => {
       },
     });
     managerInternals = manager as unknown as typeof managerInternals;
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2927,6 +3130,7 @@ describe('WorkspaceSubscriptionManager', () => {
         next_cursor: null,
       }),
     });
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2972,6 +3176,7 @@ describe('WorkspaceSubscriptionManager', () => {
         next_cursor: null,
       }),
     });
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -2996,7 +3201,7 @@ describe('WorkspaceSubscriptionManager', () => {
   test('skips an expired PG event when its source message or channel has been removed', async () => {
     const dbPath = makeTempDb();
     const instanceIdentity = makeInstanceIdentity();
-    const { manager } = createTestManager(dbPath, new Map(), undefined, instanceIdentity, undefined, {
+    const { manager, store } = createTestManager(dbPath, new Map(), undefined, instanceIdentity, undefined, {
       chatRuntime: { handleDirectChat: async () => ({ handled: true, reason: 'unexpected' }) } as never,
       fetchFlightDeckPgChannelMessages: async () => {
         throw Object.assign(new Error('Flight Deck PG authorization request is invalid'), {
@@ -3004,6 +3209,7 @@ describe('WorkspaceSubscriptionManager', () => {
         });
       },
     });
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -3062,7 +3268,7 @@ describe('WorkspaceSubscriptionManager', () => {
     const signer = makeSignedInstructionIdentity();
     const body = 'Duplicate hello';
     const cursor = encodeFlightDeckPgEventCursor(150);
-    const { manager } = createTestManager(
+    const { manager, store } = createTestManager(
       dbPath,
       new Map(),
       undefined,
@@ -3099,6 +3305,7 @@ describe('WorkspaceSubscriptionManager', () => {
         }),
       },
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -3185,6 +3392,7 @@ describe('WorkspaceSubscriptionManager', () => {
         }),
       },
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -3234,19 +3442,21 @@ describe('WorkspaceSubscriptionManager', () => {
       callbackOrigin: 'http://localhost:3600',
       requirePipelineRoutes: true,
     });
-    const { manager } = createTestManager(
+    const { manager, store } = createTestManager(
       dbPath,
       new Map(),
       undefined,
       makeInstanceIdentity(),
       dispatchPipelineRuntime,
     );
-    const subscription = await manager.createOrUpdate({
+    const manualInput = {
       managedByNpub: 'npub1manager',
       workspaceOwnerNpub: 'npub1workspace',
       backendBaseUrl: 'https://tower.example.com',
       sourceAppNpub: 'npub1sourceapp',
-    });
+    };
+    await seedLegacySharedSubscription(manager, store, manualInput);
+    const subscription = await manager.createOrUpdate(manualInput);
     routeStore.save({
       managedByNpub: 'npub1manager',
       subscriptionId: subscription.subscriptionId,
@@ -3273,6 +3483,7 @@ describe('WorkspaceSubscriptionManager', () => {
       undefined,
       instanceIdentity,
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -3327,6 +3538,7 @@ describe('WorkspaceSubscriptionManager', () => {
     const instanceIdentity = makeInstanceIdentity();
     const { manager, store } = createTestManager(dbPath, new Map(), undefined, instanceIdentity);
     const packageJson = makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice');
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson });
     const first = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson,
@@ -3371,6 +3583,9 @@ describe('WorkspaceSubscriptionManager', () => {
     });
     expect(newer.ignoredLocally).toBeUndefined();
     expect(newer.subscription.lifecycleStatus).toBe('active');
+    // The newer grant is addressed to the now-known recipient profile, so it enrolls that bot's own strict inbox.
+    expect(newer.subscription.agentProfileId).not.toBeNull();
+    expect(newer.subscription.subscriptionId).not.toBe(first.subscription.subscriptionId);
     expect(manager.listForManager('npub1manager')).toHaveLength(1);
   });
 
@@ -3383,6 +3598,7 @@ describe('WorkspaceSubscriptionManager', () => {
       undefined,
       instanceIdentity,
     );
+    await seedLegacySharedSubscription(manager, store, { managedByNpub: 'npub1manager', packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice') });
     const imported = await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
@@ -3480,16 +3696,17 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(workspaceBySubscription.get(second.subscription.subscriptionId)?.relayOnboardingStatus).toBe('deleted');
   });
 
-  test('rejects missing or foreign Agent Profile ids before importing Agent Connect packages', async () => {
+  test('rejects missing, foreign or absent Agent Profile ids before importing Agent Connect packages', async () => {
     const dbPath = makeTempDb();
     const botKeys = new Map([['npub1botone', makeBotKeyRecord('npub1botone')]]);
     const { manager, agentStore, backendStore } = createTestManager(dbPath, botKeys);
     saveAgent(agentStore, { agentId: 'foreign-agent', botNpub: 'npub1botone', managedByNpub: 'npub1othermanager' });
 
+    // No profile and nothing to reconnect: refused before any bot key lookup/creation or backend connection.
     await expect(manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
       packageJson: makeConnectPackage(),
-    })).rejects.toThrow('No active bot key exists for this user');
+    })).rejects.toMatchObject({ detailCode: 'agent_inbox_profile_required' });
 
     await expect(manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
@@ -3546,6 +3763,8 @@ describe('WorkspaceSubscriptionManager', () => {
       sourceAppNpub: 'npub1sourceapp',
       backendConnectionId: sharedBackend.backendConnectionId,
       agentProfileId: 'wm-one',
+      workspaceId: 'workspace-1',
+      workspaceServiceNpub: 'npub1workspaceservice',
     });
 
     expect(subscription.backendConnectionId).toBe(sharedBackend.backendConnectionId);
@@ -3579,6 +3798,8 @@ describe('WorkspaceSubscriptionManager', () => {
       sourceAppNpub: '',
       backendConnectionId: sharedBackend.backendConnectionId,
       agentProfileId: 'wm-one',
+      workspaceId: 'workspace-1',
+      workspaceServiceNpub: 'npub1workspaceservice',
     });
 
     expect(subscription.backendConnectionId).toBe(sharedBackend.backendConnectionId);
@@ -3586,7 +3807,8 @@ describe('WorkspaceSubscriptionManager', () => {
     expect(subscription.workspaceOwnerNpub).toBe('npub1workspacehints');
     expect(subscription.sourceAppNpub).toBe('npub1sourcehints');
     expect(subscription.sourceAppSchemaNamespace).toBe('cowork');
-    expect(subscription.capabilityDefaults).toEqual(['chat_intercept', 'task_dispatch']);
+    // The backend hints plus the existing Flight Deck PG onboarding defaults (chat, task and comment dispatch).
+    expect(subscription.capabilityDefaults).toEqual(['chat_intercept', 'task_dispatch', 'comment_dispatch']);
   });
 
   test('backfills legacy direct subscriptions into reusable backend connections once', () => {
@@ -3640,6 +3862,8 @@ describe('WorkspaceSubscriptionManager', () => {
       sourceAppNpub: 'npub1sourceapp',
       backendConnectionId: sharedBackend.backendConnectionId,
       agentProfileId: 'wm-one',
+      workspaceId: 'workspace-1',
+      workspaceServiceNpub: 'npub1workspaceservice',
     })).rejects.toThrow('is not available to this manager');
 
     expect(store.listForManagerNpub('npub1manager')).toHaveLength(0);
@@ -3666,6 +3890,8 @@ describe('WorkspaceSubscriptionManager', () => {
       sourceAppNpub: 'npub1sourceapp',
       backendConnectionId: sharedServiceBackend.backendConnectionId,
       agentProfileId: 'wm-one',
+      workspaceId: 'workspace-1',
+      workspaceServiceNpub: 'npub1workspaceservice',
     })).rejects.toThrow('is not available to this manager');
 
     const subscription = await manager.createOrUpdate({
@@ -3676,6 +3902,8 @@ describe('WorkspaceSubscriptionManager', () => {
       backendConnectionId: sharedServiceBackend.backendConnectionId,
       backendConnectionGrantKind: 'shared_service',
       agentProfileId: 'wm-one',
+      workspaceId: 'workspace-1',
+      workspaceServiceNpub: 'npub1workspaceservice',
     });
 
     expect(subscription.backendConnectionId).toBe(sharedServiceBackend.backendConnectionId);
@@ -3695,6 +3923,8 @@ describe('WorkspaceSubscriptionManager', () => {
       sourceAppNpub: 'npub1sourceapp',
       backendConnectionId: 'missing-backend',
       agentProfileId: 'wm-one',
+      workspaceId: 'workspace-1',
+      workspaceServiceNpub: 'npub1workspaceservice',
     })).rejects.toMatchObject({
       code: 'backend_connection_not_found',
       statusCode: 404,
@@ -3718,6 +3948,8 @@ describe('WorkspaceSubscriptionManager', () => {
       sourceAppNpub: 'npub1sourceapp',
       backendConnectionId: ownedBackend.backendConnectionId,
       agentProfileId: 'wm-one',
+      workspaceId: 'workspace-1',
+      workspaceServiceNpub: 'npub1workspaceservice',
     });
 
     expect(subscription.backendConnectionId).toBe(ownedBackend.backendConnectionId);
@@ -3738,6 +3970,7 @@ describe('WorkspaceSubscriptionManager', () => {
           direct_https_url: 'https://tower.example.com',
           service_npub: 'npub1service',
         },
+        workspace: { owner_npub: 'npub1workspace', workspace_id: 'workspace-1', workspace_service_npub: 'npub1workspaceservice' },
       }),
       agentProfileId: 'wm-one',
     });
@@ -3768,7 +4001,7 @@ describe('WorkspaceSubscriptionManager', () => {
 
     await manager.importAgentConnectPackage({
       managedByNpub: 'npub1manager',
-      packageJson: makeConnectPackage(),
+      packageJson: makeConnectPackageForWorkspace('workspace-1', 'npub1workspaceservice'),
       agentProfileId: 'wm-one',
     });
 
