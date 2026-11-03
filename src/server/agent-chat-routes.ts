@@ -1,4 +1,5 @@
 import { handleBotSubscriptionRoute } from './agent-chat-bot-subscription-routes';
+import { handleLearningGrantRoute } from './agent-chat-learning-grant-routes';
 import { handleNStackConnectRoute } from "./nstack-connect-routes";
 import { canExportAgentProfileKey, handleAgentProfileKeyExport, type AgentProfileKeyExportContext } from "./agent-profile-key-export.ts";
 import { agentDirectEnrichmentOptions } from "./agent-direct-enrichment-options.ts";
@@ -690,6 +691,9 @@ export async function handleAgentChatApi(
 
   const botSubscriptionResponse = await handleBotSubscriptionRoute(request, url, ctx.manager, scope);
   if (botSubscriptionResponse) return botSubscriptionResponse;
+
+  const learningGrantResponse = await handleLearningGrantRoute(request, url, ctx.manager, scope);
+  if (learningGrantResponse) return learningGrantResponse;
 
   if (url.pathname === '/api/agent-chat/dispatch-outcomes' && method === 'GET') {
     const limitValue = Number(url.searchParams.get('limit') ?? 25);
