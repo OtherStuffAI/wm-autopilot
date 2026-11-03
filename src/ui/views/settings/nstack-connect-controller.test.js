@@ -106,3 +106,19 @@ test('direct discovery errors and late responses respect cancellation', async ()
   await failed.open(); await failed.discoverHttps();
   expect(value.message).toBe('HTTP 403'); expect(value.busy).toBe(false);
 });
+test('review loads bot profiles into the flow and setup submits only the chosen profile', async () => {
+  let value; const submissions = [];
+  const connection = { name: 'Direct', workspaceId: 'one', directHttpsUrl: 'https://tower.example', serviceNpub: 'tower', workspaceServiceNpub: 'ws' };
+  const table = { get: async () => value, put: async (row) => { value = row; } };
+  const controller = createNStackConnectController({ id: 'profile', table, host: {},
+    listProfiles: async () => [{ agentId: 'piper', label: 'Piper' }],
+    discoverAddress: async () => ({ workspaces: [connection] }),
+    setup: async (rows, agentProfileId) => { submissions.push(agentProfileId); return { results: [] }; } });
+  await controller.open(); await controller.setAddress('https://tower.example'); await controller.discoverHttps();
+  await controller.select(value.choices[0].key, true); await controller.review();
+  expect(value.profiles).toEqual([{ agentId: 'piper', label: 'Piper' }]);
+  expect(value.agentProfileId).toBe(null);
+  await controller.connect();
+  await controller.back(); await controller.review(); await controller.setProfile('piper'); await controller.connect();
+  expect(submissions).toEqual([null, 'piper']);
+});

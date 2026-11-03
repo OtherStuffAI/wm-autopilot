@@ -4,11 +4,12 @@ export function nstackConnectionKey(connection) {
 }
 
 // This controller owns discovery/network commands; all rendered state is materialized in Dexie.
-export function createNStackConnectController({ id, table, host = globalThis, setup, discoverAddress }) {
+export function createNStackConnectController({ id, table, host = globalThis, setup, discoverAddress, listProfiles = async () => [] }) {
   let generation = 0;
   let unsubscribe;
   let pending = Promise.resolve();
-  const empty = { id, open: false, stage: 'select', choices: [], selected: [], results: [], busy: false, message: '', source: null, address: '' };
+  const empty = { id, open: false, stage: 'select', choices: [], selected: [], results: [], busy: false, message: '', source: null, address: '',
+    profiles: [], agentProfileId: null };
   function write(patch, expected = generation) {
     pending = pending.catch(() => {}).then(async () => {
       if (expected !== generation) return;
@@ -92,7 +93,8 @@ export function createNStackConnectController({ id, table, host = globalThis, se
         const connection = Object.fromEntries(['name', 'workspaceId', 'workspaceOwnerNpub', 'workspaceServiceNpub', 'directHttpsUrl', 'serviceNpub'].map((key) => [key, raw[key]]));
         choices.push({ ...choice, connection });
       }
-      await write({ choices, stage: 'review', busy: false, message: 'Autopilot will verify local agent access with Tower, save matching connections and monitor workspace events. Several local agents share a connection; connecting does not create agents.' }, current);
+      const profiles = await listProfiles();
+      await write({ choices, profiles, stage: 'review', busy: false, message: 'Choose the bot profile that serves these workspaces. It connects with its own strict inbox and receives only what is addressed to it; connecting does not create agents. Without a choice, only bots that already serve a workspace reconnect.' }, current);
     } catch (error) { await write({ busy: false, message: error.message }, current); }
   }
   async function connect(retry = false) {
@@ -104,7 +106,7 @@ export function createNStackConnectController({ id, table, host = globalThis, se
     if (!choices.length || choices.some((row) => !row.connection)) return;
     await write({ busy: true, message: 'Verifying access and setting up monitoring…' }, current);
     try {
-      const result = await setup(choices.map((row) => row.connection));
+      const result = await setup(choices.map((row) => row.connection), value.agentProfileId || null);
       const retained = retry ? value.results.filter((row) => !failed.has(row.key)) : [];
       await write({ stage: 'results', results: [...retained, ...result.results], busy: false, message: 'Setup finished. Monitoring health is separate from running agents.' }, current);
     } catch (error) { await write({ busy: false, message: error.message }, current); }
@@ -121,6 +123,7 @@ export function createNStackConnectController({ id, table, host = globalThis, se
   }
   host.addEventListener?.('nstackready', providerReady);
   return { open, discoverHttps, setAddress: (address) => write({ address }), discover, select, review, connect, close,
+    setProfile: (agentProfileId) => write({ agentProfileId: agentProfileId || null }),
     back: () => write({ stage: 'select', message: 'Select workspaces to monitor.' }),
     destroy: async () => { generation++; unsubscribe?.(); host.removeEventListener?.('nstackready', providerReady); await pending; await table.delete(id); },
   };

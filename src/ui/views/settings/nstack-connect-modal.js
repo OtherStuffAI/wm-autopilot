@@ -4,6 +4,7 @@ import { workspaceSettingsDb, Dexie } from './workspace-settings-db.js';
 import { createNStackConnectController, nstackConnectionKey } from './nstack-connect-controller.js';
 import { createButton } from './agent-chat-shared-ui.js';
 import { element } from './workspace-settings-details.js';
+import { createBotProfileSelect } from './bot-profile-select.js';
 
 Alpine.data('nstackConnectView', () => ({
   init() {
@@ -16,7 +17,7 @@ Alpine.data('nstackConnectView', () => ({
   destroy() { this.query?.unsubscribe(); void this.$el.controller.destroy(); },
 }));
 
-export function createNStackConnectModal({ onConnected }) {
+export function createNStackConnectModal({ onConnected, listProfiles }) {
   const overlay = element('div', '', 'wm-modal-overlay');
   overlay.hidden = true;
   overlay.style.display = 'none';
@@ -30,7 +31,7 @@ export function createNStackConnectModal({ onConnected }) {
   overlay.append(panel);
   let returnFocus;
   const controller = createNStackConnectController({
-    id: overlay.dataset.flowId, table: workspaceSettingsDb.nstackFlows,
+    id: overlay.dataset.flowId, table: workspaceSettingsDb.nstackFlows, listProfiles,
     discoverAddress: async (address) => {
       const response = await fetch('/api/agent-chat/nstack-connect/discover', { method: 'POST', credentials: 'include',
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address }) });
@@ -38,9 +39,9 @@ export function createNStackConnectModal({ onConnected }) {
       if (!response.ok) throw new Error(result.error || 'NStack discovery failed.');
       return result;
     },
-    setup: async (workspaces) => {
+    setup: async (workspaces, agentProfileId) => {
       const response = await fetch('/api/agent-chat/nstack-connect', { method: 'POST', credentials: 'include',
-        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ workspaces }) });
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ workspaces, ...(agentProfileId ? { agentProfileId } : {}) }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'NStack setup failed.');
       await onConnected();
@@ -117,6 +118,12 @@ export function createNStackConnectModal({ onConnected }) {
         panel.append(row);
       }
     }
+    if (value.stage === 'review') {
+      const profile = createBotProfileSelect({ testId: 'nstack-profile', onChange: (agentProfileId) => void controller.setProfile(agentProfileId) });
+      profile.setProfiles(value.profiles || [], value.agentProfileId);
+      profile.select.disabled = value.busy;
+      panel.append(profile.row);
+    }
     const actions = element('div', '', 'wm-settings-page__actions');
     if (value.stage === 'select') {
       actions.append(action('Review connection', 'nstack-review', controller.review, value.busy || !value.selected.length));
@@ -133,14 +140,14 @@ export function createNStackConnectModal({ onConnected }) {
       replacement?.focus();
       if (selection && replacement) replacement.setSelectionRange(...selection);
     }
-    if (!panel.contains(document.activeElement)) panel.querySelector('button:not(:disabled), input:not(:disabled)')?.focus();
+    if (!panel.contains(document.activeElement)) panel.querySelector('button:not(:disabled), input:not(:disabled), select:not(:disabled)')?.focus();
   }
   overlay.renderFlow = render;
   overlay.showFlowError = (error) => { panel.textContent = error.message; };
   overlay.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') { event.preventDefault(); void controller.close(); }
     if (event.key === 'Tab') {
-      const controls = [...panel.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
+      const controls = [...panel.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled)')];
       const first = controls[0]; const last = controls.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }

@@ -8,6 +8,7 @@ import {
   runAgentChatSubscriptionAction,
 } from '../../services/agent-chat.js';
 import { createAgentConnectImportModal } from './agent-chat-connect-import-card.js';
+import { enabledBotProfiles } from './bot-profile-select.js';
 import { getWorkspaceSettingsPath, resolveSettingsRoute } from '../settings-routes.js';
 import { createButton } from './agent-chat-shared-ui.js';
 import { buildWorkspaceSettingsModel } from './workspace-settings-model.js';
@@ -51,14 +52,16 @@ export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
   let refreshing = false;
   let stopped = false;
   let timer = null;
-  const modal = createAgentConnectImportModal({ onImport: async (input) => {
+  // New connections name the exact bot profile; choices come from the Dexie view snapshot.
+  const listBotProfiles = async () => (await workspaceSettingsDb.views.get(viewId))?.botProfiles ?? [];
+  const modal = createAgentConnectImportModal({ listProfiles: listBotProfiles, onImport: async (input) => {
     const result = await importAgentConnectPackage(input);
     selectedId = result.subscription?.subscriptionId || null;
     await refresh();
     return result;
   } });
   const connectPackageCard = createAutopilotConnectPackageCard({ ownerNpub });
-  const nstackModal = createNStackConnectModal({ onConnected: refresh });
+  const nstackModal = createNStackConnectModal({ onConnected: refresh, listProfiles: listBotProfiles });
   container.append(status, body, modal.element, nstackModal.element);
 
   function showError(error) {
@@ -82,6 +85,7 @@ export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
       const deliveryPaths = await listBotSubscriptions().then((rows) => ({ rows, error: null }),
         (error) => ({ rows: [], error: error?.message || 'Per-bot delivery status could not be loaded.' }));
       if (!stopped) await workspaceSettingsDb.views.put({ id: viewId, syncedAt: Date.now(), servers, transportDrafts, deliveryPaths,
+        botProfiles: enabledBotProfiles(agents.value.agents),
         canManage: subscriptions.value.permissions?.canManage === true });
       status.textContent = 'Updated just now. Nostr-discovered connections appear automatically.';
       status.className = 'wm-workspace-note';

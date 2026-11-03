@@ -4,6 +4,7 @@ import {
   createStatusLine,
   createTextarea,
 } from './agent-chat-shared-ui.js';
+import { createBotProfileSelect, enabledBotProfiles } from './bot-profile-select.js';
 
 function formatImportSummary(payload) {
   const backend = payload?.backendConnection;
@@ -65,6 +66,7 @@ export function parseAgentConnectPackage(rawText) {
 
 export function createAgentConnectImportModal({
   onImport,
+  listProfiles,
 }) {
   const overlay = document.createElement('div');
   overlay.hidden = true;
@@ -101,7 +103,9 @@ export function createAgentConnectImportModal({
 
   const note = document.createElement('p');
   note.className = 'wm-settings__port-note';
-  note.textContent = 'Paste the full AgentConnect token. Wingman will read the service and workspace identity, then verify access with the configured Wingman bot identity.';
+  note.textContent = 'Paste the full AgentConnect token and choose the bot profile that serves this workspace. The bot connects with its own strict inbox and receives only what is addressed to it.';
+
+  const profileField = createBotProfileSelect({ testId: 'agent-connect-profile' });
 
   const packageField = createTextarea(
     'AgentConnect token',
@@ -153,7 +157,8 @@ export function createAgentConnectImportModal({
     importButton.disabled = true;
     statusLine.textContent = 'Connecting workspace...';
     try {
-      const payload = await onImport?.({ packageJson: parseAgentConnectPackage(packageJson) });
+      const agentProfileId = profileField.value();
+      const payload = await onImport?.({ packageJson: parseAgentConnectPackage(packageJson), ...(agentProfileId ? { agentProfileId } : {}) });
       statusLine.textContent = formatImportSummary(payload);
       if (!payload?.subscription?.wsKeyStatus || payload.subscription.wsKeyStatus === 'active') {
         packageField.input.value = '';
@@ -169,6 +174,7 @@ export function createAgentConnectImportModal({
   panel.append(
     heading,
     note,
+    profileField.row,
     packageField.row,
     createInlineActions(importButton, cancelButton),
     statusLine,
@@ -181,6 +187,9 @@ export function createAgentConnectImportModal({
       statusLine.textContent = '';
       setModalVisible(overlay, true);
       packageField.input.focus();
+      Promise.resolve(listProfiles?.())
+        .then((agents) => profileField.setProfiles(enabledBotProfiles(agents), profileField.value()))
+        .catch((error) => { statusLine.textContent = error instanceof Error ? error.message : 'Bot profiles could not be loaded.'; });
     },
   };
 }
