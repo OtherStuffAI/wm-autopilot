@@ -84,7 +84,7 @@ export async function signStrictNip98(context: AgentInboxRequestContext, url: st
   return `Nostr ${Buffer.from(JSON.stringify(event)).toString('base64')}`;
 }
 
-async function request<T>(context: AgentInboxRequestContext, method: 'GET' | 'POST', path: string, query: Record<string, string | number | null | undefined> = {}, payload?: unknown): Promise<{ json: T; response: Response }> {
+async function request<T>(context: AgentInboxRequestContext, method: 'GET' | 'POST' | 'PUT', path: string, query: Record<string, string | number | null | undefined> = {}, payload?: unknown): Promise<{ json: T; response: Response }> {
   const url = buildFlightDeckPgUrl(context.backendBaseUrl, `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(context.workspaceId)}/agent-notifications${path}`, query);
   const body = payload === undefined ? '' : JSON.stringify(payload);
   const authorization = await signStrictNip98(context, url, method, body);
@@ -132,4 +132,9 @@ export async function ackAgentInboxNotification(context: AgentInboxRequestContex
   return (await request<{ outcome: string; replayed: boolean; acked_through_seq: number }>(context, 'POST', `/${encodeURIComponent(notificationId)}/ack`, {}, {
     subscription_id: input.subscriptionId, outcome: input.outcome, ...(input.code ? { code: input.code } : {}),
   })).json;
+}
+
+/** The bot restricts ITSELF to notification-only in this workspace (lifting requires a workspace manager in Tower). */
+export async function classifyAgentNotificationOnly(context: AgentInboxRequestContext) {
+  return (await request<{ actor_npub: string; profile: string | null }>(context, 'PUT', '/access-profile', {}, { profile: 'notification_only' })).json;
 }

@@ -718,12 +718,12 @@ export async function handleAgentChatApi(
     }
     const denied = requireAgentChatManagement(scope);
     if (denied) return denied;
-    const body = await request.json().catch(() => null) as { mode?: unknown } | null;
+    const body = await request.json().catch(() => null) as { mode?: unknown; classify?: unknown } | null;
     if (body?.mode !== 'inbox_required' && body?.mode !== 'legacy') {
       return Response.json({ error: 'mode must be inbox_required or legacy' }, { status: 400 });
     }
     try {
-      const state = await ctx.manager.setAgentInboxModeForManager(subscriptionId, scope.managerNpub, body.mode);
+      const state = await ctx.manager.setAgentInboxModeForManager(subscriptionId, scope.managerNpub, body.mode, { classify: body.classify === true });
       if (!state) return Response.json({ error: 'Subscription not found' }, { status: 404 });
       return Response.json({ subscriptionId, agentInbox: state });
     } catch (error) {

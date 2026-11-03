@@ -102,6 +102,7 @@ import { loadYokeBotHelpers } from './yoke-bot-helpers';
 import { decryptRecordPayloadWithYoke } from './yoke-record-payload';
 import { hydrateDirectChatThread, hydrateFlightDeckPgChatEvent } from './direct-chat-tower-hydration';
 import { AgentInboxProcessor } from './agent-inbox-runtime';
+import { classifyAgentNotificationOnly } from './agent-inbox-client';
 import { agentInboxStore, type AgentInboxMode, type AgentInboxState, type AgentInboxStore } from './agent-inbox-store';
 import { inboxAwareFetchers } from './agent-inbox-scope';
 import { normaliseDirectChatMessage } from './direct-chat-contract';
@@ -3821,9 +3822,10 @@ export class WorkspaceSubscriptionManager {
   }
 
   /** Explicit, operator-driven opt-in/out. Inbox mode is per bot identity, so only profile-bound subscriptions qualify. */
-  async setAgentInboxModeForManager(subscriptionId: string, npub: string, mode: AgentInboxMode): Promise<AgentInboxState | null> {
+  async setAgentInboxModeForManager(subscriptionId: string, npub: string, mode: AgentInboxMode, options: { classify?: boolean } = {}): Promise<AgentInboxState | null> {
     const record = this.getForManager(subscriptionId, npub);
     if (!record) return null;
+    if (options.classify && mode !== 'inbox_required') throw new Error('Classification is only available together with inbox_required.');
     if (!isFlightDeckPgSubscription(record)) throw new Error('The strict agent inbox requires a Flight Deck PG subscription.');
     if (mode === 'inbox_required' && !record.agentProfileId) {
       throw new Error('The strict agent inbox is per bot identity: enable it on a profile-bound subscription.');
@@ -3832,7 +3834,21 @@ export class WorkspaceSubscriptionManager {
     if (record.sseStatus !== 'disabled' && !isRevokedWorkspaceSubscription(record)) {
       await this.repairSubscription(record, { refreshWorkspaceKey: false, reconnect: true, allowRegisterWhenInactive: false, reason: 'operator_reconnect' });
     }
-    return state;
+    if (options.classify) {
+      // Explicit operator step: the bot classifies ITSELF notification-only in this workspace (Tower ceiling).
+      const identity = await this.resolveStoredBotIdentity(record.botNpub);
+      if (!identity) throw new Error('No active key exists for this bot identity.');
+      try {
+        await classifyAgentNotificationOnly({
+          backendConnectionId: record.backendConnectionId, subscriptionId: record.subscriptionId, backendBaseUrl: record.backendBaseUrl,
+          workspaceId: record.workspaceId!, appNpub: record.sourceAppNpub, botIdentity: identity,
+          ...(this.agentInboxFetch ? { fetchImpl: this.agentInboxFetch } : {}),
+        });
+      } finally {
+        if (identity.botSecret !== this.getRuntime(subscriptionId).botIdentity?.botSecret && identity.botSecret !== this.getInstanceIdentity()?.secretKey) identity.botSecret.fill(0);
+      }
+    }
+    return this.inboxStore.get(subscriptionId) ?? state;
   }
 
   private async runAgentInboxLoop(subscriptionId: string, signal: AbortSignal): Promise<void> {

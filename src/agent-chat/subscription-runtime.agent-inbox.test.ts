@@ -62,6 +62,7 @@ describe('strict inbox mode in the subscription runtime', () => {
         return Response.json({ recipient_npub: botNpub, created: true, subscription: { id: 'tower-sub', consumer_id: 'c', floor_at: now, policy_version: 1, acked_through_seq: 0 }, cursor: 'tower-sub~c0' }, { status: 201 });
       }
       if (request.url.includes('/agent-notifications?')) return Response.json({ subscription_id: 'tower-sub', notifications: [], next_cursor: 'tower-sub~c0', has_more: false });
+      if (request.url.endsWith('/agent-notifications/access-profile') && request.method === 'PUT') return Response.json({ actor_npub: botNpub, profile: 'notification_only' });
       return Response.json({ error: 'unexpected' }, { status: 500 });
     });
     manager = new WorkspaceSubscriptionManager({
@@ -97,6 +98,12 @@ describe('strict inbox mode in the subscription runtime', () => {
       expect(request.auth.tags.some((t: string[]) => t[0] === 'nonce')).toBe(true);
     }
     expect(inboxStore.get(subscriptionId)?.towerSubscriptionId).toBe('tower-sub');
+    // Explicit self-classification is signed by the profile's own key and goes only to the inbox access-profile route.
+    towerRequests.length = 0;
+    await manager.setAgentInboxModeForManager(subscriptionId, 'npub1manager', 'inbox_required', { classify: true });
+    const classify = towerRequests.find((r) => r.url.endsWith('/agent-notifications/access-profile'));
+    expect(classify?.auth.pubkey).toBe(botPubkeyHex);
+    await expect(manager.setAgentInboxModeForManager(subscriptionId, 'npub1manager', 'legacy', { classify: true })).rejects.toThrow();
     // Opting out is explicit; the inbox cursor is retained for a later resume.
     expect((await manager.setAgentInboxModeForManager(subscriptionId, 'npub1manager', 'legacy'))?.cursor).toBe('tower-sub~c0');
   });
