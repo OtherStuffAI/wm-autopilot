@@ -101,6 +101,9 @@ import {
 import { loadYokeBotHelpers } from './yoke-bot-helpers';
 import { decryptRecordPayloadWithYoke } from './yoke-record-payload';
 import { hydrateDirectChatThread, hydrateFlightDeckPgChatEvent } from './direct-chat-tower-hydration';
+import { AgentInboxProcessor } from './agent-inbox-runtime';
+import { agentInboxStore, type AgentInboxMode, type AgentInboxState } from './agent-inbox-store';
+import { inboxAwareFetchers } from './agent-inbox-scope';
 import { normaliseDirectChatMessage } from './direct-chat-contract';
 import {
   DEFAULT_APPROVAL_DISPATCH_PROMPT_TEMPLATE,
@@ -1139,8 +1142,13 @@ export class WorkspaceSubscriptionManager {
     this.connectFlightDeckPgEventStreamImpl = deps.connectFlightDeckPgEventStream ?? connectFlightDeckPgEventStream;
     this.reconcileFlightDeckPgEventSubscriptionAgentsImpl = deps.reconcileFlightDeckPgEventSubscriptionAgents
       ?? reconcileFlightDeckPgEventSubscriptionAgents;
-    this.fetchFlightDeckPgChannelMessagesImpl = deps.fetchFlightDeckPgChannelMessages ?? fetchFlightDeckPgChannelMessages;
-    this.fetchFlightDeckPgChannelImpl = deps.fetchFlightDeckPgChannel ?? fetchFlightDeckPgChannel;
+    // Inside a strict-inbox notification scope these answer only from the notification's bound Tower context.
+    const chatFetchers = inboxAwareFetchers({
+      fetchMessages: deps.fetchFlightDeckPgChannelMessages ?? fetchFlightDeckPgChannelMessages,
+      fetchChannel: deps.fetchFlightDeckPgChannel ?? fetchFlightDeckPgChannel,
+    });
+    this.fetchFlightDeckPgChannelMessagesImpl = chatFetchers.fetchMessages;
+    this.fetchFlightDeckPgChannelImpl = chatFetchers.fetchChannel;
     this.fetchFlightDeckPgWorkroomContextImpl = deps.fetchFlightDeckPgWorkroomContext ?? fetchFlightDeckPgWorkroomContext;
     this.decryptRecordPayloadImpl = deps.decryptRecordPayload ?? decryptRecordPayloadWithYoke;
     this.checkBackendHealthImpl = deps.checkBackendHealth ?? checkBackendConnectionHealth;
@@ -3782,7 +3790,114 @@ export class WorkspaceSubscriptionManager {
     runtime.abortController = controller;
     record.sseStatus = 'connecting';
     this.saveRecord(this.recomputeHealth(record));
+    if (agentInboxStore().isInboxRequired(record.subscriptionId)) {
+      // Opted-in profiles are served only by Tower's strict inbox: no /events, no audience, no fallback.
+      void this.runAgentInboxLoop(record.subscriptionId, controller.signal);
+      return;
+    }
     void this.runFlightDeckPgEventLoop(record.subscriptionId, controller.signal, isStartupReload);
+  }
+
+  getAgentInboxStateForManager(subscriptionId: string, npub: string): AgentInboxState | null | undefined {
+    const record = this.getForManager(subscriptionId, npub);
+    if (!record) return undefined;
+    return agentInboxStore().get(subscriptionId);
+  }
+
+  /** Explicit, operator-driven opt-in/out. Inbox mode is per bot identity, so only profile-bound subscriptions qualify. */
+  async setAgentInboxModeForManager(subscriptionId: string, npub: string, mode: AgentInboxMode): Promise<AgentInboxState | null> {
+    const record = this.getForManager(subscriptionId, npub);
+    if (!record) return null;
+    if (!isFlightDeckPgSubscription(record)) throw new Error('The strict agent inbox requires a Flight Deck PG subscription.');
+    if (mode === 'inbox_required' && !record.agentProfileId) {
+      throw new Error('The strict agent inbox is per bot identity: enable it on a profile-bound subscription.');
+    }
+    const state = agentInboxStore().setMode(subscriptionId, mode, `autopilot:${record.subscriptionId}`);
+    if (record.sseStatus !== 'disabled' && !isRevokedWorkspaceSubscription(record)) {
+      await this.repairSubscription(record, { refreshWorkspaceKey: false, reconnect: true, allowRegisterWhenInactive: false, reason: 'operator_reconnect' });
+    }
+    return state;
+  }
+
+  private async runAgentInboxLoop(subscriptionId: string, signal: AbortSignal): Promise<void> {
+    const runtime = this.getRuntime(subscriptionId);
+    const processor = new AgentInboxProcessor({
+      store: agentInboxStore(),
+      dispatch: (record, event) => this.dispatchFlightDeckPgEvent(record, event),
+      // Handler evidence: chat/invocation history is keyed by the source id, task/document history by the event id
+      // (= notification id). Entries written by the inbox itself are not evidence of handler acceptance.
+      reconcile: (record, notification, since) => {
+        const latest = this.store.getBySubscriptionId(record.subscriptionId) ?? record;
+        const keys = new Set([notification.id, notification.source?.id].filter(Boolean));
+        const sinceMs = Date.parse(since);
+        return (latest.recentDispatches ?? []).some((entry) => keys.has(String(entry.recordId ?? ''))
+          && !String(entry.action ?? '').startsWith('agent_inbox_')
+          && Date.parse(String(entry.at)) >= sinceMs);
+      },
+      record: (record, entry) => {
+        const latest = this.store.getBySubscriptionId(record.subscriptionId) ?? record;
+        const source = entry.notification.source;
+        this.appendDispatchHistory(latest, {
+          at: new Date().toISOString(),
+          kind: source?.type === 'task' || source?.type === 'task_comment' ? 'task' : source?.type === 'doc' || source?.type === 'doc_comment' ? 'document' : 'chat',
+          action: `agent_inbox_${entry.outcome}`,
+          agentId: latest.agentProfileId ?? 'agent-inbox',
+          sessionId: null,
+          recordId: source?.id ?? entry.notification.id,
+          bindingId: source?.thread_id ?? source?.task_id ?? source?.doc_id ?? source?.id ?? null,
+          bindingType: source?.thread_id ? 'thread' : source?.task_id ? 'task' : source?.doc_id ? 'document' : null,
+          ...(entry.outcome === 'handled' ? {} : { status: 'suppressed', suppressionReason: entry.code ?? entry.outcome }),
+          details: { source: 'agent_inbox', notification_id: entry.notification.id, seq: entry.notification.seq, kind: entry.notification.kind ?? null, outcome: entry.outcome, code: entry.code, detail: entry.detail ?? null },
+        });
+      },
+    });
+    while (!signal.aborted && !runtime.removed && runtime.abortController?.signal === signal) {
+      let record = this.store.getBySubscriptionId(subscriptionId);
+      if (!record || !record.workspaceId) return;
+      const identity = await this.resolveStoredBotIdentity(record.botNpub);
+      let result: Awaited<ReturnType<AgentInboxProcessor['pollOnce']>>;
+      if (!identity) {
+        result = { status: 'halt', code: 'agent_inbox_profile_key_missing', message: 'No active key exists for this bot identity.' };
+      } else {
+        try {
+          result = await processor.pollOnce(record, {
+            backendConnectionId: record.backendConnectionId, subscriptionId: record.subscriptionId, backendBaseUrl: record.backendBaseUrl,
+            workspaceId: record.workspaceId, appNpub: record.sourceAppNpub, botIdentity: identity, signal,
+          });
+        } catch (error) {
+          result = { status: 'backoff', code: getErrorDetailCode(error) ?? 'agent_inbox_failed', message: error instanceof Error ? error.message : String(error) };
+        } finally {
+          if (identity.botSecret !== runtime.botIdentity?.botSecret && identity.botSecret !== this.getInstanceIdentity()?.secretKey) identity.botSecret.fill(0);
+        }
+      }
+      if (signal.aborted || runtime.removed || runtime.abortController?.signal !== signal) return;
+      record = this.store.getBySubscriptionId(subscriptionId);
+      if (!record) return;
+      const now = new Date().toISOString();
+      if (result.status === 'idle' || result.status === 'more') {
+        record.sseStatus = 'connected';
+        record.lastEventPollOkAt = now;
+        if (record.lastErrorCode?.startsWith('agent_inbox_')) { record.lastErrorCode = null; record.lastErrorAt = null; }
+        runtime.reconnectAttempts = 0;
+        this.saveRecord(this.recomputeHealth(record));
+        if (result.status === 'idle') await sleepWithAbort(this.flightDeckPgEventPollIntervalMs, signal);
+        continue;
+      }
+      const failure = result as Extract<typeof result, { code: string }>;
+      record.sseStatus = 'backoff';
+      record.lastErrorCode = failure.status === 'unsupported' ? 'agent_inbox_unsupported' : `agent_inbox_${failure.status}:${failure.code}`.slice(0, 120);
+      record.lastErrorAt = now;
+      record.lastEventPollErrorAt = now;
+      record.lastEventPollErrorCode = record.lastErrorCode;
+      record.lastRoutingResult = buildFailureDiagnostic(record.lastErrorCode, failure.message, record.lastErrorCode, { subscription_id: subscriptionId, source: 'agent_inbox' });
+      this.saveRecord(this.recomputeHealth(record));
+      // Authorization halts and missing Tower support retry slowly and never fall back to a broader feed.
+      const delay = result.status === 'backoff'
+        ? flightDeckPgReconnectDelayMs(runtime.reconnectAttempts, this.flightDeckPgEventReconnectBaseMs, this.flightDeckPgEventReconnectMaxMs)
+        : Math.max(this.flightDeckPgEventReconnectMaxMs, 60_000);
+      runtime.reconnectAttempts += 1;
+      await sleepWithAbort(delay, signal);
+    }
   }
 
   private async recoverStaleFlightDeckPgEventRuntime(
@@ -3818,10 +3933,21 @@ export class WorkspaceSubscriptionManager {
 
   private enabledFlightDeckAudience(record: WorkspaceSubscriptionRecord): AgentDefinitionRecord[] {
     if (!record.managedByNpub || record.agentProfileId) return [];
+    const inboxProfiles = this.inboxRequiredProfileIds(record);
     return this.agentStore.listForManagerNpub(record.managedByNpub)
       .filter((profile) => profile.enabled && !profile.archived && profile.directChat?.enabled)
       .filter((profile) => profile.capabilities.includes('chat_intercept'))
+      // A profile opted into the strict inbox is served only there: never fanned into the legacy visibility audience.
+      .filter((profile) => !inboxProfiles.has(profile.agentId))
       .sort((left, right) => left.botNpub.localeCompare(right.botNpub));
+  }
+
+  /** Profiles with an inbox-required, profile-bound subscription in the same workspace as `record`. */
+  private inboxRequiredProfileIds(record: WorkspaceSubscriptionRecord): Set<string> {
+    const inbox = agentInboxStore();
+    return new Set((record.managedByNpub ? this.listForManager(record.managedByNpub) : [])
+      .filter((candidate) => candidate.agentProfileId && candidate.workspaceId === record.workspaceId && inbox.isInboxRequired(candidate.subscriptionId))
+      .map((candidate) => candidate.agentProfileId!));
   }
 
   private async reconcileFlightDeckAudience(
@@ -4314,6 +4440,23 @@ export class WorkspaceSubscriptionManager {
     record.lastErrorAt = null;
     record = this.saveRecord(this.recomputeHealth(record));
 
+    record = await this.dispatchFlightDeckPgEvent(record, event);
+    const latest = this.store.getBySubscriptionId(record.subscriptionId) ?? record;
+    const acknowledgedCursor = decodeFlightDeckPgEventCursor(event.cursor);
+    const durableCursor = decodeFlightDeckPgEventCursor(latest.lastSyncCursor);
+    if (event.cursor && (!durableCursor || !acknowledgedCursor || acknowledgedCursor.rowVersion > durableCursor.rowVersion)) {
+      latest.lastSyncCursor = event.cursor;
+    }
+    return this.saveRecord(this.recomputeHealth(latest));
+  }
+
+  /** Routes one Flight Deck PG event (legacy feed or a strict-inbox synthesized event) to its handler. */
+  private async dispatchFlightDeckPgEvent(
+    record: WorkspaceSubscriptionRecord,
+    event: FlightDeckPgEvent,
+  ): Promise<WorkspaceSubscriptionRecord> {
+    const eventId = typeof event.event_id === 'string' ? event.event_id : typeof event.id === 'string' ? event.id : null;
+    const eventType = typeof event.event_type === 'string' ? event.event_type : 'flightdeck_pg.event';
     if (event.entity_type === 'message' && event.operation !== 'deleted') {
       record = await this.handleFlightDeckPgChatEvent(record, event);
     } else if (event.entity_type === 'thread') {
@@ -4370,13 +4513,7 @@ export class WorkspaceSubscriptionManager {
     } else if (event.entity_type === 'invocation' && event.operation !== 'deleted') {
       record = await this.handleFlightDeckPgInvocationEvent(record, event);
     }
-    const latest = this.store.getBySubscriptionId(record.subscriptionId) ?? record;
-    const acknowledgedCursor = decodeFlightDeckPgEventCursor(event.cursor);
-    const durableCursor = decodeFlightDeckPgEventCursor(latest.lastSyncCursor);
-    if (event.cursor && (!durableCursor || !acknowledgedCursor || acknowledgedCursor.rowVersion > durableCursor.rowVersion)) {
-      latest.lastSyncCursor = event.cursor;
-    }
-    return this.saveRecord(this.recomputeHealth(latest));
+    return record;
   }
 
   private async handleFlightDeckPgInvocationEvent(

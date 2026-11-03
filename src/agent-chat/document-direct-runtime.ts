@@ -8,6 +8,7 @@ import { isAgentType } from '../agent-types';
 import type { ProcessManager, SessionSnapshot } from '../agents/process-manager';
 import { normalizeAgentModelOverride } from '../agents/process-manager';
 import { databaseFile } from '../storage/message-store';
+import { inboxAwareFetchers } from './agent-inbox-scope';
 import type { AgentDefinitionStore } from './agent-definition-store';
 import { sendPromptAndAwaitFinalResponse } from './session-runtime-session-ops';
 import {
@@ -304,7 +305,15 @@ export class DocumentDirectRuntime {
   private readonly contexts = new Map<string, DocumentRuntimeInput>();
   private readonly log: Pick<Console, 'error' | 'warn'>;
 
-  constructor(private readonly deps: DocumentRuntimeDependencies) {
+  private readonly deps: DocumentRuntimeDependencies;
+
+  constructor(deps: DocumentRuntimeDependencies) {
+    // Inside a strict-inbox notification scope, reads are served only from that notification's bound context.
+    this.deps = { ...deps, ...inboxAwareFetchers({
+      fetchDocument: deps.fetchDocument ?? fetchFlightDeckPgDocument,
+      fetchComments: deps.fetchComments ?? fetchFlightDeckPgDocumentComments,
+      fetchChannel: deps.fetchChannel ?? fetchFlightDeckPgChannel,
+    }) };
     this.store = deps.store ?? new DocumentDirectStore();
     this.log = deps.log ?? console;
   }

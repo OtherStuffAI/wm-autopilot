@@ -708,6 +708,29 @@ export async function handleAgentChatApi(
     });
   }
 
+  const agentInboxMatch = url.pathname.match(/^\/api\/agent-chat\/subscriptions\/([^/]+)\/agent-inbox$/);
+  if (agentInboxMatch && (method === 'GET' || method === 'POST')) {
+    const subscriptionId = decodeURIComponent(agentInboxMatch[1]!);
+    if (method === 'GET') {
+      const state = ctx.manager.getAgentInboxStateForManager(subscriptionId, scope.managerNpub);
+      if (state === undefined) return Response.json({ error: 'Subscription not found' }, { status: 404 });
+      return Response.json({ subscriptionId, agentInbox: state ?? { mode: 'legacy' } });
+    }
+    const denied = requireAgentChatManagement(scope);
+    if (denied) return denied;
+    const body = await request.json().catch(() => null) as { mode?: unknown } | null;
+    if (body?.mode !== 'inbox_required' && body?.mode !== 'legacy') {
+      return Response.json({ error: 'mode must be inbox_required or legacy' }, { status: 400 });
+    }
+    try {
+      const state = await ctx.manager.setAgentInboxModeForManager(subscriptionId, scope.managerNpub, body.mode);
+      if (!state) return Response.json({ error: 'Subscription not found' }, { status: 404 });
+      return Response.json({ subscriptionId, agentInbox: state });
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
   if (url.pathname === '/api/agent-chat/subscriptions/actions/refresh-audiences' && method === 'POST') {
     const denied = requireAgentChatManagement(scope);
     if (denied) return denied;

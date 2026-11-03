@@ -480,7 +480,7 @@ export function decodeFlightDeckPgEventCursor(cursor: string | null | undefined)
   }
 }
 
-function buildFlightDeckPgUrl(
+export function buildFlightDeckPgUrl(
   backendBaseUrl: string,
   path: string,
   params: Record<string, string | number | null | undefined> = {},
@@ -2556,7 +2556,7 @@ function inferDetailCode(stage: string, status: number, message: string): string
   return null;
 }
 
-function fetchPgRequest(context: { backendConnectionId?: string | null; subscriptionId?: string | null; botIdentity: RuntimeBotIdentity }, url: string | URL, init: RequestInit) {
+export function fetchPgRequest(context: { backendConnectionId?: string | null; subscriptionId?: string | null; botIdentity: RuntimeBotIdentity }, url: string | URL, init: RequestInit) {
   if ("towerTransport" in context.botIdentity && context.botIdentity.towerTransport) return context.botIdentity.towerTransport.fetch(url, init);
   return fetchTowerRequest(url, init, context);
 }

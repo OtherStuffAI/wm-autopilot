@@ -6,6 +6,7 @@ import type { AgentType } from '../config';
 import { resolveTaskDirectSession } from './task-direct-session';
 import type { ProcessManager } from '../agents/process-manager';
 import { databaseFile } from '../storage/message-store';
+import { inboxAwareFetchers } from './agent-inbox-scope';
 import type { AgentDefinitionStore } from './agent-definition-store';
 import { sendPromptAndAwaitFinalResponse } from './session-runtime-session-ops';
 import {
@@ -160,7 +161,17 @@ export class TaskDirectRuntime {
   private readonly running = new Map<string, Promise<void>>();
   private readonly log: Pick<Console, 'error' | 'warn'>;
 
-  constructor(private readonly deps: TaskDirectRuntimeDependencies) {
+  private readonly deps: TaskDirectRuntimeDependencies;
+
+  constructor(deps: TaskDirectRuntimeDependencies) {
+    // Inside a strict-inbox notification scope, reads are served only from that notification's bound context.
+    this.deps = { ...deps, ...inboxAwareFetchers({
+      fetchTask: deps.fetchTask ?? fetchFlightDeckPgTask,
+      fetchComments: deps.fetchComments ?? fetchFlightDeckPgTaskComments,
+      fetchChannel: deps.fetchChannel ?? fetchFlightDeckPgChannel,
+      fetchMessages: deps.fetchMessages ?? fetchFlightDeckPgChannelMessages,
+      fetchWorkroomContext: deps.fetchWorkroomContext ?? fetchFlightDeckPgWorkroomContext,
+    }) };
     this.store = deps.store ?? new TaskDirectStore();
     this.log = deps.log ?? console;
   }
