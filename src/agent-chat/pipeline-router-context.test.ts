@@ -76,3 +76,23 @@ test("router recovers signed effective pages with inherited context and surfaces
     await expect(readRouterContext(routed)).rejects.toThrow();
   } finally { globalThis.fetch = nativeFetch; }
 });
+
+describe("router context under strict-inbox delivery", () => {
+  test("routes from the notification's bound transcript with no raw Tower read; other threads are refused", async () => {
+    const { readRouterContext } = await import("./pipeline-router-context.ts");
+    const { agentInboxScope, AgentInboxUnboundReadError } = await import("./agent-inbox-scope.ts");
+    const nativeFetch = globalThis.fetch;
+    let fetches = 0;
+    globalThis.fetch = (async () => { fetches += 1; return Response.json({ error: "raw read" }, { status: 599 }); }) as unknown as typeof fetch;
+    const strip = ({ effective_thread_id: _e, ...rest }: FlightDeckPgMessage) => rest;
+    const scope = { notification: { id: "n-1", seq: 1, state: "active" } as any, profileNpub: "npub1piper",
+      context: { trigger: { type: "message", message: strip(current) as any }, window: { messages: [strip(message("earlier", 90)) as any] } } as any };
+    try {
+      const context = await agentInboxScope.run(scope, () => readRouterContext({ ...request, botIdentity: {} } as PipelineRouterRequest));
+      expect((context.messages as any[]).map((entry) => entry.id)).toEqual(["earlier"]);
+      await expect(agentInboxScope.run(scope, () => readRouterContext({ ...request, threadId: "other-thread", botIdentity: {} } as PipelineRouterRequest)))
+        .rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+      expect(fetches).toBe(0);
+    } finally { globalThis.fetch = nativeFetch; }
+  });
+});

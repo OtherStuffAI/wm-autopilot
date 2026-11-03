@@ -42,6 +42,22 @@ export class AgentInboxUnboundReadError extends Error {
   }
 }
 
+/**
+ * The notification's bounded effective transcript for its own thread, shaped like an effective thread read. Refuses
+ * (never falls back to a raw read) when the requested thread is not the one the notification binds.
+ */
+export function boundThreadHistory(scope: AgentInboxScope, where: { workspaceId: string; channelId: string; threadId: string }): FlightDeckPgMessage[] {
+  const trigger = scope.context.trigger?.message;
+  if (!trigger || trigger.channel_id !== where.channelId || (trigger.thread_id ?? trigger.id) !== where.threadId) {
+    throw new AgentInboxUnboundReadError(`thread ${where.threadId}`);
+  }
+  return boundMessages(scope).map((message) => ({
+    ...message,
+    workspace_id: message.workspace_id ?? where.workspaceId,
+    effective_thread_id: where.threadId,
+  }));
+}
+
 type AnyFn = (params: any) => Promise<any>;
 
 function contextChannel(scope: AgentInboxScope): FlightDeckPgChannel | null {

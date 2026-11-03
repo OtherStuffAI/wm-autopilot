@@ -1,4 +1,5 @@
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
+import { agentInboxScope, boundThreadHistory } from "./agent-inbox-scope.ts";
 import type { JsonObject } from "../pipelines/pipeline-store.ts";
 import type { PipelineRouterRequest } from "./pipeline-router-handler.ts";
 import type { FlightDeckPgMessage } from "./tower-client.ts";
@@ -42,6 +43,12 @@ export function boundRouterContext(messages: FlightDeckPgMessage[], request: Pip
 
 export async function readRouterContext(request: PipelineRouterRequest): Promise<JsonObject> {
   if (!request.subscription.workspaceId || !request.threadId) throw new Error("Routing requires a workspace and thread");
+  // Strict-inbox delivery: route only from the notification's bound transcript; never a raw Tower thread read.
+  const inbox = agentInboxScope.getStore();
+  if (inbox) {
+    return boundRouterContext(boundThreadHistory(inbox, { workspaceId: request.subscription.workspaceId,
+      channelId: request.channelId, threadId: request.threadId }), request);
+  }
   const history = await readFlightDeckHistory({ backendConnectionId: request.subscription.backendConnectionId,
     backendBaseUrl: request.subscription.backendBaseUrl, subscriptionId: request.subscription.subscriptionId,
     workspaceId: request.subscription.workspaceId, channelId: request.channelId, threadId: request.threadId,
