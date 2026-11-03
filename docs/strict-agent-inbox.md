@@ -43,11 +43,13 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 - **Existing profile-bound subscription:**
   - `POST /api/agent-chat/subscriptions/<id>/agent-inbox {"mode":"inbox_required"}`.
   - `{"mode":"legacy"}` rolls back. A classified bot then stops receiving dispatch; it is never given broader access.
-- **Inbox-first creation:**
-  - `POST /api/agent-chat/agent-connect/import` with `agentProfileId` and `"agentInboxMode":"inbox_required"`.
+- **Inbox-first creation or migration:**
+  - Use `POST /api/agent-chat/subscriptions` (direct create or update, for example migrating an existing profile without a fresh package) or `POST /api/agent-chat/agent-connect/import`.
+  - Pass `agentProfileId` and `"agentInboxMode":"inbox_required"`.
   - The mode is set before any verification or event connection, so the new subscription never calls `/me`, `/events` or audience routes.
+  - Other values are rejected, as is a request without a profile.
   - Creating a profile subscription in legacy mode and opting in later leaves a short window in which broad events reach that subscription's stored diagnostics.
-  - The NStack connect flow does not pass this option yet.
+  - **Compatibility limitation:** the NStack connect onboarding flow does not pass this option. It still creates legacy-mode subscriptions, and existing connections are unchanged.
 - **Shared audience cleanup:** a migrated bot leaves the shared subscription's audience when that subscription reconciles. Reconciliation happens on reconnect or through `POST /api/agent-chat/subscriptions/actions/refresh-audiences`. Tower classification also removes the bot's audience rows.
 
 ## Sessions after migration

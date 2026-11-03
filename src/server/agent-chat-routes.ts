@@ -416,6 +416,17 @@ function resolveAgentChatScope(authContext: RequestAuthContext, ctx: AgentChatAp
   };
 }
 
+/**
+ * Optional inbox-first creation: only `inbox_required`, only with an explicit profile (the strict inbox is per bot
+ * identity). The mode is applied before any verification or connection; unknown values are rejected.
+ */
+function parseAgentInboxModeInput(value: unknown, agentProfileId: string | null): 'inbox_required' | null | Response {
+  if (value === undefined || value === null) return null;
+  if (value !== 'inbox_required') return Response.json({ error: 'agentInboxMode must be inbox_required when provided.' }, { status: 400 });
+  if (!agentProfileId) return Response.json({ error: 'agentInboxMode requires an explicit agentProfileId (profile-bound subscription).' }, { status: 400 });
+  return 'inbox_required';
+}
+
 function requireAgentChatManagement(scope: AgentChatRequestScope): Response | null {
   if (scope.canManage) {
     return null;
@@ -920,13 +931,8 @@ export async function handleAgentChatApi(
       : null;
     const allowedManagerNpubs = getOptionalStringArray(body.allowedManagerNpubs);
     const grantSharedService = body.grantSharedService === true;
-    if (body.agentInboxMode !== undefined && body.agentInboxMode !== null && body.agentInboxMode !== 'inbox_required') {
-      return Response.json({ error: 'agentInboxMode must be inbox_required when provided.' }, { status: 400 });
-    }
-    if (body.agentInboxMode === 'inbox_required' && !agentProfileId) {
-      return Response.json({ error: 'Inbox-first import requires an explicit agentProfileId.' }, { status: 400 });
-    }
-    const agentInboxMode = body.agentInboxMode === 'inbox_required' ? 'inbox_required' as const : null;
+    const agentInboxMode = parseAgentInboxModeInput(body.agentInboxMode, agentProfileId);
+    if (agentInboxMode instanceof Response) return agentInboxMode;
 
     if (!rawPackage) {
       return Response.json({ error: 'packageJson or package is required.' }, { status: 400 });
@@ -1016,6 +1022,9 @@ export async function handleAgentChatApi(
       ? body.agentProfileId.trim()
       : null;
 
+    const agentInboxMode = parseAgentInboxModeInput(body.agentInboxMode, agentProfileId);
+    if (agentInboxMode instanceof Response) return agentInboxMode;
+
     if (!backendConnectionId && (!workspaceOwnerNpub || !backendBaseUrl || !sourceAppNpub)) {
       return Response.json(
         { error: 'workspaceOwnerNpub, backendBaseUrl, and sourceAppNpub are required unless backendConnectionId has setup hints.' },
@@ -1039,6 +1048,7 @@ export async function handleAgentChatApi(
         sourceAppSchemaNamespace,
         capabilityDefaults,
         triggerConfigRecordId,
+        agentInboxMode,
       });
       return Response.json({
         subscription: serialiseSubscription(
