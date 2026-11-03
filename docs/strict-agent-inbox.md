@@ -42,14 +42,14 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 
 - **Existing profile-bound subscription:**
   - `POST /api/agent-chat/subscriptions/<id>/agent-inbox {"mode":"inbox_required"}`.
-  - `{"mode":"legacy"}` rolls back. A classified bot then stops receiving dispatch; it is never given broader access.
+  - Opting in is final: `{"mode":"legacy"}` is refused (`409 agent_inbox_downgrade_refused`) for any subscription in `inbox_required`. To stop a bot, pause or disconnect it; its Tower restrictions stay in place.
 - **New bot connections (default):**
   - Every new subscription is a profile-bound Flight Deck PG strict inbox. This covers the Workspaces UI, `POST /api/agent-chat/subscriptions`, `POST /api/agent-chat/agent-connect/import`, NStack connect and SBIP-0009 kind 33357 discovery, all through `createOrUpdate`.
   - The mode is set before any verification or event connection, so a new bot never calls `/me`, `/events` or audience routes. Omitting `agentInboxMode` does not change this; `"inbox_required"` is still accepted, other values are rejected.
   - The profile must be named exactly: `agentProfileId` (UI and NStack offer a bot profile choice), or the 33357 recipient when it maps to an owned profile. Autopilot never probes local bots' workspace membership to pick one.
   - Without a profile and with no existing shared record to reconnect, the request fails with `400 agent_inbox_profile_required` before any key generation, backend health check or Tower request. A new connection without a full Flight Deck PG descriptor fails with `agent_inbox_flightdeck_pg_required`.
   - Before its inbox loop creates a Tower inbox subscription, polls or dispatches anything, a newly connected bot must be under Tower's notification-only ceiling. Autopilot reads the existing `GET …/agent-notifications/access-profile`. If the ceiling is absent, it self-classifies with the existing `PUT` and accepts only Tower's confirmation. It re-verifies on every loop start. If it cannot verify, the subscription is `blocked` (`agent_inbox_ceiling_unverified`) and nothing is dispatched.
-  - Such a subscription can never be moved to the legacy feed (`409 agent_inbox_downgrade_refused`). Subscriptions that operators migrated before this change keep their explicit rollback.
+  - Like every strict-inbox subscription, it can never be moved back to the legacy feed.
   - A profile-bound request never reuses or re-binds a profileless (shared) record of the same bot npub; it gets its own record.
   - A replayed or older 33357 event never re-enrolls a workspace the bot was locally disconnected from, under any binding.
 - **Existing records:** reconnect with their mode unchanged; there is no global cutover. Migrate a profile deliberately with the opt-in route above or with `agentInboxMode` on an update.

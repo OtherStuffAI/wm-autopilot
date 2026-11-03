@@ -366,7 +366,7 @@ describe('safe default onboarding: new bots connect only through their own stric
     expect(h.towerRequests.filter((r) => r.url.endsWith('/access-profile')).map((r) => r.auth.tags.find((t: string[]) => t[0] === 'method')?.[1])).toEqual(['GET']);
   });
 
-  test('an existing operator-migrated inbox subscription keeps its explicit rollback', async () => {
+  test('an existing operator-migrated inbox subscription cannot be downgraded either', async () => {
     const h = harness();
     const existing = h.store.save({ ...h.store.createDefault({
       managedByNpub: 'npub1manager', workspaceOwnerNpub: 'npub1workspace', backendBaseUrl: 'https://tower.example.com', towerServiceNpub: 'npub1service',
@@ -374,6 +374,11 @@ describe('safe default onboarding: new bots connect only through their own stric
     }), sseStatus: 'disabled' });
     h.inboxStore.setMode(existing.subscriptionId, 'inbox_required', `autopilot:${existing.subscriptionId}`);
     expect(h.inboxStore.get(existing.subscriptionId)?.requireNotificationOnly).toBe(false);
-    expect((await h.manager.setAgentInboxModeForManager(existing.subscriptionId, 'npub1manager', 'legacy'))?.mode).toBe('legacy');
+    await expect(h.manager.setAgentInboxModeForManager(existing.subscriptionId, 'npub1manager', 'legacy'))
+      .rejects.toMatchObject({ statusCode: 409, detailCode: 'agent_inbox_downgrade_refused' });
+    expect(h.inboxStore.get(existing.subscriptionId)?.mode).toBe('inbox_required');
+    // A legacy record that never opted in still accepts an explicit (no-op) legacy setting.
+    h.inboxStore.setMode('other', 'legacy', 'c');
+    expect(h.inboxStore.get('other')?.mode).toBe('legacy');
   });
 });

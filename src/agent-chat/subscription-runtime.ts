@@ -3810,8 +3810,10 @@ export class WorkspaceSubscriptionManager {
     if (mode === 'inbox_required' && !record.agentProfileId) {
       throw new Error('The strict agent inbox is per bot identity: enable it on a profile-bound subscription.');
     }
-    if (mode !== 'inbox_required' && this.inboxStore.get(subscriptionId)?.requireNotificationOnly) {
-      throw Object.assign(new Error('This bot was connected with its own strict inbox and cannot be moved to the broad legacy feed.'), {
+    const current = this.inboxStore.get(subscriptionId);
+    // Opting in is final: a strict-inbox bot is never returned to the broad legacy feed (pause the bot instead).
+    if (mode !== 'inbox_required' && (current?.mode === 'inbox_required' || current?.requireNotificationOnly)) {
+      throw Object.assign(new Error('This bot uses its own strict inbox and cannot be moved back to the broad legacy feed. Pause or disconnect the bot instead.'), {
         statusCode: 409, detailCode: 'agent_inbox_downgrade_refused',
       });
     }
