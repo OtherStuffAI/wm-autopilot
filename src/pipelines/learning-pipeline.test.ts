@@ -16,6 +16,9 @@ test('five Space pipeline definitions load with private reference outputs', asyn
       expect(definition?.spec.name).toBe(`learning-${action}`);
       expect(definition?.spec.steps).toHaveLength(2);
       expect(definition?.spec.steps[0]).toMatchObject({ type: 'block', block: 'flightdeck.threadInvocation' });
+      // The explicit learner delegation comes only from the trusted run input and is passed through unchanged.
+      expect((definition?.spec.steps[1] as any).input.pick.grantId).toBe('$.grantId');
+      expect((definition?.spec.steps[1] as any).prompt).toContain('pass --grant-id <grantId> to every space-graph command exactly as given');
     }
   } finally {
     if (previous === undefined) delete process.env.WINGMEN_PIPELINES_ROOT;

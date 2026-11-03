@@ -106,6 +106,22 @@ describe('pipeline router handler', () => {
     expect(JSON.stringify(published)).not.toContain('learnerNpub');
   });
 
+  test('passes only the operator-set learning grant into the trusted run context', async () => {
+    const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
+    const store = new PipelineStore(path); const starts: any[] = [];
+    const handler = createPipelineRouterHandler({ readContext: async () => ({ version: 1, messages: [] }), store, callbackOrigin: 'http://localhost', getSessionApiContext: () => ({}) as any,
+      listDefinitions: async () => [definition('learning-lesson', 1)],
+      authorizeLearning: async () => ({ grantId: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' }),
+      startRun: async (input: any) => { starts.push(input); return { run: { id: 'learning-run-2' }, input: {}, resolution: {} } as any; },
+      publish: async () => ({ message: { id: 'ack' } }) as any });
+    const source = request(); source.message.body = '@Piper learning lesson moon-phases 0b1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    await handler(source);
+    expect(starts).toHaveLength(0); // chat text never carries a grant: the command is rejected outright
+    source.message = { ...source.message, id: 'message-2', body: '@Piper learning lesson moon-phases' };
+    await handler(source);
+    expect(starts[0].trustedLearningContext.grantId).toBe('0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d');
+  });
+
   test('fails closed when Piper has no learner grant and does not echo private text', async () => {
     const path = `/tmp/pipeline-router-${crypto.randomUUID()}.sqlite`; paths.push(path);
     const store = new PipelineStore(path); const published: any[] = []; let starts = 0;

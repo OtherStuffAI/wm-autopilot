@@ -64,13 +64,15 @@ export function createPipelineRouterHandler(deps: { store: PipelineStore; getSes
         }
         const selected = definitions.find((definition) => definition.spec.name === `learning-${command.action}`);
         if (!selected) return await publish('The requested learning pipeline is unavailable.', 'no_match', { reason: 'learning_pipeline_unavailable' });
-        await (deps.authorizeLearning ?? authorizeLearningPipelineRoute)(request);
+        const learnerGrant = await (deps.authorizeLearning ?? authorizeLearningPipelineRoute)(request);
         const sessionApiContext = deps.getSessionApiContext();
         const started = await (deps.startRun ?? startFlightDeckPipelineRun)({ store: deps.store, sessionApiContext,
           definition: selected, invocation: { workspaceId: request.subscription.workspaceId!, threadId: request.threadId,
             frmNpub: request.message.sender_npub ?? request.message.created_by_actor_npub ?? '', prompt },
           trustedLearningContext: { towerUrl: request.subscription.backendBaseUrl, workspaceId: request.subscription.workspaceId!,
-            goal: command.concept, concept: command.concept, idempotencyKey: `flightdeck:${sourceMessageId}` },
+            goal: command.concept, concept: command.concept, idempotencyKey: `flightdeck:${sourceMessageId}`,
+            // Operator-set explicit delegation (never from chat or the model); absent keeps implicit learner selection.
+            ...(learnerGrant?.grantId ? { grantId: learnerGrant.grantId } : {}) },
           ownerNpub, ownerAlias, callbackOrigin: deps.callbackOrigin,
           initiatingAgentProfileId: request.agent.agentId, initiatingAgentNpub: request.agent.botNpub, sourceMessageId,
           onRunCreated: (run) => outcomes.recordPipelineStarted({ ...outcomeBase, runId: run.id, status: run.status,

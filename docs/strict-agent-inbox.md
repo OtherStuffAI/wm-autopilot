@@ -75,7 +75,11 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 - **Routing.** The pipeline router builds its context from the notification's bounded transcript.
 - **Invocation.** `flightdeck.threadInvocation` takes the channel and thread from the bound notification instead of scanning workspace scopes and channels.
 - **Replies.** Pipeline replies go only to the thread of the notification that started the run, while it is live.
-- **Learning pipelines are not compatible with a classified bot.** They call Tower `/api/v4/learning/*`, and Tower's ceiling refuses those routes for a classified bot.
+- **Learning pipelines** call Tower `/api/v4/learning/*`. Tower's ceiling admits a classified bot there only on its allowlisted learning routes, and only with an explicit learner delegation.
+  - The delegation is named by the `x-learning-grant-id` header and a matching signed `learning_grant_id` NIP-98 tag.
+  - The manager sets the delegation per agent and Tower with `PUT /api/agent-chat/agents/<agent-id>/learning-grants` (`{"workspaceId","grantId","learnerNpub?"}`). It never comes from chat or a model.
+  - The router's learner check and the learning pipeline's space-graph commands (`--grant-id`) carry it.
+  - Without a mapping, the existing implicit learner selection is unchanged. That only works while the bot is unclassified.
 
 ## Work receipts (own output follow-ups)
 

@@ -13,7 +13,7 @@ export async function startFlightDeckPipelineRun(input: {
   secretPrincipalNpub?: string | null;
   initiatingAgentProfileId?: string | null; initiatingAgentNpub?: string | null; sourceMessageId?: string | null;
   threadContext?: JsonObject;
-  trustedLearningContext?: { towerUrl: string; workspaceId: string; goal: string; concept: string; idempotencyKey: string };
+  trustedLearningContext?: { towerUrl: string; workspaceId: string; goal: string; concept: string; idempotencyKey: string; grantId?: string };
   onRunCreated?: Parameters<typeof startDeclarativePipeline>[0]["onRunCreated"];
   onRunCompleted?: Parameters<typeof startDeclarativePipeline>[0]["onRunCompleted"];
 }) {
