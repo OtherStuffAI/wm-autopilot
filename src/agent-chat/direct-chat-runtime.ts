@@ -47,6 +47,7 @@ import { BROKER_KEY_NOT_PROVISIONED } from '../signing/broker-key-vault';
 import { directChatSessionReplacementDecision } from './direct-chat-session-recovery';
 import { isInterruptedTurnError } from './session-runtime-turns';
 import { assertDirectChatWorkspaceCompatible, buildDirectChatSessionBinding } from './direct-chat-session-binding';
+import { requiresFreshInboxSession } from './flightdeck-session-metadata';
 import type { PipelineRouterRequest } from './pipeline-router-handler';
 
 export interface DirectChatRuntimeInput {
@@ -961,7 +962,10 @@ export class AgentDirectChatRuntime {
     const currentGeneration = intercept.sessionGeneration ?? 1;
     const currentBinding = buildDirectChatSessionBinding({ subscription, intercept, agent, scopeId,
       generation: currentGeneration, latestMessage });
-    if (!options?.forceReplacementReason && liveCompatible && (live?.status === 'running' || live?.status === 'starting')) {
+    // Strict-inbox isolation: never continue a legacy-era (broad context) session; start a fresh generation instead.
+    const isolationReset = Boolean(intercept.sessionId)
+      && requiresFreshInboxSession(live?.metadata ?? archived?.metadata ?? null, subscription.subscriptionId);
+    if (!isolationReset && !options?.forceReplacementReason && liveCompatible && (live?.status === 'running' || live?.status === 'starting')) {
       assertDirectChatWorkspaceCompatible(live.metadata, currentBinding, live.id);
       const rebound = this.deps.processManager.updateSessionMetadata(live.id, currentBinding);
       if (!rebound) throw new Error(`Agent Direct session ${live.id} disappeared while refreshing its Flight Deck binding.`);
@@ -969,7 +973,7 @@ export class AgentDirectChatRuntime {
         previousSessionIds: intercept.previousSessionIds ?? [], recovery: null };
     }
     const modelReplacementReason = live && liveBindingCompatible && !liveModelCompatible ? 'profile model changed' : null;
-    const resumeSource = modelReplacementReason ? null : live ?? (archived && isAgentType(archived.agent) ? { ...archived, agent: archived.agent } : null);
+    const resumeSource = modelReplacementReason || isolationReset ? null : live ?? (archived && isAgentType(archived.agent) ? { ...archived, agent: archived.agent } : null);
     if (resumeSource && !options?.forceReplacementReason) {
       try {
         const launch = resolveNativeResumeLaunch(resumeSource, isAgentType, subscription.managedByNpub);
@@ -1001,6 +1005,7 @@ export class AgentDirectChatRuntime {
     if (previous) this.deps.rebindSession?.(previous, session.id);
     return { session, bootstrap: true, generation, previousSessionIds,
       recovery: previous ? { previousSessionId: previous,
-        reason: options?.forceReplacementReason ?? (resumeSource ? 'native resume unavailable' : modelReplacementReason ?? 'session missing') } : null };
+        reason: options?.forceReplacementReason ?? (isolationReset ? 'strict inbox isolation: legacy session not resumed'
+          : resumeSource ? 'native resume unavailable' : modelReplacementReason ?? 'session missing') } : null };
   }
 }

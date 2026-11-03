@@ -4,7 +4,7 @@ import type { ProcessManager, SessionSnapshot } from '../agents/process-manager'
 import { normalizeAgentModelOverride } from '../agents/process-manager';
 import type { TaskDirectState } from './task-direct-runtime';
 import type { AgentDefinitionRecord, WorkspaceSubscriptionRecord } from './types';
-import { buildFlightDeckSessionMetadata } from './flightdeck-session-metadata';
+import { buildFlightDeckSessionMetadata, requiresFreshInboxSession } from './flightdeck-session-metadata';
 
 export async function resolveTaskDirectSession(input: {
   state: TaskDirectState;
@@ -32,7 +32,9 @@ export async function resolveTaskDirectSession(input: {
   const compatible = existing?.metadata?.agentChatAgentId === agent.agentId
     && existing?.metadata?.agentChatBotNpub === agent.botNpub
     && existing.agent === sessionAgent && existing.workingDirectory === directory
-    && normalizeAgentModelOverride(existing.model) === normalizeAgentModelOverride(agent.directChat?.model ?? undefined);
+    && normalizeAgentModelOverride(existing.model) === normalizeAgentModelOverride(agent.directChat?.model ?? undefined)
+    // Strict-inbox isolation: a legacy-era task session is replaced by a fresh generation, never reused.
+    && !requiresFreshInboxSession(existing.metadata, subscription.subscriptionId);
   if (compatible && (existing.status === 'running' || existing.status === 'starting')) {
     for (const key of ['flightdeckTowerServiceNpub', 'flightdeckWorkspaceId', 'flightdeckSubscriptionId',
       'flightdeckBackendConnectionId', 'flightdeckAgentNpub', 'bindingType', 'bindingId', 'flightdeckRoutingKey'] as const) {

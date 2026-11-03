@@ -8,7 +8,8 @@ import { isAgentType } from '../agent-types';
 import type { ProcessManager, SessionSnapshot } from '../agents/process-manager';
 import { normalizeAgentModelOverride } from '../agents/process-manager';
 import { databaseFile } from '../storage/message-store';
-import { inboxAwareFetchers } from './agent-inbox-scope';
+import { agentInboxScope, inboxAwareFetchers } from './agent-inbox-scope';
+import { requiresFreshInboxSession } from './flightdeck-session-metadata';
 import type { AgentDefinitionStore } from './agent-definition-store';
 import { sendPromptAndAwaitFinalResponse } from './session-runtime-session-ops';
 import {
@@ -403,7 +404,9 @@ export class DocumentDirectRuntime {
       && existing?.metadata?.agentChatBotNpub === agent.botNpub
       && existing.agent === (agent.directChat?.sessionAgent || this.deps.defaultAgent)
       && existing.workingDirectory === (agent.directChat?.directory || agent.workingDirectory)
-      && normalizeAgentModelOverride(existing.model) === normalizeAgentModelOverride(agent.directChat?.model ?? undefined);
+      && normalizeAgentModelOverride(existing.model) === normalizeAgentModelOverride(agent.directChat?.model ?? undefined)
+      // Strict-inbox isolation: a legacy-era document session is replaced by a fresh generation, never reused.
+      && !requiresFreshInboxSession(existing.metadata, subscription.subscriptionId);
     if (compatible && (existing?.status === 'running' || existing?.status === 'starting')) return existing;
     const previousSessionIds = state.sessionId ? [...new Set([...state.previousSessionIds, state.sessionId])] : state.previousSessionIds;
     const generation = state.generation + 1;
@@ -419,7 +422,8 @@ export class DocumentDirectRuntime {
         flightdeckTowerServiceNpub: subscription.towerServiceNpub || subscription.backendBaseUrl,
         agentChatAgentId: agent.agentId, agentChatBotNpub: agent.botNpub,
         flightdeckWorkspaceId: subscription.workspaceId!, flightdeckAgentNpub: agent.botNpub,
-        flightdeckRoutingKey: state.routingKey, sessionGeneration: generation },
+        flightdeckRoutingKey: state.routingKey, sessionGeneration: generation,
+        flightdeckSubscriptionId: subscription.subscriptionId, ...(agentInboxScope.getStore() ? { flightdeckDeliveryMode: 'agent_inbox' as const } : {}) },
       agent.directChat?.model ?? undefined,
     );
     this.store.save({ ...state, sessionId: session.id, generation, previousSessionIds, lastActivityAt: new Date().toISOString() });

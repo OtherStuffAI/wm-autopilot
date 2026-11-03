@@ -1605,3 +1605,43 @@ test('fresh human reactivates a live idle native session without replaying an ol
   expect(f.turnStore.get('old-idle')).toMatchObject({ state: 'suppressed', lastErrorClass: 'fresh_human_supersession' });
   expect(f.published.at(-1).metadata.source_message_ids).toEqual(['m2']);
 });
+
+describe('strict-inbox session isolation', () => {
+  const inboxScope = { notification: { id: 'n-1', seq: 1, state: 'active' } as any, context: { trigger: null } as any, profileNpub: 'npub1bot' };
+
+  test('an inbox delivery never reuses or natively resumes a legacy-era session; it starts a fresh generation', async () => {
+    const { agentInboxScope } = await import('./agent-inbox-scope');
+    const f = fixture();
+    const m1 = f.message('m1', 'hello', true);
+    await f.handle([m1], 'm1');
+    await f.runtime.waitForIdle();
+    expect(f.creates).toHaveLength(1);
+    expect(f.creates[0][6].flightdeckDeliveryMode).toBeUndefined();
+    const m2 = f.message('m2', 'after migration', true);
+    await agentInboxScope.run(inboxScope, async () => {
+      await f.handle([m1, m2], 'm2');
+      await f.runtime.waitForIdle();
+    });
+    expect(f.creates).toHaveLength(2);
+    expect(f.creates[1][3].type).not.toBe('native-resume');
+    expect(f.creates[1][6].flightdeckDeliveryMode).toBe('agent_inbox');
+    const state = f.interceptStore.listAll()[0]!;
+    expect(state.sessionGeneration).toBe(2);
+    expect(state.previousSessionIds).toContain('session-1');
+  });
+
+  test('a session created for the inbox is reused by later inbox deliveries', async () => {
+    const { agentInboxScope } = await import('./agent-inbox-scope');
+    const f = fixture();
+    const m1 = f.message('m1', 'hello', true);
+    const m2 = f.message('m2', 'again', true);
+    await agentInboxScope.run(inboxScope, async () => {
+      await f.handle([m1], 'm1');
+      await f.runtime.waitForIdle();
+      await f.handle([m1, m2], 'm2');
+      await f.runtime.waitForIdle();
+    });
+    expect(f.creates).toHaveLength(1);
+    expect(f.interceptStore.listAll()[0]!.sessionGeneration).toBe(1);
+  });
+});

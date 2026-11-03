@@ -51,6 +51,8 @@ export interface SessionMetadata {
   flightdeckThreadId?: string;
   flightdeckAgentNpub?: string;
   flightdeckRoutingKey?: string;
+  /** Set when the session was created for a strict agent-inbox delivery (never reused for broad legacy context). */
+  flightdeckDeliveryMode?: "agent_inbox";
   sessionGeneration?: number;
   /** Durable user/API close intent. Warm restart recovery must not revive it. */
   explicitlyClosedAt?: string;
@@ -267,6 +269,7 @@ export const normaliseSessionMetadata = (
     flightdeckThreadId: cleanString(metadata?.flightdeckThreadId) || undefined,
     flightdeckAgentNpub: cleanString(metadata?.flightdeckAgentNpub) || undefined,
     flightdeckRoutingKey: cleanString(metadata?.flightdeckRoutingKey) || undefined,
+    flightdeckDeliveryMode: metadata?.flightdeckDeliveryMode === "agent_inbox" ? "agent_inbox" : undefined,
     sessionGeneration: Number.isFinite(sessionGeneration) && sessionGeneration > 0 ? Math.floor(sessionGeneration) : undefined,
     explicitlyClosedAt: Number.isFinite(explicitlyClosedAtTimestamp)
       ? new Date(explicitlyClosedAtTimestamp).toISOString()
