@@ -64,4 +64,51 @@ describe('session file upload', () => {
     expect(requests.map((r) => r.path.split('/').at(-1))).toEqual(['prepare', 'obj-1', 'complete']);
     expect(requests.some((r) => r.path.endsWith('/files'))).toBe(false);
   });
+
+  test('a strict-inbox upload names its live origin and surfaces only the receipt Tower minted', async () => {
+    const receipt = { entity_type: 'file', entity_id: 'file-1', receipt_row_version: 1, origin_notification_id: 'n-1', body_sha256_hex: null };
+    const { botIdentity, requests } = identity((request) => {
+      const path = new URL(request.url).pathname;
+      if (path.endsWith('/storage/prepare')) return Response.json({ object_id: 'obj-1' });
+      if (request.method === 'PUT') return Response.json({ ok: true });
+      if (path.endsWith('/complete')) return Response.json({ object_id: 'obj-1' });
+      return Response.json({ file: { id: 'file-1' }, work_receipt: receipt }, { status: 201 });
+    });
+    const result = await uploadSessionFileToChannel({ ...base, botIdentity, fileName: 'out.md', contentType: 'text/markdown',
+      content: new TextEncoder().encode('# out'), originNotificationId: 'n-1' });
+    expect(requests[3]!.body).toEqual({ storage_object_id: 'obj-1', display_name: 'out.md', origin_notification_id: 'n-1' });
+    expect(result.work_receipt).toEqual(receipt);
+    // Without an origin (legacy sessions) the request is unchanged and no receipt is surfaced.
+    const legacy = identity((request) => {
+      const path = new URL(request.url).pathname;
+      if (path.endsWith('/storage/prepare')) return Response.json({ object_id: 'obj-2' });
+      if (request.method === 'PUT') return Response.json({ ok: true });
+      if (path.endsWith('/complete')) return Response.json({ object_id: 'obj-2' });
+      return Response.json({ file: { id: 'file-2' } }, { status: 201 });
+    });
+    const plain = await uploadSessionFileToChannel({ ...base, botIdentity: legacy.botIdentity, fileName: 'a.md', contentType: 'text/markdown', content: new TextEncoder().encode('a') });
+    expect(legacy.requests[3]!.body).toEqual({ storage_object_id: 'obj-2', display_name: 'a.md' });
+    expect('work_receipt' in plain).toBe(false);
+  });
+});
+
+describe('strict-inbox document and task creates name the origin', () => {
+  test('origin_notification_id is sent only when given', async () => {
+    const { createFlightDeckPgChannelDocument, createFlightDeckPgChannelTask } = await import('../agent-chat/tower-client');
+    const { botIdentity, requests } = identity((request) => {
+      const path = new URL(request.url).pathname;
+      if (path.endsWith('/storage/prepare')) return Response.json({ object_id: 'obj-d' });
+      if (request.method === 'PUT') return Response.json({ ok: true });
+      if (path.endsWith('/complete')) return Response.json({ object_id: 'obj-d' });
+      if (path.endsWith('/docs')) return Response.json({ doc: { id: 'doc-1' }, work_receipt: { entity_type: 'doc', entity_id: 'doc-1' } }, { status: 201 });
+      if (path.endsWith('/tasks')) return Response.json({ task: { id: 'task-1' } }, { status: 201 });
+      return Response.json({ error: 'unexpected' }, { status: 500 });
+    });
+    const doc = await createFlightDeckPgChannelDocument({ ...base, botIdentity, title: 'Notes', body: '# n', originNotificationId: 'n-1' });
+    await createFlightDeckPgChannelTask({ ...base, botIdentity, title: 'Follow up', originNotificationId: 'n-1' });
+    await createFlightDeckPgChannelTask({ ...base, botIdentity, title: 'Legacy' });
+    const bodies = requests.filter((r) => r.path.endsWith('/docs') || r.path.endsWith('/tasks')).map((r) => r.body.origin_notification_id ?? null);
+    expect(bodies).toEqual(['n-1', 'n-1', null]);
+    expect((doc as any).work_receipt).toEqual({ entity_type: 'doc', entity_id: 'doc-1' });
+  });
 });

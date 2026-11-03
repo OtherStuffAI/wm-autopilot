@@ -45,10 +45,13 @@ export async function createFlightDeckPgChannelFile(params: {
   botIdentity: RuntimeBotIdentity;
   storageObjectId: string;
   displayName: string;
+  /** Strict inbox: the live origin notification; Tower mints a version-bound work receipt for the linked file. */
+  originNotificationId?: string | null;
 }): Promise<Record<string, unknown>> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/channels/${encodeURIComponent(params.channelId)}/files`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
-  const body = { storage_object_id: params.storageObjectId, display_name: params.displayName };
+  const body = { storage_object_id: params.storageObjectId, display_name: params.displayName,
+    ...(params.originNotificationId ? { origin_notification_id: params.originNotificationId } : {}) };
   const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity, url, method: "POST", body });
   const response = await fetchPgRequest(params, url, {
@@ -74,8 +77,10 @@ export async function uploadSessionFileToChannel(params: {
   fileName: string;
   contentType: string;
   content: Uint8Array;
+  originNotificationId?: string | null;
 }) {
   const uploaded = await uploadFlightDeckPgStorageObject({ ...params });
   const file = await createFlightDeckPgChannelFile({ ...params, storageObjectId: uploaded.object_id, displayName: params.fileName });
-  return { storage_object_id: uploaded.object_id, size_bytes: params.content.byteLength, file };
+  return { storage_object_id: uploaded.object_id, size_bytes: params.content.byteLength, file,
+    ...(file.work_receipt ? { work_receipt: file.work_receipt } : {}) };
 }

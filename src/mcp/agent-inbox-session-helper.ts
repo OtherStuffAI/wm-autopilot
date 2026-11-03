@@ -104,6 +104,15 @@ export function inboxSelfAddress(origin: BoundOrigin | undefined, mentions: unkn
   return { originNotificationId: origin.towerOriginId, mentions };
 }
 
+/**
+ * Tower's minted work receipt from a create response, surfaced unchanged to the session (Tower is the only authority;
+ * Autopilot never mints, stores or advances receipts). Absent when Tower minted none.
+ */
+export function workReceiptOf(result: unknown): { work_receipt?: Record<string, unknown> } {
+  const receipt = result && typeof result === 'object' ? (result as { work_receipt?: unknown }).work_receipt : undefined;
+  return receipt && typeof receipt === 'object' && !Array.isArray(receipt) ? { work_receipt: receipt as Record<string, unknown> } : {};
+}
+
 /** Recipient-bound context of an exact live origin, fetched with the bot's own key (never a raw Tower read). */
 export async function resolveInboxSessionScope(target: InboxSessionTarget, origin: BoundOrigin): Promise<AgentInboxScope | Response> {
   try {

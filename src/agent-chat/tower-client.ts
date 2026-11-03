@@ -1534,6 +1534,8 @@ export async function createFlightDeckPgChannelDocument(params: {
   body: string;
   summary?: string | null;
   metadata?: Record<string, unknown> | null;
+  /** Strict inbox: the live origin notification; Tower mints a version-bound work receipt for the created document. */
+  originNotificationId?: string | null;
   signal?: AbortSignal;
 }): Promise<FlightDeckPgDocumentResult> {
   const content = buildFlightDeckPgDocumentContentBytes(params.body);
@@ -1555,6 +1557,7 @@ export async function createFlightDeckPgChannelDocument(params: {
     storage_object_id: uploaded.object_id,
     ...(params.summary !== undefined ? { summary: params.summary } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
+    ...(params.originNotificationId ? { origin_notification_id: params.originNotificationId } : {}),
   };
   const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
@@ -2072,6 +2075,8 @@ export async function createFlightDeckPgChannelTask(params: {
   priority?: string;
   threadId?: string | null;
   metadata?: Record<string, unknown> | null;
+  /** Strict inbox: the live origin notification; Tower mints a version-bound work receipt for the created task. */
+  originNotificationId?: string | null;
   signal?: AbortSignal;
 }): Promise<FlightDeckPgWriteResult> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/channels/${encodeURIComponent(params.channelId)}/tasks`;
@@ -2083,6 +2088,7 @@ export async function createFlightDeckPgChannelTask(params: {
     priority: params.priority ?? 'sand',
     ...(params.threadId ? { thread_id: params.threadId } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
+    ...(params.originNotificationId ? { origin_notification_id: params.originNotificationId } : {}),
   };
   const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,

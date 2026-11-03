@@ -6,7 +6,7 @@ import { invokeNativeProjectTool } from '../pipelines/native-project-tool.ts';
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
 import { applyFlightDeckMentions } from "./flightdeck-mentions.ts";
 import { parseSessionFileUpload, uploadSessionFileToChannel } from "./flightdeck-file-upload.ts";
-import { INBOX_BOUND_WRITE_ACTIONS, INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, inboxOriginOwner, inboxSelfAddress, isInboxSession, resolveInboxReadOrigin, resolveInboxSessionScope, resolveInboxWriteOrigin, runInScope, type BoundOrigin } from "./agent-inbox-session-helper";
+import { INBOX_BOUND_WRITE_ACTIONS, INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, inboxOriginOwner, inboxSelfAddress, isInboxSession, resolveInboxReadOrigin, resolveInboxSessionScope, resolveInboxWriteOrigin, runInScope, workReceiptOf, type BoundOrigin } from "./agent-inbox-session-helper";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
@@ -1486,7 +1486,8 @@ async function handleFlightDeckAction(
     const parsed = parseSessionFileUpload({ fileName: body.fileName ?? body.file_name, contentType: body.contentType ?? body.content_type,
       base64Data: body.base64_data ?? body.base64Data });
     if ("error" in parsed) return jsonError(parsed.error, parsed.status);
-    const result = await uploadSessionFileToChannel({ ...pg, subscriptionId: resolved.subscriptionId, channelId, ...parsed });
+    const result = await uploadSessionFileToChannel({ ...pg, subscriptionId: resolved.subscriptionId, channelId, ...parsed,
+      originNotificationId: inboxOrigin?.towerOriginId });
     return jsonOk({ ok: true, ...result });
   }
 
@@ -1509,8 +1510,9 @@ async function handleFlightDeckAction(
         source_record_id: asString(resolved.record.recordId),
         ...asObject(body.metadata),
       },
+      originNotificationId: inboxOrigin?.towerOriginId,
     });
-    return jsonOk({ ok: true, result });
+    return jsonOk({ ok: true, result, ...workReceiptOf(result) });
   }
 
   if (action === "task_create") {
@@ -1534,8 +1536,9 @@ async function handleFlightDeckAction(
         source_record_id: asString(resolved.record.recordId),
         ...asObject(body.metadata),
       },
+      originNotificationId: inboxOrigin?.towerOriginId,
     });
-    return jsonOk({ ok: true, result });
+    return jsonOk({ ok: true, result, ...workReceiptOf(result) });
   }
 
   if (action === "doc_get") {

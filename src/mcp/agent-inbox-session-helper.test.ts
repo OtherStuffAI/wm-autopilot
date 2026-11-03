@@ -197,3 +197,12 @@ describe('strict-inbox deliberate self-address', () => {
     expect(inboxSelfAddress(undefined, self, 'npub1bot')).toBeNull();
   });
 });
+
+describe('strict-inbox work receipts are Tower-minted only', () => {
+  const { workReceiptOf } = require('./agent-inbox-session-helper');
+  test('surfaces a receipt object from the Tower response unchanged; nothing otherwise', () => {
+    const receipt = { entity_type: 'task', entity_id: 'task-1', receipt_row_version: 1, origin_notification_id: 'n-1', body_sha256_hex: null };
+    expect(workReceiptOf({ task: { id: 'task-1' }, work_receipt: receipt })).toEqual({ work_receipt: receipt });
+    for (const value of [{ task: {} }, { work_receipt: 'x' }, { work_receipt: [receipt] }, null, undefined]) expect(workReceiptOf(value)).toEqual({});
+  });
+});
