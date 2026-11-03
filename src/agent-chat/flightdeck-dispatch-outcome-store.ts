@@ -275,7 +275,7 @@ export class FlightDeckDispatchOutcomeStore {
 
   listPage(
     subscriptionIds: string[],
-    input: { limit: number; offset: number; includeIgnoredAndSuppressed?: boolean },
+    input: { limit: number; offset: number; includeIgnoredAndSuppressed?: boolean; agentId?: string | null },
   ): FlightDeckDispatchOutcomePage {
     const limit = Math.max(1, Math.min(100, Math.floor(input.limit)));
     const offset = Math.max(0, Math.floor(input.offset));
@@ -284,16 +284,23 @@ export class FlightDeckDispatchOutcomeStore {
     const outcomeFilter = input.includeIgnoredAndSuppressed === false
       ? " AND outcome NOT IN ('ignored', 'suppressed')"
       : '';
+    // Recipient filter: only outcomes attributed to this agent profile (other bots' records never leave the store).
+    const params: Array<string | number> = [...subscriptionIds];
+    let recipientFilter = '';
+    if (input.agentId) {
+      params.push(input.agentId);
+      recipientFilter = ` AND agent_id = ?${params.length}`;
+    }
+    const where = `subscription_id IN (${placeholders})${outcomeFilter}${recipientFilter}`;
     const totalRow = this.db.query(
-      `SELECT COUNT(*) AS total FROM flightdeck_dispatch_outcomes
-       WHERE subscription_id IN (${placeholders})${outcomeFilter}`,
-    ).get(...subscriptionIds) as { total?: number } | null;
+      `SELECT COUNT(*) AS total FROM flightdeck_dispatch_outcomes WHERE ${where}`,
+    ).get(...params) as { total?: number } | null;
     const rows = this.db.query(
       `SELECT * FROM flightdeck_dispatch_outcomes
-       WHERE subscription_id IN (${placeholders})${outcomeFilter}
+       WHERE ${where}
        ORDER BY received_at DESC, id DESC
-       LIMIT ?${subscriptionIds.length + 1} OFFSET ?${subscriptionIds.length + 2}`,
-    ).all(...subscriptionIds, limit, offset) as Array<Record<string, string | number | null>>;
+       LIMIT ?${params.length + 1} OFFSET ?${params.length + 2}`,
+    ).all(...params, limit, offset) as Array<Record<string, string | number | null>>;
     return {
       rows: rows.map((row) => this.mapRow(row)),
       total: Number(totalRow?.total ?? 0),

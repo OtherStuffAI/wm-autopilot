@@ -1,3 +1,4 @@
+import { handleBotSubscriptionRoute } from './agent-chat-bot-subscription-routes';
 import { handleNStackConnectRoute } from "./nstack-connect-routes";
 import { canExportAgentProfileKey, handleAgentProfileKeyExport, type AgentProfileKeyExportContext } from "./agent-profile-key-export.ts";
 import { agentDirectEnrichmentOptions } from "./agent-direct-enrichment-options.ts";
@@ -644,6 +645,7 @@ const AGENT_CHAT_API_PREFIXES = [
   '/api/agent-chat/nstack-connect',
   '/api/agent-chat/dispatch-routes',
   '/api/agent-chat/dispatch-outcomes',
+  '/api/agent-chat/bot-subscriptions',
   '/api/agent-chat/enrichment-options',
 ] as const;
 
@@ -675,15 +677,20 @@ export async function handleAgentChatApi(
   const transportResponse = await handleTowerTransportRoute(request, url, ctx.manager, scope);
   if (transportResponse) return transportResponse;
 
+  const botSubscriptionResponse = await handleBotSubscriptionRoute(request, url, ctx.manager, scope);
+  if (botSubscriptionResponse) return botSubscriptionResponse;
+
   if (url.pathname === '/api/agent-chat/dispatch-outcomes' && method === 'GET') {
     const limitValue = Number(url.searchParams.get('limit') ?? 25);
     const offsetValue = Number(url.searchParams.get('offset') ?? 0);
     const limit = Number.isSafeInteger(limitValue) ? Math.max(1, Math.min(100, limitValue)) : 25;
     const offset = Number.isSafeInteger(offsetValue) ? Math.max(0, offsetValue) : 0;
     const includeIgnoredAndSuppressed = url.searchParams.get('includeIgnoredAndSuppressed') === 'true';
+    const subscriptionId = url.searchParams.get('subscriptionId')?.trim() || null;
+    const agentId = url.searchParams.get('agentId')?.trim() || null;
     return Response.json(ctx.manager.listDispatchOutcomesForManager(
       scope.managerNpub,
-      { limit, offset, includeIgnoredAndSuppressed },
+      { limit, offset, includeIgnoredAndSuppressed, subscriptionId, agentId },
     ));
   }
 
@@ -913,6 +920,13 @@ export async function handleAgentChatApi(
       : null;
     const allowedManagerNpubs = getOptionalStringArray(body.allowedManagerNpubs);
     const grantSharedService = body.grantSharedService === true;
+    if (body.agentInboxMode !== undefined && body.agentInboxMode !== null && body.agentInboxMode !== 'inbox_required') {
+      return Response.json({ error: 'agentInboxMode must be inbox_required when provided.' }, { status: 400 });
+    }
+    if (body.agentInboxMode === 'inbox_required' && !agentProfileId) {
+      return Response.json({ error: 'Inbox-first import requires an explicit agentProfileId.' }, { status: 400 });
+    }
+    const agentInboxMode = body.agentInboxMode === 'inbox_required' ? 'inbox_required' as const : null;
 
     if (!rawPackage) {
       return Response.json({ error: 'packageJson or package is required.' }, { status: 400 });
@@ -925,6 +939,7 @@ export async function handleAgentChatApi(
         agentProfileId,
         allowedManagerNpubs,
         grantSharedService,
+        agentInboxMode,
       });
       return Response.json({
         backendConnection: serialiseBackendConnection(

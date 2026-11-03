@@ -102,7 +102,8 @@ import { loadYokeBotHelpers } from './yoke-bot-helpers';
 import { decryptRecordPayloadWithYoke } from './yoke-record-payload';
 import { hydrateDirectChatThread, hydrateFlightDeckPgChatEvent } from './direct-chat-tower-hydration';
 import { AgentInboxProcessor } from './agent-inbox-runtime';
-import { classifyAgentNotificationOnly } from './agent-inbox-client';
+import { buildBotSubscriptionRows, type BotSubscriptionRow } from './bot-subscription-status';
+import { classifyAgentNotificationOnly, readAgentAccessProfile } from './agent-inbox-client';
 import { agentInboxStore, type AgentInboxMode, type AgentInboxState, type AgentInboxStore } from './agent-inbox-store';
 import { inboxAwareFetchers } from './agent-inbox-scope';
 import { normaliseDirectChatMessage } from './direct-chat-contract';
@@ -1434,9 +1435,10 @@ export class WorkspaceSubscriptionManager {
 
   listDispatchOutcomesForManager(
     npub: string,
-    input: { limit: number; offset: number; includeIgnoredAndSuppressed?: boolean },
+    input: { limit: number; offset: number; includeIgnoredAndSuppressed?: boolean; subscriptionId?: string | null; agentId?: string | null },
   ) {
-    const subscriptions = this.listForManager(npub);
+    const subscriptions = this.listForManager(npub)
+      .filter((subscription) => !input.subscriptionId || subscription.subscriptionId === input.subscriptionId);
     const workspaceNames = new Map(subscriptions.map((subscription) => {
       const bundle = this.getProfileWorkspaceForManager(subscription.subscriptionId, npub);
       const label = bundle?.workspace.workspaceTitle?.trim()
@@ -1445,7 +1447,7 @@ export class WorkspaceSubscriptionManager {
     }));
     const page = this.dispatchOutcomeStore.listPage(
       subscriptions.map((subscription) => subscription.subscriptionId),
-      input,
+      { limit: input.limit, offset: input.offset, includeIgnoredAndSuppressed: input.includeIgnoredAndSuppressed, agentId: input.agentId ?? null },
     );
     return {
       ...page,
@@ -2467,6 +2469,7 @@ export class WorkspaceSubscriptionManager {
     grantSharedService?: boolean;
     onboardingSource?: CreateWorkspaceSubscriptionInput['onboardingSource'];
     discoveryEvent?: CreateWorkspaceSubscriptionInput['discoveryEvent'];
+    agentInboxMode?: CreateWorkspaceSubscriptionInput['agentInboxMode'];
   }): Promise<{
     backendConnection: BackendConnectionRecord;
     subscription: WorkspaceSubscriptionRecord;
@@ -2519,6 +2522,7 @@ export class WorkspaceSubscriptionManager {
         agentProfileId: agentProfile?.agentId ?? null,
         onboardingSource: input.onboardingSource ?? 'agent_connect_import',
         discoveryEvent: input.discoveryEvent,
+        agentInboxMode: input.agentInboxMode ?? null,
       });
       this.profilePolicyStore.ensureProfileWorkspaceForSubscription({
         managedByNpub: input.managedByNpub,
@@ -2789,6 +2793,13 @@ export class WorkspaceSubscriptionManager {
     record.dispatchRouteIds = input.dispatchRouteIds ?? record.dispatchRouteIds ?? [];
     record.triggerConfigRecordId = input.triggerConfigRecordId ?? null;
     record.managedByNpub = input.managedByNpub;
+    if (input.agentInboxMode === 'inbox_required') {
+      // Inbox-first: opt in before any verification or connection; never a broad window, never a fallback.
+      if (!record.agentProfileId || !isFlightDeckPgSubscription(record)) {
+        throw Object.assign(new Error('Inbox-first creation requires a profile-bound Flight Deck PG subscription.'), { detailCode: 'agent_inbox_profile_required' });
+      }
+      this.inboxStore.setMode(record.subscriptionId, 'inbox_required', `autopilot:${record.subscriptionId}`);
+    }
     if (isFlightDeckPgSubscription(record)) {
       record = await this.prepareFlightDeckPgSubscription(record, botIdentity);
       record = await this.verifyFlightDeckPgWorkspaceAccess(record, botIdentity);
@@ -3821,6 +3832,39 @@ export class WorkspaceSubscriptionManager {
     return this.inboxStore.get(subscriptionId);
   }
 
+  /** One row per real workspace+bot delivery path (profile, shared legacy and bots it serves); stored state only. */
+  listBotSubscriptionsForManager(npub: string): BotSubscriptionRow[] {
+    const subscriptions = this.store.listForManagerNpub(npub).filter(isFlightDeckPgSubscription);
+    return buildBotSubscriptionRows({
+      subscriptions,
+      agents: this.agentStore.listForManagerNpub(npub),
+      inboxState: (subscriptionId) => this.inboxStore.get(subscriptionId),
+      sharedAudience: (record) => this.enabledFlightDeckAudience(record),
+      workspaceName: (record) => this.getProfileWorkspaceForManager(record.subscriptionId, npub)?.workspace.workspaceTitle?.trim() || null,
+    });
+  }
+
+  /** Read-only signed check of the bot's own Tower classification. Never classifies or changes mode. */
+  async readAgentInboxClassificationForManager(subscriptionId: string, npub: string): Promise<{ profile: string | null; checkedAt: string } | null> {
+    const record = this.getForManager(subscriptionId, npub);
+    if (!record) return null;
+    if (!record.agentProfileId || !record.workspaceId || !isFlightDeckPgSubscription(record)) {
+      throw Object.assign(new Error('Classification applies only to profile-bound Flight Deck subscriptions.'), { status: 400 });
+    }
+    const identity = await this.resolveStoredBotIdentity(record.botNpub);
+    if (!identity) throw Object.assign(new Error('No active key exists for this bot identity.'), { status: 409 });
+    try {
+      const result = await readAgentAccessProfile({
+        backendConnectionId: record.backendConnectionId, subscriptionId: record.subscriptionId, backendBaseUrl: record.backendBaseUrl,
+        workspaceId: record.workspaceId, appNpub: record.sourceAppNpub, botIdentity: identity,
+        ...(this.agentInboxFetch ? { fetchImpl: this.agentInboxFetch } : {}),
+      });
+      return { profile: result.profile ?? null, checkedAt: new Date().toISOString() };
+    } finally {
+      if (identity.botSecret !== this.getRuntime(subscriptionId).botIdentity?.botSecret && identity.botSecret !== this.getInstanceIdentity()?.secretKey) identity.botSecret.fill(0);
+    }
+  }
+
   /** Explicit, operator-driven opt-in/out. Inbox mode is per bot identity, so only profile-bound subscriptions qualify. */
   async setAgentInboxModeForManager(subscriptionId: string, npub: string, mode: AgentInboxMode, options: { classify?: boolean } = {}): Promise<AgentInboxState | null> {
     const record = this.getForManager(subscriptionId, npub);
@@ -3911,6 +3955,8 @@ export class WorkspaceSubscriptionManager {
         record.sseStatus = 'connected';
         record.lastEventPollOkAt = now;
         if (record.lastErrorCode?.startsWith('agent_inbox_')) { record.lastErrorCode = null; record.lastErrorAt = null; }
+        // A recovered inbox poll clears its own stale poll failure; otherwise health stays degraded after recovery.
+        if (record.lastEventPollErrorCode?.startsWith('agent_inbox_')) { record.lastEventPollErrorCode = null; record.lastEventPollErrorAt = null; }
         runtime.reconnectAttempts = 0;
         this.saveRecord(this.recomputeHealth(record));
         if (result.status === 'idle') await sleepWithAbort(this.flightDeckPgEventPollIntervalMs, signal);

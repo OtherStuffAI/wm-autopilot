@@ -134,6 +134,11 @@ export async function ackAgentInboxNotification(context: AgentInboxRequestContex
   })).json;
 }
 
+/** Read-only: this bot's own notification-only classification in the workspace (null profile = unclassified). */
+export async function readAgentAccessProfile(context: AgentInboxRequestContext) {
+  return (await request<{ actor_npub: string; profile: string | null; policy_version?: number }>(context, 'GET', '/access-profile')).json;
+}
+
 /** The bot restricts ITSELF to notification-only in this workspace (lifting requires a workspace manager in Tower). */
 export async function classifyAgentNotificationOnly(context: AgentInboxRequestContext) {
   return (await request<{ actor_npub: string; profile: string | null }>(context, 'PUT', '/access-profile', {}, { profile: 'notification_only' })).json;

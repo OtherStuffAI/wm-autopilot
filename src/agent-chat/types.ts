@@ -284,6 +284,11 @@ export interface CreateWorkspaceSubscriptionInput {
   capabilityDefaults?: AgentCapability[];
   dispatchRouteIds?: string[];
   triggerConfigRecordId?: string | null;
+  /**
+   * `inbox_required`: the profile-bound subscription is opted into the strict agent inbox BEFORE any verification or
+   * event connection, so it never touches `/me`, `/events` or audience routes. Requires a profile; fails closed.
+   */
+  agentInboxMode?: 'inbox_required' | null;
   /** Verified kind-33357 replacement metadata used for replay ordering and local disconnect suppression. */
   discoveryEvent?: {
     eventId: string;

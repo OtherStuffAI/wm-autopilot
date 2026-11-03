@@ -108,6 +108,65 @@ describe('strict inbox mode in the subscription runtime', () => {
     expect((await manager.setAgentInboxModeForManager(subscriptionId, 'npub1manager', 'legacy'))?.cursor).toBe('tower-sub~c0');
   });
 
+  test('inbox-first import opts in before ANY connection: no /me, /events, audience or raw reads from creation onward', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'inbox-first-'));
+    dirs.push(dir);
+    const dbPath = join(dir, 'db.sqlite');
+    const calls: string[] = [];
+    const now = new Date().toISOString();
+    const keyRecord: BotKeyStoreRecord = {
+      id: 'key-1', userNpub: 'npub1manager', botPubkeyHex, botNpub, displayName: 'bot', encryptedToUser: 'x', encryptedEscrow: 'x', escrowUuid: 'e', isActive: 1, createdAt: now, updatedAt: now,
+    };
+    const agentStore = new AgentDefinitionStore(dbPath);
+    agentStore.save({
+      agentId: 'wm-one', label: 'One', botNpub, workspaceOwnerNpub: 'npub1workspace', groupNpubs: ['npub1group'], workingDirectory: dir, managedByNpub: 'npub1manager',
+      enabled: true, archived: false, capabilities: ['chat_intercept'], createdAt: now, updatedAt: now,
+      directChat: { enabled: true, sessionAgent: 'codex', directory: dir, model: null, idleRetentionMinutes: 60 },
+    } as any);
+    const inboxStore = new AgentInboxStore(dbPath);
+    const towerUrls: string[] = [];
+    const towerFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init);
+      towerUrls.push(request.url);
+      if (request.url.includes('/agent-notifications/subscriptions')) {
+        return Response.json({ recipient_npub: botNpub, created: true, subscription: { id: 'tower-sub', consumer_id: 'c', floor_at: now, policy_version: 1, acked_through_seq: 0 }, cursor: 'tower-sub~c0' }, { status: 201 });
+      }
+      if (request.url.includes('/agent-notifications?')) return Response.json({ subscription_id: 'tower-sub', notifications: [], next_cursor: 'tower-sub~c0', has_more: false });
+      return Response.json({ error: 'unexpected' }, { status: 500 });
+    });
+    const record = (name: string) => async () => { calls.push(name); throw new Error(`${name} must not be called`); };
+    manager = new WorkspaceSubscriptionManager({
+      store: new WorkspaceSubscriptionStore(dbPath), agentStore, backendStore: new BackendConnectionStore(dbPath), profilePolicyStore: new AgentProfilePolicyStore(dbPath),
+      agentInboxStore: inboxStore,
+      agentInboxFetch: towerFetch,
+      checkBackendHealth: async () => ({ healthStatus: 'healthy', diagnostic: { ok: true, code: null, message: 'ok', at: now, details: {} } }),
+      fetchFlightDeckPgWorkspaceMe: record('me'),
+      fetchFlightDeckPgEvents: record('events'),
+      reconcileFlightDeckPgEventSubscriptionAgents: record('audience'),
+      fetchFlightDeckPgChannelMessages: record('messages'),
+      botKeyStore: { getActiveKeyForUser: () => null, getActiveKeyForBotNpub: (npub: string) => (npub === botNpub ? keyRecord : null) },
+      brokerKeyVault: { provision: () => undefined, remove: async () => undefined, withKey: async (_record: unknown, operation: (key: Uint8Array) => unknown) => operation(new Uint8Array(secret)) },
+      getInstanceIdentity: () => null,
+      dispatchAgentWorkingDirectory: join(dir, 'dispatch'),
+      flightDeckPgEventPollIntervalMs: 50,
+    } as any);
+    const imported = await manager.importAgentConnectPackage({ managedByNpub: 'npub1manager', agentProfileId: 'wm-one', packageJson: connectPackage() as any, onboardingSource: 'manual', agentInboxMode: 'inbox_required' } as any);
+    const subscriptionId = imported.subscription.subscriptionId;
+    expect(inboxStore.get(subscriptionId)?.mode).toBe('inbox_required');
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline && !towerUrls.some((url) => url.includes('/agent-notifications?'))) await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(calls).toEqual([]);
+    expect(towerUrls.length).toBeGreaterThan(0);
+    expect(towerUrls.every((url) => url.includes('/agent-notifications'))).toBe(true);
+    expect(manager.getForManager(subscriptionId, 'npub1manager')?.recentDispatches ?? []).toEqual([]);
+    // A recovered inbox poll clears its own stale poll failure (health no longer stuck degraded after recovery).
+    const store = (manager as any).store as WorkspaceSubscriptionStore;
+    store.save({ ...store.getBySubscriptionId(subscriptionId)!, lastEventPollErrorCode: 'agent_inbox_halt:agent_identity_required', lastEventPollErrorAt: now, healthStatus: 'degraded' });
+    const healthDeadline = Date.now() + 3000;
+    while (Date.now() < healthDeadline && store.getBySubscriptionId(subscriptionId)?.lastEventPollErrorCode) await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(store.getBySubscriptionId(subscriptionId)).toMatchObject({ lastEventPollErrorCode: null, healthStatus: 'healthy', sseStatus: 'connected' });
+  });
+
   test('inbox mode requires a profile-bound subscription', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'inbox-runtime-'));
     dirs.push(dir);

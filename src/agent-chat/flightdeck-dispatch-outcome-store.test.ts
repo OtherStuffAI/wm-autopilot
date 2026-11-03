@@ -320,3 +320,21 @@ describe('FlightDeckDispatchOutcomeStore', () => {
     expect(second.rows.at(-1)?.actionId).toBe('run-0');
   });
 });
+
+describe('recipient-filtered outcome pages', () => {
+  test('agentId limits rows and totals to that bot; other bots on the same subscription never appear', () => {
+    const store = makeStore();
+    for (const [index, agentId] of ['dakkabot', 'brick', 'dakkabot', 'unresolved-agent-target'].entries()) {
+      store.recordSession({ subscriptionId: 'sub-1', recordId: `message-${index}`, agentId, sessionId: `session-${index}`,
+        receivedAt: `2026-11-03T03:0${index}:00.000Z` });
+    }
+    store.recordSession({ subscriptionId: 'sub-2', recordId: 'message-x', agentId: 'dakkabot', sessionId: 'session-x', receivedAt: '2026-11-03T03:09:00.000Z' });
+    const page = store.listPage(['sub-1'], { limit: 25, offset: 0, agentId: 'dakkabot' });
+    expect(page.total).toBe(2);
+    expect(page.rows.map((row) => [row.subscriptionId, row.agentId, row.recordId])).toEqual([
+      ['sub-1', 'dakkabot', 'message-2'], ['sub-1', 'dakkabot', 'message-0'],
+    ]);
+    expect(store.listPage(['sub-1'], { limit: 25, offset: 0 }).total).toBe(4);
+    expect(store.listPage(['sub-1'], { limit: 1, offset: 1, agentId: 'dakkabot' }).rows.map((row) => row.recordId)).toEqual(['message-0']);
+  });
+});
