@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { isolatedAgentInboxStore } from './agent-inbox-store.test-helper';
 import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,6 +30,7 @@ function fixture(overrides: {
   const vault = new BrokerKeyVault({ dataDir: root });
   if (overrides.provision) vault.provision = overrides.provision;
   const manager = new WorkspaceSubscriptionManager({
+    agentInboxStore: isolatedAgentInboxStore(),
     agentStore,
     store,
     profilePolicyStore,

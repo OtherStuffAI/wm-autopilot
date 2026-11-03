@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isolatedAgentInboxStore } from './agent-inbox-store.test-helper';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -1436,6 +1437,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       profilePolicyStore,
@@ -1528,6 +1530,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     });
     const subscription = store.save(makeSubscription());
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       profilePolicyStore,
@@ -1778,6 +1781,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     });
 
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -1864,6 +1868,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     });
 
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -2060,6 +2065,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -2161,6 +2167,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -2274,6 +2281,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -2381,6 +2389,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -2472,6 +2481,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -2564,6 +2574,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -2657,6 +2668,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -2770,6 +2782,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -2877,6 +2890,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -2983,6 +2997,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
       },
     });
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       dispatchPipelineRuntime,
@@ -3060,6 +3075,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const taskDispatches: Array<{ recordId: string; taskId: string; agentId: string }> = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3148,6 +3164,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const taskDispatches: Array<{ recordId: string; taskId: string; agentId: string }> = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3223,6 +3240,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     });
 
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3298,6 +3316,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     });
 
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3373,6 +3392,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     });
 
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3447,6 +3467,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     });
 
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3522,6 +3543,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     });
 
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3607,6 +3629,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
     });
 
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3692,6 +3715,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const taskDispatches: Array<{ recordId: string; taskId: string; agentId: string }> = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3780,6 +3804,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const taskDispatches: Array<{ recordId: string; taskId: string; agentId: string }> = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3870,6 +3895,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const taskCommentDispatches: Array<{ recordId: string; taskId: string; commentId: string; agentId: string }> = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -3952,6 +3978,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const taskCommentDispatches: Array<{ recordId: string; taskId: string; commentId: string; agentId: string }> = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -4034,6 +4061,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const taskCommentDispatches: string[] = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
@@ -4115,6 +4143,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const documentCommentDispatches: Array<{ recordId: string; documentId: string; commentId: string; agentId: string }> = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentCommentRuntime: {
@@ -4202,6 +4231,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const documentCommentDispatches: string[] = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentCommentRuntime: {
@@ -4272,6 +4302,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const documentCommentDispatches: string[] = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentCommentRuntime: {
@@ -4349,6 +4380,7 @@ describe('WorkspaceSubscriptionManager agent-work routing', () => {
 
     const taskDispatches: Array<{ recordId: string; taskId: string; agentId: string }> = [];
     const manager = new WorkspaceSubscriptionManager({
+      agentInboxStore: isolatedAgentInboxStore(),
       store,
       agentStore,
       agentWorkRuntime: {
