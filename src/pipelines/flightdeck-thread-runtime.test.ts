@@ -249,3 +249,56 @@ test("requested initiating profile resolves its linked subscription and persists
   const resolution = await runtime.resolve(invocation, "npub1owner", "npub1addressed");
   expect(resolution).toMatchObject({ senderNpub: "npub1addressed", agentProfileId: "addressed", towerServiceNpub: "npub1trusted-tower", appNpub: "npub1trusted-app" });
 });
+
+describe("strict-inbox pipeline invocation routing", () => {
+  const threadId = invocation.threadId;
+  function inboxRuntime(bound: string | null) {
+    const towerReads: string[] = [];
+    const sent: any[] = [];
+    const runtime = createFlightDeckThreadRuntime({
+      agentStore: { getByBotNpub: () => ({ agentId: "piper", managedByNpub: "npub1owner", enabled: true, archived: false, botNpub: "npub1piper" }) as never },
+      subscriptionStore: { listAll: () => [{ workspaceId: invocation.workspaceId, subscriptionId: "piper-sub", backendBaseUrl: "https://tower.test",
+        sourceAppNpub: "npub1app", botNpub: "npub1piper", lifecycleStatus: "active", managedByNpub: "npub1owner" } as never] },
+      withAgentIdentity: async (_agent, operation) => await operation({ botNpub: "npub1piper" } as never),
+      fetchScopes: async () => { towerReads.push("scopes"); return { scopes: [], next_cursor: null }; },
+      fetchChannels: async () => { towerReads.push("channels"); return { channels: [], next_cursor: null }; },
+      fetchMessages: async () => { towerReads.push("messages"); return { messages: [], next_cursor: null }; },
+      createMessage: async (params: any) => { sent.push(params); return { message: { id: "reply-1" } }; },
+      inboxBinding: { isInboxSubscription: (id) => id === "piper-sub", boundThreadChannel: (id, thread) => (id === "piper-sub" && thread === threadId ? bound : null) },
+    });
+    return { runtime, towerReads, sent };
+  }
+  const scope = (channelId: string, thread: string) => ({ notification: { id: "n-1", seq: 1, state: "active" } as any, profileNpub: "npub1piper",
+    context: { channel: { id: channelId, scope_id: "scope-9" }, trigger: { type: "message", message: { id: "m-1", channel_id: channelId, thread_id: thread } } } as any });
+
+  test("resolves the route from the bound notification with zero workspace scans", async () => {
+    const { agentInboxScope } = await import("../agent-chat/agent-inbox-scope");
+    const { runtime, towerReads } = inboxRuntime("channel-7");
+    const resolved = await agentInboxScope.run(scope("channel-7", threadId), () => runtime.resolve(invocation, "npub1owner", "npub1piper"));
+    expect(resolved).toMatchObject({ channelId: "channel-7", scopeId: "scope-9", threadId, senderNpub: "npub1piper" });
+    expect(towerReads).toEqual([]);
+  });
+
+  test("refuses without a bound scope or for another thread; never falls back to scanning", async () => {
+    const { agentInboxScope, AgentInboxUnboundReadError } = await import("../agent-chat/agent-inbox-scope");
+    const { runtime, towerReads } = inboxRuntime("channel-7");
+    await expect(runtime.resolve(invocation, "npub1owner", "npub1piper")).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+    await expect(agentInboxScope.run(scope("channel-7", "other-thread"), () => runtime.resolve(invocation, "npub1owner", "npub1piper")))
+      .rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+    expect(towerReads).toEqual([]);
+  });
+
+  test("replies only into the ledger-bound thread and channel, without validation reads", async () => {
+    const { AgentInboxUnboundReadError } = await import("../agent-chat/agent-inbox-scope");
+    const bound = inboxRuntime("channel-7");
+    const delivered = await bound.runtime.send({ ...invocation, channelId: "channel-7", scopeId: "scope-9", message: "Answer" } as any);
+    expect(delivered).toMatchObject({ delivered: true, channelId: "channel-7", messageId: "reply-1" });
+    expect(bound.sent[0]).toMatchObject({ channelId: "channel-7", threadId });
+    await expect(bound.runtime.send({ ...invocation, channelId: "channel-other", message: "x" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+    await expect(bound.runtime.send({ ...invocation, message: "x" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+    const unbound = inboxRuntime(null);
+    await expect(unbound.runtime.send({ ...invocation, channelId: "channel-7", message: "x" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+    expect([...bound.towerReads, ...unbound.towerReads]).toEqual([]);
+    expect(unbound.sent).toEqual([]);
+  });
+});

@@ -11,6 +11,8 @@ import {
   type FlightDeckPgMessage,
 } from "../agent-chat/tower-client";
 import type { AgentDefinitionRecord, WorkspaceSubscriptionRecord } from "../agent-chat/types";
+import { AgentInboxUnboundReadError, agentInboxScope } from "../agent-chat/agent-inbox-scope";
+import { agentInboxStore } from "../agent-chat/agent-inbox-store";
 import type {
   FlightDeckInvocationResolution,
   FlightDeckPipelineInvocation,
@@ -27,12 +29,38 @@ interface ThreadRuntimeDependencies {
   fetchMessages?: typeof fetchFlightDeckPgChannelMessages;
   createMessage?: typeof createFlightDeckPgChannelMessage;
   resolveTrustedAgentNpub?: (runId: string) => string | null;
+  /** Strict-inbox binding (defaults to the shared inbox store). Inbox subscriptions never scan workspace structure. */
+  inboxBinding?: {
+    isInboxSubscription: (subscriptionId: string) => boolean;
+    boundThreadChannel: (subscriptionId: string, threadId: string) => string | null;
+  };
+}
+
+const defaultInboxBinding = {
+  isInboxSubscription: (subscriptionId: string) => agentInboxStore().isInboxRequired(subscriptionId),
+  boundThreadChannel: (subscriptionId: string, threadId: string) => agentInboxStore().latestBound(subscriptionId, { threadId })?.source?.channel_id ?? null,
+};
+
+/**
+ * Strict-inbox invocation route: only the thread the current notification binds, taken from its recipient-bound context
+ * (no workspace scope/channel listing and no raw thread read). Anything else is refused.
+ */
+function boundInvocationChannel(threadId: string, botNpub: string): { id: string; scope_id: string | null } {
+  const scope = agentInboxScope.getStore();
+  const trigger = scope?.context.trigger?.message;
+  const channel = scope?.context.channel;
+  if (!scope || scope.profileNpub !== botNpub || !trigger || !channel?.id || trigger.channel_id !== channel.id
+    || (trigger.thread_id ?? trigger.id) !== threadId) {
+    throw new AgentInboxUnboundReadError(`pipeline invocation thread ${threadId}`);
+  }
+  return { id: channel.id, scope_id: channel.scope_id ?? null };
 }
 
 export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): {
   resolve: (input: FlightDeckPipelineInvocation, ownerNpub?: string | null, initiatingAgentNpub?: string | null) => Promise<FlightDeckInvocationResolution>;
   send: FlightDeckThreadSender;
 } {
+  const inbox = deps.inboxBinding ?? defaultInboxBinding;
   const resolve = async (input: FlightDeckPipelineInvocation, ownerNpub?: string | null, initiatingAgentNpub?: string | null) => {
     const selected = selectManagedSubscription(deps, input.workspaceId, ownerNpub, initiatingAgentNpub);
     const senderNpub = initiatingAgentNpub ?? selected.botNpub;
@@ -45,7 +73,9 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
       if (botIdentity.botNpub !== senderNpub) {
         throw new Error("Resolved managed agent identity does not match the workspace subscription");
       }
-      const channel = await resolveThreadChannel(deps, selected, botIdentity, input.threadId);
+      const channel = inbox.isInboxSubscription(selected.subscriptionId)
+        ? boundInvocationChannel(input.threadId, botIdentity.botNpub)
+        : await resolveThreadChannel(deps, selected, botIdentity, input.threadId);
       return {
         workspaceId: input.workspaceId,
         threadId: input.threadId,
@@ -71,9 +101,12 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
       if (botIdentity.botNpub !== (trustedAgentNpub || selected.botNpub)) {
         throw new Error("Resolved managed agent identity does not match trusted pipeline context");
       }
-      const channel = input.channelId
-        ? await validateExactThreadRoute(deps, selected, botIdentity, input.scopeId, input.channelId, input.threadId)
-        : await resolveThreadChannel(deps, selected, botIdentity, input.threadId);
+      const channel = inbox.isInboxSubscription(selected.subscriptionId)
+        // Strict inbox: reply only into a thread a handled notification binds, on its recorded channel (Tower re-checks).
+        ? boundReplyChannel(inbox, selected.subscriptionId, input.channelId, input.threadId)
+        : input.channelId
+          ? await validateExactThreadRoute(deps, selected, botIdentity, input.scopeId, input.channelId, input.threadId)
+          : await resolveThreadChannel(deps, selected, botIdentity, input.threadId);
       const result = await (deps.createMessage ?? createFlightDeckPgChannelMessage)({
         ...requestBase(selected, botIdentity),
         channelId: channel.id,
@@ -102,6 +135,13 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
     });
   };
   return { resolve, send };
+}
+
+function boundReplyChannel(inbox: NonNullable<ThreadRuntimeDependencies["inboxBinding"]>, subscriptionId: string,
+  channelId: string | undefined, threadId: string): { id: string } {
+  const bound = inbox.boundThreadChannel(subscriptionId, threadId);
+  if (!channelId || !bound || bound !== channelId) throw new AgentInboxUnboundReadError(`pipeline reply thread ${threadId}`);
+  return { id: channelId };
 }
 
 async function validateExactThreadRoute(
