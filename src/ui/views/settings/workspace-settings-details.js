@@ -1,4 +1,5 @@
 import { createButton } from './agent-chat-shared-ui.js';
+import { createBotSubscriptionTable } from '../../fd-dispatch/bot-subscription-panel.js';
 
 export function element(tag, text, className = '') {
   const node = document.createElement(tag);
@@ -22,7 +23,23 @@ function timestamp(value) {
   return Number.isNaN(date.getTime()) ? 'Activity time unavailable' : date.toLocaleString();
 }
 
-export function createWorkspaceDetails(workspace, { canManage, busy, onAction, onRemove }) {
+/** Read-only per-bot delivery paths for this workspace; classification checks and activity live on FD Dispatch. */
+function deliveryPathsPanel(workspace, deliveryPaths) {
+  const panel = disclosure('Bot delivery paths', 'workspace-delivery-paths');
+  const ids = new Set(workspace.subscriptions.map((item) => item.subscriptionId));
+  const rows = (deliveryPaths?.rows || []).filter((row) => row.workspaceId === workspace.key
+    || ids.has(row.subscriptionId) || ids.has(row.sharedSubscriptionId));
+  if (deliveryPaths?.error) panel.append(element('p', deliveryPaths.error, 'wm-workspace-error'));
+  else if (!rows.length) panel.append(element('p', 'No per-bot delivery paths recorded for this workspace.', 'wm-workspace-note'));
+  else {
+    const syncedAt = rows[0].syncedAt ? new Date(rows[0].syncedAt).toLocaleString() : 'an unknown time';
+    panel.append(element('p', `Status as of ${syncedAt}. One row per bot. Check Tower classification and filter activity per bot on Home → FD Dispatch.`, 'wm-workspace-note'),
+      createBotSubscriptionTable(rows, { caption: `Bot delivery paths for ${workspace.name}` }));
+  }
+  return panel;
+}
+
+export function createWorkspaceDetails(workspace, { canManage, busy, onAction, onRemove, deliveryPaths = null }) {
   const card = element('section', '', 'wm-card wm-workspace-detail');
   card.dataset.testid = `workspace-detail-${workspace.subscriptions[0].subscriptionId}`;
   const header = element('header');
@@ -59,13 +76,13 @@ export function createWorkspaceDetails(workspace, { canManage, busy, onAction, o
       element('p', entry.reason || String(entry.action || '').replaceAll('_', ' ')), element('small', timestamp(entry.at)));
     recent.append(row);
   }
-  card.append(recent);
+  card.append(recent, deliveryPathsPanel(workspace, deliveryPaths));
   const diagnostics = disclosure('Connection & diagnostics', 'workspace-diagnostics');
   for (const subscription of workspace.subscriptions) {
     const section = element('section', '', 'wm-workspace-connection');
     section.append(element('h4', subscription.source), element('p', subscription.health),
       element('p', `Last event check: ${timestamp(subscription.lastActivity)}`, 'wm-workspace-note'));
-    if (subscription.profileBound) section.append(element('p', 'This older connection is restricted to one bot profile. Other bot connections are listed alongside it.', 'wm-workspace-note'));
+    if (subscription.profileBound) section.append(element('p', 'This connection belongs to one bot profile. Other bots in this workspace use their own or a shared connection, listed alongside it.', 'wm-workspace-note'));
     const ids = element('dl');
     ids.append(element('dt', 'Workspace ID'), element('dd', subscription.workspaceId || 'Missing workspace ID'),
       element('dt', 'Connection ID'), element('dd', subscription.subscriptionId));

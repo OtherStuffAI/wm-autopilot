@@ -6207,6 +6207,126 @@ body[data-live-header-collapsed="true"]:has(#app[data-route="live"]) .wm-live-dr
   border-top: 1px solid var(--border-primary);
 }
 
+.wm-bot-subs.wm-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1rem;
+}
+
+.wm-bot-subs h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.wm-bot-subs__note,
+.wm-bot-subs__status,
+.wm-bot-subs__scope-label {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.wm-bot-subs__status[data-state="error"] {
+  color: #f87171;
+}
+
+.wm-bot-subs__scope {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.wm-bot-subs__scope-label {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.wm-bot-subs__table-wrap {
+  overflow-x: auto;
+}
+
+.wm-bot-subs__table-wrap:focus-visible {
+  outline: 2px solid var(--accent-foreground);
+  outline-offset: 2px;
+}
+
+.wm-bot-subs__table {
+  border-collapse: collapse;
+  min-width: 1100px;
+  width: 100%;
+}
+
+.wm-bot-subs__table th,
+.wm-bot-subs__table td {
+  border-bottom: 1px solid var(--border-primary);
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.wm-bot-subs__table th {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.wm-bot-subs__table td > * {
+  display: block;
+}
+
+.wm-bot-subs__table td > * + * {
+  margin-top: 0.25rem;
+}
+
+.wm-bot-subs__table small {
+  color: var(--text-secondary);
+}
+
+.wm-bot-subs__table tr[data-selected="true"] {
+  background: rgb(from var(--accent-primary) r g b / 0.08);
+}
+
+.wm-bot-subs__npub {
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.wm-bot-subs__table td.wm-bot-subs__bot {
+  max-width: 18rem;
+}
+
+.wm-bot-subs__badge {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  text-transform: uppercase;
+  width: fit-content;
+  background: rgb(from var(--text-tertiary) r g b / 0.13);
+  color: var(--text-secondary);
+}
+
+.wm-bot-subs__badge[data-tone="ok"] {
+  background: rgb(from var(--accent-primary) r g b / 0.16);
+  color: var(--accent-foreground);
+}
+
+.wm-bot-subs__badge[data-tone="warn"] {
+  background: rgba(251, 191, 36, 0.16);
+  color: #d97706;
+}
+
+.wm-bot-subs__badge[data-tone="error"] {
+  background: rgba(248, 113, 113, 0.16);
+  color: #f87171;
+}
+
+.wm-bot-subs__check {
+  width: fit-content;
+}
+
 @media (max-width: 640px) {
   .wm-flightdeck-dispatch__header {
     align-items: stretch;

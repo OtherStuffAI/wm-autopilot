@@ -1,5 +1,7 @@
 import { appendEnrichmentEvidence } from './enrichment-evidence.js';
 import { listFlightDeckDispatchOutcomes } from '../services/agent-chat.js';
+import { createBotSubscriptionSection } from './bot-subscription-section.js';
+import { scopeOutcomeRows } from './bot-subscription-model.js';
 
 export const FLIGHT_DECK_DISPATCH_PAGE_SIZE = 25;
 
@@ -158,7 +160,10 @@ export function createDispatchTable(rows) {
   return wrapper;
 }
 
-export function createFlightDeckDispatchView({ loadPage = listFlightDeckDispatchOutcomes } = {}) {
+export function createFlightDeckDispatchView({
+  loadPage = listFlightDeckDispatchOutcomes,
+  createDeliveryPaths = createBotSubscriptionSection,
+} = {}) {
   const view = document.createElement('div');
   view.className = 'wm-flightdeck-dispatch';
   view.dataset.testid = 'flightdeck-dispatch-view';
@@ -228,9 +233,21 @@ export function createFlightDeckDispatchView({ loadPage = listFlightDeckDispatch
 
   let offset = 0;
   let loading = false;
+  let scopeFilter = null;
+  let generation = 0;
+  const deliveryPaths = createDeliveryPaths({
+    onScopeChange: ({ filter }) => {
+      scopeFilter = filter;
+      offset = 0;
+      // Drop the previous scope's rows now and ignore its in-flight response, so no bot's rows show under another.
+      content.replaceChildren(status);
+      void renderPage({ force: true });
+    },
+  });
 
-  async function renderPage() {
-    if (loading) return;
+  async function renderPage({ force = false } = {}) {
+    if (loading && !force) return;
+    const request = ++generation;
     loading = true;
     refresh.disabled = true;
     previous.disabled = true;
@@ -238,15 +255,20 @@ export function createFlightDeckDispatchView({ loadPage = listFlightDeckDispatch
     status.dataset.state = 'loading';
     status.textContent = 'Loading dispatch outcomes…';
     try {
-      const page = await loadPage({
+      const filter = scopeFilter;
+      const loaded = await loadPage({
         limit: FLIGHT_DECK_DISPATCH_PAGE_SIZE,
         offset,
         includeIgnoredAndSuppressed: includeFiltered.checked,
+        ...(filter || {}),
       });
+      if (request !== generation) return;
+      const page = { ...loaded, rows: scopeOutcomeRows(loaded.rows, filter) };
       content.replaceChildren();
       status.dataset.state = page.rows.length === 0 ? 'empty' : 'ready';
       if (page.rows.length === 0) {
-        status.textContent = offset > 0 ? 'No dispatch outcomes on this page.' : 'No Flight Deck dispatch outcomes recorded yet.';
+        status.textContent = offset > 0 ? 'No dispatch outcomes on this page.'
+          : filter ? 'No dispatch outcomes recorded for this delivery path yet.' : 'No Flight Deck dispatch outcomes recorded yet.';
         content.append(status);
       } else {
         const failedCount = page.rows.filter((row) => row?.outcome === 'failed').length;
@@ -257,23 +279,31 @@ export function createFlightDeckDispatchView({ loadPage = listFlightDeckDispatch
         }
         content.append(status, createDispatchTable(page.rows));
       }
+      const withheld = loaded.rows.length - page.rows.length;
+      if (withheld > 0) status.textContent += ` ${withheld} outcome${withheld === 1 ? '' : 's'} for other bots withheld.`;
       const pageNumber = Math.floor(offset / FLIGHT_DECK_DISPATCH_PAGE_SIZE) + 1;
       const pageCount = Math.max(1, Math.ceil(page.total / FLIGHT_DECK_DISPATCH_PAGE_SIZE));
       pageLabel.textContent = `Page ${pageNumber} of ${pageCount}`;
       previous.disabled = offset === 0;
-      next.disabled = offset + page.rows.length >= page.total;
+      next.disabled = offset + loaded.rows.length >= page.total;
     } catch (error) {
+      if (request !== generation) return;
       content.replaceChildren(status);
       status.dataset.state = 'error';
       status.textContent = error instanceof Error ? error.message : 'Failed to load Flight Deck dispatch outcomes.';
       previous.disabled = offset === 0;
     } finally {
-      loading = false;
-      refresh.disabled = false;
+      if (request === generation) {
+        loading = false;
+        refresh.disabled = false;
+      }
     }
   }
 
-  refresh.addEventListener('click', () => void renderPage());
+  refresh.addEventListener('click', () => {
+    void deliveryPaths.refreshBotSubscriptions?.();
+    void renderPage();
+  });
   includeFiltered.addEventListener('change', () => {
     offset = 0;
     void renderPage();
@@ -288,7 +318,7 @@ export function createFlightDeckDispatchView({ loadPage = listFlightDeckDispatch
   });
 
   section.append(controls, content, pagination);
-  view.append(header, section);
+  view.append(header, deliveryPaths, section);
   void renderPage();
   return view;
 }

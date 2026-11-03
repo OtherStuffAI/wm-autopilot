@@ -12,12 +12,16 @@ export async function listAgentChatSubscriptions() {
   return subscriptions;
 }
 
-export async function listFlightDeckDispatchOutcomes({ limit = 25, offset = 0, includeIgnoredAndSuppressed = false } = {}) {
+export async function listFlightDeckDispatchOutcomes({
+  limit = 25, offset = 0, includeIgnoredAndSuppressed = false, subscriptionId = null, agentId = null,
+} = {}) {
   const query = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
     includeIgnoredAndSuppressed: String(includeIgnoredAndSuppressed),
   });
+  if (subscriptionId) query.set('subscriptionId', subscriptionId);
+  if (agentId) query.set('agentId', agentId);
   const response = await fetch(`/api/agent-chat/dispatch-outcomes?${query.toString()}`, { credentials: 'include' });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {

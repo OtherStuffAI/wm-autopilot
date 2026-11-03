@@ -14,6 +14,7 @@ import { buildWorkspaceSettingsModel } from './workspace-settings-model.js';
 import { createWorkspaceDetails, disclosure, element } from './workspace-settings-details.js';
 import { workspaceSettingsDb, Dexie } from './workspace-settings-db.js';
 import { createAutopilotConnectPackageCard } from './autopilot-connect-package-card.js';
+import { listBotSubscriptions } from '../../services/bot-subscriptions.js';
 
 Alpine.data('workspaceSettingsView', () => ({
   snapshot: null,
@@ -77,7 +78,10 @@ export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
       for (const result of results) if (result.status === 'rejected') throw result.reason;
       const servers = buildWorkspaceSettingsModel(subscriptions.value, agents.value, connections.value);
       const transportDrafts = await workspaceSettingsDb.transportDrafts.toArray();
-      if (!stopped) await workspaceSettingsDb.views.put({ id: viewId, syncedAt: Date.now(), servers, transportDrafts,
+      // Per-bot status is optional: an unavailable route degrades this panel only, never the workspace list.
+      const deliveryPaths = await listBotSubscriptions().then((rows) => ({ rows, error: null }),
+        (error) => ({ rows: [], error: error?.message || 'Per-bot delivery status could not be loaded.' }));
+      if (!stopped) await workspaceSettingsDb.views.put({ id: viewId, syncedAt: Date.now(), servers, transportDrafts, deliveryPaths,
         canManage: subscriptions.value.permissions?.canManage === true });
       status.textContent = 'Updated just now. Nostr-discovered connections appear automatically.';
       status.className = 'wm-workspace-note';
@@ -170,7 +174,8 @@ export function createWorkspaceSettingsSection({ ownerNpub } = {}) {
       }
       nav.append(group);
     }
-    if (selected) layout.append(nav, createWorkspaceDetails(selected, { canManage: snapshot.canManage, busy, onAction: runAction, onRemove: remove }));
+    if (selected) layout.append(nav, createWorkspaceDetails(selected, { canManage: snapshot.canManage, busy, onAction: runAction, onRemove: remove,
+      deliveryPaths: snapshot.deliveryPaths }));
     else if (workspaces.length) layout.append(nav, element('p', 'The linked workspace is no longer available. Select a workspace.', 'wm-workspace-error'));
     else {
       const empty = element('section', '', 'wm-card wm-workspace-detail');
