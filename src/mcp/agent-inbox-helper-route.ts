@@ -147,8 +147,10 @@ async function viaReceipt(call: InboxHelperCall, deps: InboxHelperRouteDeps, ent
   const response = await call.runAction();
   if (!RECEIPT_UPDATES.has(call.action) || !response.ok) return response;
   const json = await response.clone().json().catch(() => null) as Record<string, any> | null;
-  store.followUpdate(call.target.subscriptionId, receipt,
-    parseWorkReceipt(json?.result?.work_receipt, { entityType, entityId: receipt.entityId, originNotificationId: receipt.originNotificationId }));
+  const next = parseWorkReceipt(json?.result?.work_receipt, { entityType, entityId: receipt.entityId, originNotificationId: receipt.originNotificationId });
+  // Followed only when it names the version this very update produced; otherwise later follow-ups fail closed.
+  const updatedVersion = Number((entityType === 'doc' ? json?.result?.doc : json?.result?.task)?.row_version);
+  store.followUpdate(call.target.subscriptionId, receipt, next && next.rowVersion > receipt.rowVersion && next.rowVersion === updatedVersion ? next : null);
   return response;
 }
 

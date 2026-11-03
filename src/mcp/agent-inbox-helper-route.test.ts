@@ -149,13 +149,20 @@ describe('strict-inbox work receipts: follow-ups on the bot\'s own output', () =
 
   test('an own update follows Tower\'s advanced receipt; without one the receipt is dropped and later reads fail closed', async () => {
     const f = await withDoc();
-    f.set({ response: { ok: true, result: { doc: { id: 'doc-9' }, work_receipt: docReceipt({ receipt_row_version: 2, body_sha256_hex: OTHER_SHA }) } } });
+    f.set({ response: { ok: true, result: { doc: { id: 'doc-9', row_version: 2 }, work_receipt: docReceipt({ receipt_row_version: 2, body_sha256_hex: OTHER_SHA }) } } });
     expect((await f.call('doc_update', { ids: { documentId: 'doc-9' } })).status).toBe(200);
     expect(f.receipts.get('sub-1', 'doc', 'doc-9')).toMatchObject({ rowVersion: 2, bodySha256Hex: OTHER_SHA });
     f.set({ doc: docResult(2, OTHER_SHA), response: { ok: true, result: { doc: { id: 'doc-9' } } } });
     expect((await f.call('doc_update', { ids: { documentId: 'doc-9' } })).status).toBe(200);
     expect(f.receipts.get('sub-1', 'doc', 'doc-9')).toBeNull();
     expect(await code(await f.call('doc_get', { ids: { documentId: 'doc-9' } }))).toEqual([403, 'agent_inbox_no_bound_notification']);
+  });
+
+  test('an advanced receipt not matching the version the update produced is not followed', async () => {
+    const f = await withDoc();
+    f.set({ response: { ok: true, result: { doc: { id: 'doc-9', row_version: 3 }, work_receipt: docReceipt({ receipt_row_version: 2 }) } } });
+    expect((await f.call('doc_update', { ids: { documentId: 'doc-9' } })).status).toBe(200);
+    expect(f.receipts.get('sub-1', 'doc', 'doc-9')).toBeNull();
   });
 
   test('an update or task comment on changed output is refused before anything is written', async () => {
