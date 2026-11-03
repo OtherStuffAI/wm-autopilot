@@ -102,7 +102,7 @@ import { loadYokeBotHelpers } from './yoke-bot-helpers';
 import { decryptRecordPayloadWithYoke } from './yoke-record-payload';
 import { hydrateDirectChatThread, hydrateFlightDeckPgChatEvent } from './direct-chat-tower-hydration';
 import { AgentInboxProcessor } from './agent-inbox-runtime';
-import { agentInboxStore, type AgentInboxMode, type AgentInboxState } from './agent-inbox-store';
+import { agentInboxStore, type AgentInboxMode, type AgentInboxState, type AgentInboxStore } from './agent-inbox-store';
 import { inboxAwareFetchers } from './agent-inbox-scope';
 import { normaliseDirectChatMessage } from './direct-chat-contract';
 import {
@@ -898,6 +898,10 @@ function evaluateTaskPipelineEligibility(input: {
 }
 
 export interface WorkspaceSubscriptionManagerDependencies {
+  /** Strict-inbox state store (defaults to the instance database; tests inject an isolated one). */
+  agentInboxStore?: AgentInboxStore;
+  /** Strict-inbox transport override (tests); production uses the subscription's Tower transport. */
+  agentInboxFetch?: (url: string, init: RequestInit) => Promise<Response>;
   store?: WorkspaceSubscriptionStore;
   agentStore?: AgentDefinitionStore;
   backendStore?: BackendConnectionStore;
@@ -1093,6 +1097,8 @@ export class WorkspaceSubscriptionManager {
   private readonly reconcileFlightDeckPgEventSubscriptionAgentsImpl: typeof reconcileFlightDeckPgEventSubscriptionAgents;
   private readonly fetchFlightDeckPgChannelMessagesImpl: typeof fetchFlightDeckPgChannelMessages;
   private readonly fetchFlightDeckPgChannelImpl: typeof fetchFlightDeckPgChannel;
+  private readonly inboxStore: AgentInboxStore;
+  private readonly agentInboxFetch?: (url: string, init: RequestInit) => Promise<Response>;
   private readonly fetchFlightDeckPgWorkroomContextImpl: typeof fetchFlightDeckPgWorkroomContext;
   private readonly decryptRecordPayloadImpl: typeof decryptRecordPayloadWithYoke;
   private readonly checkBackendHealthImpl: typeof checkBackendConnectionHealth;
@@ -1137,6 +1143,8 @@ export class WorkspaceSubscriptionManager {
     this.dispatchPipelineRuntime = deps.dispatchPipelineRuntime ?? null;
     this.fetchRecordHistoryImpl = deps.fetchRecordHistory ?? fetchRecordHistory;
     this.fetchWorkspaceKeyMappingsImpl = deps.fetchWorkspaceKeyMappings ?? fetchWorkspaceKeyMappings;
+    this.inboxStore = deps.agentInboxStore ?? agentInboxStore();
+    this.agentInboxFetch = deps.agentInboxFetch;
     this.fetchFlightDeckPgWorkspaceMeImpl = deps.fetchFlightDeckPgWorkspaceMe ?? fetchFlightDeckPgWorkspaceMe;
     this.fetchFlightDeckPgEventsImpl = deps.fetchFlightDeckPgEvents ?? fetchFlightDeckPgEvents;
     this.connectFlightDeckPgEventStreamImpl = deps.connectFlightDeckPgEventStream ?? connectFlightDeckPgEventStream;
@@ -3527,6 +3535,14 @@ export class WorkspaceSubscriptionManager {
     if (!record.workspaceId) {
       throw Object.assign(new Error('Flight Deck PG workspace id is required.'), { detailCode: 'workspace_id_missing' });
     }
+    if (this.inboxStore.isInboxRequired(record.subscriptionId)) {
+      // Strict-inbox profiles never call broad workspace routes (a classified bot is refused there). Access is verified
+      // by the inbox's own strict, membership-checked requests; failures surface as an inbox halt.
+      record.lastAuthResult = buildSuccessDiagnostic('Strict agent inbox: workspace access is verified by the inbox itself.', {
+        workspace_id: record.workspaceId, bot_npub: botIdentity.botNpub,
+      });
+      return this.saveRecord(this.recomputeHealth(record));
+    }
     try {
       const result = await this.fetchFlightDeckPgWorkspaceMeImpl({
         backendConnectionId: record.backendConnectionId, backendBaseUrl: record.backendBaseUrl,
@@ -3790,7 +3806,7 @@ export class WorkspaceSubscriptionManager {
     runtime.abortController = controller;
     record.sseStatus = 'connecting';
     this.saveRecord(this.recomputeHealth(record));
-    if (agentInboxStore().isInboxRequired(record.subscriptionId)) {
+    if (this.inboxStore.isInboxRequired(record.subscriptionId)) {
       // Opted-in profiles are served only by Tower's strict inbox: no /events, no audience, no fallback.
       void this.runAgentInboxLoop(record.subscriptionId, controller.signal);
       return;
@@ -3801,7 +3817,7 @@ export class WorkspaceSubscriptionManager {
   getAgentInboxStateForManager(subscriptionId: string, npub: string): AgentInboxState | null | undefined {
     const record = this.getForManager(subscriptionId, npub);
     if (!record) return undefined;
-    return agentInboxStore().get(subscriptionId);
+    return this.inboxStore.get(subscriptionId);
   }
 
   /** Explicit, operator-driven opt-in/out. Inbox mode is per bot identity, so only profile-bound subscriptions qualify. */
@@ -3812,7 +3828,7 @@ export class WorkspaceSubscriptionManager {
     if (mode === 'inbox_required' && !record.agentProfileId) {
       throw new Error('The strict agent inbox is per bot identity: enable it on a profile-bound subscription.');
     }
-    const state = agentInboxStore().setMode(subscriptionId, mode, `autopilot:${record.subscriptionId}`);
+    const state = this.inboxStore.setMode(subscriptionId, mode, `autopilot:${record.subscriptionId}`);
     if (record.sseStatus !== 'disabled' && !isRevokedWorkspaceSubscription(record)) {
       await this.repairSubscription(record, { refreshWorkspaceKey: false, reconnect: true, allowRegisterWhenInactive: false, reason: 'operator_reconnect' });
     }
@@ -3822,7 +3838,7 @@ export class WorkspaceSubscriptionManager {
   private async runAgentInboxLoop(subscriptionId: string, signal: AbortSignal): Promise<void> {
     const runtime = this.getRuntime(subscriptionId);
     const processor = new AgentInboxProcessor({
-      store: agentInboxStore(),
+      store: this.inboxStore,
       dispatch: (record, event) => this.dispatchFlightDeckPgEvent(record, event),
       // Handler evidence: chat/invocation history is keyed by the source id, task/document history by the event id
       // (= notification id). Entries written by the inbox itself are not evidence of handler acceptance.
@@ -3863,6 +3879,7 @@ export class WorkspaceSubscriptionManager {
           result = await processor.pollOnce(record, {
             backendConnectionId: record.backendConnectionId, subscriptionId: record.subscriptionId, backendBaseUrl: record.backendBaseUrl,
             workspaceId: record.workspaceId, appNpub: record.sourceAppNpub, botIdentity: identity, signal,
+            ...(this.agentInboxFetch ? { fetchImpl: this.agentInboxFetch } : {}),
           });
         } catch (error) {
           result = { status: 'backoff', code: getErrorDetailCode(error) ?? 'agent_inbox_failed', message: error instanceof Error ? error.message : String(error) };
@@ -3944,7 +3961,7 @@ export class WorkspaceSubscriptionManager {
 
   /** Profiles with an inbox-required, profile-bound subscription in the same workspace as `record`. */
   private inboxRequiredProfileIds(record: WorkspaceSubscriptionRecord): Set<string> {
-    const inbox = agentInboxStore();
+    const inbox = this.inboxStore;
     return new Set((record.managedByNpub ? this.listForManager(record.managedByNpub) : [])
       .filter((candidate) => candidate.agentProfileId && candidate.workspaceId === record.workspaceId && inbox.isInboxRequired(candidate.subscriptionId))
       .map((candidate) => candidate.agentProfileId!));
@@ -6905,6 +6922,8 @@ export class WorkspaceSubscriptionManager {
     if (!this.chatRuntime) {
       return;
     }
+    // Strict-inbox recovery is cursor/ledger based; legacy intercept replay would hydrate through raw reads.
+    if (this.inboxStore.isInboxRequired(record.subscriptionId)) return;
 
     const runtime = this.runtimes.get(record.subscriptionId);
     if (!runtime) {

@@ -69,9 +69,12 @@ const sha256Hex = (value: string) => createHash('sha256').update(value, 'utf8').
 /** Strict NIP-98: fresh event per request; stored keys sign locally, brokered identities via the capability broker. */
 export async function signStrictNip98(context: AgentInboxRequestContext, url: string, method: string, body: string): Promise<string> {
   const identity = context.botIdentity;
-  const actualUrl = 'towerTransport' in identity && identity.towerTransport
-    ? (await identity.towerTransport.prepare(url)).toString()
-    : await prepareTowerRequestUrl(url, { backendConnectionId: context.backendConnectionId, subscriptionId: context.subscriptionId });
+  // An injected fetch (tests/in-process proofs) has no Tower transport to prepare: sign the URL it will receive.
+  const actualUrl = context.fetchImpl
+    ? url
+    : 'towerTransport' in identity && identity.towerTransport
+      ? (await identity.towerTransport.prepare(url)).toString()
+      : await prepareTowerRequestUrl(url, { backendConnectionId: context.backendConnectionId, subscriptionId: context.subscriptionId });
   if ('signNip98' in identity) {
     // The broker binds the body hash when a body is present and always adds a unique nonce.
     return identity.signNip98({ url: actualUrl, method, body: body === '' ? undefined : body });
