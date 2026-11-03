@@ -118,8 +118,9 @@ export async function fetchFlightDeckDispatchContext(input: {
 }
 
 // Strict-inbox agent sessions: reads come only from the bound notification context served by the Autopilot helper;
-// writes go to Tower (which enforces notification binding); every other broad read is refused here.
-const INBOX_PASSTHROUGH_COMMANDS = new Set(['chat reply', 'task comment', 'doc reply', 'doc create', 'context']);
+// writes go through the same helper (the bot's own key, refused outside notified locations; Tower re-checks binding
+// for classified bots), never the generic Tower transport. Every other broad command is refused here.
+const INBOX_PASSTHROUGH_COMMANDS = new Set(['context']);
 
 async function dispatchInboxSession(
   client: FlightDeckPgClient, args: string[], flags: FlagMap, defaults: FlightDeckPgCliDefaults,
@@ -136,6 +137,22 @@ async function dispatchInboxSession(
   };
   const threadId = id ?? defaults.threadId ?? null;
   const taskId = id ?? defaults.taskId ?? null;
+  if (command === 'chat reply') {
+    return helper('chat_reply', {
+      channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, threadId: stringFlag(flags, '--thread') ?? defaults.threadId ?? null,
+      body: requiredFlag(flags, '--body', 'body'), ...mentionsFlag(flags),
+    });
+  }
+  if (command === 'task comment') {
+    return helper('task_comment', { taskId, body: requiredFlag(flags, '--body', 'body'), threadId: stringFlag(flags, '--thread') ?? null, ...mentionsFlag(flags) });
+  }
+  if (command === 'doc reply') return helper('doc_reply', { documentId: requiredArg(id, 'doc id'), body: requiredFlag(flags, '--body', 'body'), commentId: stringFlag(flags, '--comment') ?? null });
+  if (command === 'doc create') {
+    return helper('doc_create', {
+      channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, title: requiredFlag(flags, '--title', 'title'),
+      body: readTextFile(requiredFlag(flags, '--body-file', 'body file')),
+    });
+  }
   if (command === 'thread read') return helper('thread_read', { channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, threadId });
   if (command === 'task show') return helper('task_get', { taskId });
   if (command === 'task comments') return helper('task_comments', { taskId });
@@ -165,6 +182,17 @@ async function dispatchInboxSession(
     return { ok: true, documentId, out, bounded: true, notification_id: result.notification_id ?? null };
   }
   throw Object.assign(new Error(`'${command}' is not available to a strict-inbox agent session: reads are limited to the notified thread, task or document (agent_inbox_unbound_action).`), { code: 'agent_inbox_unbound_action' });
+}
+
+/** `--mentions-json '[{"type":"agent","npub":"npub1…","label":"Name"}]'`: explicit structured mentions (validated by the helper). */
+function mentionsFlag(flags: FlagMap): { mentions?: unknown } {
+  const raw = stringFlag(flags, '--mentions-json');
+  if (!raw) return {};
+  try {
+    return { mentions: JSON.parse(raw) };
+  } catch {
+    throw new Error('--mentions-json must be a JSON array of {type, npub, label} mentions.');
+  }
 }
 
 async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagMap, defaults: FlightDeckPgCliDefaults): Promise<unknown> {
@@ -520,6 +548,7 @@ Usage:
   bun clis/wingman.ts flightdeck thread read <thread-id> --workspace <workspace-id> --channel <channel-id> [--limit <page-size>] --json
     Reads all effective transcript pages; --limit is page size (1–500, default 200), not a total cap.
   bun clis/wingman.ts flightdeck chat reply --workspace <workspace-id> --channel <channel-id> --thread <thread-id> --body "..." --json
+    Strict-inbox sessions: chat reply / task comment accept --mentions-json '[{"type":"agent","npub":"npub1…","label":"Name"}]' (structured mentions route; visible tags alone do not).
   bun clis/wingman.ts flightdeck doc create --workspace <workspace-id> --channel <channel-id> --title "..." --body-file file.md --json
   bun clis/wingman.ts flightdeck doc download <doc-ref> --workspace <workspace-id> --out ./tmp/design.md --json
   bun clis/wingman.ts flightdeck doc move <doc-id> --workspace <workspace-id> --destination-channel <channel-id> [--destination-scope <scope-id>] --json

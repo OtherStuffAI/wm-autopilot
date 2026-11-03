@@ -4,7 +4,8 @@ import { handleContextTreeHelper } from "./context-tree-helper.ts";
 import { rootPipelineRunId } from "../pipelines/pipeline-run-authority";
 import { invokeNativeProjectTool } from '../pipelines/native-project-tool.ts';
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
-import { INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, isInboxSession, resolveInboxSessionScope, runInScope } from "./agent-inbox-session-helper";
+import { applyFlightDeckMentions } from "./flightdeck-mentions.ts";
+import { INBOX_BOUND_WRITE_ACTIONS, INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, isInboxSession, requireInboxWriteBinding, resolveInboxSessionScope, runInScope } from "./agent-inbox-session-helper";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
@@ -1412,6 +1413,13 @@ async function handleFlightDeckHelper(
     if (action.startsWith("context_tree_") || INBOX_REFUSED_ACTIONS.has(action)) {
       return Response.json({ error: `${action} is not available to a strict-inbox agent session.`, code: "agent_inbox_unbound_action" }, { status: 403 });
     }
+    if (INBOX_BOUND_WRITE_ACTIONS.has(action)) {
+      const refused = requireInboxWriteBinding(resolved.subscriptionId, action, {
+        channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
+        taskId: action === "task_comment" ? resolveTaskId(resolved, body) : null, documentId: action === "doc_reply" ? resolveDocumentId(resolved, body) : null,
+      });
+      if (refused) return refused;
+    }
     if (INBOX_READ_ACTIONS.has(action) || INBOX_SCOPED_WRITE_ACTIONS.has(action)) {
       const inboxTarget = {
         subscriptionId: resolved.subscriptionId, backendConnectionId: resolved.backendConnectionId ?? null, backendBaseUrl: resolved.backendBaseUrl!,
@@ -1638,10 +1646,12 @@ async function handleFlightDeckAction(
     const replyBody = asString(body.body);
     if (!channelId) return jsonError("channelId is required", 400);
     if (!replyBody) return jsonError("body is required", 400);
+    const mentioned = applyFlightDeckMentions(replyBody, body.mentions);
+    if ("error" in mentioned) return jsonError(mentioned.error, 400);
     const result = await createFlightDeckPgChannelMessage({
       ...pg,
       channelId,
-      body: replyBody,
+      body: mentioned.body,
       threadId: resolveThreadId(resolved, body),
       createThread: body.createThread === true,
       metadata: {
@@ -1650,9 +1660,10 @@ async function handleFlightDeckAction(
         source_pipeline_run_id: resolved.runId,
         source_record_id: asString(resolved.record.recordId),
         ...asObject(body.metadata),
+        ...(mentioned.metadata ?? {}),
       },
     });
-    return jsonOk({ ok: true, result });
+    return jsonOk({ ok: true, result, ...(mentioned.warnings.length ? { warnings: mentioned.warnings } : {}) });
   }
 
   if (action === "task_comment") {
@@ -1660,10 +1671,12 @@ async function handleFlightDeckAction(
     const commentBody = asString(body.body);
     if (!taskId) return jsonError("taskId is required", 400);
     if (!commentBody) return jsonError("body is required", 400);
+    const mentioned = applyFlightDeckMentions(commentBody, body.mentions);
+    if ("error" in mentioned) return jsonError(mentioned.error, 400);
     const result = await createFlightDeckPgTaskComment({
       ...pg,
       taskId,
-      body: commentBody,
+      body: mentioned.body,
       threadId: resolveThreadId(resolved, body),
       metadata: {
         autopilot_mcp_helper: true,
@@ -1671,9 +1684,10 @@ async function handleFlightDeckAction(
         source_pipeline_run_id: resolved.runId,
         source_record_id: asString(resolved.record.recordId),
         ...asObject(body.metadata),
+        ...(mentioned.metadata ?? {}),
       },
     });
-    return jsonOk({ ok: true, result });
+    return jsonOk({ ok: true, result, ...(mentioned.warnings.length ? { warnings: mentioned.warnings } : {}) });
   }
 
   if (action === "task_comments") {

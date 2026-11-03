@@ -1,6 +1,6 @@
 import { AgentInboxError, fetchAgentInboxAttachment, fetchAgentInboxContext } from '../agent-chat/agent-inbox-client';
 import { agentInboxScope, inboxAwareFetchers, type AgentInboxContext, type AgentInboxScope } from '../agent-chat/agent-inbox-scope';
-import { agentInboxStore } from '../agent-chat/agent-inbox-store';
+import { agentInboxStore, type AgentInboxStore } from '../agent-chat/agent-inbox-store';
 import type { FlightDeckPgBotIdentity } from '../agent-chat/tower-client';
 import { decodeFlightDeckPgDocumentBody, type FlightDeckPgDocumentResult } from '../agent-chat/tower-client';
 import { capturedDocumentBase } from '../flightdeck-pg/document-update-base';
@@ -14,6 +14,8 @@ import { capturedDocumentBase } from '../flightdeck-pg/document-update-base';
  */
 export const INBOX_READ_ACTIONS = new Set(['thread_read', 'doc_get', 'doc_comments', 'task_comments', 'task_get', 'attachment_get']);
 export const INBOX_SCOPED_WRITE_ACTIONS = new Set(['doc_update', 'task_state']);
+/** Writes allowed only into a location a handled notification binds (Autopilot-side; Tower re-checks when classified). */
+export const INBOX_BOUND_WRITE_ACTIONS = new Set(['chat_reply', 'task_comment', 'doc_reply', 'doc_create']);
 export const INBOX_REFUSED_ACTIONS = new Set(['transport_prepare', 'transport_request', 'record_sync_request', 'daily_scope_get', 'daily_scope_upsert']);
 
 export interface InboxSessionTarget {
@@ -42,6 +44,20 @@ export async function resolveInboxSessionScope(target: InboxSessionTarget, where
     if (error instanceof AgentInboxError) return refuse(error.code, error.message, error.status && error.status >= 400 ? error.status : 502);
     throw error;
   }
+}
+
+/**
+ * Refuses a write outside notified context. Chat replies need a notification in that thread, task comments in that
+ * task, document replies on that document; created documents need a notification in that channel.
+ */
+export function requireInboxWriteBinding(subscriptionId: string, action: string, ids: { channelId: string | null; threadId: string | null; taskId: string | null; documentId: string | null },
+  store: Pick<AgentInboxStore, 'latestBound' | 'boundInChannel'> = agentInboxStore()): Response | null {
+  const bound = action === 'chat_reply' ? Boolean(ids.threadId && store.latestBound(subscriptionId, { threadId: ids.threadId }))
+    : action === 'task_comment' ? Boolean(ids.taskId && store.latestBound(subscriptionId, { taskId: ids.taskId }))
+    : action === 'doc_reply' ? Boolean(ids.documentId && store.latestBound(subscriptionId, { docId: ids.documentId }))
+    : action === 'doc_create' ? Boolean(ids.channelId && store.boundInChannel(subscriptionId, ids.channelId))
+    : false;
+  return bound ? null : refuse('agent_inbox_write_unbound', `${action} is only available in a thread, task, document or channel this agent was notified about.`);
 }
 
 export function inboxLocation(action: string, ids: { channelId: string | null; threadId: string | null; taskId: string | null; documentId: string | null }) {

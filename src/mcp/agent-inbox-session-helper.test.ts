@@ -50,3 +50,47 @@ describe('strict-inbox attachment download (download-only, bound)', () => {
     expect(urls).toEqual(['https://tower.example/api/v4/flightdeck-pg/workspaces/ws/agent-notifications/n-1/attachments/obj-1']);
   });
 });
+
+describe('strict-inbox session writes are notification-bound', () => {
+  const { requireInboxWriteBinding } = require('./agent-inbox-session-helper');
+  const { AgentInboxStore } = require('../agent-chat/agent-inbox-store');
+  const { mkdtempSync, rmSync } = require('node:fs');
+  const { join } = require('node:path');
+  const { tmpdir } = require('node:os');
+
+  test('replies, task comments, doc replies and created docs need a handled notification for that location', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'inbox-writes-'));
+    try {
+      const store = new AgentInboxStore(join(dir, 'db.sqlite'));
+      store.setMode('sub-1', 'inbox_required', 'c');
+      const envelope = (id: string, source: Record<string, unknown>) => ({ id, seq: 1, state: 'active', kind: 'chat_mention',
+        source: { type: 'message', id: `src-${id}`, channel_id: 'channel-1', thread_id: null, task_id: null, doc_id: null, ...source } });
+      store.beginAttempt('sub-1', 'n-thread', 1, envelope('n-thread', { thread_id: 'thread-1' }));
+      store.beginAttempt('sub-1', 'n-task', 2, envelope('n-task', { type: 'task_comment', task_id: 'task-1' }));
+      store.beginAttempt('sub-1', 'n-doc', 3, envelope('n-doc', { type: 'doc_comment', doc_id: 'doc-1' }));
+      const ids = (patch: Record<string, string | null>) => ({ channelId: null, threadId: null, taskId: null, documentId: null, ...patch });
+      const allowed = [
+        ['chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-1' })],
+        ['task_comment', ids({ taskId: 'task-1' })],
+        ['doc_reply', ids({ documentId: 'doc-1' })],
+        ['doc_create', ids({ channelId: 'channel-1' })],
+      ] as const;
+      for (const [action, where] of allowed) expect([action, requireInboxWriteBinding('sub-1', action, where, store)]).toEqual([action, null]);
+      const refused = [
+        ['chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-other' })],
+        ['chat_reply', ids({ channelId: 'channel-1' })],
+        ['task_comment', ids({ taskId: 'task-other' })],
+        ['doc_reply', ids({ documentId: 'doc-other' })],
+        ['doc_create', ids({ channelId: 'channel-other' })],
+      ] as const;
+      for (const [action, where] of refused) {
+        const response = requireInboxWriteBinding('sub-1', action, where, store);
+        expect([action, response?.status, (await response?.json())?.code]).toEqual([action, 403, 'agent_inbox_write_unbound']);
+      }
+      // Another subscription's ledger never authorizes this one.
+      expect(requireInboxWriteBinding('sub-2', 'chat_reply', ids({ threadId: 'thread-1' }), store)?.status).toBe(403);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

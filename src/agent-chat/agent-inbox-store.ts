@@ -191,6 +191,13 @@ export class AgentInboxStore {
     return row ? JSON.parse(row.envelope_json) as AgentInboxEnvelopeLike : null;
   }
 
+  /** True when this subscription handled any notification sourced in the channel (documents/files created there). */
+  boundInChannel(subscriptionId: string, channelId: string): boolean {
+    if (!this.hasSchema() || !channelId) return false;
+    return Boolean(this.db.query('SELECT 1 AS ok FROM agent_inbox_ledger WHERE subscription_id = ?1 AND source_channel_id = ?2 AND envelope_json IS NOT NULL LIMIT 1')
+      .get(subscriptionId, channelId));
+  }
+
   /** The handled outcome is durable before the ack, so a crash between them never re-executes the work. */
   markHandled(subscriptionId: string, notificationId: string, seq: number, outcome: string, code: string | null) {
     this.ensureSchema();

@@ -101,4 +101,41 @@ describe('flightdeck CLI in a strict-inbox agent session', () => {
     expect(r.helperActions.filter((a) => a !== 'context')).toEqual(['doc_get', 'task_state', 'attachment_get']);
     expect(r.towerRequests).toEqual([]);
   });
+
+  test('writes (chat reply, task comment, doc reply, doc create) go through the bound helper, never generic transport', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'inbox-cli-'));
+    dirs.push(dir);
+    const bodyFile = join(dir, 'body.md');
+    await Bun.write(bodyFile, '# Notes');
+    const helperBodies: Array<Record<string, unknown>> = [];
+    const r = router({
+      chat_reply: { ok: true, result: { message: { id: 'msg-1' } } },
+      task_comment: { ok: true, result: { comment: { id: 'c-1' } } },
+      doc_reply: { ok: true, result: { comment: { id: 'dc-1' } } },
+      doc_create: { ok: true, result: { doc: { id: 'doc-2' } } },
+    });
+    const capture = (async (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).pathname === '/api/mcp/wingman/flightdeck') helperBodies.push(await request.clone().json());
+      return r.fetchImpl(request);
+    }) as typeof fetch;
+    const mention = JSON.stringify([{ type: 'agent', npub: 'npub1target', label: 'Brick' }]);
+    const runs = [
+      ['chat', 'reply', '--channel', 'channel-1', '--thread', 'thread-1', '--body', 'hello', '--mentions-json', mention],
+      ['task', 'comment', 'task-1', '--body', 'noted'],
+      ['doc', 'reply', 'doc-1', '--body', 'agreed', '--comment', 'root-1'],
+      ['doc', 'create', '--channel', 'channel-1', '--title', 'Notes', '--body-file', bodyFile],
+    ];
+    for (const argv of runs) {
+      const result = await runFlightDeckPgCli([...argv, '--json'], { fetchImpl: capture });
+      expect([argv.slice(0, 2).join(' '), result.exitCode, result.stderr ?? '']).toEqual([argv.slice(0, 2).join(' '), 0, '']);
+    }
+    const writes = helperBodies.filter((body) => body.action !== 'context');
+    expect(writes.map((body) => body.action)).toEqual(['chat_reply', 'task_comment', 'doc_reply', 'doc_create']);
+    expect(writes[0]).toMatchObject({ channelId: 'channel-1', threadId: 'thread-1', body: 'hello', mentions: [{ type: 'agent', npub: 'npub1target', label: 'Brick' }] });
+    expect(writes[2]).toMatchObject({ documentId: 'doc-1', commentId: 'root-1' });
+    expect(writes[3]).toMatchObject({ channelId: 'channel-1', title: 'Notes', body: '# Notes' });
+    expect(helperBodies.some((body) => body.action === 'transport_prepare')).toBe(false);
+    expect(r.towerRequests).toEqual([]);
+  });
 });
