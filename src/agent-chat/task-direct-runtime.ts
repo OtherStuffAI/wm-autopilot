@@ -278,6 +278,8 @@ export class TaskDirectRuntime {
         const prompt = this.buildPrompt({ state: this.store.get(routingKey)!, hydrated, queued });
         const reply = await (this.deps.sendFinalResponse ?? sendPromptAndAwaitFinalResponse)(
           this.deps.processManager, session.id, prompt,
+          // Strict inbox: the batched turn acts for its latest trigger's notification (recorded at activation).
+          { inboxTurn: { subscriptionId: latest.input.subscription.subscriptionId, eventId: latest.trigger.eventId } },
         );
         const result = await (this.deps.publish ?? createFlightDeckPgTaskComment)({
           backendConnectionId: latest.input.subscription.backendConnectionId, backendBaseUrl: latest.input.subscription.backendBaseUrl,

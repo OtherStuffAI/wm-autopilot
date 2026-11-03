@@ -6,7 +6,7 @@ import { invokeNativeProjectTool } from '../pipelines/native-project-tool.ts';
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
 import { applyFlightDeckMentions } from "./flightdeck-mentions.ts";
 import { parseSessionFileUpload, uploadSessionFileToChannel } from "./flightdeck-file-upload.ts";
-import { INBOX_BOUND_WRITE_ACTIONS, INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, isInboxSession, requireInboxWriteBinding, resolveInboxSessionScope, runInScope } from "./agent-inbox-session-helper";
+import { INBOX_BOUND_WRITE_ACTIONS, INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, inboxOriginOwner, isInboxSession, resolveInboxReadOrigin, resolveInboxSessionScope, resolveInboxWriteOrigin, runInScope } from "./agent-inbox-session-helper";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
@@ -1201,6 +1201,8 @@ function handleDeleteMemory(
 interface FlightDeckMcpContext {
   session: SessionSnapshot;
   runId: string | null;
+  /** Root of the session's pipeline run tree (strict-inbox run origin owner). */
+  rootRunId: string | null;
   run: { input: JsonObject; current: JsonObject } | null;
   root: JsonObject;
   workspace: JsonObject;
@@ -1298,6 +1300,7 @@ function resolveFlightDeckMcpContext(
   return {
     session,
     runId,
+    rootRunId: runId && deps.pipelineStore ? rootPipelineRunId(deps.pipelineStore, runId) : runId,
     run: run ? { input: run.input, current: run.current } : null,
     root,
     workspace,
@@ -1414,22 +1417,24 @@ async function handleFlightDeckHelper(
     if (action.startsWith("context_tree_") || INBOX_REFUSED_ACTIONS.has(action)) {
       return Response.json({ error: `${action} is not available to a strict-inbox agent session.`, code: "agent_inbox_unbound_action" }, { status: 403 });
     }
+    // Every call acts for the exact notification this session (or its run/worker snapshot) acts for; never another.
+    const owner = inboxOriginOwner({ session: resolved.session, rootRunId: resolved.rootRunId, subscriptionId: resolved.subscriptionId });
+    const ids = {
+      channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
+      taskId: action.startsWith("task_") ? resolveTaskId(resolved, body) : null, documentId: action.startsWith("doc_") ? resolveDocumentId(resolved, body) : null,
+    };
     if (INBOX_BOUND_WRITE_ACTIONS.has(action)) {
-      const refused = requireInboxWriteBinding(resolved.subscriptionId, action, {
-        channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
-        taskId: action === "task_comment" ? resolveTaskId(resolved, body) : null, documentId: action === "doc_reply" ? resolveDocumentId(resolved, body) : null,
-      });
-      if (refused) return refused;
+      const origin = resolveInboxWriteOrigin(owner, action, ids);
+      if (origin instanceof Response) return origin;
     }
     if (INBOX_READ_ACTIONS.has(action) || INBOX_SCOPED_WRITE_ACTIONS.has(action)) {
       const inboxTarget = {
         subscriptionId: resolved.subscriptionId, backendConnectionId: resolved.backendConnectionId ?? null, backendBaseUrl: resolved.backendBaseUrl!,
         workspaceId: resolved.workspaceId!, appNpub: resolved.appNpub!, botIdentity: resolved.botIdentity!,
       };
-      const scope = await resolveInboxSessionScope(inboxTarget, inboxLocation(action, {
-        channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
-        taskId: action.startsWith("task_") ? resolveTaskId(resolved, body) : null, documentId: action.startsWith("doc_") ? resolveDocumentId(resolved, body) : null,
-      }));
+      const origin = INBOX_SCOPED_WRITE_ACTIONS.has(action) ? resolveInboxWriteOrigin(owner, action, ids) : resolveInboxReadOrigin(owner, inboxLocation(action, ids));
+      if (origin instanceof Response) return origin;
+      const scope = await resolveInboxSessionScope(inboxTarget, origin);
       if (scope instanceof Response) return scope;
       if (action === "attachment_get") return answerInboxAttachment(inboxTarget, scope, asString(body.storageObjectId) ?? asString(body.storage_object_id));
       if (INBOX_READ_ACTIONS.has(action)) return answerInboxRead(action, scope);

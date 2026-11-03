@@ -534,6 +534,7 @@ export class AgentDirectChatRuntime {
           }
           const recovered = sessionResolution.bootstrap
             ? await this.sendFinalResponse(this.deps.processManager, session.id, recoveryPrompt, {
+                inboxTurn: { subscriptionId: input.subscription.subscriptionId, eventId: input.event.id },
                 onAccepted: () => {
                   assertCurrentHumanTurn(this.turnStore, pending.turnId);
                   this.enrichment.store.accepted(pending.turnId, session.id);
@@ -653,6 +654,7 @@ export class AgentDirectChatRuntime {
         let reply;
         try {
           reply = await this.sendFinalResponse(this.deps.processManager, session.id, prompt, {
+            inboxTurn: { subscriptionId: input.subscription.subscriptionId, eventId: input.event.id },
             onAccepted, onPoll: () => { assertCurrentHumanTurn(this.turnStore, turnId); return activity?.commentary(); },
           });
         } catch (error) {
@@ -686,6 +688,7 @@ export class AgentDirectChatRuntime {
             leaseExpiresAt: this.deps.deliveryReconciler ? new Date(Date.now() + DIRECT_CHAT_SUBMISSION_LEASE_MS + 60000).toISOString() : null,
             updatedAt: new Date().toISOString() });
           reply = await this.sendFinalResponse(this.deps.processManager, session.id, prompt, {
+            inboxTurn: { subscriptionId: input.subscription.subscriptionId, eventId: input.event.id },
             onAccepted, onPoll: () => { assertCurrentHumanTurn(this.turnStore, turnId); return activity?.commentary(); },
           });
         }

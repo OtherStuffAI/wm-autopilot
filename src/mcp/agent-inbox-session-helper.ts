@@ -1,6 +1,9 @@
 import { AgentInboxError, fetchAgentInboxAttachment, fetchAgentInboxContext } from '../agent-chat/agent-inbox-client';
 import { agentInboxScope, inboxAwareFetchers, type AgentInboxContext, type AgentInboxScope } from '../agent-chat/agent-inbox-scope';
 import { agentInboxStore, type AgentInboxStore } from '../agent-chat/agent-inbox-store';
+import {
+  currentInboxOrigin, inboxOriginCandidates, type AgentInboxOriginStore, liveInboxOrigin, originCovers, type InboxLocation, type InboxOriginOwner, type LiveOrigin,
+} from '../agent-chat/agent-inbox-origins';
 import type { FlightDeckPgBotIdentity } from '../agent-chat/tower-client';
 import { decodeFlightDeckPgDocumentBody, type FlightDeckPgDocumentResult } from '../agent-chat/tower-client';
 import { capturedDocumentBase } from '../flightdeck-pg/document-update-base';
@@ -8,14 +11,17 @@ import { capturedDocumentBase } from '../flightdeck-pg/document-update-base';
 /**
  * Agent session tools (MCP helper, and the CLI through it) for a subscription opted into the strict inbox.
  *
- * Reads are answered ONLY from the recipient-bound context of the newest notification this subscription handled for
- * the requested thread/task/document, fetched with the bot's own key. Generic Tower proxies are refused. Writes go to
- * Tower unchanged (Tower enforces notification binding for classified bots); their pre-reads run inside the scope.
+ * Every call acts for the exact notification the session was started or prompted for (agent-inbox-origins): reads are
+ * answered ONLY from that notification's recipient-bound context (or an earlier turn of the same session), fetched with
+ * the bot's own key. Writes go only into the location the current origin binds; Tower re-checks for classified bots.
+ * Generic Tower proxies are refused.
  */
 export const INBOX_READ_ACTIONS = new Set(['thread_read', 'doc_get', 'doc_comments', 'task_comments', 'task_get', 'attachment_get']);
 export const INBOX_SCOPED_WRITE_ACTIONS = new Set(['doc_update', 'task_state']);
 /** Writes allowed only into a location a handled notification binds (Autopilot-side; Tower re-checks when classified). */
 export const INBOX_BOUND_WRITE_ACTIONS = new Set(['chat_reply', 'task_comment', 'doc_reply', 'doc_create', 'file_upload']);
+/** Creations bound to the origin's channel. */
+const INBOX_CHANNEL_CREATE_ACTIONS = new Set(['doc_create', 'file_upload']);
 export const INBOX_REFUSED_ACTIONS = new Set(['transport_prepare', 'transport_request', 'record_sync_request', 'daily_scope_get', 'daily_scope_upsert']);
 
 export interface InboxSessionTarget {
@@ -33,34 +39,73 @@ export function isInboxSession(subscriptionId: string | null | undefined): subsc
   return Boolean(subscriptionId && agentInboxStore().isInboxRequired(subscriptionId));
 }
 
-/** Resolves the scope for a location, or a refusal. Never falls back to a raw Tower read. */
-export async function resolveInboxSessionScope(target: InboxSessionTarget, where: { channelId?: string | null; threadId?: string | null; taskId?: string | null; docId?: string | null }): Promise<AgentInboxScope | Response> {
-  const envelope = agentInboxStore().latestBound(target.subscriptionId, where);
-  if (!envelope) return refuse('agent_inbox_no_bound_notification', 'No strict-inbox notification binds this location for this agent; reads outside notified context are not available.');
+/** Who a helper call acts for: a worker's immutable snapshot, its pipeline run's origin, or the session's own turns. */
+export function inboxOriginOwner(ctx: { session: { id: string; metadata?: { role?: string } | null }; rootRunId: string | null; subscriptionId: string }): InboxOriginOwner {
+  return { sessionId: ctx.session.id, runId: ctx.rootRunId, subscriptionId: ctx.subscriptionId, worker: ctx.session.metadata?.role === 'dispatched-worker' };
+}
+
+/** A live origin that binds the requested location. */
+export type BoundOrigin = Extract<LiveOrigin, { ok: true }>;
+
+/** Store overrides (tests); the shared instance stores are used otherwise. */
+export interface InboxOriginStores {
+  inbox?: Pick<AgentInboxStore, 'bindingRecord' | 'get'>;
+  origins?: Pick<AgentInboxOriginStore, 'history'>;
+}
+
+const refuseOrigin = (code: string) => refuse(code, code === 'agent_inbox_no_origin'
+  ? 'This session was not started for a strict-inbox notification; it cannot act on notified context.'
+  : 'The notification this session acts for is no longer live (failed, revoked, before the subscription floor or unknown).');
+
+/**
+ * Read origin: the session's current origin, else an earlier turn of the SAME session that covers the location. Never
+ * another session's notification and never a newer notification for the location.
+ */
+export function resolveInboxReadOrigin(owner: InboxOriginOwner, where: InboxLocation, stores: InboxOriginStores = {}): BoundOrigin | Response {
+  const candidates = inboxOriginCandidates(owner, stores.origins);
+  if (!candidates.length) return refuseOrigin('agent_inbox_no_origin');
+  for (const candidate of candidates) {
+    const live = liveInboxOrigin(candidate, stores.inbox);
+    if (live.ok && originCovers(live.envelope, where)) return live;
+  }
+  return refuse('agent_inbox_no_bound_notification', 'No notification this session acts for binds this location; reads outside notified context are not available.');
+}
+
+/** Where each write must be: a thread, task or document of the origin, or its channel for creations. */
+export function writeLocation(action: string, ids: { channelId: string | null; threadId: string | null; taskId: string | null; documentId: string | null }): InboxLocation & { channelOnly?: boolean } {
+  if (action === 'task_comment' || action === 'task_state') return { taskId: ids.taskId };
+  if (action === 'doc_reply' || action === 'doc_update') return { docId: ids.documentId };
+  if (INBOX_CHANNEL_CREATE_ACTIONS.has(action)) return { channelId: ids.channelId, channelOnly: true };
+  return { channelId: ids.channelId, threadId: ids.threadId };
+}
+
+/**
+ * Write origin: ONLY the origin the session acts for right now (current turn, or the worker/run snapshot). It must be
+ * live and must bind the target. There is no fallback to other notifications or sessions.
+ */
+export function resolveInboxWriteOrigin(owner: InboxOriginOwner, action: string, ids: { channelId: string | null; threadId: string | null; taskId: string | null; documentId: string | null },
+  stores: InboxOriginStores = {}): BoundOrigin | Response {
+  const live = liveInboxOrigin(currentInboxOrigin(owner, stores.origins), stores.inbox);
+  if (!live.ok) return refuseOrigin(live.code);
+  const where = writeLocation(action, ids);
+  if (!originCovers(live.envelope, where)) {
+    return refuse('agent_inbox_write_unbound', `${action} is only available in the thread, task, document or channel of the notification this session acts for.`);
+  }
+  return live;
+}
+
+/** Recipient-bound context of an exact live origin, fetched with the bot's own key (never a raw Tower read). */
+export async function resolveInboxSessionScope(target: InboxSessionTarget, origin: BoundOrigin): Promise<AgentInboxScope | Response> {
   try {
-    const context = await fetchAgentInboxContext<AgentInboxContext>({ ...target }, envelope.id);
-    return { notification: envelope as any, context, profileNpub: target.botIdentity.botNpub };
+    const context = await fetchAgentInboxContext<AgentInboxContext>({ ...target }, origin.envelope.id);
+    return { notification: origin.envelope as any, context, profileNpub: target.botIdentity.botNpub, subscriptionId: target.subscriptionId };
   } catch (error) {
     if (error instanceof AgentInboxError) return refuse(error.code, error.message, error.status && error.status >= 400 ? error.status : 502);
     throw error;
   }
 }
 
-/**
- * Refuses a write outside notified context. Chat replies need a notification in that thread, task comments in that
- * task, document replies on that document; created documents and uploaded files need a notification in that channel.
- */
-export function requireInboxWriteBinding(subscriptionId: string, action: string, ids: { channelId: string | null; threadId: string | null; taskId: string | null; documentId: string | null },
-  store: Pick<AgentInboxStore, 'latestBound' | 'boundInChannel'> = agentInboxStore()): Response | null {
-  const bound = action === 'chat_reply' ? Boolean(ids.threadId && store.latestBound(subscriptionId, { threadId: ids.threadId }))
-    : action === 'task_comment' ? Boolean(ids.taskId && store.latestBound(subscriptionId, { taskId: ids.taskId }))
-    : action === 'doc_reply' ? Boolean(ids.documentId && store.latestBound(subscriptionId, { docId: ids.documentId }))
-    : action === 'doc_create' || action === 'file_upload' ? Boolean(ids.channelId && store.boundInChannel(subscriptionId, ids.channelId))
-    : false;
-  return bound ? null : refuse('agent_inbox_write_unbound', `${action} is only available in a thread, task, document or channel this agent was notified about.`);
-}
-
-export function inboxLocation(action: string, ids: { channelId: string | null; threadId: string | null; taskId: string | null; documentId: string | null }) {
+export function inboxLocation(action: string, ids: { channelId: string | null; threadId: string | null; taskId: string | null; documentId: string | null }): InboxLocation {
   if (action.startsWith('task_')) return { taskId: ids.taskId };
   if (action.startsWith('doc_')) return { docId: ids.documentId };
   return { channelId: ids.channelId, threadId: ids.threadId };

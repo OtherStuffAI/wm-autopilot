@@ -2,6 +2,7 @@ import {
   AgentInboxError, ackAgentInboxNotification, createAgentInboxSubscription, fetchAgentInboxContext, listAgentInbox,
   type AgentInboxAckOutcome, type AgentInboxEnvelope, type AgentInboxRequestContext,
 } from './agent-inbox-client';
+import { beginActiveInboxAttempt } from './agent-inbox-origins';
 import { AgentInboxUnboundReadError, agentInboxScope, synthesizeInboxEvents, type AgentInboxContext } from './agent-inbox-scope';
 import type { AgentInboxStore } from './agent-inbox-store';
 import type { FlightDeckPgEvent } from './tower-client';
@@ -157,11 +158,15 @@ export class AgentInboxProcessor {
     const profileNpub = request.botIdentity.botNpub;
     const events = synthesizeInboxEvents(n, context, profileNpub);
     if (!events.length) return this.finish(record, request, subscriptionId, n, 'suppressed', 'unsupported_kind');
+    // Writes made inline by this attempt's session turns act for exactly this notification until its outcome is recorded.
+    const endAttempt = beginActiveInboxAttempt(record.subscriptionId, n.id);
     try {
       for (const event of events) {
-        await agentInboxScope.run({ notification: n, context, profileNpub }, () => this.deps.dispatch(record, event));
+        await agentInboxScope.run({ notification: n, context, profileNpub, subscriptionId: record.subscriptionId, dispatch: true },
+          () => this.deps.dispatch(record, event));
       }
     } catch (error) {
+      endAttempt();
       this.lastError = error;
       if (error instanceof AgentInboxUnboundReadError) {
         return this.finish(record, request, subscriptionId, n, 'failed_permanent', 'context_unbound', error.message);
@@ -171,6 +176,7 @@ export class AgentInboxProcessor {
       if (status === 403) return this.finish(record, request, subscriptionId, n, 'failed_permanent', String((error as { detailCode?: unknown })?.detailCode ?? 'write_refused'), error instanceof Error ? error.message : undefined);
       return 'retry';
     }
+    endAttempt(); // finish() records the handled outcome synchronously, so the origin stays live without a gap.
     return this.finish(record, request, subscriptionId, n, 'handled', null);
   }
 }

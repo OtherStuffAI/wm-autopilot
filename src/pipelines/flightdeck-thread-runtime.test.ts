@@ -264,7 +264,8 @@ describe("strict-inbox pipeline invocation routing", () => {
       fetchChannels: async () => { towerReads.push("channels"); return { channels: [], next_cursor: null }; },
       fetchMessages: async () => { towerReads.push("messages"); return { messages: [], next_cursor: null }; },
       createMessage: async (params: any) => { sent.push(params); return { message: { id: "reply-1" } }; },
-      inboxBinding: { isInboxSubscription: (id) => id === "piper-sub", boundThreadChannel: (id, thread) => (id === "piper-sub" && thread === threadId ? bound : null) },
+      inboxBinding: { isInboxSubscription: (id) => id === "piper-sub",
+        runOriginChannel: (id, run, thread) => (id === "piper-sub" && run === "run-1" && thread === threadId ? bound : null) },
     });
     return { runtime, towerReads, sent };
   }
@@ -288,16 +289,19 @@ describe("strict-inbox pipeline invocation routing", () => {
     expect(towerReads).toEqual([]);
   });
 
-  test("replies only into the ledger-bound thread and channel, without validation reads", async () => {
+  test("replies only into the thread and channel of the run's own origin, without validation reads", async () => {
     const { AgentInboxUnboundReadError } = await import("../agent-chat/agent-inbox-scope");
     const bound = inboxRuntime("channel-7");
-    const delivered = await bound.runtime.send({ ...invocation, channelId: "channel-7", scopeId: "scope-9", message: "Answer" } as any);
+    const delivered = await bound.runtime.send({ ...invocation, channelId: "channel-7", scopeId: "scope-9", message: "Answer", pipelineRunId: "run-1" } as any);
     expect(delivered).toMatchObject({ delivered: true, channelId: "channel-7", messageId: "reply-1" });
     expect(bound.sent[0]).toMatchObject({ channelId: "channel-7", threadId });
-    await expect(bound.runtime.send({ ...invocation, channelId: "channel-other", message: "x" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
-    await expect(bound.runtime.send({ ...invocation, message: "x" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+    await expect(bound.runtime.send({ ...invocation, channelId: "channel-other", message: "x", pipelineRunId: "run-1" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+    await expect(bound.runtime.send({ ...invocation, message: "x", pipelineRunId: "run-1" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+    // Another run (or no run) never borrows a notification bound to the same thread.
+    await expect(bound.runtime.send({ ...invocation, channelId: "channel-7", message: "x", pipelineRunId: "run-2" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+    await expect(bound.runtime.send({ ...invocation, channelId: "channel-7", message: "x" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
     const unbound = inboxRuntime(null);
-    await expect(unbound.runtime.send({ ...invocation, channelId: "channel-7", message: "x" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
+    await expect(unbound.runtime.send({ ...invocation, channelId: "channel-7", message: "x", pipelineRunId: "run-1" } as any)).rejects.toBeInstanceOf(AgentInboxUnboundReadError);
     expect([...bound.towerReads, ...unbound.towerReads]).toEqual([]);
     expect(unbound.sent).toEqual([]);
   });

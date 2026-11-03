@@ -5,6 +5,7 @@ import { matchesCodexPrompt } from '../agents/codex-session-discovery';
 import { waitForSessionPromptReadiness } from '../server/session-readiness';
 import type { AssistantReplyResult, AssistantReplyWaitOptions } from './session-runtime-session-ops';
 import { isDirectChatFinalReady } from './direct-chat-final-readiness';
+import { recordInboxTurn, retractInboxTurn } from './agent-inbox-origins';
 
 const SESSION_READY_TIMEOUT_MS = 120_000;
 const ASSISTANT_REPLY_TIMEOUT_MS = 300_000;
@@ -55,7 +56,7 @@ export async function sendPromptAndAwaitFinalResponse(
   manager: ProcessManager,
   sessionId: string,
   prompt: string,
-  waitOptions?: Pick<AssistantReplyWaitOptions, 'timeoutMs' | 'pollIntervalMs' | 'onAccepted' | 'onPoll' | 'promptBoundaryTimeoutMs'>,
+  waitOptions?: Pick<AssistantReplyWaitOptions, 'timeoutMs' | 'pollIntervalMs' | 'onAccepted' | 'onPoll' | 'promptBoundaryTimeoutMs' | 'inboxTurn'>,
 ): Promise<AssistantReplyResult> {
   const adapter = manager.getAdapter(sessionId);
   if (!adapter) throw new Error(`No adapter available for session ${sessionId}.`);
@@ -70,6 +71,9 @@ export async function sendPromptAndAwaitFinalResponse(
     ? await resolveAuthoritativeSessionMessages(initialSession, initialMessages, { requireNative: true }).catch(() => [])
     : initialMessages;
   const sentAtMs = Date.now();
+  // Strict inbox: from this prompt on, the session's tool calls act for exactly this turn's notification (activation,
+  // after prompt readiness; never at enqueue). A definite delivery failure retracts it.
+  const inboxTurnRow = recordInboxTurn(sessionId, waitOptions?.inboxTurn);
   // Native SDK transports resolve sendMessage only after the entire turn. Poll
   // while it runs so commentary reaches Flight Deck as thinking activity now,
   // rather than being replayed in a burst immediately before the final reply.
@@ -85,7 +89,10 @@ export async function sendPromptAndAwaitFinalResponse(
   });
   if (!sdkTurn) {
     await send;
-    if (sendFailed) throw sendError;
+    if (sendFailed) {
+      retractInboxTurn(inboxTurnRow);
+      throw sendError;
+    }
   }
   await manager.captureAgentapiCodexSessionIdFromPrompt?.(sessionId, prompt, { sentAtMs, attempts: 1, retryMs: 0 });
 
@@ -153,7 +160,10 @@ export async function sendPromptAndAwaitFinalResponse(
       await waitOptions?.onAccepted?.();
     }
     // Preserve an observed receipt even when the native turn failed before the first poll.
-    if (sendFailed) throw sendError;
+    if (sendFailed) {
+      if (!accepted) retractInboxTurn(inboxTurnRow);
+      throw sendError;
+    }
     // Continue/steering belongs to the accepted work until its verified final.
     const turnMessages = promptIndex < 0 ? [] : authoritativeMessages.slice(promptIndex + 1);
     const finalMessage = findNativeTurnFinal(turnMessages);

@@ -15,6 +15,10 @@ export interface AgentInboxScope {
   notification: AgentInboxEnvelope;
   context: AgentInboxContext;
   profileNpub: string;
+  /** Local subscription the notification was delivered to. */
+  subscriptionId?: string;
+  /** True only while the inbox processor dispatches this notification (session turns delivered now act for it). */
+  dispatch?: boolean;
 }
 
 export interface AgentInboxContext {

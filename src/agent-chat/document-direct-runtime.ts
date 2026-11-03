@@ -370,6 +370,8 @@ export class DocumentDirectRuntime {
         this.store.startTurn(turnId, current, events, required);
         await (this.deps.sendFinalResponse ?? sendPromptAndAwaitFinalResponse)(
           this.deps.processManager, session.id, this.buildPrompt(current, events, hydration, required),
+          // Strict inbox: the batched turn acts for its latest event's notification (recorded at activation).
+          { inboxTurn: { subscriptionId: input.subscription.subscriptionId, eventId: events.at(-1)?.eventId ?? null } },
         );
         // Safe boundary: refresh again after the turn. A newly queued event is
         // intentionally left for the next loop and never interrupts this turn.

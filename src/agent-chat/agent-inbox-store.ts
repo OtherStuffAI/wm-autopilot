@@ -191,6 +191,14 @@ export class AgentInboxStore {
     return row ? JSON.parse(row.envelope_json) as AgentInboxEnvelopeLike : null;
   }
 
+  /** The recorded envelope and handling state of one exact notification (origin liveness checks). */
+  bindingRecord(subscriptionId: string, notificationId: string): { envelope: AgentInboxEnvelopeLike; outcome: string | null; handledAt: string | null } | null {
+    if (!this.hasSchema()) return null;
+    const row = this.db.query('SELECT envelope_json, outcome, handled_at FROM agent_inbox_ledger WHERE subscription_id = ?1 AND notification_id = ?2 AND envelope_json IS NOT NULL')
+      .get(subscriptionId, notificationId) as { envelope_json: string; outcome: string | null; handled_at: string | null } | null;
+    return row ? { envelope: JSON.parse(row.envelope_json) as AgentInboxEnvelopeLike, outcome: row.outcome, handledAt: row.handled_at } : null;
+  }
+
   /** True when this subscription handled any notification sourced in the channel (documents/files created there). */
   boundInChannel(subscriptionId: string, channelId: string): boolean {
     if (!this.hasSchema() || !channelId) return false;

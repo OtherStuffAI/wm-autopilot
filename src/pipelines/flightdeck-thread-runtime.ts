@@ -13,6 +13,7 @@ import {
 import type { AgentDefinitionRecord, WorkspaceSubscriptionRecord } from "../agent-chat/types";
 import { AgentInboxUnboundReadError, agentInboxScope } from "../agent-chat/agent-inbox-scope";
 import { agentInboxStore } from "../agent-chat/agent-inbox-store";
+import { liveInboxOrigin, runInboxOrigin } from "../agent-chat/agent-inbox-origins";
 import type {
   FlightDeckInvocationResolution,
   FlightDeckPipelineInvocation,
@@ -32,13 +33,17 @@ interface ThreadRuntimeDependencies {
   /** Strict-inbox binding (defaults to the shared inbox store). Inbox subscriptions never scan workspace structure. */
   inboxBinding?: {
     isInboxSubscription: (subscriptionId: string) => boolean;
-    boundThreadChannel: (subscriptionId: string, threadId: string) => string | null;
+    /** Channel of the run's own live origin notification when it binds the thread (never another notification). */
+    runOriginChannel: (subscriptionId: string, runId: string, threadId: string) => string | null;
   };
 }
 
 const defaultInboxBinding = {
   isInboxSubscription: (subscriptionId: string) => agentInboxStore().isInboxRequired(subscriptionId),
-  boundThreadChannel: (subscriptionId: string, threadId: string) => agentInboxStore().latestBound(subscriptionId, { threadId })?.source?.channel_id ?? null,
+  runOriginChannel: (subscriptionId: string, runId: string, threadId: string) => {
+    const live = liveInboxOrigin(runInboxOrigin(runId, subscriptionId));
+    return live.ok && live.envelope.source?.thread_id === threadId ? live.envelope.source.channel_id : null;
+  },
 };
 
 /**
@@ -102,8 +107,8 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
         throw new Error("Resolved managed agent identity does not match trusted pipeline context");
       }
       const channel = inbox.isInboxSubscription(selected.subscriptionId)
-        // Strict inbox: reply only into a thread a handled notification binds, on its recorded channel (Tower re-checks).
-        ? boundReplyChannel(inbox, selected.subscriptionId, input.channelId, input.threadId)
+        // Strict inbox: reply only into the thread of the run's own live origin, on its channel (Tower re-checks).
+        ? boundReplyChannel(inbox, selected.subscriptionId, input.pipelineRunId, input.channelId, input.threadId)
         : input.channelId
           ? await validateExactThreadRoute(deps, selected, botIdentity, input.scopeId, input.channelId, input.threadId)
           : await resolveThreadChannel(deps, selected, botIdentity, input.threadId);
@@ -138,8 +143,8 @@ export function createFlightDeckThreadRuntime(deps: ThreadRuntimeDependencies): 
 }
 
 function boundReplyChannel(inbox: NonNullable<ThreadRuntimeDependencies["inboxBinding"]>, subscriptionId: string,
-  channelId: string | undefined, threadId: string): { id: string } {
-  const bound = inbox.boundThreadChannel(subscriptionId, threadId);
+  runId: string | undefined, channelId: string | undefined, threadId: string): { id: string } {
+  const bound = runId ? inbox.runOriginChannel(subscriptionId, runId, threadId) : null;
   if (!channelId || !bound || bound !== channelId) throw new AgentInboxUnboundReadError(`pipeline reply thread ${threadId}`);
   return { id: channelId };
 }

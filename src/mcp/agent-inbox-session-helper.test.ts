@@ -51,49 +51,133 @@ describe('strict-inbox attachment download (download-only, bound)', () => {
   });
 });
 
-describe('strict-inbox session writes are notification-bound', () => {
-  const { requireInboxWriteBinding } = require('./agent-inbox-session-helper');
+describe('strict-inbox session calls act only for their own origin notification', () => {
+  const { resolveInboxReadOrigin, resolveInboxWriteOrigin } = require('./agent-inbox-session-helper');
   const { AgentInboxStore } = require('../agent-chat/agent-inbox-store');
+  const { AgentInboxOriginStore, beginActiveInboxAttempt } = require('../agent-chat/agent-inbox-origins');
   const { mkdtempSync, rmSync } = require('node:fs');
   const { join } = require('node:path');
   const { tmpdir } = require('node:os');
 
-  test('replies, task comments, doc replies and created docs need a handled notification for that location', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'inbox-writes-'));
+  const ids = (patch: Record<string, string | null>) => ({ channelId: null, threadId: null, taskId: null, documentId: null, ...patch });
+  const envelope = (id: string, seq: number, source: Record<string, unknown>, occurredAt = '2026-11-03T01:00:00.000Z') => ({ id, seq, state: 'active', kind: 'chat_mention',
+    occurred_at: occurredAt, source: { type: 'message', id: `src-${id}`, channel_id: 'channel-1', thread_id: null, task_id: null, doc_id: null, ...source } });
+  function fixture() {
+    const dir = mkdtempSync(join(tmpdir(), 'inbox-origins-'));
+    const inbox = new AgentInboxStore(join(dir, 'db.sqlite'));
+    const origins = new AgentInboxOriginStore(join(dir, 'db.sqlite'));
+    inbox.setMode('sub-1', 'inbox_required', 'c');
+    inbox.update('sub-1', { towerSubscriptionId: 'tower-sub', floorAt: '2026-11-02T00:00:00.000Z' });
+    const handled = (id: string, seq: number, source: Record<string, unknown>, outcome = 'handled', occurredAt?: string) => {
+      inbox.beginAttempt('sub-1', id, seq, envelope(id, seq, source, occurredAt));
+      if (outcome !== 'started') inbox.markHandled('sub-1', id, seq, outcome, null);
+    };
+    return { dir, inbox, origins, handled, stores: { inbox, origins }, done: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+  const owner = (patch: Record<string, unknown> = {}) => ({ sessionId: 'session-1', subscriptionId: 'sub-1', runId: null, ...patch });
+  const code = async (result: unknown) => (result instanceof Response ? [(result as Response).status, (await (result as Response).json()).code] : 'ok');
+
+  test('writes use only the current turn origin and its exact location', async () => {
+    const f = fixture();
     try {
-      const store = new AgentInboxStore(join(dir, 'db.sqlite'));
-      store.setMode('sub-1', 'inbox_required', 'c');
-      const envelope = (id: string, source: Record<string, unknown>) => ({ id, seq: 1, state: 'active', kind: 'chat_mention',
-        source: { type: 'message', id: `src-${id}`, channel_id: 'channel-1', thread_id: null, task_id: null, doc_id: null, ...source } });
-      store.beginAttempt('sub-1', 'n-thread', 1, envelope('n-thread', { thread_id: 'thread-1' }));
-      store.beginAttempt('sub-1', 'n-task', 2, envelope('n-task', { type: 'task_comment', task_id: 'task-1' }));
-      store.beginAttempt('sub-1', 'n-doc', 3, envelope('n-doc', { type: 'doc_comment', doc_id: 'doc-1' }));
-      const ids = (patch: Record<string, string | null>) => ({ channelId: null, threadId: null, taskId: null, documentId: null, ...patch });
-      const allowed = [
-        ['chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-1' })],
-        ['task_comment', ids({ taskId: 'task-1' })],
-        ['doc_reply', ids({ documentId: 'doc-1' })],
-        ['doc_create', ids({ channelId: 'channel-1' })],
-        ['file_upload', ids({ channelId: 'channel-1' })],
-      ] as const;
-      for (const [action, where] of allowed) expect([action, requireInboxWriteBinding('sub-1', action, where, store)]).toEqual([action, null]);
-      const refused = [
-        ['chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-other' })],
-        ['chat_reply', ids({ channelId: 'channel-1' })],
-        ['task_comment', ids({ taskId: 'task-other' })],
-        ['doc_reply', ids({ documentId: 'doc-other' })],
-        ['doc_create', ids({ channelId: 'channel-other' })],
-        ['file_upload', ids({ channelId: 'channel-other' })],
-        ['file_upload', ids({})],
-      ] as const;
-      for (const [action, where] of refused) {
-        const response = requireInboxWriteBinding('sub-1', action, where, store);
-        expect([action, response?.status, (await response?.json())?.code]).toEqual([action, 403, 'agent_inbox_write_unbound']);
+      f.handled('n-thread', 1, { thread_id: 'thread-1' });
+      f.handled('n-task', 2, { type: 'task_comment', task_id: 'task-1' });
+      f.handled('n-doc', 3, { type: 'doc_comment', doc_id: 'doc-1' });
+      f.origins.recordTurn('session-1', { subscriptionId: 'sub-1', notificationId: 'n-thread' });
+      expect(await code(resolveInboxWriteOrigin(owner(), 'chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-1' }), f.stores))).toBe('ok');
+      expect(await code(resolveInboxWriteOrigin(owner(), 'doc_create', ids({ channelId: 'channel-1' }), f.stores))).toBe('ok');
+      expect(await code(resolveInboxWriteOrigin(owner(), 'file_upload', ids({ channelId: 'channel-1' }), f.stores))).toBe('ok');
+      // Other locations are refused even though other handled notifications bind them (no cross-notification fallback).
+      for (const [action, where] of [
+        ['task_comment', ids({ taskId: 'task-1' })], ['doc_reply', ids({ documentId: 'doc-1' })],
+        ['chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-other' })], ['doc_create', ids({ channelId: 'channel-other' })], ['file_upload', ids({})],
+      ] as const) {
+        expect([action, await code(resolveInboxWriteOrigin(owner(), action, where, f.stores))]).toEqual([action, [403, 'agent_inbox_write_unbound']]);
       }
-      // Another subscription's ledger never authorizes this one.
-      expect(requireInboxWriteBinding('sub-2', 'chat_reply', ids({ threadId: 'thread-1' }), store)?.status).toBe(403);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+      // A new turn switches the session's origin atomically: the old thread is no longer writable from this session.
+      f.origins.recordTurn('session-1', { subscriptionId: 'sub-1', notificationId: 'n-task' });
+      expect(await code(resolveInboxWriteOrigin(owner(), 'task_comment', ids({ taskId: 'task-1' }), f.stores))).toBe('ok');
+      expect(await code(resolveInboxWriteOrigin(owner(), 'chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-1' }), f.stores)))
+        .toEqual([403, 'agent_inbox_write_unbound']);
+      // Another session never borrows these origins; a session without any origin acts for nothing.
+      expect(await code(resolveInboxWriteOrigin(owner({ sessionId: 'session-2' }), 'task_comment', ids({ taskId: 'task-1' }), f.stores)))
+        .toEqual([403, 'agent_inbox_no_origin']);
+      // Another subscription's origin rows are ignored.
+      expect(await code(resolveInboxWriteOrigin(owner({ subscriptionId: 'sub-2' }), 'task_comment', ids({ taskId: 'task-1' }), f.stores)))
+        .toEqual([403, 'agent_inbox_no_origin']);
+    } finally { f.done(); }
+  });
+
+  test('only the actively processed attempt or a handled, unrevoked, post-floor notification is live', async () => {
+    const f = fixture();
+    try {
+      const write = () => resolveInboxWriteOrigin(owner(), 'chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-1' }), f.stores);
+      f.handled('n-1', 1, { thread_id: 'thread-1' }, 'started');
+      f.origins.recordTurn('session-1', { subscriptionId: 'sub-1', notificationId: 'n-1' });
+      expect(await code(write())).toEqual([403, 'agent_inbox_origin_expired']);
+      const end = beginActiveInboxAttempt('sub-1', 'n-1');
+      expect(await code(write())).toBe('ok'); // the current dispatch may write inline before its outcome is recorded
+      end();
+      expect(await code(write())).toEqual([403, 'agent_inbox_origin_expired']);
+      for (const outcome of ['failed_permanent', 'suppressed', 'source_gone']) {
+        f.inbox.markHandled('sub-1', 'n-1', 1, outcome, null);
+        expect([outcome, await code(write())]).toEqual([outcome, [403, 'agent_inbox_origin_expired']]);
+        // Even an active-looking registry entry never revives a recorded failure.
+        const stale = beginActiveInboxAttempt('sub-1', 'n-1');
+        expect([outcome, await code(write())]).toEqual([outcome, [403, 'agent_inbox_origin_expired']]);
+        stale();
+      }
+      f.inbox.markHandled('sub-1', 'n-1', 1, 'handled', null);
+      expect(await code(write())).toBe('ok');
+      // Pre-floor notification (e.g. after re-anchoring with a new floor) is not live; no silent renewal.
+      f.inbox.update('sub-1', { floorAt: '2026-11-03T02:00:00.000Z' });
+      expect(await code(write())).toEqual([403, 'agent_inbox_origin_expired']);
+      f.inbox.update('sub-1', { towerSubscriptionId: 'tower-sub', floorAt: '2026-11-02T00:00:00.000Z' });
+      // A revoked envelope is never live.
+      f.handled('n-rev', 2, { thread_id: 'thread-1' });
+      f.inbox.beginAttempt('sub-1', 'n-rev', 2, { ...envelope('n-rev', 2, { thread_id: 'thread-1' }), state: 'revoked' });
+      f.origins.recordTurn('session-1', { subscriptionId: 'sub-1', notificationId: 'n-rev' });
+      expect(await code(write())).toEqual([403, 'agent_inbox_origin_expired']);
+    } finally { f.done(); }
+  });
+
+  test('reads use the current origin or an earlier turn of the same session, never a newer or foreign notification', async () => {
+    const f = fixture();
+    try {
+      f.handled('n-1', 1, { thread_id: 'thread-1' });
+      f.handled('n-2', 2, { type: 'task_comment', task_id: 'task-1' });
+      f.handled('n-3', 3, { thread_id: 'thread-1' }); // a later notification for the same thread, delivered elsewhere
+      f.origins.recordTurn('session-1', { subscriptionId: 'sub-1', notificationId: 'n-1' });
+      f.origins.recordTurn('session-1', { subscriptionId: 'sub-1', notificationId: 'n-2' });
+      const thread = resolveInboxReadOrigin(owner(), { channelId: 'channel-1', threadId: 'thread-1' }, f.stores);
+      expect(thread.ok && thread.envelope.id).toBe('n-1');
+      const task = resolveInboxReadOrigin(owner(), { taskId: 'task-1' }, f.stores);
+      expect(task.ok && task.envelope.id).toBe('n-2');
+      expect(await code(resolveInboxReadOrigin(owner(), { docId: 'doc-1' }, f.stores))).toEqual([403, 'agent_inbox_no_bound_notification']);
+      expect(await code(resolveInboxReadOrigin(owner({ sessionId: 'other' }), { channelId: 'channel-1', threadId: 'thread-1' }, f.stores)))
+        .toEqual([403, 'agent_inbox_no_origin']);
+    } finally { f.done(); }
+  });
+
+  test('a worker snapshot or run origin is immutable and replaces session turns', async () => {
+    const f = fixture();
+    try {
+      f.handled('n-1', 1, { thread_id: 'thread-1' });
+      f.handled('n-2', 2, { thread_id: 'thread-2' });
+      f.origins.recordTurn('session-1', { subscriptionId: 'sub-1', notificationId: 'n-2' });
+      f.origins.recordTurn('worker-1', { subscriptionId: 'sub-1', notificationId: 'n-2' }); // a turn never overrides the snapshot
+      f.origins.recordWorker('worker-1', { subscriptionId: 'sub-1', notificationId: 'n-1' });
+      f.origins.recordWorker('worker-1', { subscriptionId: 'sub-1', notificationId: 'n-2' }); // ignored: fixed at dispatch
+      const worker = owner({ sessionId: 'worker-1' });
+      expect(await code(resolveInboxWriteOrigin(worker, 'chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-1' }), f.stores))).toBe('ok');
+      expect(await code(resolveInboxWriteOrigin(worker, 'chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-2' }), f.stores)))
+        .toEqual([403, 'agent_inbox_write_unbound']);
+      f.origins.recordRun('run-1', { subscriptionId: 'sub-1', notificationId: 'n-1' });
+      f.origins.recordRun('run-1', { subscriptionId: 'sub-1', notificationId: 'n-2' }); // ignored: fixed at creation
+      const run = owner({ sessionId: 'pipeline-session', runId: 'run-1' });
+      expect(await code(resolveInboxWriteOrigin(run, 'chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-1' }), f.stores))).toBe('ok');
+      expect(await code(resolveInboxWriteOrigin(run, 'chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-2' }), f.stores)))
+        .toEqual([403, 'agent_inbox_write_unbound']);
+    } finally { f.done(); }
   });
 });

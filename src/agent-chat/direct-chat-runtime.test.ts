@@ -44,6 +44,7 @@ function fixture(options: {
   timeoutWithoutReceipt?: boolean;
   promptReadinessTimeouts?: number;
   createGate?: Promise<void>;
+  sendGate?: (attempt: number) => Promise<void> | undefined;
   botNpub?: string;
   addBuilder?: boolean;
   useDeliveryReconciler?: boolean;
@@ -81,6 +82,7 @@ function fixture(options: {
       waitForReady: async () => {}, fetchStatus: async () => 'stable', deliversPromptsDirectly: () => true, fetchMessages: async () => [...(sessions.get(id).messages ?? [])],
       sendMessage: async (prompt: string) => {
         sendAttempts += 1;
+        await options.sendGate?.(sendAttempts);
         prompts.push(prompt);
         sessions.get(id).messages.push({ role: 'user', content: prompt, createdAt: new Date().toISOString() });
         const sendError = typeof options.sendError === 'function' ? options.sendError(sendAttempts) : options.sendError;
@@ -1654,4 +1656,54 @@ describe('strict-inbox session isolation', () => {
     expect(f.creates).toHaveLength(1);
     expect(f.interceptStore.listAll()[0]!.sessionGeneration).toBe(1);
   });
+});
+
+describe('strict-inbox turn origin follows prompt activation, not enqueue', () => {
+  test('a queued N2 never becomes the origin of the running N1 turn; N2 is adopted only on activation; a failed activation does not advance', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { AgentInboxStore } = await import('./agent-inbox-store');
+    const { AgentInboxOriginStore, currentInboxOrigin, setAgentInboxOriginStoresForTests } = await import('./agent-inbox-origins');
+    const dir = mkdtempSync(join(tmpdir(), 'direct-inbox-turns-'));
+    const inbox = new AgentInboxStore(join(dir, 'db.sqlite'));
+    const origins = new AgentInboxOriginStore(join(dir, 'db.sqlite'));
+    setAgentInboxOriginStoresForTests({ inbox, origins });
+    try {
+      inbox.setMode('sub1', 'inbox_required', 'c');
+      inbox.update('sub1', { towerSubscriptionId: 'tower-sub', floorAt: '2026-01-01T00:00:00.000Z' });
+      for (const [id, seq] of [['n-1', 1], ['n-2', 2], ['n-3', 3]] as const) {
+        inbox.beginAttempt('sub1', id, seq, { id, seq, state: 'active', kind: 'chat_mention', occurred_at: '2026-01-01T00:00:05.000Z',
+          source: { type: 'message', id: `m${seq}`, channel_id: 'channel-1', thread_id: 'thread-1', task_id: null, doc_id: null } } as any);
+        inbox.markHandled('sub1', id, seq, 'handled', null);
+      }
+      let releaseN1!: () => void;
+      const n1Running = new Promise<void>((resolve) => { releaseN1 = resolve; });
+      let n1Started!: () => void;
+      const n1Sending = new Promise<void>((resolve) => { n1Started = resolve; });
+      const f = fixture({
+        sendGate: (attempt) => (attempt === 1 ? (n1Started(), n1Running) : undefined),
+        sendError: (attempt) => (attempt === 3 ? new Error('transport closed') : null),
+      });
+      const current = () => currentInboxOrigin({ sessionId: 'session-1', subscriptionId: 'sub1' }, origins)?.notificationId ?? null;
+      const m1 = f.message('m1', '@Example Agent first', true);
+      const m2 = f.message('m2', '@Example Agent second', true);
+      const m3 = f.message('m3', '@Example Agent third', true);
+      await f.handle([m1], 'm1', { id: 'n-1' });
+      await n1Sending;
+      expect(current()).toBe('n-1');
+      // N2 arrives while N1's turn is running: it is only queued.
+      expect(await f.handle([m1, m2], 'm2', { id: 'n-2' })).toEqual({ handled: true, reason: 'direct_chat_queued' });
+      await Bun.sleep(20);
+      expect(current()).toBe('n-1');
+      releaseN1();
+      await f.runtime.waitForIdle();
+      expect(current()).toBe('n-2');
+      // N3's prompt delivery fails outright: the session keeps acting for N2.
+      await f.handle([m1, m2, m3], 'm3', { id: 'n-3' });
+      await f.runtime.waitForIdle();
+      expect(current()).toBe('n-2');
+    } finally {
+      setAgentInboxOriginStoresForTests(null);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

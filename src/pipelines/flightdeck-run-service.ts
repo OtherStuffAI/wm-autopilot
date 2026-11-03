@@ -5,6 +5,7 @@ import { startDeclarativePipeline } from "./pipeline-runner";
 import { builtinPipelineFunctions } from "./functions";
 import { resolveFlightDeckPipelineInvocation, type FlightDeckPipelineInvocation } from "./flightdeck-invocation";
 import { PipelineStore, type JsonObject } from "./pipeline-store";
+import { recordInboxRunOrigin } from "../agent-chat/agent-inbox-origins";
 
 export async function startFlightDeckPipelineRun(input: {
   store: PipelineStore; sessionApiContext: SessionApiContext; definition: PipelineDefinitionRecord;
@@ -26,6 +27,8 @@ export async function startFlightDeckPipelineRun(input: {
     initiatingAgentProfileId: input.initiatingAgentProfileId,
     initiatingAgentNpub: input.initiatingAgentNpub,
     onRunCreated: (created) => {
+      // Strict inbox: the run (its reply and its agent sessions) acts only for the notification that started it.
+      recordInboxRunOrigin(created.id);
       input.store.addEvent({ runId: created.id, level: "info", type: "flightdeck_invocation_context",
         message: "Trusted Flight Deck invocation context", data: { initiatingAgentProfileId: input.initiatingAgentProfileId ?? null,
           initiatingAgentNpub: input.initiatingAgentNpub ?? null,

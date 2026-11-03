@@ -1,4 +1,5 @@
 import { findNativeTurnFinal } from "../agents/native-sdk-contract";
+import { recordInboxTurn, retractInboxTurn, type InboxTurn } from './agent-inbox-origins';
 import type { AgentType } from '../config';
 import { isDirectChatFinalReady } from './direct-chat-final-readiness';
 import { resolveAuthoritativeSessionMessages } from '../agents/authoritative-session-messages';
@@ -32,6 +33,8 @@ export interface AssistantReplyWaitOptions {
   onAccepted?: () => void | Promise<void>;
   onPoll?: () => void | Promise<void>;
   promptBoundaryTimeoutMs?: number;
+  /** Strict inbox: the turn being delivered (its subscription and trigger event); recorded as the session's current origin. */
+  inboxTurn?: InboxTurn | null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -115,7 +118,13 @@ export async function sendPromptAndAwaitAssistantReply(
     pollIntervalMs: 250,
   });
   const initialMessages = await adapter.fetchMessages().catch(() => []);
-  await adapter.sendMessage(prompt, 'user');
+  const inboxTurnRow = recordInboxTurn(sessionId, waitOptions?.inboxTurn);
+  try {
+    await adapter.sendMessage(prompt, 'user');
+  } catch (error) {
+    retractInboxTurn(inboxTurnRow); // never delivered: the session keeps acting for its previous turn
+    throw error;
+  }
   await waitOptions?.onAccepted?.();
   return await awaitAssistantReply(manager, sessionId, initialMessages.length, waitOptions);
 }

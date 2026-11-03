@@ -313,7 +313,9 @@ export class AgentChatSessionRuntime {
             });
 
         try {
-          const reply = await sendPromptAndAwaitAssistantReply(this.manager, session.id, prompt);
+          // Strict inbox: this runtime has no notification identity, so the turn is recorded unbound (fails closed).
+          const reply = await sendPromptAndAwaitAssistantReply(this.manager, session.id, prompt,
+            { inboxTurn: { subscriptionId: latestInput.subscription.subscriptionId, eventId: null } });
           for (const turn of cycleTurns) {
             if (!turn.messageId) continue;
             this.dispatchOutcomeStore.recordSessionRecovered({
