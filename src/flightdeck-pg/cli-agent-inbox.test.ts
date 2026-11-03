@@ -86,14 +86,19 @@ describe('flightdeck CLI in a strict-inbox agent session', () => {
     const r = router({
       doc_get: { ok: true, doc: { id: 'doc-1' }, body_text: '# Bound doc', notification_id: 'n-1', bounded: true },
       task_state: { ok: true, result: { task: { id: 'task-1', state: 'review' } } },
+      attachment_get: { ok: true, base64_data: Buffer.from('BYTES').toString('base64'), size_bytes: 5, content_type: 'text/plain' },
     });
+    const bin = join(dir, 'file.bin');
     const out = join(dir, 'doc.md');
     const download = await runFlightDeckPgCli(['doc', 'download', 'doc-1', '--out', out, '--json'], { fetchImpl: r.fetchImpl });
     expect(download.exitCode).toBe(0);
     expect(readFileSync(out, 'utf8')).toBe('# Bound doc');
     const state = await runFlightDeckPgCli(['task', 'state', 'task-1', '--state', 'review', '--json'], { fetchImpl: r.fetchImpl });
     expect(state.exitCode).toBe(0);
-    expect(r.helperActions.filter((a) => a !== 'context')).toEqual(['doc_get', 'task_state']);
+    const attachment = await runFlightDeckPgCli(['attachment', 'download', 'obj-1', '--out', bin, '--json'], { fetchImpl: r.fetchImpl });
+    expect(attachment.exitCode).toBe(0);
+    expect(readFileSync(bin, 'utf8')).toBe('BYTES');
+    expect(r.helperActions.filter((a) => a !== 'context')).toEqual(['doc_get', 'task_state', 'attachment_get']);
     expect(r.towerRequests).toEqual([]);
   });
 });

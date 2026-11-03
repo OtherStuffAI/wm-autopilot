@@ -141,6 +141,12 @@ async function dispatchInboxSession(
   if (command === 'task comments') return helper('task_comments', { taskId });
   if (command === 'doc show') return helper('doc_get', { documentId: id, includeBody: flags.has('--body') });
   if (command === 'doc comments') return helper('doc_comments', { documentId: id });
+  if (command === 'attachment download') {
+    const out = requiredFlag(flags, '--out', 'output path');
+    const result = await helper('attachment_get', { storageObjectId: id, channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, threadId: stringFlag(flags, '--thread') ?? defaults.threadId ?? null });
+    await Bun.write(out, Buffer.from(String(result.base64_data ?? ''), 'base64'));
+    return { ok: true, storage_object_id: id, out, size_bytes: result.size_bytes ?? null, content_type: result.content_type ?? null, bounded: true };
+  }
   // Writes whose pre-reads (row version, canonical base) must also come from the bound context.
   if (command === 'task state') return helper('task_state', { taskId, state: requiredFlag(flags, '--state', 'state') });
   if (command === 'doc update') {

@@ -1,4 +1,4 @@
-import { AgentInboxError, fetchAgentInboxContext } from '../agent-chat/agent-inbox-client';
+import { AgentInboxError, fetchAgentInboxAttachment, fetchAgentInboxContext } from '../agent-chat/agent-inbox-client';
 import { agentInboxScope, inboxAwareFetchers, type AgentInboxContext, type AgentInboxScope } from '../agent-chat/agent-inbox-scope';
 import { agentInboxStore } from '../agent-chat/agent-inbox-store';
 import type { FlightDeckPgBotIdentity } from '../agent-chat/tower-client';
@@ -12,7 +12,7 @@ import { capturedDocumentBase } from '../flightdeck-pg/document-update-base';
  * the requested thread/task/document, fetched with the bot's own key. Generic Tower proxies are refused. Writes go to
  * Tower unchanged (Tower enforces notification binding for classified bots); their pre-reads run inside the scope.
  */
-export const INBOX_READ_ACTIONS = new Set(['thread_read', 'doc_get', 'doc_comments', 'task_comments', 'task_get']);
+export const INBOX_READ_ACTIONS = new Set(['thread_read', 'doc_get', 'doc_comments', 'task_comments', 'task_get', 'attachment_get']);
 export const INBOX_SCOPED_WRITE_ACTIONS = new Set(['doc_update', 'task_state']);
 export const INBOX_REFUSED_ACTIONS = new Set(['transport_prepare', 'transport_request', 'record_sync_request', 'daily_scope_get', 'daily_scope_upsert']);
 
@@ -85,6 +85,28 @@ export function answerInboxRead(action: string, scope: AgentInboxScope): Respons
     return Response.json({ ok: true, task_id: trigger.task.id, comments, next_cursor: null, ...bounded });
   }
   return refuse('agent_inbox_unbound_action', `${action} is not available to a strict-inbox agent session.`);
+}
+
+/**
+ * Download-only attachment of the bound notification's trigger/transcript (Tower re-checks binding and access on every
+ * request; no bearer URL). Returned base64 is capped so a session tool cannot pull arbitrary large blobs.
+ */
+export async function answerInboxAttachment(target: InboxSessionTarget, scope: AgentInboxScope, storageObjectId: string | null, maxBytes = 25 * 1024 * 1024): Promise<Response> {
+  if (!storageObjectId) return refuse('validation_error', 'storageObjectId is required', 400);
+  const known = [scope.context.trigger?.message, ...(scope.context.window?.messages ?? [])]
+    .flatMap((m: any) => (Array.isArray(m?.attachments) ? m.attachments : []))
+    .find((a: any) => a?.storage_object_id === storageObjectId);
+  if (!known) return refuse('agent_inbox_context_unbound', 'The attachment is not part of the bound notification context.');
+  try {
+    const response = await fetchAgentInboxAttachment({ ...target }, scope.notification.id, storageObjectId);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) return refuse('attachment_too_large', 'Attachment exceeds the session download limit.', 413);
+    return Response.json({ ok: true, storage_object_id: storageObjectId, file_name: known.file_name ?? null, content_type: response.headers.get('content-type'),
+      size_bytes: bytes.byteLength, base64_data: Buffer.from(bytes).toString('base64'), bounded: true, notification_id: scope.notification.id });
+  } catch (error) {
+    if (error instanceof AgentInboxError) return refuse(error.code, error.message, error.status && error.status >= 400 ? error.status : 502);
+    throw error;
+  }
 }
 
 export function runInScope<T>(scope: AgentInboxScope, work: () => Promise<T>): Promise<T> {

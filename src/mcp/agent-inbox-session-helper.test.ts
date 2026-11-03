@@ -30,3 +30,23 @@ describe('strict-inbox MCP session reads', () => {
     expect(inboxLocation('thread_read', { channelId: 'c', threadId: 't', taskId: null, documentId: null })).toEqual({ channelId: 'c', threadId: 't' });
   });
 });
+
+describe('strict-inbox attachment download (download-only, bound)', () => {
+  const { answerInboxAttachment } = require('./agent-inbox-session-helper');
+  const secret = new Uint8Array(32).fill(7);
+  const { getPublicKey, nip19 } = require('nostr-tools');
+  const target = (fetchImpl: any) => ({ subscriptionId: 's', backendConnectionId: null, backendBaseUrl: 'https://tower.example', workspaceId: 'ws', appNpub: 'app',
+    botIdentity: { botNpub: nip19.npubEncode(getPublicKey(secret)), botPubkeyHex: getPublicKey(secret), botSecret: secret }, fetchImpl });
+  const withAttachment = scope({ type: 'message', message: { id: 'm-1', channel_id: 'c-1', thread_id: 't-1', body: 'x', attachments: [{ storage_object_id: 'obj-1', file_name: 'a.txt' }] } });
+
+  test('only attachments of the bound context are fetched, through the notification route', async () => {
+    const urls: string[] = [];
+    const fetchImpl = async (url: string) => { urls.push(url); return new Response('hello', { headers: { 'content-type': 'text/plain' } }); };
+    const refused = await answerInboxAttachment(target(fetchImpl), withAttachment, 'obj-other');
+    expect([refused.status, (await refused.json()).code]).toEqual([403, 'agent_inbox_context_unbound']);
+    expect(urls).toEqual([]);
+    const ok = await (await answerInboxAttachment(target(fetchImpl), withAttachment, 'obj-1')).json();
+    expect(Buffer.from(ok.base64_data, 'base64').toString()).toBe('hello');
+    expect(urls).toEqual(['https://tower.example/api/v4/flightdeck-pg/workspaces/ws/agent-notifications/n-1/attachments/obj-1']);
+  });
+});

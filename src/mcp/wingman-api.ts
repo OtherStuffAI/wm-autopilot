@@ -4,7 +4,7 @@ import { handleContextTreeHelper } from "./context-tree-helper.ts";
 import { rootPipelineRunId } from "../pipelines/pipeline-run-authority";
 import { invokeNativeProjectTool } from '../pipelines/native-project-tool.ts';
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
-import { INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxRead, inboxAwareFetchers, inboxLocation, isInboxSession, resolveInboxSessionScope, runInScope } from "./agent-inbox-session-helper";
+import { INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, isInboxSession, resolveInboxSessionScope, runInScope } from "./agent-inbox-session-helper";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
@@ -1413,14 +1413,16 @@ async function handleFlightDeckHelper(
       return Response.json({ error: `${action} is not available to a strict-inbox agent session.`, code: "agent_inbox_unbound_action" }, { status: 403 });
     }
     if (INBOX_READ_ACTIONS.has(action) || INBOX_SCOPED_WRITE_ACTIONS.has(action)) {
-      const scope = await resolveInboxSessionScope({
+      const inboxTarget = {
         subscriptionId: resolved.subscriptionId, backendConnectionId: resolved.backendConnectionId ?? null, backendBaseUrl: resolved.backendBaseUrl!,
         workspaceId: resolved.workspaceId!, appNpub: resolved.appNpub!, botIdentity: resolved.botIdentity!,
-      }, inboxLocation(action, {
+      };
+      const scope = await resolveInboxSessionScope(inboxTarget, inboxLocation(action, {
         channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
         taskId: action.startsWith("task_") ? resolveTaskId(resolved, body) : null, documentId: action.startsWith("doc_") ? resolveDocumentId(resolved, body) : null,
       }));
       if (scope instanceof Response) return scope;
+      if (action === "attachment_get") return answerInboxAttachment(inboxTarget, scope, asString(body.storageObjectId) ?? asString(body.storage_object_id));
       if (INBOX_READ_ACTIONS.has(action)) return answerInboxRead(action, scope);
       return runInScope(scope, () => handleFlightDeckAction(deps, request, action, body, sessionId, resolved));
     }
