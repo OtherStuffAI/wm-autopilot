@@ -253,7 +253,7 @@ describe('AgentInboxStore never writes on the read path', () => {
     const store = new AgentInboxStore(file);
     expect(store.isInboxRequired('sub-x')).toBe(false);
     expect(store.ledger('sub-x', 'n')).toBeNull();
-    expect(store.latestBound('sub-x', { threadId: 't' })).toBeNull();
+    expect(store.bindingRecord('sub-x', 'n')).toBeNull();
     const { Database } = require('bun:sqlite');
     const db = new Database(file, { readonly: true });
     expect(db.query("SELECT name FROM sqlite_master WHERE name LIKE 'agent_inbox%'").all()).toEqual([]);
@@ -261,19 +261,17 @@ describe('AgentInboxStore never writes on the read path', () => {
     expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'agent_inbox%' ORDER BY name").all().map((r: any) => r.name)).toEqual(['agent_inbox_ledger', 'agent_inbox_state']);
   });
 
-  test('latestBound returns the newest notification bound to a thread/task/document only', () => {
+  test('bindingRecord returns one exact notification of one subscription, never a location lookup', () => {
     const dir = mkdtempSync(join(tmpdir(), 'agent-inbox-bound-'));
     dirs.push(dir);
     const store = new AgentInboxStore(join(dir, 'db.sqlite'));
     store.setMode('sub-1', 'inbox_required', 'c');
     store.beginAttempt('sub-1', 'n-1', 1, envelope({ id: 'n-1', seq: 1 }));
-    store.beginAttempt('sub-1', 'n-2', 2, envelope({ id: 'n-2', seq: 2 }));
-    store.beginAttempt('sub-1', 'n-3', 3, envelope({ id: 'n-3', seq: 3, source: { type: 'task', id: 'task-1', version: 1, channel_id: 'c-1', thread_id: null, task_id: 'task-1', doc_id: null } }));
-    expect(store.latestBound('sub-1', { channelId: 'c-1', threadId: 't-1' })?.id).toBe('n-2');
-    expect(store.latestBound('sub-1', { taskId: 'task-1' })?.id).toBe('n-3');
-    expect(store.latestBound('sub-1', { threadId: 'sibling' })).toBeNull();
-    expect(store.latestBound('sub-1', { docId: 'doc-9' })).toBeNull();
-    expect(store.latestBound('sub-2', { threadId: 't-1' })).toBeNull();
+    expect(store.bindingRecord('sub-1', 'n-1')).toMatchObject({ envelope: { id: 'n-1' }, outcome: null, handledAt: null });
+    store.markHandled('sub-1', 'n-1', 1, 'handled', null);
+    expect(store.bindingRecord('sub-1', 'n-1')).toMatchObject({ outcome: 'handled' });
+    expect(store.bindingRecord('sub-2', 'n-1')).toBeNull();
+    expect(store.bindingRecord('sub-1', 'n-2')).toBeNull();
   });
 });
 

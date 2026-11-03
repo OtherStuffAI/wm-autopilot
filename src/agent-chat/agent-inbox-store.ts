@@ -168,42 +168,12 @@ export class AgentInboxStore {
     return this.ledger(subscriptionId, notificationId)!;
   }
 
-  /**
-   * The newest notification this subscription handled for a bound location (thread, task or document). Agent session
-   * tools read only through that notification's recipient-bound context.
-   */
-  latestBound(subscriptionId: string, where: { channelId?: string | null; threadId?: string | null; taskId?: string | null; docId?: string | null }): AgentInboxEnvelopeLike | null {
-    if (!this.hasSchema()) return null;
-    const clauses: string[] = [];
-    const args: Array<string | null> = [subscriptionId];
-    const add = (sql: string, value: string | null | undefined) => { if (value) { args.push(value); clauses.push(sql.replace('?', `?${args.length}`)); } };
-    add('source_task_id = ?', where.taskId);
-    add('source_doc_id = ?', where.docId);
-    if (where.threadId) add('source_thread_id = ?', where.threadId);
-    else if (where.channelId && !where.taskId && !where.docId) { add('source_channel_id = ?', where.channelId); clauses.push('source_thread_id IS NULL'); }
-    if (!clauses.length) return null;
-    if (!this.schemaReady) {
-      const columns = new Set((this.db.query('PRAGMA table_info(agent_inbox_ledger)').all() as Array<{ name: string }>).map((c) => c.name));
-      if (!columns.has('envelope_json')) return null;
-    }
-    const row = this.db.query(`SELECT envelope_json FROM agent_inbox_ledger WHERE subscription_id = ?1 AND envelope_json IS NOT NULL AND ${clauses.join(' AND ')}
-      ORDER BY seq DESC LIMIT 1`).get(...args) as { envelope_json: string } | null;
-    return row ? JSON.parse(row.envelope_json) as AgentInboxEnvelopeLike : null;
-  }
-
   /** The recorded envelope and handling state of one exact notification (origin liveness checks). */
   bindingRecord(subscriptionId: string, notificationId: string): { envelope: AgentInboxEnvelopeLike; outcome: string | null; handledAt: string | null } | null {
     if (!this.hasSchema()) return null;
     const row = this.db.query('SELECT envelope_json, outcome, handled_at FROM agent_inbox_ledger WHERE subscription_id = ?1 AND notification_id = ?2 AND envelope_json IS NOT NULL')
       .get(subscriptionId, notificationId) as { envelope_json: string; outcome: string | null; handled_at: string | null } | null;
     return row ? { envelope: JSON.parse(row.envelope_json) as AgentInboxEnvelopeLike, outcome: row.outcome, handledAt: row.handled_at } : null;
-  }
-
-  /** True when this subscription handled any notification sourced in the channel (documents/files created there). */
-  boundInChannel(subscriptionId: string, channelId: string): boolean {
-    if (!this.hasSchema() || !channelId) return false;
-    return Boolean(this.db.query('SELECT 1 AS ok FROM agent_inbox_ledger WHERE subscription_id = ?1 AND source_channel_id = ?2 AND envelope_json IS NOT NULL LIMIT 1')
-      .get(subscriptionId, channelId));
   }
 
   /** The handled outcome is durable before the ack, so a crash between them never re-executes the work. */
