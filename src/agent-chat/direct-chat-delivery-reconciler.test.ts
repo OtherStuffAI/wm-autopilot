@@ -372,6 +372,22 @@ describe('Agent Direct durable delivery reconciler', () => {
     expect(f.store.get('turn-1')).toMatchObject({ state: 'published', publishedMessageId: 'message-after-auth-repair' });
   });
 
+  test('halts without retry when a notification-only agent is refused by the Tower ceiling', async () => {
+    let attempts = 0;
+    const f = fixture({ publish: async () => {
+      attempts += 1;
+      throw Object.assign(new Error('agent_notification_upgrade_required'), { status: 403, detailCode: 'agent_notification_upgrade_required' });
+    } });
+    f.seed();
+    f.store.freezeReply('turn-1', 'Reply outside the binding.', '2026-07-29T00:00:00.000Z');
+    const reconciler = f.make('boot-1');
+    await reconciler.processTurnNow('turn-1');
+    expect(f.store.get('turn-1')).toMatchObject({ state: 'integrity_halt', lastErrorClass: 'tower_notification_ceiling' });
+    f.advance(60_000);
+    await reconciler.processTurnNow('turn-1');
+    expect(attempts).toBe(1);
+  });
+
   test('classifies historical rows repeatably and freezes known replies once', async () => {
     const f = fixture(); f.seed({ replyBody: 'Historical known reply.', state: 'reply_ready' });
     expect(f.store.audit()).toEqual(f.store.audit());

@@ -289,6 +289,12 @@ export class AgentDirectDeliveryReconciler {
           `Tower has the same client_request_id with a materially different payload: ${message}`, this.isoNow(), owner);
         return this.store.get(record.turnId);
       }
+      if (status === 403 && detailCode === 'agent_notification_upgrade_required') {
+        // A notification-only agent's publication outside its binding, or a replay of its message after someone else
+        // edited it: Tower gives no read and retrying cannot change that. Halt visibly; never re-prompt the request.
+        this.store.markIntegrityHalt(record.turnId, 'tower_notification_ceiling', message, this.isoNow(), owner);
+        return this.store.get(record.turnId);
+      }
       if (status === 401 || status === 403) {
         this.store.markRetry(record.turnId, owner, this.after(this.unavailableIntervalMs), message, `tower_auth_${status}`, true);
         return this.store.get(record.turnId);
