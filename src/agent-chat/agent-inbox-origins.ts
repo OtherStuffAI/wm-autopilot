@@ -241,3 +241,15 @@ export function currentInboxOrigin(owner: InboxOriginOwner, store: Pick<AgentInb
   const current = ownerRows(owner, store)[0];
   return current?.notificationId ? { subscriptionId: current.subscriptionId, notificationId: current.notificationId } : null;
 }
+
+/**
+ * Snapshots a supervising session's CURRENT origin for its dispatched worker (immutable). Nothing is recorded when the
+ * parent has no origin, and the worker then acts for nothing; it never falls back to session turns.
+ */
+export function snapshotWorkerInboxOrigin(parent: { id: string; metadata?: { flightdeckSubscriptionId?: string; role?: string } | null }, workerSessionId: string,
+  store: Pick<AgentInboxOriginStore, 'history' | 'recordWorker'> = agentInboxOriginStore()) {
+  const subscriptionId = parent.metadata?.flightdeckSubscriptionId;
+  if (!subscriptionId) return;
+  const origin = currentInboxOrigin({ sessionId: parent.id, subscriptionId, worker: parent.metadata?.role === 'dispatched-worker' }, store);
+  if (origin) store.recordWorker(workerSessionId, origin);
+}

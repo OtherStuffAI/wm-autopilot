@@ -55,10 +55,15 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 ## Sessions after migration
 
 - **Fresh sessions.** Sessions created for an inbox delivery carry `flightdeckDeliveryMode: "agent_inbox"`. During an inbox delivery, chat, task and document sessions without that marker are never reused or natively resumed. This applies to sessions from before the migration and to sessions from another subscription. A fresh generation starts instead, and the previous session IDs are kept.
-- **Reads.** These come only from the bound notification context: thread, task, document and comments. Generic Tower transport, record sync and context-tree helpers are refused.
+- **Origin.** Every session tool call acts for one exact notification, its *origin*. Autopilot never picks "the newest notification for this location" and never borrows another session's notification.
+  - Chat, task and document sessions: the origin is recorded when a turn's prompt is actually delivered, from that turn's own trigger. A notification that is only queued behind a running turn does not change it. A failed delivery is retracted. A turn without a notification (legacy session path) is recorded as unbound and acts for nothing.
+  - Pipeline runs: the notification that started the run. The run's sessions and its thread reply act only for it.
+  - Dispatched workers: the parent's origin at dispatch time, fixed for the worker's lifetime. A manager's later callback turns keep the manager's own origin.
+  - An origin is live only while its attempt is being dispatched, or after it was handled. It must also be at or after the subscription floor and not revoked. Failed, suppressed, revoked and pre-floor notifications never act, and there is no renewal (`agent_inbox_origin_expired`). A session without an origin gets `agent_inbox_no_origin`.
+- **Reads.** These come only from the origin's bound context (or an earlier turn of the same session): thread, task, document and comments. Generic Tower transport, record sync and context-tree helpers are refused.
 - **Writes.**
   - `chat reply`, `task comment`, `doc reply`, `doc create` and `file upload` go through the Autopilot helper with the bot's own key.
-  - They are allowed only into a thread, task, document or channel that a handled notification binds. Otherwise the error is `agent_inbox_write_unbound`.
+  - They are allowed only into the thread, task, document or channel of the current origin. Otherwise the error is `agent_inbox_write_unbound`.
   - Tower re-checks binding for classified bots.
 - **File upload.** The helper uses the existing storage prepare → PUT → complete flow and then links the object as a channel file. Uploads are limited to 25 MiB.
 - **Mentions.** Pass structured mentions to address another agent: MCP `mentions`, or CLI `--mentions-json '[{"type":"agent","npub":"npub1…","label":"Name"}]'`.
@@ -69,7 +74,7 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 
 - **Routing.** The pipeline router builds its context from the notification's bounded transcript.
 - **Invocation.** `flightdeck.threadInvocation` takes the channel and thread from the bound notification instead of scanning workspace scopes and channels.
-- **Replies.** Pipeline replies go only to a thread bound in the subscription's ledger.
+- **Replies.** Pipeline replies go only to the thread of the notification that started the run, while it is live.
 - **Learning pipelines are not compatible with a classified bot.** They call Tower `/api/v4/learning/*`, and Tower's ceiling refuses those routes for a classified bot.
 
 ## Known limitations

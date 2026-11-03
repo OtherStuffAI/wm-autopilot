@@ -18,7 +18,8 @@ function session(id: string, owner = "npub1owner", runtimeStatus: "running" | "s
     status: "running", agent: "claude-code", port: 3700, agentRuntimeStatus: runtimeStatus } as any;
 }
 
-function fixture(options: { supervisorRuntime?: "running" | "stable"; validateContext?: (session: any) => boolean } = {}) {
+function fixture(options: { supervisorRuntime?: "running" | "stable"; validateContext?: (session: any) => boolean;
+  snapshotOrigin?: (parent: any, workerSessionId: string) => void } = {}) {
   const root = mkdtempSync(join(tmpdir(), "dispatch-service-")); roots.push(root);
   const store = new SessionDispatchStore(join(root, "dispatch.db"));
   const queue = new PromptQueueStore(join(root, "queue.db"));
@@ -43,7 +44,7 @@ function fixture(options: { supervisorRuntime?: "running" | "stable"; validateCo
   const requested = mock(async () => {});
   const closedWorkers: string[] = [];
   const service = new SessionDispatchService(store, manager, queue, () => {}, {},
-    (id) => { closedWorkers.push(id); }, inbox, requested, options.validateContext);
+    (id) => { closedWorkers.push(id); }, inbox, requested, options.validateContext, options.snapshotOrigin);
   return { root, store, queue, inbox, sessions, adapters, service, requested, closedWorkers, createSession };
 }
 
@@ -330,4 +331,22 @@ test("overload/Continue/archive recovery keeps one worker and transfers its fina
   f.service.close(dispatch.dispatchId, "replacement");
   expect(f.service.getInbox("replacement").callbacks).toHaveLength(0);
   turnStore.close();
+});
+
+describe("SessionDispatchService strict-inbox worker origin", () => {
+  test("snapshots the supervising session's origin for the worker before its first prompt is queued", async () => {
+    const calls: Array<[string, string, number]> = [];
+    const f = fixture({ snapshotOrigin: (parent, workerSessionId) => { calls.push([parent.id, workerSessionId, f.queue.getQueueCount(workerSessionId)]); } });
+    const record = await f.service.create({ agent: "codex", prompt: "Work", callbackEnabled: true, callbackSessionId: "supervisor" });
+    expect(calls).toEqual([["supervisor", record.workerSessionId, 0]]);
+    expect(f.queue.getQueueCount(record.workerSessionId)).toBe(1);
+  });
+
+  test("a failed snapshot fails the dispatch and queues no prompt", async () => {
+    const f = fixture({ snapshotOrigin: () => { throw new Error("origin store unavailable"); } });
+    await expect(f.service.create({ agent: "codex", prompt: "Work", callbackEnabled: true, callbackSessionId: "supervisor" }))
+      .rejects.toThrow("origin store unavailable");
+    expect(f.store.list({})[0]).toMatchObject({ state: "failed" });
+    expect(f.queue.getQueueCount("worker-1")).toBe(0);
+  });
 });

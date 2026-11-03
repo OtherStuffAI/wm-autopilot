@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import type { AgentInboxEnvelope } from './agent-inbox-client';
 import {
   AgentInboxOriginStore, beginActiveInboxAttempt, currentInboxOrigin, liveInboxOrigin, notificationIdForEvent, recordInboxRunOrigin,
-  recordInboxTurn, setAgentInboxOriginStoresForTests, type LiveOrigin,
+  recordInboxTurn, setAgentInboxOriginStoresForTests, snapshotWorkerInboxOrigin, type LiveOrigin,
 } from './agent-inbox-origins';
 import { AgentInboxProcessor } from './agent-inbox-runtime';
 import { agentInboxScope } from './agent-inbox-scope';
@@ -194,5 +194,42 @@ describe('strict-inbox dispatch attempts and run origins', () => {
     s.origins.recordWorker('session-1', { subscriptionId: 'sub-1', notificationId: 'n-1' });
     // A recorded worker snapshot stays authoritative even if role metadata was patched away.
     expect(currentInboxOrigin({ ...owner, worker: false }, s.origins)?.notificationId).toBe('n-1');
+  });
+});
+
+describe('supervised workers and manager fan-in', () => {
+  const parent = (id: string, role?: string) => ({ id, metadata: { flightdeckSubscriptionId: 'sub-1', ...(role ? { role } : {}) } });
+
+  test('a worker keeps the parent origin from dispatch time; the manager acts for its own later turns', () => {
+    const s = stores();
+    s.handled('n-1', 1);
+    s.handled('n-2', 2);
+    recordInboxTurn('manager', { subscriptionId: 'sub-1', eventId: 'n-1' }, s);
+    snapshotWorkerInboxOrigin(parent('manager'), 'worker-1', s.origins);
+    recordInboxTurn('manager', { subscriptionId: 'sub-1', eventId: 'n-2' }, s);
+    expect(currentInboxOrigin({ sessionId: 'worker-1', subscriptionId: 'sub-1', worker: true }, s.origins)?.notificationId).toBe('n-1');
+    // A callback prompt to the manager is not a notification turn: fan-in writes keep acting for n-2.
+    expect(currentInboxOrigin({ sessionId: 'manager', subscriptionId: 'sub-1' }, s.origins)?.notificationId).toBe('n-2');
+    // A nested worker inherits its parent worker's snapshot, never the parent's (empty) session turns.
+    snapshotWorkerInboxOrigin(parent('worker-1', 'dispatched-worker'), 'worker-2', s.origins);
+    expect(currentInboxOrigin({ sessionId: 'worker-2', subscriptionId: 'sub-1', worker: true }, s.origins)?.notificationId).toBe('n-1');
+  });
+
+  test('a parent without an origin dispatches a worker that acts for nothing', () => {
+    const s = stores();
+    snapshotWorkerInboxOrigin(parent('manager'), 'worker-1', s.origins);
+    snapshotWorkerInboxOrigin({ id: 'legacy', metadata: {} }, 'worker-2', s.origins);
+    expect(currentInboxOrigin({ sessionId: 'worker-1', subscriptionId: 'sub-1', worker: true }, s.origins)).toBeNull();
+    expect(s.origins.history('worker', 'worker-2')).toEqual([]);
+  });
+
+  test('fan-in after the origin is no longer live fails closed without renewal', () => {
+    const s = stores();
+    s.handled('n-1', 1);
+    recordInboxTurn('manager', { subscriptionId: 'sub-1', eventId: 'n-1' }, s);
+    const origin = currentInboxOrigin({ sessionId: 'manager', subscriptionId: 'sub-1' }, s.origins);
+    expect(liveId(liveInboxOrigin(origin, s.inbox))).toBe('n-1');
+    s.inbox.update('sub-1', { floorAt: '2026-11-04T00:00:00.000Z' }); // re-anchored past the origin
+    expect(liveId(liveInboxOrigin(origin, s.inbox))).toBe('agent_inbox_origin_expired');
   });
 });

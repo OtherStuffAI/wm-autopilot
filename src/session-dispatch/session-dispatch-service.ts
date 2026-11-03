@@ -56,6 +56,8 @@ export class SessionDispatchService {
     private inbox?: SessionDispatchInboxCoordinator,
     private requestNextTurn: (sessionId: string) => void | Promise<void> = () => {},
     private validateWorkerContext?: (session: SessionSnapshot) => boolean,
+    /** Strict inbox: fixes the worker's origin to the supervising session's current origin, before its first prompt. */
+    private snapshotWorkerOrigin: (parent: SessionSnapshot, workerSessionId: string) => void = () => {},
   ) {}
 
   start(intervalMs = 1000): void {
@@ -113,6 +115,7 @@ export class SessionDispatchService {
       throw new Error(`Worker ${worker.id} was created but its dispatch record could not be persisted: ${(error as Error).message}`);
     }
     try {
+      if (callback) this.snapshotWorkerOrigin(callback, worker.id);
       const queued = this.promptQueue.addPrompt(worker.id, { content: prompt, type: "session_dispatch", payload: { dispatchId: record.dispatchId } });
       if (!queued) throw new Error("worker prompt was empty or duplicated");
       await this.dispatchQueuedPrompt(worker);

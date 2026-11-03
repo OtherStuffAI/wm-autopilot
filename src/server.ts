@@ -189,6 +189,7 @@ import { createPipelineDirectMessageSender } from "./pipelines/direct-message-ru
 import { configureFlightDeckPipelineInvocation } from "./pipelines/flightdeck-invocation";
 import { createFlightDeckThreadRuntime } from "./pipelines/flightdeck-thread-runtime";
 import { createPipelineRouterHandler } from './agent-chat/pipeline-router-handler';
+import { snapshotWorkerInboxOrigin } from './agent-chat/agent-inbox-origins';
 import {
   buildAgentUrl,
   normaliseHostForUrl,
@@ -2677,6 +2678,7 @@ const sessionDispatchService = new SessionDispatchService(
   sessionDispatchInbox,
   (sessionId) => maybeAutoDispatchQueuedPrompt(manager.getSession(sessionId) ?? null),
   createWorkerContextValidator(workspaceSubscriptionManager),
+  (parent, workerSessionId) => snapshotWorkerInboxOrigin(parent, workerSessionId),
 );
 sessionDispatchService.start();
 const dispatchPipelineRuntime = new DispatchPipelineRuntime({
