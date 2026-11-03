@@ -38,12 +38,15 @@ interface ThreadRuntimeDependencies {
   };
 }
 
+/** Channel of a pipeline run's own live origin when that origin's thread is the reply thread; otherwise null. */
+export function inboxRunOriginChannel(subscriptionId: string, runId: string, threadId: string): string | null {
+  const live = liveInboxOrigin(runInboxOrigin(runId, subscriptionId));
+  return live.ok && live.envelope.source?.thread_id === threadId ? live.envelope.source.channel_id : null;
+}
+
 const defaultInboxBinding = {
   isInboxSubscription: (subscriptionId: string) => agentInboxStore().isInboxRequired(subscriptionId),
-  runOriginChannel: (subscriptionId: string, runId: string, threadId: string) => {
-    const live = liveInboxOrigin(runInboxOrigin(runId, subscriptionId));
-    return live.ok && live.envelope.source?.thread_id === threadId ? live.envelope.source.channel_id : null;
-  },
+  runOriginChannel: inboxRunOriginChannel,
 };
 
 /**
