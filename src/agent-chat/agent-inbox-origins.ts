@@ -11,8 +11,8 @@ import { agentInboxStore, type AgentInboxEnvelopeLike, type AgentInboxStore } fr
  * Session tool calls carry only a session id, so the acting notification is recorded server-side:
  * - session: one row per ACTIVATED turn. The Flight Deck runtimes queue work per routing key and deliver a turn only once
  *   the previous one finished; the row is written when the turn's prompt is actually sent (after prompt readiness) from
- *   that turn's own trigger event id (inbox-synthesized events carry the notification id), and retracted when the send
- *   fails. A merely queued notification never changes the session's origin. A turn without a notification (legacy
+ *   that turn's own trigger event id (inbox-synthesized events carry the notification id), and retracted only when the
+ *   delivery is proven rejected. A merely queued notification never changes the session's origin. A turn without a notification (legacy
  *   runtime path, recovery without an event) is recorded as UNBOUND, so a session never keeps acting for a stale origin.
  * - run: one immutable row, recorded when a pipeline run is created during dispatch. The router is awaited inline by
  *   the dispatch (before the outcome is recorded), so the dispatch scope identifies the notification exactly.
@@ -158,8 +158,15 @@ export function recordInboxTurn(sessionId: string, turn: InboxTurn | null | unde
   return (stores.origins ?? agentInboxOriginStore()).recordTurn(sessionId, { subscriptionId: turn.subscriptionId, notificationId: notificationIdForEvent(turn.eventId) });
 }
 
-export function retractInboxTurn(rowId: number | null, store?: Pick<AgentInboxOriginStore, 'retractTurn'>) {
-  if (rowId !== null) (store ?? agentInboxOriginStore()).retractTurn(rowId);
+/**
+ * After a failed prompt delivery: the turn is retracted ONLY when the error proves the prompt was never accepted (a
+ * structured `certainty` of `rejected` or `unsent`, the same vocabulary as session message delivery). Any other failure
+ * may follow acceptance, so the session keeps acting for the turn's intended notification and never falls back to an
+ * older one while a possibly accepted turn runs.
+ */
+export function retractRejectedInboxTurn(rowId: number | null, error: unknown, store?: Pick<AgentInboxOriginStore, 'retractTurn'>) {
+  const certainty = error && typeof error === 'object' ? (error as { certainty?: unknown }).certainty : undefined;
+  if (rowId !== null && (certainty === 'rejected' || certainty === 'unsent')) (store ?? agentInboxOriginStore()).retractTurn(rowId);
 }
 
 /** Records a pipeline run's origin when the run is created during strict-inbox dispatch. No-op otherwise. */

@@ -1659,7 +1659,7 @@ describe('strict-inbox session isolation', () => {
 });
 
 describe('strict-inbox turn origin follows prompt activation, not enqueue', () => {
-  test('a queued N2 never becomes the origin of the running N1 turn; N2 is adopted only on activation; a failed activation does not advance', async () => {
+  test('a queued N2 never becomes the origin of the running N1 turn; N2 is adopted only on activation; a rejected activation does not advance', async () => {
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { AgentInboxStore } = await import('./agent-inbox-store');
     const { AgentInboxOriginStore, currentInboxOrigin, setAgentInboxOriginStoresForTests } = await import('./agent-inbox-origins');
@@ -1681,7 +1681,7 @@ describe('strict-inbox turn origin follows prompt activation, not enqueue', () =
       const n1Sending = new Promise<void>((resolve) => { n1Started = resolve; });
       const f = fixture({
         sendGate: (attempt) => (attempt === 1 ? (n1Started(), n1Running) : undefined),
-        sendError: (attempt) => (attempt === 3 ? new Error('transport closed') : null),
+        sendError: (attempt) => (attempt === 3 ? Object.assign(new Error('Agent working'), { certainty: 'rejected' }) : null),
       });
       const current = () => currentInboxOrigin({ sessionId: 'session-1', subscriptionId: 'sub1' }, origins)?.notificationId ?? null;
       const m1 = f.message('m1', '@Example Agent first', true);
@@ -1697,7 +1697,7 @@ describe('strict-inbox turn origin follows prompt activation, not enqueue', () =
       releaseN1();
       await f.runtime.waitForIdle();
       expect(current()).toBe('n-2');
-      // N3's prompt delivery fails outright: the session keeps acting for N2.
+      // N3's prompt is provably refused (busy rejection): the session keeps acting for N2.
       await f.handle([m1, m2, m3], 'm3', { id: 'n-3' });
       await f.runtime.waitForIdle();
       expect(current()).toBe('n-2');

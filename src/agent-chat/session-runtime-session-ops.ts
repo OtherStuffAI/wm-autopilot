@@ -1,5 +1,5 @@
 import { findNativeTurnFinal } from "../agents/native-sdk-contract";
-import { recordInboxTurn, retractInboxTurn, type InboxTurn } from './agent-inbox-origins';
+import { recordInboxTurn, retractRejectedInboxTurn, type InboxTurn } from './agent-inbox-origins';
 import type { AgentType } from '../config';
 import { isDirectChatFinalReady } from './direct-chat-final-readiness';
 import { resolveAuthoritativeSessionMessages } from '../agents/authoritative-session-messages';
@@ -122,7 +122,7 @@ export async function sendPromptAndAwaitAssistantReply(
   try {
     await adapter.sendMessage(prompt, 'user');
   } catch (error) {
-    retractInboxTurn(inboxTurnRow); // never delivered: the session keeps acting for its previous turn
+    retractRejectedInboxTurn(inboxTurnRow, error); // only a proven rejection keeps the previous turn's origin
     throw error;
   }
   await waitOptions?.onAccepted?.();

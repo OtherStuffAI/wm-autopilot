@@ -101,30 +101,34 @@ describe('strict-inbox turns are recorded at activation from the turn\'s own tri
     expect(currentInboxOrigin(owner, s.origins)).toBeNull();
   });
 
-  test('the prompt sender records on delivery and retracts on a definite delivery failure', async () => {
+  test('the prompt sender keeps the intended origin on uncertain failures and retracts only a proven rejection', async () => {
     const s = stores();
     setAgentInboxOriginStoresForTests(s);
-    s.handled('n-1', 1);
-    s.handled('n-2', 2);
-    let fail = false;
+    for (const [id, seq] of [['n-1', 1], ['n-2', 2], ['n-3', 3]] as const) s.handled(id, seq);
+    let failure: Error | null = null;
     const messages: any[] = [];
     const manager = {
       getAdapter: () => ({
         waitForReady: async () => {}, fetchMessages: async () => [...messages], fetchStatus: async () => 'stable',
         sendMessage: async (prompt: string) => {
-          if (fail) throw new Error('transport closed');
+          if (failure) throw failure;
           messages.push({ role: 'user', content: prompt }, { role: 'assistant', content: 'done' });
         },
       }),
       getSession: () => ({ id: 'session-1', agent: 'claude', status: 'running', metadata: {} }),
     } as any;
-    await sendPromptAndAwaitAssistantReply(manager, 'session-1', 'turn one', { inboxTurn: { subscriptionId: 'sub-1', eventId: 'n-1' }, timeoutMs: 2000, pollIntervalMs: 10 });
+    const send = (eventId: string) => sendPromptAndAwaitAssistantReply(manager, 'session-1', `turn ${eventId}`,
+      { inboxTurn: { subscriptionId: 'sub-1', eventId }, timeoutMs: 2000, pollIntervalMs: 10 });
+    await send('n-1');
     expect(currentInboxOrigin(owner, s.origins)?.notificationId).toBe('n-1');
-    fail = true;
-    await expect(sendPromptAndAwaitAssistantReply(manager, 'session-1', 'turn two', { inboxTurn: { subscriptionId: 'sub-1', eventId: 'n-2' }, timeoutMs: 2000, pollIntervalMs: 10 }))
-      .rejects.toThrow('transport closed');
-    // The failed activation never advanced the session.
+    // A definite busy refusal proves the prompt was never accepted: the session keeps acting for n-1.
+    failure = Object.assign(new Error('Agent working'), { certainty: 'rejected' });
+    await expect(send('n-2')).rejects.toThrow('Agent working');
     expect(currentInboxOrigin(owner, s.origins)?.notificationId).toBe('n-1');
+    // A generic transport/network failure may follow acceptance: never fall back to n-1 while n-3 may be running.
+    failure = new Error('Failed to deliver agent message: socket hang up');
+    await expect(send('n-3')).rejects.toThrow('socket hang up');
+    expect(currentInboxOrigin(owner, s.origins)?.notificationId).toBe('n-3');
   });
 });
 
