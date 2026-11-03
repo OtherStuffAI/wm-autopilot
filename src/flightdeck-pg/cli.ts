@@ -1,9 +1,11 @@
 import { contextCliHelp, runContextCli } from "./context-cli.ts";
 import { FlightDeckPgResponseError } from "./response-error.ts";
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 
 import { resolveSecretKey } from '../../clis/lib/auth';
 import { callCapabilityBroker } from '../mcp/capability-client';
+import { SESSION_FILE_UPLOAD_MAX_BYTES } from '../mcp/flightdeck-file-upload';
 import { FlightDeckPgClient, MissingFlightDeckPgRouteError, resolveFlightDeckPgConfig } from './client';
 
 export interface FlightDeckPgCliResult {
@@ -151,6 +153,16 @@ async function dispatchInboxSession(
     return helper('doc_create', {
       channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, title: requiredFlag(flags, '--title', 'title'),
       body: readTextFile(requiredFlag(flags, '--body-file', 'body file')),
+    });
+  }
+  if (command === 'file upload') {
+    const path = requiredFlag(flags, '--path', 'path');
+    const file = Bun.file(path);
+    if (file.size > SESSION_FILE_UPLOAD_MAX_BYTES) throw new Error(`File exceeds the ${SESSION_FILE_UPLOAD_MAX_BYTES} byte session upload limit.`);
+    return helper('file_upload', {
+      channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, fileName: basename(path),
+      contentType: stringFlag(flags, '--content-type') ?? (file.type || 'application/octet-stream'),
+      base64_data: Buffer.from(await file.arrayBuffer()).toString('base64'),
     });
   }
   if (command === 'thread read') return helper('thread_read', { channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, threadId });

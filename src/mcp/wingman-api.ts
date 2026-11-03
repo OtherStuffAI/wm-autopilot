@@ -5,6 +5,7 @@ import { rootPipelineRunId } from "../pipelines/pipeline-run-authority";
 import { invokeNativeProjectTool } from '../pipelines/native-project-tool.ts';
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
 import { applyFlightDeckMentions } from "./flightdeck-mentions.ts";
+import { parseSessionFileUpload, uploadSessionFileToChannel } from "./flightdeck-file-upload.ts";
 import { INBOX_BOUND_WRITE_ACTIONS, INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, isInboxSession, requireInboxWriteBinding, resolveInboxSessionScope, runInScope } from "./agent-inbox-session-helper";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
@@ -1467,6 +1468,16 @@ async function handleFlightDeckAction(
     appNpub: resolved.appNpub!,
     botIdentity: resolved.botIdentity!,
   };
+
+  if (action === "file_upload") {
+    const channelId = resolveChannelId(resolved, body);
+    if (!channelId) return jsonError("channelId is required", 400);
+    const parsed = parseSessionFileUpload({ fileName: body.fileName ?? body.file_name, contentType: body.contentType ?? body.content_type,
+      base64Data: body.base64_data ?? body.base64Data });
+    if ("error" in parsed) return jsonError(parsed.error, parsed.status);
+    const result = await uploadSessionFileToChannel({ ...pg, subscriptionId: resolved.subscriptionId, channelId, ...parsed });
+    return jsonOk({ ok: true, ...result });
+  }
 
   if (action === "doc_create") {
     const channelId = resolveChannelId(resolved, body);

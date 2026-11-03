@@ -74,6 +74,7 @@ describe('strict-inbox session writes are notification-bound', () => {
         ['task_comment', ids({ taskId: 'task-1' })],
         ['doc_reply', ids({ documentId: 'doc-1' })],
         ['doc_create', ids({ channelId: 'channel-1' })],
+        ['file_upload', ids({ channelId: 'channel-1' })],
       ] as const;
       for (const [action, where] of allowed) expect([action, requireInboxWriteBinding('sub-1', action, where, store)]).toEqual([action, null]);
       const refused = [
@@ -82,6 +83,8 @@ describe('strict-inbox session writes are notification-bound', () => {
         ['task_comment', ids({ taskId: 'task-other' })],
         ['doc_reply', ids({ documentId: 'doc-other' })],
         ['doc_create', ids({ channelId: 'channel-other' })],
+        ['file_upload', ids({ channelId: 'channel-other' })],
+        ['file_upload', ids({})],
       ] as const;
       for (const [action, where] of refused) {
         const response = requireInboxWriteBinding('sub-1', action, where, store);
