@@ -1707,3 +1707,85 @@ describe('strict-inbox turn origin follows prompt activation, not enqueue', () =
     }
   }, 20_000);
 });
+
+describe('strict-inbox catch-up after migration never replays carried requests', () => {
+  async function inboxScope() {
+    const { agentInboxScope } = await import('./agent-inbox-scope');
+    return (f: ReturnType<typeof fixture>, id: string, run: () => Promise<unknown>) => agentInboxScope.run({ notification: { id, seq: 1, state: 'active' } as any,
+      context: {} as any, profileNpub: f.botIdentity.botNpub, subscriptionId: 'sub1', dispatch: true }, run);
+  }
+  const revision = (messageId: string, rev: number, npub: string) => ({ event_type: 'flightdeck_pg.message.revised', entity_row_version: rev, payload: {
+    event_type: 'message.revised', message_id: messageId, revision: rev, revision_idempotency_key: `message:${messageId}:revision:${rev}`,
+    newly_added_mentions: [{ type: 'agent', npub, label: 'Example Agent' }] } });
+
+  test('completed legacy requests replayed with bounded transcripts and a fresh generation are skipped; a later request runs alone', async () => {
+    const inbox = await inboxScope();
+    const f = fixture();
+    const [m1, m2, m3, m4] = ['m1', 'm2', 'm3', 'm4'].map((id, index) => f.message(id, `@Example Agent request ${index + 1}`, true));
+    await f.handle([m1!], 'm1', { id: 'legacy-1' }); await f.runtime.waitForIdle();
+    await f.handle([m1!, m2!], 'm2', { id: 'legacy-2' }); await f.runtime.waitForIdle();
+    await f.handle([m1!, m2!, m3!], 'm3', { id: 'legacy-3' }); await f.runtime.waitForIdle();
+    const before = { prompts: f.prompts.length, published: f.published.length, creates: f.creates.length, stops: f.stops.length };
+    await inbox(f, 'n-1', () => f.handle([m1!], 'm1', { id: 'n-1' })); await f.runtime.waitForIdle();
+    await inbox(f, 'n-2', () => f.handle([m1!, m2!], 'm2', { id: 'n-2' })); await f.runtime.waitForIdle();
+    await inbox(f, 'n-3', () => f.handle([m1!, m2!, m3!], 'm3', { id: 'n-3' })); await f.runtime.waitForIdle();
+    expect({ prompts: f.prompts.length, published: f.published.length, creates: f.creates.length, stops: f.stops.length }).toEqual(before);
+    // A genuinely new request after the catch-up runs once and carries only itself.
+    await inbox(f, 'n-4', () => f.handle([m3!, m4!], 'm4', { id: 'n-4' })); await f.runtime.waitForIdle();
+    expect(f.prompts.length).toBe(before.prompts + 1);
+    expect(f.prompts.at(-1)).toContain('request 4');
+    expect(f.prompts.at(-1)).not.toContain('request 1');
+    expect(f.published.length).toBe(before.published + 1);
+  }, 30_000);
+
+  test('a replay of the in-flight request neither prompts again nor retires the active turn', async () => {
+    const inbox = await inboxScope();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let started!: () => void;
+    const sending = new Promise<void>((resolve) => { started = resolve; });
+    const f = fixture({ sendGate: (attempt) => (attempt === 2 ? (started(), held) : undefined) });
+    const m1 = f.message('m1', '@Example Agent first', true);
+    const m2 = f.message('m2', '@Example Agent second', true);
+    await f.handle([m1], 'm1', { id: 'legacy-1' }); await f.runtime.waitForIdle();
+    await f.handle([m1, m2], 'm2', { id: 'legacy-2' });
+    await sending;
+    const before = { prompts: f.prompts.length, creates: f.creates.length, stops: f.stops.length };
+    await inbox(f, 'n-2', () => f.handle([m1, m2], 'm2', { id: 'n-2' }));
+    await Bun.sleep(20);
+    expect({ prompts: f.prompts.length, creates: f.creates.length, stops: f.stops.length }).toEqual(before);
+    release();
+    await f.runtime.waitForIdle();
+    expect(f.published.length).toBe(2); // m1 and the in-flight m2, each published once
+    expect(f.stops).toEqual([]);
+    expect(f.prompts.length).toBe(before.prompts + 1);
+  }, 30_000);
+
+  test('a request whose only turn failed is not treated as delivered: the next request carries it again', async () => {
+    const inbox = await inboxScope();
+    let failing = true;
+    const f = fixture({ sendError: () => (failing ? new Error('agent crashed') : null) });
+    const m1 = f.message('m1', '@Example Agent retry me', true);
+    const m2 = f.message('m2', '@Example Agent and this', true);
+    await f.handle([m1], 'm1', { id: 'legacy-1' }); await f.runtime.waitForIdle();
+    expect(f.published.length).toBe(0);
+    failing = false;
+    await inbox(f, 'n-2', () => f.handle([m1, m2], 'm2', { id: 'n-2' })); await f.runtime.waitForIdle();
+    expect(f.prompts.at(-1)).toContain('retry me');
+    expect(f.prompts.at(-1)).toContain('and this');
+    expect(f.published.length).toBe(1);
+  }, 30_000);
+
+  test('a new revision adding the agent mention still runs once; the same revision replayed is deduped', async () => {
+    const inbox = await inboxScope();
+    const f = fixture();
+    const m1 = f.message('m1', '@Example Agent original', true);
+    await f.handle([m1], 'm1', { id: 'legacy-1' }); await f.runtime.waitForIdle();
+    const revised = { ...m1, body: '@Example Agent revised ask' };
+    const prompts = f.prompts.length;
+    await f.handle([revised], 'm1', { id: 'legacy-rev', ...revision('m1', 2, f.botIdentity.botNpub) }); await f.runtime.waitForIdle();
+    expect(f.prompts.length).toBe(prompts + 1);
+    await inbox(f, 'n-rev', () => f.handle([revised], 'm1', { id: 'n-rev', ...revision('m1', 2, f.botIdentity.botNpub) })); await f.runtime.waitForIdle();
+    expect(f.prompts.length).toBe(prompts + 1);
+  }, 30_000);
+});

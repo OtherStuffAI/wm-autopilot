@@ -1,6 +1,7 @@
 import { directChatPublicationPayloadHash, buildDirectChatPublicationPayload } from "./direct-chat-publication-payload";
 export { directChatPublicationPayloadHash, buildDirectChatPublicationPayload } from "./direct-chat-publication-payload";
 import { freshSessionSnapshot, captureFreshHumanCutoff, retireDirectChatWork } from "./direct-chat-work-cutoff";
+import { carriedSourceState, doneCarriedSourceIds, type CarriedSourceState } from "./direct-chat-carried-sources";
 import { findInterruptedDirectChatSessionTurn, rebindAcceptedDirectChatSession } from "./direct-chat-session-ownership-store";
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -135,6 +136,12 @@ export class DirectChatTurnStore {
   }
   retireForFreshHumanTrigger(sessionId: string, triggerId: string, routingKey: string, snapshot?: string[]): void {
     retireDirectChatWork(this.db, sessionId, triggerId, routingKey, snapshot);
+  }
+  carriedSourceState(routingKey: string, messageId: string): CarriedSourceState | null {
+    return carriedSourceState(this.db, routingKey, messageId);
+  }
+  doneCarriedSourceIds(routingKey: string): Set<string> {
+    return doneCarriedSourceIds(this.db, routingKey);
   }
 
   get(turnId: string): DirectChatTurnRecord | null {

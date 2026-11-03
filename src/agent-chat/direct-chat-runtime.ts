@@ -220,6 +220,17 @@ export class AgentDirectChatRuntime {
       const routingKey = buildDirectChatRoutingKey({ towerServiceNpub: input.subscription.towerServiceNpub || input.subscription.backendBaseUrl,
         workspaceId: input.subscription.workspaceId || workspaceIdentity, channelId: input.channel.id, threadId, agentNpub: agent.botNpub });
       const cursor = input.event.cursor ?? (input.event.row_version != null ? String(input.event.row_version) : null);
+      // Durable turn evidence, not the latest checkpoint, decides whether a re-delivered request (for example a strict-inbox
+      // catch-up after migration) was already carried. Checked before any intake or fresh-session side effect. Revisions
+      // keep their own durable revision claim.
+      const carried = revisionDispatch ? null : this.turnStore.carriedSourceState(routingKey, eventMessage.messageId);
+      if (carried === 'done' || carried === 'active') {
+        this.logCarriedRedelivery(agent, eventMessage.messageId, routingKey, carried);
+        // An in-flight turn is owned by delivery reconciliation: never a new prompt and never a retirement.
+        const pending = carried === 'active' ? this.turnStore.getPending(routingKey) : null;
+        if (pending && this.deps.deliveryReconciler) this.deps.deliveryReconciler.notify(pending.turnId);
+        continue;
+      }
       const beforeIntake = this.deps.interceptStore.getByRoutingKey(routingKey);
       const upsert = this.deps.interceptStore.upsertMessage({
         routingKey, subscriptionId: input.subscription.subscriptionId, agentId: agent.agentId,
@@ -316,6 +327,11 @@ export class AgentDirectChatRuntime {
       recordId,
       reason,
     });
+  }
+
+  /** Logged only: the request's own dispatch outcome (launched/published) stays the truthful record. */
+  private logCarriedRedelivery(agent: AgentDefinitionRecord, recordId: string, routingKey: string, carried: 'done' | 'active'): void {
+    this.log.warn('[agent-chat] Agent Direct request was already carried; re-delivery ignored', { agentId: agent.agentId, recordId, routingKey, carried });
   }
 
   recover(input: DirectChatRuntimeInput, routingKey: string): { handled: boolean; reason: string } {
@@ -423,11 +439,15 @@ export class AgentDirectChatRuntime {
                 .some((undeliveredMessage) => undeliveredMessage.messageId === message.messageId))
           : selectUndeliveredActionableMessages(history, intercept, agent.botNpub, [input.subscription.wsKeyNpub ?? '']);
         const revisionDispatch = messageRevisionDispatch(input.event);
+        // Requests a finished turn already delivered are never prompted again, even when the supplied history does not
+        // contain the delivery checkpoint (bounded strict-inbox transcripts). The pending turn's own sources stay.
+        const delivered = revisionDispatch ? new Set<string>() : this.turnStore.doneCarriedSourceIds(routingKey);
         const delta = afterFreshHumanBoundary(history, pendingAwaiting
           ? undelivered
           : revisionDispatch
             ? history.filter((message) => message.messageId === input.event.entity_id)
-          : undelivered.filter((message) => isAgentDirectMessageEligible(input.channel, message, agent.botNpub)), intercept);
+          : undelivered.filter((message) => isAgentDirectMessageEligible(input.channel, message, agent.botNpub)), intercept)
+          .filter((message) => !delivered.has(message.messageId) || Boolean(pending?.sourceMessageIds.includes(message.messageId)));
         if (delta.length === 0) continue;
         const replaceInterruptedSession = intercept.lastDecision === 'failed' && Boolean(intercept.freshStartMessageId);
         if (pendingAwaiting && pending) {
