@@ -11,7 +11,7 @@ import { databaseFile } from '../storage/database-path';
  * capability (it reports `agent_inbox_unsupported` instead).
  */
 export type AgentInboxMode = 'legacy' | 'inbox_required';
-export type AgentInboxEnvelopeLike = { id: string; seq: number; state: string; kind?: string; source?: { type: string; id: string; channel_id: string | null; thread_id: string | null; task_id: string | null; doc_id: string | null; version?: number | null } };
+export type AgentInboxEnvelopeLike = { id: string; seq: number; state: string; kind?: string; reason?: string; origin_notification_id?: string | null; occurred_at?: string; source?: { type: string; id: string; channel_id: string | null; thread_id: string | null; task_id: string | null; doc_id: string | null; version?: number | null } };
 
 export interface AgentInboxState {
   subscriptionId: string;

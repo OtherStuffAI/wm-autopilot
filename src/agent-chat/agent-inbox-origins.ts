@@ -169,7 +169,12 @@ export function recordInboxRunOrigin(runId: string, store?: Pick<AgentInboxOrigi
 }
 
 export type OriginRefusalCode = 'agent_inbox_no_origin' | 'agent_inbox_origin_expired';
-export type LiveOrigin = { ok: true; origin: InboxOrigin; envelope: AgentInboxEnvelopeLike } | { ok: false; code: OriginRefusalCode };
+/**
+ * `towerOriginId` is what Tower accepts as `origin_notification_id`: the notification itself, or for a deliberate
+ * self-address notification (reason `self_mention`, which binds nothing by itself) the live non-self notification it
+ * names.
+ */
+export type LiveOrigin = { ok: true; origin: InboxOrigin; envelope: AgentInboxEnvelopeLike; towerOriginId: string } | { ok: false; code: OriginRefusalCode };
 
 const instant = (value: unknown) => (typeof value === 'string' && value ? Date.parse(value) : Number.NaN);
 
@@ -181,6 +186,17 @@ const instant = (value: unknown) => (typeof value === 'string' && value ? Date.p
  * revoked and pre-floor notifications are never live, and there is no renewal. Tower re-checks for classified bots.
  */
 export function liveInboxOrigin(origin: InboxOrigin | null, store: Pick<AgentInboxStore, 'bindingRecord' | 'get'> = inboxState()): LiveOrigin {
+  const live = liveRecordedOrigin(origin, store);
+  if (!live.ok || live.envelope.reason !== 'self_mention') return live;
+  // A self-address acts only while the non-self notification it names is itself live (never a chain of self rows).
+  const named = live.envelope.origin_notification_id;
+  if (!named) return { ok: false, code: 'agent_inbox_origin_expired' };
+  const nonSelf = liveRecordedOrigin({ subscriptionId: live.origin.subscriptionId, notificationId: named }, store);
+  if (!nonSelf.ok || nonSelf.envelope.reason === 'self_mention') return { ok: false, code: 'agent_inbox_origin_expired' };
+  return { ...live, towerOriginId: nonSelf.envelope.id };
+}
+
+function liveRecordedOrigin(origin: InboxOrigin | null, store: Pick<AgentInboxStore, 'bindingRecord' | 'get'>): LiveOrigin {
   if (!origin) return { ok: false, code: 'agent_inbox_no_origin' };
   const state = store.get(origin.subscriptionId);
   const floorAt = instant(state?.floorAt);
@@ -189,11 +205,11 @@ export function liveInboxOrigin(origin: InboxOrigin | null, store: Pick<AgentInb
   if (!record) return { ok: false, code: 'agent_inbox_no_origin' };
   const envelope = record.envelope;
   if (envelope.id !== origin.notificationId || envelope.state !== 'active') return { ok: false, code: 'agent_inbox_origin_expired' };
-  const occurredAt = instant((envelope as { occurred_at?: unknown }).occurred_at);
+  const occurredAt = instant(envelope.occurred_at);
   if (!Number.isFinite(occurredAt) || occurredAt < floorAt) return { ok: false, code: 'agent_inbox_origin_expired' };
   const active = !record.handledAt && isActiveInboxAttempt(origin.subscriptionId, origin.notificationId);
   if (!active && record.outcome !== 'handled') return { ok: false, code: 'agent_inbox_origin_expired' };
-  return { ok: true, origin, envelope };
+  return { ok: true, origin, envelope, towerOriginId: envelope.id };
 }
 
 export interface InboxLocation { channelId?: string | null; threadId?: string | null; taskId?: string | null; docId?: string | null }

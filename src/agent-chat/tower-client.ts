@@ -1,3 +1,4 @@
+import { canonicalMentionsSha256 } from './mention-signature';
 import { prepareTowerRequestUrl, fetchTowerRequest, transportForConnection } from "./tower-transport-runtime";
 import { createHash } from 'node:crypto';
 
@@ -532,6 +533,8 @@ export function buildFlightDeckPgMessageInstructionSignature(params: {
   workspaceId: string;
   channelId: string;
   threadId?: string | null;
+  /** Deliberate self-address only: binds the structured mentions (Tower requires it for self-address projection). */
+  mentionsSha256?: string | null;
 }): Record<string, unknown> {
   const bodySha256 = sha256Hex(params.body);
   const tags = [
@@ -543,6 +546,7 @@ export function buildFlightDeckPgMessageInstructionSignature(params: {
   if (params.threadId) {
     tags.push(['thread_id', params.threadId]);
   }
+  if (params.mentionsSha256) tags.push(['mentions_sha256', params.mentionsSha256]);
   const event = finalizeEvent({
     kind: AGENT_INSTRUCTION_SIGNATURE_KIND,
     created_at: Math.floor(Date.now() / 1000),
@@ -565,6 +569,7 @@ async function buildFlightDeckPgMessageInstructionSignatureForIdentity(params: {
   workspaceId: string;
   channelId: string;
   threadId?: string | null;
+  mentionsSha256?: string | null;
 }): Promise<Record<string, unknown>> {
   if (!('signNostrEvent' in params.botIdentity)) {
     return buildFlightDeckPgMessageInstructionSignature({
@@ -580,6 +585,7 @@ async function buildFlightDeckPgMessageInstructionSignatureForIdentity(params: {
     ['channel_id', params.channelId],
   ];
   if (params.threadId) tags.push(['thread_id', params.threadId]);
+  if (params.mentionsSha256) tags.push(['mentions_sha256', params.mentionsSha256]);
   const event = await params.botIdentity.signNostrEvent({
     kind: AGENT_INSTRUCTION_SIGNATURE_KIND,
     created_at: Math.floor(Date.now() / 1000),
@@ -1200,6 +1206,11 @@ export async function createFlightDeckPgChannelMessage(params: {
   createThread?: boolean;
   metadata?: Record<string, unknown> | null;
   clientRequestId?: string | null;
+  /**
+   * Strict inbox deliberate self-address: the live non-self origin notification and the structured mentions it signs
+   * (mentions_sha256). Ordinary messages omit it and are sent exactly as before.
+   */
+  selfAddress?: { originNotificationId: string; mentions: unknown[] } | null;
   signal?: AbortSignal;
 }): Promise<FlightDeckPgWriteResult> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/channels/${encodeURIComponent(params.channelId)}/messages`;
@@ -1212,7 +1223,9 @@ export async function createFlightDeckPgChannelMessage(params: {
       workspaceId: params.workspaceId,
       channelId: params.channelId,
       threadId: params.threadId,
+      mentionsSha256: params.selfAddress ? canonicalMentionsSha256(params.selfAddress.mentions) : null,
     }),
+    ...(params.selfAddress ? { origin_notification_id: params.selfAddress.originNotificationId } : {}),
     ...(params.threadId ? { thread_id: params.threadId } : {}),
     ...(params.createThread !== undefined ? { create_thread: params.createThread } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),

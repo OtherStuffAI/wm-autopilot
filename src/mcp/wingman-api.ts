@@ -6,7 +6,7 @@ import { invokeNativeProjectTool } from '../pipelines/native-project-tool.ts';
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
 import { applyFlightDeckMentions } from "./flightdeck-mentions.ts";
 import { parseSessionFileUpload, uploadSessionFileToChannel } from "./flightdeck-file-upload.ts";
-import { INBOX_BOUND_WRITE_ACTIONS, INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, inboxOriginOwner, isInboxSession, resolveInboxReadOrigin, resolveInboxSessionScope, resolveInboxWriteOrigin, runInScope } from "./agent-inbox-session-helper";
+import { INBOX_BOUND_WRITE_ACTIONS, INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead, inboxAwareFetchers, inboxLocation, inboxOriginOwner, inboxSelfAddress, isInboxSession, resolveInboxReadOrigin, resolveInboxSessionScope, resolveInboxWriteOrigin, runInScope, type BoundOrigin } from "./agent-inbox-session-helper";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
@@ -1424,9 +1424,11 @@ async function handleFlightDeckHelper(
       channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
       taskId: action.startsWith("task_") ? resolveTaskId(resolved, body) : null, documentId: action.startsWith("doc_") ? resolveDocumentId(resolved, body) : null,
     };
+    let writeOrigin: BoundOrigin | undefined;
     if (INBOX_BOUND_WRITE_ACTIONS.has(action)) {
       const origin = resolveInboxWriteOrigin(owner, action, ids);
       if (origin instanceof Response) return origin;
+      writeOrigin = origin;
     }
     if (INBOX_READ_ACTIONS.has(action) || INBOX_SCOPED_WRITE_ACTIONS.has(action)) {
       const inboxTarget = {
@@ -1439,8 +1441,9 @@ async function handleFlightDeckHelper(
       if (scope instanceof Response) return scope;
       if (action === "attachment_get") return answerInboxAttachment(inboxTarget, scope, asString(body.storageObjectId) ?? asString(body.storage_object_id));
       if (INBOX_READ_ACTIONS.has(action)) return answerInboxRead(action, scope);
-      return runInScope(scope, () => handleFlightDeckAction(deps, request, action, body, sessionId, resolved));
+      return runInScope(scope, () => handleFlightDeckAction(deps, request, action, body, sessionId, resolved, origin));
     }
+    return handleFlightDeckAction(deps, request, action, body, sessionId, resolved, writeOrigin);
   }
   return handleFlightDeckAction(deps, request, action, body, sessionId, resolved);
 }
@@ -1455,6 +1458,8 @@ async function handleFlightDeckAction(
   body: JsonObject,
   sessionId: string,
   resolved: FlightDeckMcpContext,
+  /** Strict inbox: the exact live origin this call acts for (absent for legacy sessions). */
+  inboxOrigin?: BoundOrigin,
 ): Promise<Response> {
   if (action.startsWith("context_tree_")) {
     return handleContextTreeHelper({ action, body, request, sessionId,
@@ -1690,20 +1695,23 @@ async function handleFlightDeckAction(
     if (!replyBody) return jsonError("body is required", 400);
     const mentioned = applyFlightDeckMentions(replyBody, body.mentions);
     if ("error" in mentioned) return jsonError(mentioned.error, 400);
+    const metadata = {
+      autopilot_mcp_helper: true,
+      source_session_id: sessionId,
+      source_pipeline_run_id: resolved.runId,
+      source_record_id: asString(resolved.record.recordId),
+      ...asObject(body.metadata),
+      ...(mentioned.metadata ?? {}),
+    };
     const result = await createFlightDeckPgChannelMessage({
       ...pg,
       channelId,
       body: mentioned.body,
       threadId: resolveThreadId(resolved, body),
       createThread: body.createThread === true,
-      metadata: {
-        autopilot_mcp_helper: true,
-        source_session_id: sessionId,
-        source_pipeline_run_id: resolved.runId,
-        source_record_id: asString(resolved.record.recordId),
-        ...asObject(body.metadata),
-        ...(mentioned.metadata ?? {}),
-      },
+      metadata,
+      // Strict inbox: a deliberate self-address names the live non-self origin and signs its structured mentions.
+      selfAddress: inboxSelfAddress(inboxOrigin, metadata.mentions, pg.botIdentity.botNpub),
     });
     return jsonOk({ ok: true, result, ...(mentioned.warnings.length ? { warnings: mentioned.warnings } : {}) });
   }

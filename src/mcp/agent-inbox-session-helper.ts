@@ -7,6 +7,7 @@ import {
 import type { FlightDeckPgBotIdentity } from '../agent-chat/tower-client';
 import { decodeFlightDeckPgDocumentBody, type FlightDeckPgDocumentResult } from '../agent-chat/tower-client';
 import { capturedDocumentBase } from '../flightdeck-pg/document-update-base';
+import { mentionsAddressSelf } from '../agent-chat/mention-signature';
 
 /**
  * Agent session tools (MCP helper, and the CLI through it) for a subscription opted into the strict inbox.
@@ -92,6 +93,15 @@ export function resolveInboxWriteOrigin(owner: InboxOriginOwner, action: string,
     return refuse('agent_inbox_write_unbound', `${action} is only available in the thread, task, document or channel of the notification this session acts for.`);
   }
   return live;
+}
+
+/**
+ * A deliberate self-address (structured agent mention of the bot itself) from a strict-inbox session: names the live
+ * non-self origin and the mentions to sign. Anything else (no origin, no self mention) is an ordinary message.
+ */
+export function inboxSelfAddress(origin: BoundOrigin | undefined, mentions: unknown, botNpub: string): { originNotificationId: string; mentions: unknown[] } | null {
+  if (!origin || !Array.isArray(mentions) || !mentionsAddressSelf(mentions, botNpub)) return null;
+  return { originNotificationId: origin.towerOriginId, mentions };
 }
 
 /** Recipient-bound context of an exact live origin, fetched with the bot's own key (never a raw Tower read). */

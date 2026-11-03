@@ -183,3 +183,17 @@ describe('strict-inbox session calls act only for their own origin notification'
     } finally { f.done(); }
   });
 });
+
+describe('strict-inbox deliberate self-address', () => {
+  const { inboxSelfAddress } = require('./agent-inbox-session-helper');
+  const origin = { ok: true, origin: { subscriptionId: 'sub-1', notificationId: 'n-self' }, envelope: { id: 'n-self' }, towerOriginId: 'n-human' } as any;
+
+  test('names the live non-self origin only for a structured agent mention of the bot itself', () => {
+    const self = [{ type: 'agent', npub: 'npub1bot', label: 'Me' }, { type: 'agent', npub: 'npub1other' }];
+    expect(inboxSelfAddress(origin, self, 'npub1bot')).toEqual({ originNotificationId: 'n-human', mentions: self });
+    expect(inboxSelfAddress(origin, [{ type: 'agent', npub: 'npub1other' }], 'npub1bot')).toBeNull();
+    expect(inboxSelfAddress(origin, undefined, 'npub1bot')).toBeNull();
+    // Legacy sessions (no origin) send ordinary messages, unchanged.
+    expect(inboxSelfAddress(undefined, self, 'npub1bot')).toBeNull();
+  });
+});

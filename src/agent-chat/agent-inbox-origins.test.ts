@@ -233,3 +233,28 @@ describe('supervised workers and manager fan-in', () => {
     expect(liveId(liveInboxOrigin(origin, s.inbox))).toBe('agent_inbox_origin_expired');
   });
 });
+
+describe('deliberate self-address origins', () => {
+  test('a self_mention notification acts only while the non-self notification it names is live; Tower gets the non-self id', () => {
+    const s = stores();
+    s.handled('n-human', 1);
+    s.handled('n-self', 2, 'handled', { reason: 'self_mention', origin_notification_id: 'n-human' } as any);
+    const self = { subscriptionId: 'sub-1', notificationId: 'n-self' };
+    const live = liveInboxOrigin(self, s.inbox);
+    expect(live.ok && [live.envelope.id, live.towerOriginId]).toEqual(['n-self', 'n-human']);
+    const plain = liveInboxOrigin({ subscriptionId: 'sub-1', notificationId: 'n-human' }, s.inbox);
+    expect(plain.ok && plain.towerOriginId).toBe('n-human');
+    s.inbox.markHandled('sub-1', 'n-human', 1, 'failed_permanent', null);
+    expect(liveId(liveInboxOrigin(self, s.inbox))).toBe('agent_inbox_origin_expired');
+  });
+
+  test('a self_mention without a named origin, or naming another self_mention, never acts', () => {
+    const s = stores();
+    s.handled('n-self-a', 1, 'handled', { reason: 'self_mention', origin_notification_id: null } as any);
+    s.handled('n-self-b', 2, 'handled', { reason: 'self_mention', origin_notification_id: 'n-self-c' } as any);
+    s.handled('n-self-c', 3, 'handled', { reason: 'self_mention', origin_notification_id: 'n-missing' } as any);
+    for (const id of ['n-self-a', 'n-self-b', 'n-self-c']) {
+      expect([id, liveId(liveInboxOrigin({ subscriptionId: 'sub-1', notificationId: id }, s.inbox))]).toEqual([id, 'agent_inbox_origin_expired']);
+    }
+  });
+});

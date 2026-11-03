@@ -77,8 +77,17 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 - **Replies.** Pipeline replies go only to the thread of the notification that started the run, while it is live.
 - **Learning pipelines are not compatible with a classified bot.** They call Tower `/api/v4/learning/*`, and Tower's ceiling refuses those routes for a classified bot.
 
+## Self-address
+
+A chat reply whose structured mentions include the bot itself (`{"type":"agent","npub":<own npub>}`) is a deliberate self-address.
+- Autopilot sends `origin_notification_id` and adds a `mentions_sha256` tag to the message's kind-33358 instruction signature. The value is the lowercase hex SHA-256 of `JSON.stringify` of the deduped `{type, npub}` list, lowercased and sorted by npub then type.
+- `origin_notification_id` is the live non-self notification the session acts for. For a turn that was itself a self-address, it is the non-self notification that self-address named.
+- Ordinary messages carry neither, unchanged.
+- Tower decides whether to project the self-address (verified signature, live origin, current ACL). Autopilot still decides whether to execute it (instructor grants).
+- A `self_mention` notification binds nothing by itself. A session acting for one may write only while the non-self notification it names is live.
+
 ## Known limitations
 
-- **Self-mentions.** Tower never notifies the author of a source. A bot that deliberately mentions itself, or that later works on records it created, gets no notification binding for them. Do not classify such bots until the Tower contract covers this.
+- **Self-mentions.** Projection of a deliberate self-address needs the matching Tower contract (reason `self_mention`). Until Tower runs it, a bot that mentions itself is not notified. Do not classify such bots before then.
 - **Approvals and flow steps.** These still exist only on the legacy feed.
 - **Activation.** Source changes take effect only after an Autopilot restart.
