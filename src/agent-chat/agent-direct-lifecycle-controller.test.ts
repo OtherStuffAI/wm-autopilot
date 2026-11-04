@@ -1,4 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { installPlaceholderLiveIdentityResolver } from './agent-activity-identity-test-support';
+import { setLiveSubscriptionIdentityResolver } from './agent-activity-identity';
+
+beforeEach(installPlaceholderLiveIdentityResolver);
+afterEach(() => setLiveSubscriptionIdentityResolver(null));
 
 import { AgentActivityPublicationStore } from './agent-activity-publication-store';
 import { AgentActivityPublisher } from './agent-activity-publisher';

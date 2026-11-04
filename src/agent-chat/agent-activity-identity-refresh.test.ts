@@ -61,6 +61,8 @@ describe('activity signer across subscription identity refresh', () => {
   test('captured identity zeroed by a refresh cannot sign (the original failure)', async () => {
     const stale = fixtureIdentity();
     const tower = authorizingTower();
+    // Old behavior: every signature uses the buffer captured when the turn started.
+    setLiveSubscriptionIdentityResolver(() => stale);
     const publisher = publisherFor(stale, tower);
     await publisher.publish('working', 'before refresh');
     stale.botSecret.fill(0);
@@ -85,6 +87,37 @@ describe('activity signer across subscription identity refresh', () => {
     await publisher.publish('completed');
     expect(tower.signers.length).toBe(6);
     expect(new Set(tower.signers)).toEqual(new Set([original.botPubkeyHex]));
+  });
+
+  test('a refresh landing during async URL preparation still signs with the new buffer', async () => {
+    const original = fixtureIdentity();
+    const tower = authorizingTower();
+    const sub = liveSubscription(original);
+    const publisher = publisherFor(original, tower);
+    await publisher.publish('working', 'first');
+    // Refresh while the request is between "identity chosen" and "signature made".
+    const racing = (async (input: any) => {
+      const pending = signFlightDeckPgBotRequest({ botIdentity: input.botIdentity, url: `${input.backendBaseUrl}/activity`, method: 'PUT', body: {} });
+      sub.refresh({ ...original, botSecret: Uint8Array.from(original.botSecret) });
+      original.botSecret.fill(0);
+      const event = JSON.parse(Buffer.from((await pending).replace(/^Nostr /, ''), 'base64').toString('utf8'));
+      expect(verifyEvent(event)).toBe(true);
+      tower.signers.push(event.pubkey);
+      return { agent_activity: { contract_version: 2 } };
+    }) as any;
+    const racer = new AgentActivityPublisher(baseContext(original), racing, 0, undefined, quietLog, new AgentActivityPublicationStore(':memory:'),
+      undefined, tower.deliverLease);
+    await racer.publish('working', 'raced');
+    expect(tower.signers).toEqual([original.botPubkeyHex, original.botPubkeyHex]);
+  });
+
+  test('subscription-bound activity fails closed when no live resolver is installed', async () => {
+    const original = fixtureIdentity();
+    const tower = authorizingTower();
+    const publisher = publisherFor(original, tower);
+    expect(await publisher.heartbeat()).toBe('failed');
+    await publisher.publish('working', 'nothing');
+    expect(tower.signers).toEqual([]);
   });
 
   test('removed subscription fails closed and never signs', async () => {

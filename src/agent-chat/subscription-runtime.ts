@@ -1376,7 +1376,8 @@ export class WorkspaceSubscriptionManager {
   getLiveActivityIdentity(subscriptionId: string, botNpub: string): RuntimeBotIdentity | null {
     const record = this.store.getBySubscriptionId(subscriptionId);
     const runtime = this.runtimes.get(subscriptionId);
-    if (!record || (record.lifecycleStatus ?? 'active') !== 'active' || record.botNpub !== botNpub) return null;
+    if (!record || (record.lifecycleStatus ?? 'active') !== 'active' || isRevokedWorkspaceSubscription(record)
+      || record.botNpub !== botNpub) return null;
     if (!runtime || runtime.removed || runtime.botIdentity.botNpub !== botNpub) return null;
     return runtime.botIdentity.botSecret.some((byte) => byte !== 0) ? runtime.botIdentity : null;
   }

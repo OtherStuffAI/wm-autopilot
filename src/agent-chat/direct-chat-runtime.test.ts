@@ -7,7 +7,12 @@ import type { AgentDefinitionRecord } from "./types.ts";
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { installPlaceholderLiveIdentityResolver } from './agent-activity-identity-test-support';
+import { setLiveSubscriptionIdentityResolver } from './agent-activity-identity';
+
+beforeEach(installPlaceholderLiveIdentityResolver);
+afterEach(() => setLiveSubscriptionIdentityResolver(null));
 import { AgentDefinitionStore } from './agent-definition-store';
 import { ChatInterceptStateStore } from './chat-intercept-state-store';
 import { AgentDirectChatRuntime } from './direct-chat-runtime';
