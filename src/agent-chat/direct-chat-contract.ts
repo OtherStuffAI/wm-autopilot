@@ -101,7 +101,8 @@ export function isImplicitTwoPartyDirectMessage(
   authorNpub: string | null,
 ): boolean {
   if (channel.kind !== 'dm' || !authorNpub) return false;
-  const participants = [...new Set((channel.participant_npubs ?? []).map((npub) => npub.trim()).filter(Boolean))];
+  const participants = channel.participant_npubs;
+  if (!Array.isArray(participants) || participants.some((npub) => typeof npub !== 'string' || !npub || npub !== npub.trim())) return false;
   if (participants.length !== 2 || !participants.includes(botNpub)) return false;
   const otherParticipant = participants.find((npub) => npub !== botNpub);
   return Boolean(otherParticipant && authorNpub === otherParticipant);

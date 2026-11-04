@@ -1,3 +1,5 @@
+import { agentInboxScope, inboxAwareFetchers } from './agent-inbox-scope';
+import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import { AgentDirectLifecycleController, AgentSessionHealthPublicationStore } from "./agent-direct-lifecycle-controller.ts";
 import { DirectChatEnrichmentStore } from "./direct-chat-enrichment-store.ts";
 import type { EnrichDirectChat } from "./direct-chat-enrichment-service.ts";
@@ -817,6 +819,45 @@ describe('Agent Direct Chat runtime', () => {
     expect(prompt).toContain('"thread_id": "child-thread"');
     expect(prompt).toContain('"trigger_message_id": "m1"');
     expect(prompt).toContain('# Prompt\n\nTry a different approach');
+  });
+
+  test('bounded inbox adapter activates exact current DM once and preserves instruction authorization', async () => {
+    const bot = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    const author = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    const stale = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    const f = fixture({ botNpub: bot });
+    const profile = f.agentStore.getByAgentId('exampleAgent')!;
+    f.agentStore.save({ ...profile, instructorNpubs: [author] });
+    const message = f.message('m1', 'Ordinary unmentioned DM', false, author);
+    let rawReads = 0;
+    const bounded = inboxAwareFetchers({ fetchChannel: async (_: any): Promise<any> => { rawReads++; throw new Error('ordinary reads forbidden'); } });
+    async function dispatch(participants: unknown, verified = true, source = message) {
+      return agentInboxScope.run({
+        notification: { id: 'notification-1', seq: 1, state: 'active', kind: 'direct_message', source: { type: 'message', id: source.id, version: 1, channel_id: 'channel-1', thread_id: 'thread-1', task_id: null, doc_id: null } },
+        profileNpub: bot,
+        context: { channel: { id: 'channel-1', workspace_id: 'workspace-1', kind: 'dm', name: `DM: ${stale}`, participant_npubs: participants as any, metadata: { agent_chat: { context_prompt: `Historical identity ${stale}` } } }, trigger: { type: 'message', message: { ...source } } },
+      }, async () => f.runtime.handle({
+        subscription: f.subscription, botIdentity: f.botIdentity,
+        channel: await bounded.fetchChannel({ workspaceId: 'workspace-1', channelId: 'channel-1' }),
+        messages: [source], event: { entity_id: source.id, channel_id: 'channel-1', cursor: source.id },
+        instructionAuthorization: { verified, authorNpub: source.created_by_actor_npub!, reason: verified ? 'verified' : 'invalid_instruction_signature' },
+      }));
+    }
+    for (const participants of [undefined, null, {}, 'bad', [bot, 42], [bot, author, author], [stale, author], [bot, author, stale], [bot], [bot, stale]]) {
+      expect((await dispatch(participants)).handled).toBe(false);
+    }
+    expect((await dispatch([bot, author], true, f.message('m2', 'outsider', false, stale))).handled).toBe(false);
+    expect((await dispatch([bot, author], false)).handled).toBe(false);
+    f.agentStore.save({ ...profile, instructorNpubs: [stale] });
+    expect((await dispatch([bot, author])).handled).toBe(false);
+    f.agentStore.save({ ...profile, instructorNpubs: [author] });
+    expect(await dispatch([bot, author])).toEqual({ handled: true, reason: 'direct_chat_queued' });
+    await f.runtime.waitForIdle();
+    await dispatch([bot, author]);
+    await f.runtime.waitForIdle();
+    expect(f.creates).toHaveLength(1);
+    expect(f.prompts).toHaveLength(1);
+    expect(rawReads).toBe(0);
   });
 
   test('routes unmentioned messages only in a strict two-party DM and reuses its session', async () => {

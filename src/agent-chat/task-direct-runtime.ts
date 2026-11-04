@@ -41,11 +41,10 @@ export interface TaskDirectState {
 interface TaskDirectRuntimeInput {
   subscription: WorkspaceSubscriptionRecord;
   botIdentity: RuntimeBotIdentity;
-  instanceNpub?: string | null;
   event: FlightDeckPgEvent;
 }
 
-type TaskDirectTargeting = 'direct_bot' | 'instance_alias';
+type TaskDirectTargeting = 'direct_bot';
 
 interface QueuedTaskDirectTrigger {
   input: TaskDirectRuntimeInput;
@@ -205,29 +204,6 @@ export class TaskDirectRuntime {
         && actorNpub !== agent.botNpub
         && actorNpub !== input.subscription.wsKeyNpub)
       .map((agent) => ({ agent, targeting: 'direct_bot' as const }));
-    const instanceNpub = text(input.instanceNpub);
-    const hasInstanceAliasMention = input.event.entity_type === 'task_comment'
-      && Boolean(instanceNpub)
-      && instanceNpub !== input.subscription.botNpub
-      && trigger.reasonsByAgentNpub.has(instanceNpub!);
-    if (hasInstanceAliasMention && actorNpub !== input.subscription.wsKeyNpub) {
-      const boundAgents = workspaceAgents.filter((agent) => agent.botNpub === input.subscription.botNpub
-        && (!input.subscription.agentProfileId || agent.agentId === input.subscription.agentProfileId)
-        && actorNpub !== agent.botNpub);
-      if (boundAgents.length === 1 && !targets.some(({ agent }) => agent.agentId === boundAgents[0]!.agentId)) {
-        const taskResult = await (this.deps.fetchTask ?? fetchFlightDeckPgTask)({
-          backendConnectionId: input.subscription.backendConnectionId, backendBaseUrl: input.subscription.backendBaseUrl,
-          workspaceId: input.subscription.workspaceId,
-          taskId: trigger.taskId,
-          appNpub: input.subscription.sourceAppNpub,
-          botIdentity: input.botIdentity,
-        });
-        const task = object(taskResult.task);
-        if (text(task.assigned_to_npub) === boundAgents[0]!.botNpub) {
-          targets.push({ agent: boundAgents[0]!, targeting: 'instance_alias' });
-        }
-      }
-    }
     for (const { agent, targeting } of targets) {
       const routingKey = buildTaskDirectRoutingKey({
         towerServiceNpub: input.subscription.towerServiceNpub || input.subscription.backendBaseUrl,
@@ -247,13 +223,10 @@ export class TaskDirectRuntime {
         }));
       }
     }
-    const aliasTargeted = targets.some((target) => target.targeting === 'instance_alias');
     return {
       handled: targets.length > 0,
-      reason: targets.length > 0
-        ? aliasTargeted ? 'task_direct_alias_queued' : 'task_direct_queued'
-        : hasInstanceAliasMention ? 'instance_alias_not_targeted' : 'not_targeted',
-      targeting: aliasTargeted ? 'instance_alias' : targets.length > 0 ? 'direct_bot' : null,
+      reason: targets.length > 0 ? 'task_direct_queued' : 'not_targeted',
+      targeting: targets.length > 0 ? 'direct_bot' : null,
     };
   }
 
@@ -300,7 +273,6 @@ export class TaskDirectRuntime {
             source: 'autopilot_task_session', turn_id: turnId, routing_key: routingKey,
             session_id: session.id, agent_npub: agent.botNpub,
             targeting: latest.targeting,
-            instance_alias_npub: latest.targeting === 'instance_alias' ? text(latest.input.instanceNpub) : null,
             source_event_ids: queued.map((entry) => entry.trigger.eventId),
           },
           clientRequestId: `task-direct:${turnId}`,

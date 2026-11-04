@@ -23,7 +23,7 @@ export interface AgentInboxScope {
 
 export interface AgentInboxContext {
   notification?: AgentInboxEnvelope;
-  channel?: { id: string; workspace_id?: string; scope_id?: string | null; name?: string | null; kind?: string | null; metadata?: Record<string, unknown>; agent_chat?: unknown };
+  channel?: { id: string; workspace_id?: string; scope_id?: string | null; name?: string | null; kind?: string | null; participant_npubs?: string[]; metadata?: Record<string, unknown>; agent_chat?: unknown };
   thread?: { id: string; title?: string; source_message_id?: string | null; parent_thread_id?: string | null } | null;
   trigger?: {
     type: string;
@@ -69,7 +69,7 @@ function contextChannel(scope: AgentInboxScope): FlightDeckPgChannel | null {
   if (!channel?.id) return null;
   return {
     id: channel.id, workspace_id: channel.workspace_id, scope_id: channel.scope_id ?? null, name: channel.name ?? null,
-    kind: channel.kind ?? null, metadata: channel.metadata ?? (channel.agent_chat ? { agent_chat: channel.agent_chat } : {}),
+    kind: channel.kind ?? null, participant_npubs: channel.participant_npubs, metadata: channel.metadata ?? (channel.agent_chat ? { agent_chat: channel.agent_chat } : {}),
   };
 }
 

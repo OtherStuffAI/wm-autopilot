@@ -4593,7 +4593,6 @@ export class WorkspaceSubscriptionManager {
       const result = await this.taskDirectRuntime.handle({
         subscription: record,
         botIdentity: runtime.botIdentity,
-        instanceNpub: this.getInstanceIdentity()?.npub ?? null,
         event,
       });
       record = this.appendDispatchHistory(record, {

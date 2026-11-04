@@ -9,8 +9,8 @@ import { backendConnectionStore } from './backend-connection-store';
 import { selectFlightDeckTransportSubscription } from './flightdeck-session-transport';
 import { TaskDirectRuntime, TaskDirectStore } from './task-direct-runtime';
 
-const rickInstanceNpub = 'npub1s4658awhcachmhzk5jhsg256gzdl7e4gh5a9zq8skjyt7g3k2axql224qz';
-const stableBotNpub = 'npub1llwrq3rtah3rg3r2dyfyht55ek7aa0ey7z47ujju407pzfp38shqa7zcvr';
+const staleInstanceNpub = nip19.npubEncode(getPublicKey(generateSecretKey()));
+const stableBotNpub = nip19.npubEncode(getPublicKey(generateSecretKey()));
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -276,16 +276,15 @@ describe('TaskDirectRuntime', () => {
     const result = await f.runtime.handle({
       subscription: f.subscription,
       botIdentity: f.botIdentity,
-      instanceNpub: rickInstanceNpub,
       event: f.taskCommentEvent('direct-stable', 'npub-exampleAgent'),
     });
     await f.runtime.waitForIdle();
     expect(result).toEqual({ handled: true, reason: 'task_direct_queued', targeting: 'direct_bot' });
     expect(f.publications).toHaveLength(1);
-    expect(f.publications[0].metadata).toMatchObject({ targeting: 'direct_bot', instance_alias_npub: null });
+    expect(f.publications[0].metadata).toMatchObject({ targeting: 'direct_bot' });
   });
 
-  test('resolves the Rick instance alias only to the subscription-bound current task assignee', async () => {
+  test('rejects an old instance identity even when the current bot is assigned', async () => {
     const f = fixture();
     f.subscription.botNpub = stableBotNpub;
     f.botIdentity.botNpub = stableBotNpub;
@@ -300,17 +299,12 @@ describe('TaskDirectRuntime', () => {
     const result = await f.runtime.handle({
       subscription: f.subscription,
       botIdentity: f.botIdentity,
-      instanceNpub: rickInstanceNpub,
-      event: f.taskCommentEvent('rick-alias', rickInstanceNpub),
+      event: f.taskCommentEvent('old-instance', staleInstanceNpub),
     });
     await f.runtime.waitForIdle();
-    expect(result).toEqual({ handled: true, reason: 'task_direct_alias_queued', targeting: 'instance_alias' });
-    expect(f.creates).toBe(1);
-    expect(f.publications).toHaveLength(1);
-    expect(f.publications[0].metadata).toMatchObject({
-      agent_npub: stableBotNpub, targeting: 'instance_alias', instance_alias_npub: rickInstanceNpub,
-    });
-    expect(f.prompts[0]).toContain('Targeting: instance_alias');
+    expect(result).toEqual({ handled: false, reason: 'not_targeted', targeting: null });
+    expect(f.creates).toBe(0);
+    expect(f.publications).toHaveLength(0);
   });
 
   test('does not fan an instance alias across agents or workspace subscriptions', async () => {
@@ -330,41 +324,17 @@ describe('TaskDirectRuntime', () => {
       ...f.subscription, subscriptionId: 'sub-2', workspaceId: 'workspace-2',
       workspaceServiceNpub: 'npub-workspace-2', botNpub: otherBotNpub,
     };
-    const event = f.taskCommentEvent('workspace-safe-alias', rickInstanceNpub);
+    const event = f.taskCommentEvent('workspace-safe-alias', staleInstanceNpub);
     const primaryResult = await f.runtime.handle({
-      subscription: primary, botIdentity: { ...f.botIdentity, botNpub: stableBotNpub }, instanceNpub: rickInstanceNpub, event,
+      subscription: primary, botIdentity: { ...f.botIdentity, botNpub: stableBotNpub }, event,
     });
     const otherResult = await f.runtime.handle({
-      subscription: other, botIdentity: { ...f.botIdentity, botNpub: otherBotNpub }, instanceNpub: rickInstanceNpub, event,
+      subscription: other, botIdentity: { ...f.botIdentity, botNpub: otherBotNpub }, event,
     });
     await f.runtime.waitForIdle();
-    expect(primaryResult.reason).toBe('task_direct_alias_queued');
-    expect(otherResult).toEqual({ handled: false, reason: 'instance_alias_not_targeted', targeting: null });
-    expect(f.publications).toHaveLength(1);
-    expect(f.publications[0].metadata.agent_npub).toBe(stableBotNpub);
-  });
-
-  test('suppresses self-authored and duplicate instance-alias task comments', async () => {
-    const f = fixture();
-    f.subscription.botNpub = stableBotNpub;
-    f.botIdentity.botNpub = stableBotNpub;
-    (f.runtime as any).deps.agentStore.listByWorkspaceAndBot = () => [{
-      agentId: 'stable-agent', label: 'Stable Agent', botNpub: stableBotNpub,
-      workspaceOwnerNpub: 'npub-workspace', workingDirectory: '/repo', enabled: true, capabilities: [],
-    }];
-    (f.runtime as any).deps.fetchTask = async () => ({ task: {
-      id: 'task-1', workspace_id: 'workspace-1', scope_id: 'scope-1', assigned_to_npub: stableBotNpub, channel_id: 'channel-2', thread_id: 'thread-1',
-    } });
-    const event = f.taskCommentEvent('deduped-alias', rickInstanceNpub);
-    await f.runtime.handle({ subscription: f.subscription, botIdentity: f.botIdentity, instanceNpub: rickInstanceNpub, event });
-    await f.runtime.waitForIdle();
-    await f.runtime.handle({ subscription: f.subscription, botIdentity: f.botIdentity, instanceNpub: rickInstanceNpub, event });
-    await f.runtime.handle({
-      subscription: f.subscription, botIdentity: f.botIdentity, instanceNpub: rickInstanceNpub,
-      event: f.taskCommentEvent('self-alias', rickInstanceNpub, stableBotNpub),
-    });
-    await f.runtime.waitForIdle();
-    expect(f.publications).toHaveLength(1);
+    expect(primaryResult.reason).toBe('not_targeted');
+    expect(otherResult).toEqual({ handled: false, reason: 'not_targeted', targeting: null });
+    expect(f.publications).toHaveLength(0);
   });
 
   test('leaves an unmatched arbitrary npub not targeted', async () => {
@@ -372,7 +342,6 @@ describe('TaskDirectRuntime', () => {
     expect(await f.runtime.handle({
       subscription: f.subscription,
       botIdentity: f.botIdentity,
-      instanceNpub: rickInstanceNpub,
       event: f.taskCommentEvent('arbitrary', 'npub-arbitrary'),
     })).toEqual({ handled: false, reason: 'not_targeted', targeting: null });
     await f.runtime.waitForIdle();
