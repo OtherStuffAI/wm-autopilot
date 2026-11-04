@@ -1372,6 +1372,15 @@ export class WorkspaceSubscriptionManager {
     }
   }
 
+  /** Current signing identity for long-lived activity publishers; null when removed, inactive, zeroed or a different bot. */
+  getLiveActivityIdentity(subscriptionId: string, botNpub: string): RuntimeBotIdentity | null {
+    const record = this.store.getBySubscriptionId(subscriptionId);
+    const runtime = this.runtimes.get(subscriptionId);
+    if (!record || (record.lifecycleStatus ?? 'active') !== 'active' || record.botNpub !== botNpub) return null;
+    if (!runtime || runtime.removed || runtime.botIdentity.botNpub !== botNpub) return null;
+    return runtime.botIdentity.botSecret.some((byte) => byte !== 0) ? runtime.botIdentity : null;
+  }
+
   getFlightDeckRuntimeContext(subscriptionId: string): {
     backendConnectionId?: string | null;
     backendBaseUrl: string;

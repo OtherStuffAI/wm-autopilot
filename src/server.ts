@@ -2,6 +2,7 @@ import { isInstanceAdmin } from "./auth/admin-authority";
 import { classifyStoredBotUsers, listBotUserIdentities } from "./auth/bot-user-identities";
 import { resolveAppAuthority, withAppAdminAccess } from "./auth/app-admin";
 import { createLiveAdminSigningTargets } from "./signing/configured-tower-signing-targets";
+import { setLiveSubscriptionIdentityResolver } from "./agent-chat/agent-activity-identity";
 import { rebindNativeDirectChatRecovery } from "./agent-chat/direct-chat-native-recovery";
 import { createDirectChatRuntimeServices } from "./agent-chat/direct-chat-runtime-services";
 import { listSchedulerRunIdentities } from "./scheduler/run-identities";
@@ -2695,6 +2696,8 @@ const dispatchPipelineRuntime = new DispatchPipelineRuntime({
 });
 workspaceSubscriptionManager.setDispatchPipelineRuntime(dispatchPipelineRuntime);
 
+setLiveSubscriptionIdentityResolver((subscriptionId, botNpub) =>
+  workspaceSubscriptionManager.getLiveActivityIdentity(subscriptionId, botNpub));
 await workspaceSubscriptionManager.startupReload();
 const agentProfileMetadataCache = new AgentProfileMetadataCache({
   store: agentDefinitionStore,

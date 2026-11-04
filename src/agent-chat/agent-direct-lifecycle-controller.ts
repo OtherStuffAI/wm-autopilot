@@ -4,6 +4,7 @@ import { Database } from 'bun:sqlite';
 
 import type { ProcessManager } from '../agents/process-manager';
 import { databaseFile } from '../storage/message-store';
+import { resolveActivitySigner } from './agent-activity-identity';
 import { AgentActivityPublisher, type AgentActivityContext, type AgentActivityState } from './agent-activity-publisher';
 import { upsertFlightDeckPgAgentSessionHealth } from './tower-client';
 
@@ -285,7 +286,7 @@ export class AgentDirectLifecycleController {
     this.store.save(payload);
     for (const pending of this.store.pending(this.sessionId)) {
       try {
-        await this.deliverHealth({ ...pending, botIdentity: this.context.botIdentity });
+        await this.deliverHealth({ ...pending, botIdentity: resolveActivitySigner(this.context) });
         this.store.accept(pending);
       } catch (publishError) {
         this.store.fail(pending, safeErrorSummary(publishError));

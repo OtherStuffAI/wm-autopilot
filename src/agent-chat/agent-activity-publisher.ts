@@ -7,6 +7,7 @@ import type { RuntimeBotIdentity } from './types';
 import { agentActivityPublicationStore, type AgentActivityPublicationStore } from './agent-activity-publication-store';
 import { liveThreadActivityHub, type LiveThreadActivityHub } from './live-thread-activity';
 import { isConvergedAgentActivityError } from './agent-activity-delivery';
+import { resolveActivitySigner } from './agent-activity-identity';
 
 export type AgentActivityState = 'accepted' | 'queued' | 'working' | 'waiting' | 'completed' | 'failed' | 'cancelled';
 
@@ -158,7 +159,7 @@ export class AgentActivityPublisher {
           workspaceId: this.context.workspaceId,
           activityId: this.activityId,
           appNpub: this.context.appNpub,
-          botIdentity: this.context.botIdentity,
+          botIdentity: resolveActivitySigner(this.context),
           turnId: this.context.turnId,
           sessionId: this.context.sessionId,
           agentNpub: this.context.agentNpub,
@@ -324,7 +325,7 @@ export class AgentActivityPublisher {
       sequence,
     };
     try {
-      const request = { ...publicRequest, sequence, botIdentity: this.context.botIdentity };
+      const request = { ...publicRequest, sequence };
       let delivered = false;
       let lastError: unknown = null;
       let towerResult: Awaited<ReturnType<typeof upsertFlightDeckPgAgentActivity>> | null = null;
@@ -334,7 +335,7 @@ export class AgentActivityPublisher {
         const timeout = setTimeout(() => controller.abort(), 2_000);
         const sentAt = Date.now();
         try {
-          towerResult = await this.deliver({ ...request, signal: controller.signal });
+          towerResult = await this.deliver({ ...request, botIdentity: resolveActivitySigner(this.context), signal: controller.signal });
           delivered = true;
           this.calibrate(towerResult?.server_time, sentAt, Date.now());
           const contractVersion = (towerResult?.agent_activity as { contract_version?: unknown } | undefined)?.contract_version;
