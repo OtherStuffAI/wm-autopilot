@@ -8,6 +8,8 @@ import { AgentActivityPublisher, type AgentActivityContext, type AgentActivitySt
 import { upsertFlightDeckPgAgentSessionHealth } from './tower-client';
 
 export const AGENT_DIRECT_ACTIVITY_HEARTBEAT_MS = 60_000;
+/** Turn-witness check cadence: prompt terminal clearing and public commentary between 60 s renewals. */
+export const AGENT_DIRECT_ACTIVITY_WITNESS_MS = 5_000;
 export const AGENT_DIRECT_SESSION_HEALTH_HEARTBEAT_MS = 120_000;
 export const AGENT_DIRECT_RUNTIME_GENERATION = Date.now();
 
@@ -94,11 +96,17 @@ function runtimeStatus(manager: ProcessManager, sessionId: string): SessionHealt
 }
 
 /**
- * Turn witness supplied by the runtime that owns the turn: true only while
- * this exact turn is still in its active (or queued) table. Never derived from
- * model output, so quiet long provider/tool calls stay alive.
+ * Turn witness supplied by the runtime that owns the turn: 'live' (or true)
+ * only while this exact turn is still in its active (or queued) table; its
+ * durable outcome once it left; 'gone' (or false) when unknown. Never derived
+ * from model output, so quiet long provider/tool calls stay alive.
  */
-export type AgentActivityTurnWitness = () => boolean;
+export type AgentActivityTurnStatus = 'live' | 'completed' | 'failed' | 'cancelled' | 'gone';
+export type AgentActivityTurnWitness = () => AgentActivityTurnStatus | boolean;
+
+function turnStatus(value: AgentActivityTurnStatus | boolean): AgentActivityTurnStatus {
+  return value === true ? 'live' : value === false ? 'gone' : value;
+}
 
 export class AgentDirectLifecycleController {
   private activityTimer: ReturnType<typeof setInterval> | null = null;
@@ -108,6 +116,10 @@ export class AgentDirectLifecycleController {
   private sessionId: string;
   private terminal: TerminalState | null = null;
   private sessionBound = false;
+  /** The response observer let go; the turn's durable owner (reconciler) still runs it. */
+  private observationReleased = false;
+  private lastRenewAt = Date.now();
+  private ticking = false;
 
   constructor(
     private readonly context: AgentActivityContext,
@@ -139,7 +151,7 @@ export class AgentDirectLifecycleController {
 
   private async renewQueued(): Promise<void> {
     const queued = this.queuedRenewal;
-    if (!queued || this.terminal || !queued.stillQueued()) { this.stopQueuedRenewal(); return; }
+    if (!queued || this.terminal || turnStatus(queued.stillQueued()) !== 'live') { this.stopQueuedRenewal(); return; }
     const outcome = await this.activity.heartbeat({ state: 'queued',
       options: { blockedByTurnId: queued.blockedByTurnId, queuePosition: queued.queuePosition } });
     if (outcome === 'terminal' || outcome === 'revoked') this.stopQueuedRenewal();
@@ -182,14 +194,44 @@ export class AgentDirectLifecycleController {
       state === 'failed' ? detail : undefined);
   }
 
+  /**
+   * The response observer stopped waiting (e.g. its wait timed out) but the turn
+   * may still be running under durable reconciliation. Keep renewing and
+   * publishing public commentary while the witness says the turn is live, and
+   * publish its real outcome when it leaves the active table.
+   */
   releaseObservation(): void {
-    this.stopTimers();
+    this.observationReleased = true;
+    if (this.healthTimer) clearInterval(this.healthTimer);
+    this.healthTimer = null;
   }
 
   private startActivityTimer(): void {
     if (this.activityTimer || this.terminal) return;
-    this.activityTimer = setInterval(() => void this.heartbeat(), AGENT_DIRECT_ACTIVITY_HEARTBEAT_MS);
+    this.lastRenewAt = Date.now();
+    this.activityTimer = setInterval(() => void this.tick(), AGENT_DIRECT_ACTIVITY_WITNESS_MS);
     this.activityTimer.unref?.();
+  }
+
+  private async tick(): Promise<void> {
+    if (this.terminal || this.ticking) return;
+    this.ticking = true;
+    try {
+      const status = turnStatus(this.ownsTurn());
+      // Orphan timer: no turn record. Publish nothing and let the lease lapse.
+      if (status === 'gone') { this.stopTimers(); return; }
+      if (status !== 'live') {
+        await this.finish(status, status === 'cancelled' ? 'Superseded by a newer message' : undefined);
+        return;
+      }
+      if (this.observationReleased && this.sessionBound) await this.activity.publishLatestCommentary(this.manager);
+      if (Date.now() - this.lastRenewAt >= AGENT_DIRECT_ACTIVITY_HEARTBEAT_MS) {
+        this.lastRenewAt = Date.now();
+        await this.heartbeat();
+      }
+    } finally {
+      this.ticking = false;
+    }
   }
 
   private startTimers(): void {
@@ -211,12 +253,6 @@ export class AgentDirectLifecycleController {
 
   private async heartbeat(): Promise<void> {
     if (this.terminal) return;
-    // Orphan timer: the turn left its owner's active table. Publish nothing and
-    // let the lease lapse; the owner publishes any terminal outcome itself.
-    if (!this.ownsTurn()) {
-      this.stopTimers();
-      return;
-    }
     if (this.sessionBound) {
       const status = runtimeStatus(this.manager, this.sessionId);
       if (status === 'errored' || status === 'stopped') {

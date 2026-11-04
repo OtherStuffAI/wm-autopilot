@@ -1860,12 +1860,16 @@ describe('Agent Direct queued activity lease ownership', () => {
   test('working activity witness follows the exact turn record state', () => {
     const f = fixture();
     const witness = (f.runtime as any).turnWitness('turn-witness');
-    expect(witness()).toBe(false);
+    expect(witness()).toBe('gone');
     const now = new Date().toISOString();
     f.turnStore.save({ turnId: 'turn-witness', routingKey: 'route-w', sourceMessageIds: ['m1'], clientRequestId: 'c1', replyBody: null,
       publishedMessageId: null, state: 'awaiting_reply', createdAt: now, updatedAt: now } as any);
-    expect(witness()).toBe(true);
+    expect(witness()).toBe('live');
     f.turnStore.save({ ...f.turnStore.get('turn-witness')!, state: 'published' } as any);
-    expect(witness()).toBe(false);
+    expect(witness()).toBe('completed');
+    f.turnStore.save({ ...f.turnStore.get('turn-witness')!, state: 'failed' } as any);
+    expect(witness()).toBe('failed');
+    f.turnStore.save({ ...f.turnStore.get('turn-witness')!, state: 'suppressed', lastErrorClass: 'fresh_human_supersession' } as any);
+    expect(witness()).toBe('cancelled');
   });
 });

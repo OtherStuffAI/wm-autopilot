@@ -382,11 +382,17 @@ export class AgentDirectChatRuntime {
     }
   }
 
-  /** Activity witness: this exact turn is still in the turn table in an active state. */
+  /** Activity witness: live while this exact turn is active in the turn table, then its durable outcome. */
   private turnWitness(turnId: string): AgentActivityTurnWitness {
     return () => {
       const turn = this.turnStore.get(turnId);
-      return Boolean(turn && ACTIVITY_LIVE_TURN_STATES.has(turn.state));
+      if (!turn) return 'gone';
+      if (ACTIVITY_LIVE_TURN_STATES.has(turn.state)) return 'live';
+      if (turn.lastErrorClass === 'fresh_human_supersession') return 'cancelled';
+      // Delivery paused on authorization may still publish later: stop renewing, claim no outcome.
+      if (turn.state === 'blocked_auth') return 'gone';
+      if (turn.state === 'published' || turn.state === 'completed' || turn.state === 'suppressed') return 'completed';
+      return 'failed';
     };
   }
 

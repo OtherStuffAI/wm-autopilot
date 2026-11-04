@@ -63,22 +63,53 @@ describe('Agent Direct lifecycle controller', () => {
       async () => [], undefined, new AgentActivityPublicationStore(':memory:'), undefined,
       async (input) => { leases.push(input); return { status: 200, code: null, body: { agent_activity: { lease_epoch: 1, lease_sequence: input.leaseSequence } } }; });
     const manager = { getSession: () => ({ status: 'running' }) } as any;
-    let owned = true;
+    let owned: 'live' | 'gone' = 'live';
     const lifecycle = new AgentDirectLifecycleController(context, manager, activity, async () => ({}),
       new AgentSessionHealthPublicationStore(':memory:'), 7, () => owned);
+    const due = async () => { (lifecycle as any).lastRenewAt = 0; await (lifecycle as any).tick(); };
     await lifecycle.accepted();
+    // A witness tick before the interval elapses renews nothing.
+    await (lifecycle as any).tick();
+    expect(leases).toHaveLength(0);
     // Before a runtime session is bound (pending:...), the beat must not mistake it for a dead session.
-    await (lifecycle as any).heartbeat();
+    await due();
     await lifecycle.working('session-1');
     // No commentary for a long provider call: still renewed while owned.
-    await (lifecycle as any).heartbeat();
-    await (lifecycle as any).heartbeat();
+    await due();
+    await due();
     expect(leases).toHaveLength(3);
-    owned = false;
-    await (lifecycle as any).heartbeat();
+    owned = 'gone';
+    await due();
     expect(leases).toHaveLength(3);
     expect((lifecycle as any).activityTimer).toBeNull();
     expect(puts.some((item) => ['completed', 'failed', 'cancelled'].includes(item.state))).toBe(false);
+  });
+
+  test('after the observer is released, keeps renewing and publishing commentary, then publishes the durable outcome', async () => {
+    const leases: any[] = [];
+    const puts: any[] = [];
+    let commentaryReads = 0;
+    const activity = new AgentActivityPublisher(context, async (input) => { puts.push(input); return { agent_activity: { contract_version: 2, lease_epoch: 1, lease_sequence: 0 } }; }, 0,
+      async () => [], undefined, new AgentActivityPublicationStore(':memory:'), undefined,
+      async (input) => { leases.push(input); return { status: 200, code: null, body: { agent_activity: { lease_epoch: 1, lease_sequence: input.leaseSequence } } }; });
+    (activity as any).publishLatestCommentary = async () => { commentaryReads += 1; };
+    const manager = { getSession: () => ({ status: 'running' }) } as any;
+    let status: 'live' | 'completed' | 'cancelled' = 'live';
+    const lifecycle = new AgentDirectLifecycleController(context, manager, activity, async () => ({}),
+      new AgentSessionHealthPublicationStore(':memory:'), 7, () => status);
+    await lifecycle.accepted();
+    await lifecycle.working('session-1');
+    lifecycle.releaseObservation();
+    expect((lifecycle as any).activityTimer).not.toBeNull();
+    (lifecycle as any).lastRenewAt = 0;
+    await (lifecycle as any).tick();
+    expect(leases).toHaveLength(1);
+    expect(commentaryReads).toBeGreaterThanOrEqual(1);
+    // The reconciler published the reply: the next witness tick terminalizes promptly.
+    status = 'completed';
+    await (lifecycle as any).tick();
+    expect(puts.filter((item) => ['completed', 'failed', 'cancelled'].includes(item.state)).map((item) => item.state)).toEqual(['completed']);
+    expect((lifecycle as any).activityTimer).toBeNull();
   });
 
   test('renews queued rows while still queued and closes folded queued rows as completed', async () => {
@@ -89,7 +120,7 @@ describe('Agent Direct lifecycle controller', () => {
       async (input) => { leases.push(input); return { status: 200, code: null, body: { agent_activity: { lease_epoch: 1, lease_sequence: input.leaseSequence } } }; });
     let waiting = true;
     const lifecycle = new AgentDirectLifecycleController(context, { getSession: () => null } as any, activity, async () => ({}),
-      new AgentSessionHealthPublicationStore(':memory:'), 7, () => false);
+      new AgentSessionHealthPublicationStore(':memory:'), 7, () => 'gone');
     await lifecycle.queued('turn-0', 2, () => waiting);
     await (lifecycle as any).renewQueued();
     expect(leases).toHaveLength(1);
