@@ -31,7 +31,7 @@ import {
 import { getDirectChatTurnStore, type DirectChatTurnStore } from './direct-chat-turn-store';
 import { freezeOrResumeDirectChatReply } from './direct-chat-publication-observation';
 import { AgentActivityPublisher, type AgentActivityContext } from './agent-activity-publisher';
-import { AgentDirectLifecycleController } from './agent-direct-lifecycle-controller';
+import { AgentDirectLifecycleController, type AgentActivityTurnWitness } from './agent-direct-lifecycle-controller';
 import { awaitAcceptedFinalResponse, PromptBoundaryNotObservedError, sendPromptAndAwaitFinalResponse } from './session-runtime-session-ops';
 import { createFlightDeckPgChannelMessage, type FlightDeckPgChannel, type FlightDeckPgEvent, type FlightDeckPgMessage } from './tower-client';
 import type { AgentDefinitionRecord, RuntimeBotIdentity, WorkspaceSubscriptionRecord } from './types';
@@ -49,6 +49,9 @@ import { isInterruptedTurnError } from './session-runtime-turns';
 import { assertDirectChatWorkspaceCompatible, buildDirectChatSessionBinding } from './direct-chat-session-binding';
 import { requiresFreshInboxSession } from './flightdeck-session-metadata';
 import type { PipelineRouterRequest } from './pipeline-router-handler';
+
+/** Turn states in which the owning runtime still holds the turn and renews its activity lease. */
+const ACTIVITY_LIVE_TURN_STATES = new Set(['accepted', 'awaiting_reply', 'reply_ready', 'publishing', 'retry_wait']);
 
 export interface DirectChatRuntimeInput {
   subscription: WorkspaceSubscriptionRecord;
@@ -139,6 +142,8 @@ export class AgentDirectChatRuntime {
   private readonly queued = new DirectChatRequestQueue();
   private readonly deliveryWaiters = new Map<string, Promise<void>>();
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Queued activity rows renewed by this runtime until their turn starts: routingKey -> turnId -> entry. */
+  private readonly queuedActivities = new Map<string, Map<string, { messageId: string; lifecycle: AgentDirectLifecycleController }>>();
   private readonly submissionOwner = randomUUID();
   private readonly enrichment: DirectChatEnrichmentCoordinator;
   private readonly turnStore: DirectChatTurnStore;
@@ -154,7 +159,8 @@ export class AgentDirectChatRuntime {
     this.enrichment = new DirectChatEnrichmentCoordinator(deps.enrichmentStore ?? new DirectChatEnrichmentStore(this.turnStore.filePath), deps.enrichDirectChat);
     this.publish = deps.publish ?? createFlightDeckPgChannelMessage;
     this.createActivityPublisher = deps.createActivityPublisher ?? ((context) => new AgentActivityPublisher(context));
-    this.createLifecycleController = deps.createLifecycleController ?? ((context, publisher) => new AgentDirectLifecycleController(context, deps.processManager, publisher));
+    this.createLifecycleController = deps.createLifecycleController ?? ((context, publisher) => new AgentDirectLifecycleController(context,
+      deps.processManager, publisher, undefined, undefined, undefined, this.turnWitness(context.turnId)));
     this.log = deps.log ?? console;
     this.sendFinalResponse = deps.sendFinalResponse ?? sendPromptAndAwaitFinalResponse;
     this.dispatchOutcomeStore = deps.dispatchOutcomeStore ?? flightDeckDispatchOutcomeStore;
@@ -294,8 +300,12 @@ export class AgentDirectChatRuntime {
             startedAt: eventMessage.createdAt || new Date().toISOString(),
           };
           const queuedLifecycle = new AgentDirectLifecycleController(queuedContext, this.deps.processManager,
-            this.createActivityPublisher(queuedContext));
-          await queuedLifecycle.queued(blockingTurn.turnId, Math.max(1, upsert.record.pendingMessageCount));
+            this.createActivityPublisher(queuedContext), undefined, undefined, undefined, this.turnWitness(queuedTurnId));
+          const queuedForRoute = this.queuedActivities.get(routingKey) ?? new Map();
+          queuedForRoute.set(queuedTurnId, { messageId: eventMessage.messageId, lifecycle: queuedLifecycle });
+          this.queuedActivities.set(routingKey, queuedForRoute);
+          await queuedLifecycle.queued(blockingTurn.turnId, Math.max(1, upsert.record.pendingMessageCount),
+            () => this.queuedActivityWaiting(routingKey, queuedTurnId));
         }
       }
       this.enqueue(routingKey, agent, contextPrompt, input);
@@ -372,6 +382,37 @@ export class AgentDirectChatRuntime {
     }
   }
 
+  /** Activity witness: this exact turn is still in the turn table in an active state. */
+  private turnWitness(turnId: string): AgentActivityTurnWitness {
+    return () => {
+      const turn = this.turnStore.get(turnId);
+      return Boolean(turn && ACTIVITY_LIVE_TURN_STATES.has(turn.state));
+    };
+  }
+
+  /** A queued row is renewed only while it is registered, unpromoted, and its route still owns work. */
+  private queuedActivityWaiting(routingKey: string, turnId: string): boolean {
+    if (!this.queuedActivities.get(routingKey)?.has(turnId) || this.turnStore.get(turnId)) return false;
+    return this.running.has(routingKey) || this.queued.has(routingKey) || this.deliveryWaiters.has(routingKey);
+  }
+
+  /**
+   * A starting turn takes over queued rows it includes. The same turn keeps its
+   * activity row (now owned by the working lifecycle); a queued message folded
+   * into a different turn is closed as completed so it never looks stuck.
+   */
+  private async settleQueuedActivities(routingKey: string, turnId: string, sourceMessageIds: string[]): Promise<void> {
+    const queuedForRoute = this.queuedActivities.get(routingKey);
+    if (!queuedForRoute) return;
+    for (const [queuedTurnId, entry] of [...queuedForRoute]) {
+      if (queuedTurnId !== turnId && !sourceMessageIds.includes(entry.messageId)) continue;
+      queuedForRoute.delete(queuedTurnId);
+      entry.lifecycle.stopQueuedRenewal();
+      if (queuedTurnId !== turnId) await entry.lifecycle.closeQueued('Included in the current reply');
+    }
+    if (!queuedForRoute.size) this.queuedActivities.delete(routingKey);
+  }
+
   private enqueue(routingKey: string, agent: AgentDefinitionRecord, contextPrompt: string, input: DirectChatRuntimeInput): void {
     const idleTimer = this.idleTimers.get(routingKey);
     if (idleTimer) { clearTimeout(idleTimer); this.idleTimers.delete(routingKey); }
@@ -423,6 +464,7 @@ export class AgentDirectChatRuntime {
             agentNpub: intercept.botNpub, turnId: pending.turnId, startedAt: pending.createdAt };
           activity = this.createLifecycleController(activityContext,
             this.createActivityPublisher(activityContext));
+          await this.settleQueuedActivities(routingKey, pending.turnId, pending.sourceMessageIds);
           await activity.working((pending.sessionId ?? intercept.sessionId ?? activityContext.sessionId));
           await activity.commentary();
           const published = await this.publishTurn(input, intercept, agent, pending.turnId, pending.sourceMessageIds, pending.clientRequestId,
@@ -527,6 +569,7 @@ export class AgentDirectChatRuntime {
           };
           activity = this.createLifecycleController(activityContext,
             this.createActivityPublisher(activityContext));
+          await this.settleQueuedActivities(routingKey, pending.turnId, recoverySourceMessageIds);
           await activity.working(session.id);
           const recoveredEnrichment = sessionResolution.bootstrap
             ? await this.enrichment.prepare({ input, agent, turnId: pending.turnId,
@@ -608,6 +651,7 @@ export class AgentDirectChatRuntime {
         };
         activity = this.createLifecycleController(activityContext,
           this.createActivityPublisher(activityContext));
+        await this.settleQueuedActivities(routingKey, turnId, sourceMessageIds);
         await activity.accepted();
         this.turnStore.save({ turnId, routingKey, sourceMessageIds, clientRequestId, replyBody: null,
           publishedMessageId: null, state: 'accepted', createdAt: now, updatedAt: now,

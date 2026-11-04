@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { readCodexUserVisibleActivities, type CodexUserVisibleActivity } from '../agents/codex-session-messages';
 import type { ProcessManager } from '../agents/process-manager';
-import { upsertFlightDeckPgAgentActivity } from './tower-client';
+import { postFlightDeckPgAgentActivityLease, upsertFlightDeckPgAgentActivity, type FlightDeckPgAgentActivityLeaseResponse } from './tower-client';
 import type { RuntimeBotIdentity } from './types';
 import { agentActivityPublicationStore, type AgentActivityPublicationStore } from './agent-activity-publication-store';
 import { liveThreadActivityHub, type LiveThreadActivityHub } from './live-thread-activity';
@@ -15,6 +15,15 @@ export interface AgentActivityPublishOptions {
   queuePosition?: number;
   heartbeat?: boolean;
 }
+
+/** Producer lease timing: 60 s turn-owned heartbeat, 180 s lease (one missed beat plus margin). */
+export const AGENT_ACTIVITY_LEASE_TTL_SECONDS = 180;
+const AGENT_ACTIVITY_CONTRACT = 'agent-activity/v2' as const;
+/** Server-time calibration is accepted only from round trips at most this long. */
+const MAX_CALIBRATION_RTT_MS = 5_000;
+
+export type AgentActivityHeartbeatOutcome =
+  | 'renewed' | 'resumed' | 'legacy' | 'terminal' | 'revoked' | 'missing' | 'failed';
 
 export interface AgentActivityContext {
   backendConnectionId?: string | null;
@@ -49,8 +58,14 @@ export class AgentActivityPublisher {
   private terminal = false;
   private established = false;
   private heartbeatCount = 0;
-  private publishQueue = Promise.resolve();
+  private publishQueue: Promise<unknown> = Promise.resolve();
   private runtimeSessionId: string;
+  /** null until a Tower response says whether it serves the v2 lease route. */
+  private leaseCapable: boolean | null = null;
+  private leaseEpoch = 1;
+  private leaseSequence = 0;
+  private clockOffsetMs: number | null = null;
+  private uncalibratedLogged = false;
   private readonly activityId: string;
   private readonly sequenceBase: number;
 
@@ -62,6 +77,7 @@ export class AgentActivityPublisher {
     private readonly log: Pick<Console, 'error'> & Partial<Pick<Console, 'info'>> = console,
     private readonly publicationStore: AgentActivityPublicationStore = agentActivityPublicationStore,
     private readonly liveActivity: LiveThreadActivityHub = liveThreadActivityHub,
+    private readonly deliverLease: typeof postFlightDeckPgAgentActivityLease = postFlightDeckPgAgentActivityLease,
   ) {
     const startedAt = Date.parse(context.startedAt ?? '');
     this.sequenceBase = sequenceBase ?? (Number.isFinite(startedAt) ? startedAt : Date.now()) * 1_000;
@@ -80,14 +96,158 @@ export class AgentActivityPublisher {
     return this.enqueuePublish(() => this.publishNow(state, body, undefined, options));
   }
 
-  async heartbeat(): Promise<void> {
-    return this.publish('working', undefined, { heartbeat: true });
+  /**
+   * Best-effort lease renewal, never durably stored or replayed. The caller (the
+   * turn supervisor) must already have verified it owns a live turn; that
+   * ownership is also what authorizes an explicit resume after expiry. Towers
+   * without the v2 lease route get a legacy non-durable heartbeat PUT in
+   * `legacy.state` (queued rows stay queued).
+   */
+  async heartbeat(legacy: { state: AgentActivityState; options?: AgentActivityPublishOptions } = { state: 'working' }): Promise<AgentActivityHeartbeatOutcome> {
+    return this.enqueuePublish(() => this.beat(legacy));
   }
 
-  private enqueuePublish(operation: () => Promise<void>): Promise<void> {
+  private enqueuePublish<T>(operation: () => Promise<T>): Promise<T> {
     const queued = this.publishQueue.then(operation, operation);
     this.publishQueue = queued.catch(() => undefined);
     return queued;
+  }
+
+  private calibrate(serverTime: unknown, sentAt: number, receivedAt: number): void {
+    const parsed = typeof serverTime === 'string' ? Date.parse(serverTime) : Number.NaN;
+    if (!Number.isFinite(parsed) || receivedAt - sentAt > MAX_CALIBRATION_RTT_MS) return;
+    this.clockOffsetMs = parsed - (sentAt + receivedAt) / 2;
+  }
+
+  /** Server-calibrated observation time, or undefined (Tower then uses its own time). */
+  private calibratedNow(): string | undefined {
+    if (this.clockOffsetMs === null) {
+      if (!this.uncalibratedLogged) {
+        this.uncalibratedLogged = true;
+        this.log.info?.('[agent-activity] server clock not yet calibrated; lease uses Tower receipt time', { activityId: this.activityId });
+      }
+      return undefined;
+    }
+    return new Date(Date.now() + this.clockOffsetMs).toISOString();
+  }
+
+  private adoptLease(row: unknown): void {
+    if (!row || typeof row !== 'object') return;
+    const epoch = Number((row as Record<string, unknown>).lease_epoch);
+    const sequence = Number((row as Record<string, unknown>).lease_sequence);
+    if (!Number.isSafeInteger(epoch) || epoch < 1 || !Number.isSafeInteger(sequence) || sequence < 0) return;
+    if (epoch !== this.leaseEpoch) {
+      this.leaseEpoch = epoch;
+      this.leaseSequence = sequence;
+    } else this.leaseSequence = Math.max(this.leaseSequence, sequence);
+  }
+
+  private async leaseCall(action: 'renew' | 'resume_challenge' | 'resume',
+    extra: { leaseEpoch?: number; leaseSequence?: number; observedAt?: string; challenge?: string } = {}): Promise<FlightDeckPgAgentActivityLeaseResponse | null> {
+    let lastError: unknown = null;
+    // One attempt plus one quick retry; a missed beat is dropped, never queued.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2_000);
+      const sentAt = Date.now();
+      try {
+        const response = await this.deliverLease({
+          backendConnectionId: this.context.backendConnectionId,
+          subscriptionId: this.context.subscriptionId,
+          backendBaseUrl: this.context.backendBaseUrl,
+          workspaceId: this.context.workspaceId,
+          activityId: this.activityId,
+          appNpub: this.context.appNpub,
+          botIdentity: this.context.botIdentity,
+          turnId: this.context.turnId,
+          sessionId: this.context.sessionId,
+          agentNpub: this.context.agentNpub,
+          action,
+          expiresInSeconds: AGENT_ACTIVITY_LEASE_TTL_SECONDS,
+          ...extra,
+          signal: controller.signal,
+        });
+        this.calibrate(response.body?.server_time, sentAt, Date.now());
+        if (response.status >= 500 && attempt === 0) { await new Promise((resolve) => setTimeout(resolve, 50)); continue; }
+        return response;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 50));
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    this.log.error('[agent-activity] lease call dropped', { activityId: this.activityId, turnId: this.context.turnId, action,
+      error: lastError instanceof Error ? lastError.message : String(lastError) });
+    return null;
+  }
+
+  private async beat(legacy: { state: AgentActivityState; options?: AgentActivityPublishOptions }): Promise<AgentActivityHeartbeatOutcome> {
+    if (this.terminal) return 'terminal';
+    if (this.leaseCapable === false) {
+      await this.publishNow(legacy.state, undefined, undefined, { ...legacy.options, heartbeat: true });
+      return 'legacy';
+    }
+    for (let round = 0; round < 3; round += 1) {
+      const response = await this.leaseCall('renew', {
+        leaseEpoch: this.leaseEpoch,
+        // Wall-clock floor keeps separate publishers for one lifecycle (queued, then working) increasing.
+        leaseSequence: Math.max(this.leaseSequence + 1, Date.now()),
+        observedAt: this.calibratedNow(),
+      });
+      if (!response) return 'failed';
+      if (response.status === 200) {
+        this.leaseCapable = true;
+        this.adoptLease(response.body?.agent_activity);
+        return 'renewed';
+      }
+      if (response.status === 404 && !response.code) {
+        // Older Tower without the lease route: v1 PUTs still renew there.
+        this.leaseCapable = false;
+        await this.publishNow(legacy.state, undefined, undefined, { ...legacy.options, heartbeat: true });
+        return 'legacy';
+      }
+      if (response.status === 404) return 'missing';
+      if (response.status === 401 || response.status === 403) return 'revoked';
+      this.leaseCapable = true;
+      switch (response.code) {
+        case 'agent_activity_terminal':
+          this.terminal = true;
+          return 'terminal';
+        case 'stale_lease_epoch':
+        case 'stale_lease_sequence':
+          this.adoptLease(response.body?.current);
+          continue;
+        case 'heartbeat_too_old':
+          // calibrate() already refreshed the offset from this response.
+          continue;
+        case 'agent_activity_lease_expired':
+          return this.resume();
+        default:
+          this.log.error('[agent-activity] lease renewal rejected', { activityId: this.activityId, status: response.status, code: response.code });
+          return 'failed';
+      }
+    }
+    return 'failed';
+  }
+
+  /** Explicit, audited recovery after expiry: fresh Tower challenge, then epoch+1. */
+  private async resume(): Promise<AgentActivityHeartbeatOutcome> {
+    const issued = await this.leaseCall('resume_challenge');
+    const challenge = issued?.status === 200 ? issued.body?.challenge as { value?: unknown; next_lease_epoch?: unknown } | undefined : undefined;
+    const nextEpoch = Number(challenge?.next_lease_epoch);
+    if (typeof challenge?.value !== 'string' || !Number.isSafeInteger(nextEpoch)) {
+      this.log.error('[agent-activity] lease resume challenge unavailable', { activityId: this.activityId, status: issued?.status ?? null, code: issued?.code ?? null });
+      return issued?.code === 'agent_activity_terminal' ? 'terminal' : 'failed';
+    }
+    const resumed = await this.leaseCall('resume', { leaseEpoch: nextEpoch, leaseSequence: Date.now(), challenge: challenge.value });
+    if (resumed?.status !== 200) {
+      this.log.error('[agent-activity] lease resume rejected', { activityId: this.activityId, status: resumed?.status ?? null, code: resumed?.code ?? null });
+      return 'failed';
+    }
+    this.adoptLease(resumed.body?.agent_activity);
+    this.log.info?.('[agent-activity] lease resumed after expiry', { activityId: this.activityId, turnId: this.context.turnId, leaseEpoch: this.leaseEpoch });
+    return 'resumed';
   }
 
   private async publishNow(state: AgentActivityState, body?: string, sourceIdentity?: string,
@@ -116,11 +276,17 @@ export class AgentActivityPublisher {
         : state === 'working' ? (normalized ? 'Working' : 'Agent started') : undefined,
       summary: normalized ? normalized.replace(/\s+/g, ' ').slice(0, 240) : undefined,
       body: normalized ?? undefined,
-      expiresInSeconds: terminal ? 60 : 300,
+      expiresInSeconds: terminal ? 60 : AGENT_ACTIVITY_LEASE_TTL_SECONDS,
+      // v2: state and commentary never move the lease; a late durable create
+      // replay therefore cannot make a dead turn look current.
+      contract: AGENT_ACTIVITY_CONTRACT,
+      observedAt: this.calibratedNow(),
       blockedByTurnId: state === 'queued' ? options.blockedByTurnId : undefined,
       queuePosition: state === 'queued' ? options.queuePosition : undefined,
     };
-    const claim = this.publicationStore.claim(this.activityId, eventKey, this.sequenceBase, new Date().toISOString(), publicRequest);
+    // Heartbeats carry no payload, so the durable recovery loop never replays them.
+    const claim = this.publicationStore.claim(this.activityId, eventKey, this.sequenceBase, new Date().toISOString(),
+      options.heartbeat ? undefined : publicRequest);
     this.sequence = Math.max(this.sequence, claim.sequence);
     if (!claim.duplicate) {
       this.liveActivity.publish({
@@ -166,9 +332,15 @@ export class AgentActivityPublisher {
       for (let attempt = 0; attempt < 2 && !delivered; attempt += 1) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 2_000);
+        const sentAt = Date.now();
         try {
           towerResult = await this.deliver({ ...request, signal: controller.signal });
           delivered = true;
+          this.calibrate(towerResult?.server_time, sentAt, Date.now());
+          const contractVersion = (towerResult?.agent_activity as { contract_version?: unknown } | undefined)?.contract_version;
+          if (contractVersion === 2) this.leaseCapable = true;
+          else if (contractVersion === undefined && towerResult?.agent_activity && this.leaseCapable === null) this.leaseCapable = false;
+          this.adoptLease(towerResult?.agent_activity);
         } catch (error) {
           if (isConvergedAgentActivityError(error)) {
             delivered = true;

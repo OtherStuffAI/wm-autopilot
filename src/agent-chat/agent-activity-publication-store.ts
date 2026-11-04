@@ -55,7 +55,7 @@ export class AgentActivityPublicationStore {
   }
 
   hasPending(activityId: string): boolean {
-    return Boolean(this.db.query("SELECT 1 FROM agent_activity_publications WHERE activity_id=?1 AND status!='accepted' LIMIT 1")
+    return Boolean(this.db.query("SELECT 1 FROM agent_activity_publications WHERE activity_id=?1 AND status!='accepted' AND event_key NOT LIKE 'heartbeat:%' LIMIT 1")
       .get(activityId));
   }
 
@@ -104,9 +104,11 @@ export class AgentActivityPublicationStore {
       .run(activityId, eventKey, JSON.stringify(payload));
   }
 
+  /** Durable state/commentary only: heartbeats (including legacy stored ones) are never replayed. */
   pending(limit = 100): { activityId: string; eventKey: string; sequence: number; payload: Record<string, unknown> }[] {
     return (this.db.query(`SELECT activity_id,event_key,sequence,payload_json FROM agent_activity_publications
-      WHERE status != 'accepted' AND payload_json IS NOT NULL AND next_attempt_at<=?2 ORDER BY sequence LIMIT ?1`).all(limit, Date.now()) as any[])
+      WHERE status != 'accepted' AND payload_json IS NOT NULL AND event_key NOT LIKE 'heartbeat:%'
+        AND next_attempt_at<=?2 ORDER BY sequence LIMIT ?1`).all(limit, Date.now()) as any[])
       .map((row) => ({ activityId: row.activity_id, eventKey: row.event_key, sequence: row.sequence,
         payload: JSON.parse(row.payload_json) }));
   }

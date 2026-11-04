@@ -93,11 +93,21 @@ function runtimeStatus(manager: ProcessManager, sessionId: string): SessionHealt
   return 'stopped';
 }
 
+/**
+ * Turn witness supplied by the runtime that owns the turn: true only while
+ * this exact turn is still in its active (or queued) table. Never derived from
+ * model output, so quiet long provider/tool calls stay alive.
+ */
+export type AgentActivityTurnWitness = () => boolean;
+
 export class AgentDirectLifecycleController {
   private activityTimer: ReturnType<typeof setInterval> | null = null;
   private healthTimer: ReturnType<typeof setInterval> | null = null;
+  private queuedTimer: ReturnType<typeof setInterval> | null = null;
+  private queuedRenewal: { blockedByTurnId: string; queuePosition: number; stillQueued: AgentActivityTurnWitness } | null = null;
   private sessionId: string;
   private terminal: TerminalState | null = null;
+  private sessionBound = false;
 
   constructor(
     private readonly context: AgentActivityContext,
@@ -106,18 +116,52 @@ export class AgentDirectLifecycleController {
     private readonly deliverHealth = upsertFlightDeckPgAgentSessionHealth,
     private readonly store = healthStore,
     private readonly generation = AGENT_DIRECT_RUNTIME_GENERATION,
+    private readonly ownsTurn: AgentActivityTurnWitness = () => true,
   ) {
     this.sessionId = context.sessionId;
   }
 
-  async accepted(): Promise<void> { await this.activity.publish('accepted'); }
+  async accepted(): Promise<void> {
+    await this.activity.publish('accepted');
+    // Session start can outlast one lease; the owned turn renews from acceptance.
+    this.startActivityTimer();
+  }
 
-  async queued(blockedByTurnId: string, queuePosition: number): Promise<void> {
+  async queued(blockedByTurnId: string, queuePosition: number, stillQueued?: AgentActivityTurnWitness): Promise<void> {
     await this.activity.publish('queued', undefined, { blockedByTurnId, queuePosition });
+    if (!stillQueued || this.queuedTimer) return;
+    // The queue owner renews while this exact turn is still waiting; once it is
+    // promoted (or leaves the queue) the timer stops and publishes nothing.
+    this.queuedRenewal = { blockedByTurnId, queuePosition, stillQueued };
+    this.queuedTimer = setInterval(() => void this.renewQueued(), AGENT_DIRECT_ACTIVITY_HEARTBEAT_MS);
+    this.queuedTimer.unref?.();
+  }
+
+  private async renewQueued(): Promise<void> {
+    const queued = this.queuedRenewal;
+    if (!queued || this.terminal || !queued.stillQueued()) { this.stopQueuedRenewal(); return; }
+    const outcome = await this.activity.heartbeat({ state: 'queued',
+      options: { blockedByTurnId: queued.blockedByTurnId, queuePosition: queued.queuePosition } });
+    if (outcome === 'terminal' || outcome === 'revoked') this.stopQueuedRenewal();
+  }
+
+  /** Close a queued row whose message was handled by a different turn (no health publication). */
+  async closeQueued(summary: string): Promise<void> {
+    this.stopQueuedRenewal();
+    if (this.terminal) return;
+    this.terminal = 'completed';
+    await this.activity.publish('completed', summary);
+  }
+
+  stopQueuedRenewal(): void {
+    if (this.queuedTimer) clearInterval(this.queuedTimer);
+    this.queuedTimer = null;
+    this.queuedRenewal = null;
   }
 
   async working(sessionId: string): Promise<void> {
     this.sessionId = sessionId;
+    this.sessionBound = true;
     this.activity.bindSession(sessionId);
     await this.activity.publish('working');
     await this.publishHealth('busy', this.context.turnId);
@@ -142,11 +186,14 @@ export class AgentDirectLifecycleController {
     this.stopTimers();
   }
 
+  private startActivityTimer(): void {
+    if (this.activityTimer || this.terminal) return;
+    this.activityTimer = setInterval(() => void this.heartbeat(), AGENT_DIRECT_ACTIVITY_HEARTBEAT_MS);
+    this.activityTimer.unref?.();
+  }
+
   private startTimers(): void {
-    if (!this.activityTimer) {
-      this.activityTimer = setInterval(() => void this.heartbeat(), AGENT_DIRECT_ACTIVITY_HEARTBEAT_MS);
-      this.activityTimer.unref?.();
-    }
+    this.startActivityTimer();
     if (!this.healthTimer) {
       this.healthTimer = setInterval(() => void this.publishHealth(runtimeStatus(this.manager, this.sessionId), this.context.turnId),
         AGENT_DIRECT_SESSION_HEALTH_HEARTBEAT_MS);
@@ -155,6 +202,7 @@ export class AgentDirectLifecycleController {
   }
 
   private stopTimers(): void {
+    this.stopQueuedRenewal();
     if (this.activityTimer) clearInterval(this.activityTimer);
     if (this.healthTimer) clearInterval(this.healthTimer);
     this.activityTimer = null;
@@ -163,12 +211,21 @@ export class AgentDirectLifecycleController {
 
   private async heartbeat(): Promise<void> {
     if (this.terminal) return;
-    const status = runtimeStatus(this.manager, this.sessionId);
-    if (status === 'errored' || status === 'stopped') {
-      await this.finish('failed', `Agent runtime ${status}.`);
+    // Orphan timer: the turn left its owner's active table. Publish nothing and
+    // let the lease lapse; the owner publishes any terminal outcome itself.
+    if (!this.ownsTurn()) {
+      this.stopTimers();
       return;
     }
-    await this.activity.heartbeat();
+    if (this.sessionBound) {
+      const status = runtimeStatus(this.manager, this.sessionId);
+      if (status === 'errored' || status === 'stopped') {
+        await this.finish('failed', `Agent runtime ${status}.`);
+        return;
+      }
+    }
+    const outcome = await this.activity.heartbeat();
+    if (outcome === 'terminal' || outcome === 'revoked') this.stopTimers();
   }
 
   private async publishHealth(status: SessionHealthStatus, activeTurnId: string | null, error?: string): Promise<void> {

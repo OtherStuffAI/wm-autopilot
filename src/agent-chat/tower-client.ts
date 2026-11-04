@@ -1373,6 +1373,10 @@ export async function upsertFlightDeckPgAgentActivity(params: {
   expiresInSeconds?: number;
   blockedByTurnId?: string;
   queuePosition?: number;
+  /** 'agent-activity/v2': state/commentary writes never move the lease; heartbeats use the lease route. */
+  contract?: 'agent-activity/v2';
+  /** v2 create only; server-calibrated time. Can only shorten the initial lease. */
+  observedAt?: string;
   signal?: AbortSignal;
 }): Promise<FlightDeckPgWriteResult> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/agent-activities/${encodeURIComponent(params.activityId)}`;
@@ -1393,6 +1397,8 @@ export async function upsertFlightDeckPgAgentActivity(params: {
     ...(params.expiresInSeconds ? { expires_in_seconds: params.expiresInSeconds } : {}),
     ...(params.blockedByTurnId ? { blocked_by_turn_id: params.blockedByTurnId } : {}),
     ...(params.queuePosition ? { queue_position: params.queuePosition } : {}),
+    ...(params.contract ? { contract: params.contract } : {}),
+    ...(params.observedAt ? { observed_at: params.observedAt } : {}),
   };
   const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId, botIdentity: params.botIdentity, url, method: 'PUT', body });
   const response = await fetchPgRequest(params, url, {
@@ -1407,6 +1413,65 @@ export async function upsertFlightDeckPgAgentActivity(params: {
     throw Object.assign(new Error(error.message), error);
   }
   return await response.json() as FlightDeckPgWriteResult;
+}
+
+export type FlightDeckPgAgentActivityLeaseAction = 'renew' | 'resume_challenge' | 'resume';
+
+export interface FlightDeckPgAgentActivityLeaseResponse {
+  /** HTTP status; 0 is never returned (transport failures throw). */
+  status: number;
+  /** Tower error code for rejections, e.g. agent_activity_lease_expired. Absent on success or for unknown routes. */
+  code: string | null;
+  body: Record<string, unknown> | null;
+}
+
+/**
+ * Best-effort lease call. Returns HTTP rejections instead of throwing so the
+ * heartbeat supervisor can branch on Tower's code; transport errors throw.
+ */
+export async function postFlightDeckPgAgentActivityLease(params: {
+  backendConnectionId?: string | null;
+  subscriptionId?: string | null;
+  backendBaseUrl: string;
+  workspaceId: string;
+  activityId: string;
+  appNpub: string;
+  botIdentity: RuntimeBotIdentity;
+  turnId: string;
+  sessionId: string;
+  agentNpub: string;
+  action: FlightDeckPgAgentActivityLeaseAction;
+  leaseEpoch?: number;
+  leaseSequence?: number;
+  observedAt?: string;
+  expiresInSeconds?: number;
+  challenge?: string;
+  signal?: AbortSignal;
+}): Promise<FlightDeckPgAgentActivityLeaseResponse> {
+  const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/agent-activities/${encodeURIComponent(params.activityId)}/lease`;
+  const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
+  const body = {
+    action: params.action,
+    turn_id: params.turnId,
+    session_id: params.sessionId,
+    agent_npub: params.agentNpub,
+    ...(params.leaseEpoch !== undefined ? { lease_epoch: params.leaseEpoch } : {}),
+    ...(params.leaseSequence !== undefined ? { lease_sequence: params.leaseSequence } : {}),
+    ...(params.observedAt ? { observed_at: params.observedAt } : {}),
+    ...(params.expiresInSeconds ? { expires_in_seconds: params.expiresInSeconds } : {}),
+    ...(params.challenge ? { challenge: params.challenge } : {}),
+  };
+  const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId, botIdentity: params.botIdentity, url, method: 'POST', body });
+  const response = await fetchPgRequest(params, url, {
+    method: 'POST',
+    headers: { Accept: 'application/json', Authorization: authorization, 'Content-Type': 'application/json',
+      'x-flightdeck-pg-app-npub': params.appNpub },
+    body: JSON.stringify(body),
+    signal: params.signal,
+  });
+  const parsed = await response.json().catch(() => null) as Record<string, unknown> | null;
+  const code = typeof parsed?.code === 'string' && parsed.code.trim() ? parsed.code.trim() : null;
+  return { status: response.status, code: response.ok ? null : code, body: parsed };
 }
 
 export async function upsertFlightDeckPgAgentSessionHealth(params: {

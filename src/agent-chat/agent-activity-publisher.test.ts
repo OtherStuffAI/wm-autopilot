@@ -52,9 +52,10 @@ describe('Agent activity publisher', () => {
     ]);
   });
 
-  test('renews a silent working lease monotonically without duplicating commentary', async () => {
+  test('renews a silent working lease monotonically without duplicating commentary (legacy Tower)', async () => {
     const delivered: any[] = [];
-    const publisher = new AgentActivityPublisher(context, async (input) => { delivered.push(input); return {}; }, 0,
+    // A Tower without lease v2 serializes no contract_version: heartbeats fall back to non-durable PUTs.
+    const publisher = new AgentActivityPublisher(context, async (input) => { delivered.push(input); return { agent_activity: { id: 'row-1' } }; }, 0,
       async () => ({ content: 'One visible update', createdAt: '2026-07-24T00:00:01.000Z', sourceId: 'one' }),
       undefined, publicationStore());
     const manager = { getSession: () => ({ agent: 'codex', metadata: { nativeAgentSession: {
@@ -67,7 +68,91 @@ describe('Agent activity publisher', () => {
 
     expect(delivered.map((item) => item.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(delivered.filter((item) => item.body === 'One visible update')).toHaveLength(1);
-    expect(delivered.slice(2).every((item) => item.state === 'working' && !item.body && item.expiresInSeconds === 300)).toBe(true);
+    expect(delivered.slice(2).every((item) => item.state === 'working' && !item.body && item.expiresInSeconds === 180)).toBe(true);
+  });
+
+  describe('lease v2', () => {
+    const v2Row = (lease: Record<string, unknown> = {}) => ({ agent_activity: { id: 'row-1', contract_version: 2, lease_epoch: 1, lease_sequence: 0, ...lease },
+      server_time: new Date().toISOString() });
+    const leaseResponse = (status: number, code: string | null, body: Record<string, unknown> = {}) =>
+      ({ status, code, body: { server_time: new Date().toISOString(), ...body } });
+
+    test('renews through the lease route, never stores heartbeats durably, and keeps state PUTs v2', async () => {
+      const store = publicationStore();
+      const puts: any[] = [];
+      const leases: any[] = [];
+      const publisher = new AgentActivityPublisher(context, async (input) => { puts.push(input); return v2Row(); }, 0,
+        undefined, undefined, store, undefined, async (input) => {
+          leases.push(input);
+          return leaseResponse(200, null, { agent_activity: { lease_epoch: 1, lease_sequence: input.leaseSequence } });
+        });
+      await publisher.publish('working');
+      expect(await publisher.heartbeat()).toBe('renewed');
+      expect(await publisher.heartbeat()).toBe('renewed');
+      expect(puts).toHaveLength(1);
+      expect(puts[0]).toMatchObject({ contract: 'agent-activity/v2', expiresInSeconds: 180 });
+      expect(leases.map((lease) => lease.action)).toEqual(['renew', 'renew']);
+      expect(leases[1].leaseSequence).toBeGreaterThan(leases[0].leaseSequence);
+      expect(leases[1]).toMatchObject({ leaseEpoch: 1, expiresInSeconds: 180, turnId: 'turn-1', sessionId: 'session-1' });
+      // Calibrated from server_time: observed_at is sent once a response was timed.
+      expect(typeof leases[1].observedAt).toBe('string');
+      expect(store.pending(100)).toHaveLength(0);
+    });
+
+    test('adopts Tower lease ordering, resumes only through a fresh challenge after expiry, and stops on terminal', async () => {
+      const leases: any[] = [];
+      const replies = [
+        leaseResponse(409, 'stale_lease_epoch', { current: { lease_epoch: 2, lease_sequence: 7 } }),
+        leaseResponse(200, null, { agent_activity: { lease_epoch: 2, lease_sequence: 8 } }),
+        leaseResponse(409, 'agent_activity_lease_expired', { current: { lease_epoch: 2, lease_sequence: 8 } }),
+        leaseResponse(200, null, { challenge: { value: 'c'.repeat(64), lease_epoch: 2, next_lease_epoch: 3 } }),
+        leaseResponse(200, null, { agent_activity: { lease_epoch: 3, lease_sequence: 1 } }),
+        leaseResponse(409, 'agent_activity_terminal'),
+      ];
+      const publisher = new AgentActivityPublisher(context, async () => v2Row(), 0, undefined,
+        { error: () => undefined, info: () => undefined }, publicationStore(), undefined, async (input) => { leases.push(input); return replies.shift()!; });
+      await publisher.publish('working');
+      expect(await publisher.heartbeat()).toBe('renewed');
+      expect(leases[1]).toMatchObject({ action: 'renew', leaseEpoch: 2 });
+      expect(await publisher.heartbeat()).toBe('resumed');
+      expect(leases.slice(2).map((lease) => lease.action)).toEqual(['renew', 'resume_challenge', 'resume']);
+      expect(leases[4]).toMatchObject({ leaseEpoch: 3, challenge: 'c'.repeat(64) });
+      expect(await publisher.heartbeat()).toBe('terminal');
+      expect(await publisher.heartbeat()).toBe('terminal');
+      expect(leases).toHaveLength(6);
+    });
+
+    test('reports revocation and falls back to a legacy heartbeat when the Tower lacks the route', async () => {
+      const revoked = new AgentActivityPublisher(context, async () => v2Row(), 0, undefined, undefined, publicationStore(), undefined,
+        async () => leaseResponse(403, 'forbidden'));
+      await revoked.publish('working');
+      expect(await revoked.heartbeat()).toBe('revoked');
+
+      const puts: any[] = [];
+      const legacy = new AgentActivityPublisher(context, async (input) => { puts.push(input); return {}; }, 0, undefined, undefined, publicationStore(), undefined,
+        async () => leaseResponse(404, null));
+      await legacy.publish('queued', undefined, { blockedByTurnId: 'turn-0', queuePosition: 1 });
+      expect(await legacy.heartbeat({ state: 'queued', options: { blockedByTurnId: 'turn-0', queuePosition: 1 } })).toBe('legacy');
+      expect(puts.map((put) => put.state)).toEqual(['queued', 'queued']);
+    });
+
+    test('never replays heartbeats stored durably by an earlier runtime', () => {
+      const store = publicationStore();
+      store.claim('activity-1', 'heartbeat:1:1', 0, undefined, { state: 'working' });
+      store.claim('activity-1', 'working:Reading', 0, undefined, { state: 'working', body: 'Reading' });
+      expect(store.pending(100).map((item) => item.eventKey)).toEqual(['working:Reading']);
+      store.markAccepted('activity-1', 'working:Reading');
+      expect(store.hasPending('activity-1')).toBe(false);
+    });
+
+    test('drops a heartbeat after one retry instead of queueing it', async () => {
+      let calls = 0;
+      const publisher = new AgentActivityPublisher(context, async () => v2Row(), 0, undefined,
+        { error: () => undefined, info: () => undefined }, publicationStore(), undefined, async () => { calls += 1; throw new Error('offline'); });
+      await publisher.publish('working');
+      expect(await publisher.heartbeat()).toBe('failed');
+      expect(calls).toBe(2);
+    });
   });
 
   test('publishes queued metadata and clears it on accepted promotion', async () => {

@@ -55,4 +55,49 @@ describe('Agent Direct lifecycle controller', () => {
     await (lifecycle as any).heartbeat();
     expect(activities.filter((item) => item.state === 'failed')).toHaveLength(1);
   });
+
+  test('renews only while the exact turn is owned; orphan timers stop silently; quiet sessions stay alive', async () => {
+    const leases: any[] = [];
+    const puts: any[] = [];
+    const activity = new AgentActivityPublisher(context, async (input) => { puts.push(input); return { agent_activity: { contract_version: 2, lease_epoch: 1, lease_sequence: 0 } }; }, 0,
+      async () => [], undefined, new AgentActivityPublicationStore(':memory:'), undefined,
+      async (input) => { leases.push(input); return { status: 200, code: null, body: { agent_activity: { lease_epoch: 1, lease_sequence: input.leaseSequence } } }; });
+    const manager = { getSession: () => ({ status: 'running' }) } as any;
+    let owned = true;
+    const lifecycle = new AgentDirectLifecycleController(context, manager, activity, async () => ({}),
+      new AgentSessionHealthPublicationStore(':memory:'), 7, () => owned);
+    await lifecycle.accepted();
+    // Before a runtime session is bound (pending:...), the beat must not mistake it for a dead session.
+    await (lifecycle as any).heartbeat();
+    await lifecycle.working('session-1');
+    // No commentary for a long provider call: still renewed while owned.
+    await (lifecycle as any).heartbeat();
+    await (lifecycle as any).heartbeat();
+    expect(leases).toHaveLength(3);
+    owned = false;
+    await (lifecycle as any).heartbeat();
+    expect(leases).toHaveLength(3);
+    expect((lifecycle as any).activityTimer).toBeNull();
+    expect(puts.some((item) => ['completed', 'failed', 'cancelled'].includes(item.state))).toBe(false);
+  });
+
+  test('renews queued rows while still queued and closes folded queued rows as completed', async () => {
+    const leases: any[] = [];
+    const puts: any[] = [];
+    const activity = new AgentActivityPublisher(context, async (input) => { puts.push(input); return { agent_activity: { contract_version: 2, lease_epoch: 1, lease_sequence: 0 } }; }, 0,
+      async () => [], undefined, new AgentActivityPublicationStore(':memory:'), undefined,
+      async (input) => { leases.push(input); return { status: 200, code: null, body: { agent_activity: { lease_epoch: 1, lease_sequence: input.leaseSequence } } }; });
+    let waiting = true;
+    const lifecycle = new AgentDirectLifecycleController(context, { getSession: () => null } as any, activity, async () => ({}),
+      new AgentSessionHealthPublicationStore(':memory:'), 7, () => false);
+    await lifecycle.queued('turn-0', 2, () => waiting);
+    await (lifecycle as any).renewQueued();
+    expect(leases).toHaveLength(1);
+    waiting = false;
+    await (lifecycle as any).renewQueued();
+    expect(leases).toHaveLength(1);
+    expect((lifecycle as any).queuedTimer).toBeNull();
+    await lifecycle.closeQueued('Included in the current reply');
+    expect(puts.map((item) => item.state)).toEqual(['queued', 'completed']);
+  });
 });

@@ -1830,3 +1830,42 @@ describe('strict-inbox catch-up after migration never replays carried requests',
     expect(f.prompts.length).toBe(prompts + 1);
   }, 30_000);
 });
+
+describe('Agent Direct queued activity lease ownership', () => {
+  test('a starting turn takes over its own queued row and closes folded queued rows as completed', async () => {
+    const f = fixture();
+    const runtime = f.runtime as any;
+    const closed: string[] = [];
+    const stopped: string[] = [];
+    const entry = (name: string, messageId: string) => ({ messageId, lifecycle: {
+      stopQueuedRenewal: () => stopped.push(name),
+      closeQueued: async (summary: string) => { closed.push(`${name}:${summary}`); },
+    } });
+    runtime.queuedActivities.set('route-1', new Map([
+      ['turn-same', entry('same', 'm-same')],
+      ['turn-folded', entry('folded', 'm-folded')],
+      ['turn-later', entry('later', 'm-later')],
+    ]));
+    await runtime.settleQueuedActivities('route-1', 'turn-same', ['m-same', 'm-folded']);
+    expect(stopped.sort()).toEqual(['folded', 'same']);
+    expect(closed).toEqual(['folded:Included in the current reply']);
+    expect([...runtime.queuedActivities.get('route-1').keys()]).toEqual(['turn-later']);
+    // Unpromoted and registered, but the route owns no work: no renewal.
+    expect(runtime.queuedActivityWaiting('route-1', 'turn-later')).toBe(false);
+    runtime.queued.add('route-1', { event: { id: 'e', entity_id: 'm-later' } });
+    expect(runtime.queuedActivityWaiting('route-1', 'turn-later')).toBe(true);
+    expect(runtime.queuedActivityWaiting('route-1', 'turn-same')).toBe(false);
+  });
+
+  test('working activity witness follows the exact turn record state', () => {
+    const f = fixture();
+    const witness = (f.runtime as any).turnWitness('turn-witness');
+    expect(witness()).toBe(false);
+    const now = new Date().toISOString();
+    f.turnStore.save({ turnId: 'turn-witness', routingKey: 'route-w', sourceMessageIds: ['m1'], clientRequestId: 'c1', replyBody: null,
+      publishedMessageId: null, state: 'awaiting_reply', createdAt: now, updatedAt: now } as any);
+    expect(witness()).toBe(true);
+    f.turnStore.save({ ...f.turnStore.get('turn-witness')!, state: 'published' } as any);
+    expect(witness()).toBe(false);
+  });
+});
