@@ -89,6 +89,32 @@ describe("CodexAdapter.fetchMessages in-flight assistant", () => {
     };
   }
 
+  test("uses the configured Codex executable and surfaces launch failures", async () => {
+    let options: Record<string, unknown> | undefined;
+    const thread = {
+      id: null,
+      runStreamed: mock(async () => {
+        throw new Error("spawn /configured/codex ENOENT");
+      }),
+    };
+    mock.module("@openai/codex-sdk", () => ({
+      Codex: class {
+        constructor(input: Record<string, unknown>) { options = input; }
+        startThread() { return thread; }
+      },
+    }));
+
+    const adapter = new CodexAdapter({ ...baseContext(), codexCli: "/configured/codex" });
+    await adapter.waitForReady({ timeoutMs: 1000, pollIntervalMs: 10 });
+    await expect(adapter.sendMessage("hello")).rejects.toThrow("ENOENT");
+
+    expect(options?.codexPathOverride).toBe("/configured/codex");
+    expect((await adapter.fetchMessages()).at(-1)).toMatchObject({
+      role: "agent-error",
+      content: "spawn /configured/codex ENOENT",
+    });
+  });
+
   test("exposes the streaming assistant mid-turn and a single copy after completion", async () => {
     const stream = createControlledStream();
     const thread = {

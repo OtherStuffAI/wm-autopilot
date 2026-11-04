@@ -40,8 +40,8 @@ interface CollectedMessage {
 
 type AdapterState = "initializing" | "ready" | "busy" | "disposed";
 
-export { extractCodexErrorMessage } from "./codex-turn-runner";
-import { runCodexTurn } from "./codex-turn-runner";
+import { extractCodexErrorMessage, runCodexTurn } from "./codex-turn-runner";
+export { extractCodexErrorMessage };
 import { isModelUnavailableError } from "../settings/harness-models";
 
 // ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ export class CodexAdapter implements AgentAdapter {
     // @openai/codex-sdk — the bundled one can lag behind the models configured
     // in ~/.codex/config.toml and fail every turn with "requires a newer
     // version of Codex".
-    const codexCli = env.CODEX_CLI || process.env.CODEX_CLI || "codex";
+    const codexCli = context.codexCli || env.CODEX_CLI || process.env.CODEX_CLI || "codex";
     const codexPathOverride = Bun.which(codexCli) ?? codexCli;
 
     const codexOptions: CodexOptions = {
@@ -158,7 +158,10 @@ export class CodexAdapter implements AgentAdapter {
     try {
       return await this.runMessage(content, requireCompletion, true);
     } catch (error) {
-      if (!this.model || !isModelUnavailableError(error) || this.state === "disposed") throw error;
+      if (!this.model || !isModelUnavailableError(error) || this.state === "disposed") {
+        this.recordTurnFailure(error);
+        throw error;
+      }
       const failedModel = this.model;
       this.model = undefined;
       this.context.onModelFallback?.(failedModel, error instanceof Error ? error.message : String(error));
@@ -166,8 +169,18 @@ export class CodexAdapter implements AgentAdapter {
       this.thread = null;
       this.threadId = this.context.codexThreadId ?? null;
       this.initialise();
-      return await this.runMessage(content, requireCompletion, false);
+      try {
+        return await this.runMessage(content, requireCompletion, false);
+      } catch (fallbackError) {
+        this.recordTurnFailure(fallbackError);
+        throw fallbackError;
+      }
     }
+  }
+
+  private recordTurnFailure(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.activity.upsert(`turn-error:${crypto.randomUUID()}`, "agent-error", extractCodexErrorMessage(message));
   }
 
   private async runMessage(content: string, requireCompletion: boolean, recordUserMessage: boolean): Promise<string> {
