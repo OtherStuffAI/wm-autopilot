@@ -1,4 +1,5 @@
 import { inboxOriginCandidates, liveInboxOrigin, type InboxOriginOwner } from '../agent-chat/agent-inbox-origins';
+import { fetchAgentInboxReference } from '../agent-chat/agent-inbox-client';
 import { agentInboxReceiptStore, parseWorkReceipt, type AgentInboxReceiptStore, type WorkReceipt, type WorkReceiptEntityType } from '../agent-chat/agent-inbox-receipts';
 import type { AgentInboxScope } from '../agent-chat/agent-inbox-scope';
 import {
@@ -10,6 +11,7 @@ import {
   INBOX_BOUND_WRITE_ACTIONS, INBOX_READ_ACTIONS, INBOX_REFUSED_ACTIONS, INBOX_SCOPED_WRITE_ACTIONS, answerInboxAttachment, answerInboxRead,
   inboxLocation, resolveInboxReadOrigin, resolveInboxSessionScope, resolveInboxWriteOrigin, type BoundOrigin, type InboxSessionTarget,
 } from './agent-inbox-session-helper';
+import { answerInboxReference } from './agent-inbox-reference-read';
 
 /**
  * Strict-inbox Flight Deck helper routing. Every call acts for the exact origin notification of the session (or its
@@ -17,6 +19,8 @@ import {
  * its OWN output through a Tower-minted work receipt: only an entity Tower receipted for an origin this session acted
  * for, only while that origin is live, and only at the receipted version (otherwise `agent_inbox_work_output_changed`
  * with no content). Receipts never unlock comment reads, attachments, history or anything the bot did not create.
+ * A thread, document or task a human referenced in notified text is read through Tower's reference route (agent-inbox-reference-read).
+ * A thread, document or task a human referenced in notified text is read through Tower's reference route (agent-inbox-reference-read).
  */
 export interface InboxHelperCall {
   action: string;
@@ -35,6 +39,7 @@ export interface InboxHelperRouteDeps {
   fetchDocument?: typeof fetchFlightDeckPgDocument;
   fetchTask?: typeof fetchFlightDeckPgTask;
   fetchFile?: typeof fetchReceiptedFile;
+  fetchReference?: typeof fetchAgentInboxReference;
 }
 
 /** Creates that Tower receipts, and which response field carries the created entity. */
@@ -79,7 +84,9 @@ export async function routeInboxHelperCall(call: InboxHelperCall, deps: InboxHel
       : resolveInboxReadOrigin(call.owner, inboxLocation(action, call.ids));
     if (origin instanceof Response) {
       const entityType = RECEIPT_ACTIONS[action];
-      return entityType ? viaReceipt(call, deps, entityType, entityType === 'doc' ? call.ids.documentId : call.ids.taskId, origin) : origin;
+      const own = entityType ? await viaReceipt(call, deps, entityType, entityType === 'doc' ? call.ids.documentId : call.ids.taskId, origin) : origin;
+      // Unbound and not the bot's own output: a record a human referenced in notified text may still be readable (Tower decides).
+      return own === origin ? (await answerInboxReference(call, deps)) ?? origin : own;
     }
     const scope = await resolveInboxSessionScope(call.target, origin);
     if (scope instanceof Response) return scope;

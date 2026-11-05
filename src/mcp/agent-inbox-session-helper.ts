@@ -130,6 +130,18 @@ export function inboxLocation(action: string, ids: { channelId: string | null; t
   return { channelId: ids.channelId, threadId: ids.threadId };
 }
 
+type InboxDocument = NonNullable<NonNullable<AgentInboxContext['trigger']>['document']>;
+
+/** The raw helper's doc_get shape for a document carried by Tower's notification context or reference read. */
+export function documentReadResponse(document: InboxDocument, extra: Record<string, unknown>): Response {
+  const result: FlightDeckPgDocumentResult = {
+    doc: { id: document.id, title: document.title, row_version: document.row_version, channel_id: document.channel_id } as any,
+    ...(document.canonical_version ? { canonical_version: document.canonical_version as any } : {}),
+    ...(document.body ? { body: document.body as any } : {}),
+  };
+  return Response.json({ ok: true, ...result, body_text: decodeFlightDeckPgDocumentBody(result), captured_base: result.canonical_version ? capturedDocumentBase(result) : null, ...extra });
+}
+
 /** Answers a read action from the bound context (same response shapes as the raw helper actions). */
 export function answerInboxRead(action: string, scope: AgentInboxScope): Response {
   const context = scope.context;
@@ -144,12 +156,7 @@ export function answerInboxRead(action: string, scope: AgentInboxScope): Respons
   if (action === 'doc_get') {
     const document = trigger?.document;
     if (!document) return refuse('agent_inbox_context_unbound', 'The bound notification has no document.');
-    const result: FlightDeckPgDocumentResult = {
-      doc: { id: document.id, title: document.title, row_version: document.row_version, channel_id: document.channel_id } as any,
-      ...(document.canonical_version ? { canonical_version: document.canonical_version as any } : {}),
-      ...(document.body ? { body: document.body as any } : {}),
-    };
-    return Response.json({ ok: true, ...result, body_text: decodeFlightDeckPgDocumentBody(result), captured_base: result.canonical_version ? capturedDocumentBase(result) : null, ...bounded });
+    return documentReadResponse(document, bounded);
   }
   if (action === 'doc_comments') {
     if (!trigger?.document) return refuse('agent_inbox_context_unbound', 'The bound notification has no document.');

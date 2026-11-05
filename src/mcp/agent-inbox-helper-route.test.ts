@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { AgentInboxOriginStore, setAgentInboxOriginStoresForTests } from '../agent-chat/agent-inbox-origins';
 import { AgentInboxReceiptStore } from '../agent-chat/agent-inbox-receipts';
 import { AgentInboxStore } from '../agent-chat/agent-inbox-store';
+import { AgentInboxError } from '../agent-chat/agent-inbox-client';
 import { routeInboxHelperCall, type InboxHelperCall } from './agent-inbox-helper-route';
 
 const dirs: string[] = [];
@@ -52,6 +53,8 @@ function fixture() {
     fetchDocument: async () => { if (towerError) throw towerError; return docState as any; },
     fetchTask: async () => ({ task: taskState }) as any,
     fetchFile: async () => fileState,
+    // Tower refuses every reference unless a test says otherwise.
+    fetchReference: async () => { throw new AgentInboxError(404, 'reference_not_found', 'not_found', 'Reference not found'); },
   };
   const call = (action: string, patch: Partial<InboxHelperCall> & { ids?: Partial<InboxHelperCall['ids']> } = {}): Promise<Response> => routeInboxHelperCall({
     action, body: {}, owner: { sessionId: 'session-1', subscriptionId: 'sub-1' },
@@ -188,5 +191,86 @@ describe('strict-inbox work receipts: follow-ups on the bot\'s own output', () =
     expect(await (await f.call('file_get', { body: { fileId: 'file-9' } })).json()).toMatchObject({ ok: true, receipted: true, file: { id: 'file-9' } });
     f.set({ file: { id: 'file-9', row_version: 1, current_version_id: 'fv-2' } });
     expect(await code(await f.call('file_get', { body: { fileId: 'file-9' } }))).toEqual([409, 'agent_inbox_work_output_changed']);
+  });
+});
+
+describe('strict-inbox referenced records', () => {
+  const refused = (status: number) => new AgentInboxError(status, 'reference_not_found', 'not_found', 'Reference not found');
+  function withReference(answer: (notificationId: string, reference: any) => unknown) {
+    const f = fixture();
+    const seen: Array<[string, any]> = [];
+    const fetchReference = async (_target: unknown, notificationId: string, reference: any) => {
+      seen.push([notificationId, reference]);
+      const result = answer(notificationId, reference);
+      if (result instanceof Error) throw result;
+      return result as any;
+    };
+    const run = (action: string, ids: Partial<InboxHelperCall['ids']>) => routeInboxHelperCall({
+      action, body: {}, owner: { sessionId: 'session-1', subscriptionId: 'sub-1' },
+      target: { subscriptionId: 'sub-1', backendConnectionId: null, backendBaseUrl: 'https://tower.test', workspaceId: 'ws-1', appNpub: 'npub1app', botIdentity: { botNpub: 'npub1bot' } as any },
+      runAction: async () => { f.actions.push(action); return Response.json({ ok: true }); }, runScoped: async () => Response.json({ ok: true }),
+      ids: { channelId: null, threadId: null, taskId: null, documentId: null, ...ids },
+    }, { receipts: f.receipts, fetchReference });
+    return { f, seen, run };
+  }
+  const thread = { thread: { id: 'thread-ref' }, messages: [{ id: 'm1', body: 'REFERENCED-BODY' }], truncated: false };
+
+  test('an unbound thread is read through Tower for the live notification the session acts for', async () => {
+    const { seen, run } = withReference(() => thread);
+    const response = await run('thread_read', { channelId: 'channel-ref', threadId: 'thread-ref' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, referenced: true, bounded: true, notification_id: 'n-1', thread_id: 'thread-ref', complete: true, messages: [{ body: 'REFERENCED-BODY' }] });
+    expect(seen).toEqual([['n-1', { type: 'thread', channelId: 'channel-ref', threadId: 'thread-ref' }]]);
+  });
+
+  test('documents and tasks are served in the helper shapes; a referenced document offers no write base', async () => {
+    const task = { id: 'task-ref', title: 'T' };
+    const { run } = withReference((_n, reference) => reference.type === 'doc'
+      ? { document: { id: 'doc-ref', title: 'Plan', row_version: 3, channel_id: 'channel-ref', body: { encoding: 'base64', base64_data: MARKER } } }
+      : { task, comments: [{ id: 'c1', body: 'hello', author_npub: 'npub1h', created_at: 'now' }] });
+    const doc = await (await run('doc_get', { documentId: 'doc-ref' })).json() as any;
+    expect(doc).toMatchObject({ ok: true, referenced: true, doc: { id: 'doc-ref' }, captured_base: null });
+    expect(doc.body_text).toContain('PLAN-CONTENT-MARKER');
+    expect(await (await run('task_get', { taskId: 'task-ref' })).json()).toMatchObject({ ok: true, task, referenced: true });
+    expect(await (await run('task_comments', { taskId: 'task-ref' })).json()).toMatchObject({ ok: true, task_id: 'task-ref', comments: [{ id: 'c1', body: 'hello', sender_npub: 'npub1h' }] });
+  });
+
+  test('Tower refusing the reference (unreferenced, unreadable, foreign workspace, unknown) keeps the original unbound refusal', async () => {
+    for (const status of [404, 403, 410]) {
+      const { run } = withReference(() => refused(status));
+      const response = await run('thread_read', { channelId: 'channel-x', threadId: 'thread-x' });
+      expect([response.status, ((await response.json()) as any).code]).toEqual([403, 'agent_inbox_no_bound_notification']);
+    }
+  });
+
+  test('every live notification of the session is tried newest first; non-live ones are never sent to Tower', async () => {
+    const { f, seen, run } = withReference((id) => (id === 'n-1' ? thread : refused(404)));
+    f.origins.recordTurn('session-1', { subscriptionId: 'sub-1', notificationId: 'n-2' });
+    f.notify('n-failed', 3, {}, 'failed');
+    f.origins.recordTurn('session-1', { subscriptionId: 'sub-1', notificationId: 'n-failed' });
+    const response = await run('thread_read', { channelId: 'channel-ref', threadId: 'thread-ref' });
+    expect(await response.json()).toMatchObject({ referenced: true, notification_id: 'n-1' });
+    expect(seen.map(([id]) => id)).toEqual(['n-2', 'n-1']);
+  });
+
+  test('a session with no live origin, writes, attachments and other actions never reach the reference route', async () => {
+    const none = withReference(() => thread);
+    expect((await none.run('thread_read', { channelId: null, threadId: 'thread-ref' })).status).toBe(403);
+    const writes = withReference(() => thread);
+    for (const action of ['chat_reply', 'doc_update', 'task_state', 'doc_comments', 'attachment_get', 'context_tree_list']) {
+      const response = await writes.run(action, { channelId: 'channel-ref', threadId: 'thread-ref', documentId: 'doc-ref', taskId: 'task-ref' });
+      expect([action, response.status >= 400]).toEqual([action, true]);
+    }
+    expect(writes.seen).toEqual([]);
+    const gone = withReference(() => thread);
+    gone.f.inbox.markHandled('sub-1', 'n-1', 1, 'failed_permanent', null);
+    const response = await gone.run('thread_read', { channelId: 'channel-ref', threadId: 'thread-ref' });
+    expect(response.status).toBe(403);
+    expect(gone.seen).toEqual([]);
+  });
+
+  test('transient Tower failures are surfaced, not turned into an unbound refusal', async () => {
+    const { run } = withReference(() => new AgentInboxError(503, 'authorization_contention', 'transient', 'retry'));
+    await expect(run('thread_read', { channelId: 'channel-ref', threadId: 'thread-ref' })).rejects.toBeInstanceOf(AgentInboxError);
   });
 });
