@@ -1,7 +1,8 @@
 import type { AgentDefinitionRecord } from "./types.ts";
 import type { DirectChatRuntimeInput } from "./direct-chat-runtime.ts";
+import type { DirectChatLineageContext } from './direct-chat-lineage-context';
 
-interface CapturedRequest { input: DirectChatRuntimeInput; agent?: AgentDefinitionRecord; contextPrompt?: string; }
+interface CapturedRequest { input: DirectChatRuntimeInput; agent?: AgentDefinitionRecord; contextPrompt?: string; threadContext?: DirectChatLineageContext; }
 
 /** Ordered request snapshots keep a settings change from altering an active turn. */
 export class DirectChatRequestQueue {

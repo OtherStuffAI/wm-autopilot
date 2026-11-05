@@ -48,6 +48,7 @@ import { directChatSessionReplacementDecision } from './direct-chat-session-reco
 import { isInterruptedTurnError } from './session-runtime-turns';
 import { assertDirectChatWorkspaceCompatible, buildDirectChatSessionBinding } from './direct-chat-session-binding';
 import { requiresFreshInboxSession } from './flightdeck-session-metadata';
+import { directChatLineageContext } from './direct-chat-lineage-context';
 import type { PipelineRouterRequest } from './pipeline-router-handler';
 
 /** Turn states in which the owning runtime still holds the turn and renews its activity lease. */
@@ -422,7 +423,10 @@ export class AgentDirectChatRuntime {
   private enqueue(routingKey: string, agent: AgentDefinitionRecord, contextPrompt: string, input: DirectChatRuntimeInput): void {
     const idleTimer = this.idleTimers.get(routingKey);
     if (idleTimer) { clearTimeout(idleTimer); this.idleTimers.delete(routingKey); }
-    this.queued.add(routingKey, input, { agent, contextPrompt });
+    const intercept = this.deps.interceptStore.getByRoutingKey(routingKey);
+    const threadContext = intercept ? directChatLineageContext({ workspaceId: input.subscription.workspaceId!,
+      channelId: intercept.channelId, threadId: intercept.threadId }) : undefined;
+    this.queued.add(routingKey, input, { agent, contextPrompt, threadContext });
     if (this.running.has(routingKey)) return;
     const run = (botIdentity: RuntimeBotIdentity) => this.run(routingKey, agent, contextPrompt, botIdentity);
     const work = (this.deps.withBotIdentity
@@ -450,6 +454,7 @@ export class AgentDirectChatRuntime {
       agent = captured.agent ?? agent;
       contextPrompt = captured.contextPrompt ?? contextPrompt;
       const input = { ...captured.input, botIdentity };
+      const threadContext = captured.threadContext;
       let intercept = this.deps.interceptStore.getByRoutingKey(routingKey)!;
       let activity: AgentDirectLifecycleController | null = null;
       let outcomeRecordIds = input.event.entity_id ? [input.event.entity_id] : [];
@@ -586,13 +591,13 @@ export class AgentDirectChatRuntime {
               })
             : null;
           const historicalRecoveryPrompt = !sessionResolution.bootstrap && pending.prompt ? pending.prompt : sessionResolution.bootstrap
-            ? buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
+            ? buildDirectChatBootstrapPrompt({ threadContext, contextPrompt, subscription: input.subscription, intercept,
                 scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery, supplementalContext: supplementalContext(recoveredEnrichment) })
             : intercept.lastCompletedTurnId
-              ? buildDirectChatFollowUpPrompt({ routingKey, threadId: intercept.threadId, history, actionableMessages: delta,
+              ? buildDirectChatFollowUpPrompt({ threadContext, routingKey, threadId: intercept.threadId, history, actionableMessages: delta,
                   historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId,
                   lastAgentMessageIdPublished: intercept.lastAgentMessageIdPublished })
-              : buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
+              : buildDirectChatBootstrapPrompt({ threadContext, contextPrompt, subscription: input.subscription, intercept,
                   scopeId: input.channel.scope_id ?? null, history, nextMessages: delta });
           const recoveryPrompt = sessionResolution.bootstrap
             ? buildAcceptedDirectChatRecoveryPrompt(historicalRecoveryPrompt)
@@ -688,9 +693,9 @@ export class AgentDirectChatRuntime {
           throw new Error("Enrichment lost the submission lease before prompt transport.");
         }
         let prompt = (sessionResolution.bootstrap || !intercept.nativeHistoryCheckpointMessageId)
-          ? buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
+          ? buildDirectChatBootstrapPrompt({ threadContext, contextPrompt, subscription: input.subscription, intercept,
               scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery, supplementalContext: supplementalContext(enrichmentResult) })
-          : buildDirectChatFollowUpPrompt({ routingKey, threadId: intercept.threadId, history, actionableMessages: delta,
+          : buildDirectChatFollowUpPrompt({ threadContext, routingKey, threadId: intercept.threadId, history, actionableMessages: delta,
               historyCheckpointMessageId: intercept.nativeHistoryCheckpointMessageId,
               lastAgentMessageIdPublished: intercept.lastAgentMessageIdPublished, supplementalContext: supplementalContext(enrichmentResult) });
         const acceptedHistoryCheckpointMessageId = history.at(-1)?.messageId ?? null;
@@ -750,7 +755,7 @@ export class AgentDirectChatRuntime {
             sessionGeneration: sessionResolution.generation, previousSessionIds: sessionResolution.previousSessionIds,
             state: 'active', lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
           enrichmentResult = await prepareEnrichment();
-          prompt = buildDirectChatBootstrapPrompt({ contextPrompt, subscription: input.subscription, intercept,
+          prompt = buildDirectChatBootstrapPrompt({ threadContext, contextPrompt, subscription: input.subscription, intercept,
             scopeId: input.channel.scope_id ?? null, history, nextMessages: delta, recovery: sessionResolution.recovery, supplementalContext: supplementalContext(enrichmentResult) });
           await activity.working(session.id);
           await activity.progress(`Retired ${rejectedSessionId}: ${replacement.detail}`);

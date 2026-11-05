@@ -24,7 +24,7 @@ export interface AgentInboxScope {
 export interface AgentInboxContext {
   notification?: AgentInboxEnvelope;
   channel?: { id: string; workspace_id?: string; scope_id?: string | null; name?: string | null; kind?: string | null; participant_npubs?: string[]; metadata?: Record<string, unknown>; agent_chat?: unknown };
-  thread?: { id: string; title?: string; source_message_id?: string | null; parent_thread_id?: string | null } | null;
+  thread?: { id: string; title?: string; source_message_id?: string | null; parent_thread_id?: string | null; branch_point_message_id?: string | null } | null;
   trigger?: {
     type: string;
     message?: FlightDeckPgMessage & Record<string, unknown>;

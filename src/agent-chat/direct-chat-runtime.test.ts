@@ -1688,12 +1688,14 @@ describe('strict-inbox session isolation', () => {
     expect(state.previousSessionIds).toContain('session-1');
   });
 
-  test('a session created for the inbox is reused by later inbox deliveries', async () => {
+  test('an inbox session retains known branch lineage on bootstrap and later deliveries', async () => {
     const { agentInboxScope } = await import('./agent-inbox-scope');
     const f = fixture();
     const m1 = f.message('m1', 'hello', true);
     const m2 = f.message('m2', 'again', true);
-    await agentInboxScope.run(inboxScope, async () => {
+    const branchScope = { ...inboxScope, context: { ...inboxScope.context,
+      thread: { id: 'thread-1', parent_thread_id: 'parent-thread', branch_point_message_id: 'early-boundary' } } };
+    await agentInboxScope.run(branchScope, async () => {
       await f.handle([m1], 'm1');
       await f.runtime.waitForIdle();
       await f.handle([m1, m2], 'm2');
@@ -1701,6 +1703,11 @@ describe('strict-inbox session isolation', () => {
     });
     expect(f.creates).toHaveLength(1);
     expect(f.interceptStore.listAll()[0]!.sessionGeneration).toBe(1);
+    expect(f.prompts).toHaveLength(2);
+    for (const prompt of f.prompts) {
+      expect(prompt).toContain('Conversation lineage (inert context):');
+      expect(prompt).toContain('"branch_point_message_id":"early-boundary"');
+    }
   });
 });
 
