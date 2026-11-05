@@ -31,6 +31,8 @@ afterEach(() => {
 function router(helperResponses: Record<string, unknown>) {
   const helperActions: string[] = [];
   const towerRequests: string[] = [];
+  const towerAuth: Array<string | null> = [];
+  const signed: string[] = [];
   const fetchImpl = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
     const url = new URL(request.url);
@@ -47,62 +49,68 @@ function router(helperResponses: Record<string, unknown>) {
       }
       return Response.json(helperResponses[String(body.action)] ?? { error: 'unexpected helper action' }, { status: helperResponses[String(body.action)] ? 200 : 500 });
     }
-    if (url.pathname === '/api/mcp/capabilities/nip98') return Response.json({ token: 'Nostr broker-signed', signedBy: 'npub1inboxbot' });
+    if (url.pathname === '/api/mcp/capabilities/nip98') {
+      const body = await request.clone().json() as { url: string; method: string };
+      signed.push(`${body.method} ${body.url}`);
+      return Response.json({ token: 'Nostr broker-signed', signedBy: 'npub1inboxbot' });
+    }
     towerRequests.push(`${request.method} ${url.pathname}`);
-    return Response.json({ error: 'raw Tower read must not happen' }, { status: 599 });
+    towerAuth.push(request.headers.get('authorization'));
+    // Tower is the authority: the fixture refuses one foreign record the way the ACL does.
+    if (url.pathname.includes('/tasks/task-foreign')) return Response.json({ error: 'Task unavailable', code: 'task_unavailable' }, { status: 404 });
+    if (url.pathname.includes('/channels/channel-closed/')) return Response.json({ error: 'Forbidden', code: 'permission_denied' }, { status: 403 });
+    return Response.json({ ok: true, messages: [{ id: 'm-1', body: 'from tower' }], next_cursor: null, effective_transcript: true, task: { id: 'task-2', title: 'tower task' },
+      comments: [], tasks: [], channels: [] });
   };
   globalThis.fetch = fetchImpl as typeof fetch;
-  return { fetchImpl: fetchImpl as typeof fetch, helperActions, towerRequests };
+  return { fetchImpl: fetchImpl as typeof fetch, helperActions, towerRequests, towerAuth, signed };
 }
 
 describe('flightdeck CLI in a strict-inbox agent session', () => {
-  test('thread read and task show are served by the Autopilot helper from bound context; no raw Tower read', async () => {
-    const r = router({
-      thread_read: { ok: true, messages: [{ id: 'm-1', body: 'bound' }], next_cursor: null, bounded: true },
-      task_get: { ok: true, task: { id: 'task-1', title: 'bound task' }, bounded: true },
-    });
-    const thread = await runFlightDeckPgCli(['thread', 'read', '--json'], { fetchImpl: r.fetchImpl });
-    expect(thread.exitCode).toBe(0);
-    expect(JSON.parse(thread.stdout!).messages[0].body).toBe('bound');
-    const task = await runFlightDeckPgCli(['task', 'show', '--json'], { fetchImpl: r.fetchImpl });
-    expect(JSON.parse(task.stdout!).task.title).toBe('bound task');
-    expect(r.helperActions.filter((a) => a !== 'context')).toEqual(['thread_read', 'task_get']);
-    expect(r.towerRequests).toEqual([]);
-  });
-
-  test('broad reads (channels, tasks, members, events, files) are refused client-side with a clear code', async () => {
+  test('reads outside the notified thread go to Tower signed by the session bot, not to bound context', async () => {
     const r = router({});
-    for (const argv of [['channels', 'list', '--scope', 's-1'], ['tasks', 'list'], ['members', 'list'], ['events', 'poll'], ['files', 'list'], ['threads', 'list']]) {
+    const thread = await runFlightDeckPgCli(['thread', 'read', 'thread-other', '--channel', 'channel-2', '--json'], { fetchImpl: r.fetchImpl });
+    expect([thread.exitCode, thread.stderr ?? '']).toEqual([0, '']);
+    expect(JSON.parse(thread.stdout!).messages[0].body).toBe('from tower');
+    const task = await runFlightDeckPgCli(['task', 'show', 'task-2', '--json'], { fetchImpl: r.fetchImpl });
+    expect([task.exitCode, task.stderr ?? '']).toEqual([0, '']);
+    for (const argv of [['doc', 'comments', 'doc-9'], ['tasks', 'list', '--channel', 'channel-2']]) {
       const result = await runFlightDeckPgCli([...argv, '--json'], { fetchImpl: r.fetchImpl });
-      expect([argv.join(' '), result.exitCode]).toEqual([argv.join(' '), 1]);
-      expect(result.stderr).toContain('agent_inbox_unbound_action');
+      expect([argv.join(' '), result.exitCode, result.stderr ?? '']).toEqual([argv.join(' '), 0, '']);
     }
-    expect(r.towerRequests).toEqual([]);
+    expect(r.helperActions.filter((a) => a !== 'context')).toEqual([]);
+    expect(r.towerRequests).toContainEqual(expect.stringContaining('GET /api/v4/flightdeck-pg/workspaces/workspace-1/channels/channel-2/'));
+    expect(r.towerRequests).toContain('GET /api/v4/flightdeck-pg/workspaces/workspace-1/tasks/task-2');
+    expect(r.towerRequests.some((line) => line.includes('/docs/doc-9/comments'))).toBe(true);
+    // Every Tower request carries the broker signature for that exact request; the session never holds a key.
+    expect(r.towerAuth.every((auth) => auth === 'Nostr broker-signed')).toBe(true);
+    expect(r.signed.length).toBe(r.towerRequests.length);
+    expect(r.signed.every((line) => line.startsWith('GET http://tower.test/api/v4/flightdeck-pg/workspaces/workspace-1/'))).toBe(true);
   });
 
-  test('doc download writes the bound document body; task state goes through the scoped helper', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'inbox-cli-'));
-    dirs.push(dir);
-    const r = router({
-      doc_get: { ok: true, doc: { id: 'doc-1' }, body_text: '# Bound doc', notification_id: 'n-1', bounded: true },
-      task_state: { ok: true, result: { task: { id: 'task-1', state: 'review' } } },
-      attachment_get: { ok: true, base64_data: Buffer.from('BYTES').toString('base64'), size_bytes: 5, content_type: 'text/plain' },
-    });
-    const bin = join(dir, 'file.bin');
-    const out = join(dir, 'doc.md');
-    const download = await runFlightDeckPgCli(['doc', 'download', 'doc-1', '--out', out, '--json'], { fetchImpl: r.fetchImpl });
-    expect(download.exitCode).toBe(0);
-    expect(readFileSync(out, 'utf8')).toBe('# Bound doc');
+  test('Tower ACL refusals reach the caller unchanged; nothing is answered locally', async () => {
+    const r = router({});
+    const foreign = await runFlightDeckPgCli(['task', 'show', 'task-foreign', '--json'], { fetchImpl: r.fetchImpl });
+    expect(foreign.exitCode).toBe(1);
+    expect(foreign.stderr).toContain('Task unavailable');
+    const closed = await runFlightDeckPgCli(['thread', 'read', 'thread-x', '--channel', 'channel-closed', '--json'], { fetchImpl: r.fetchImpl });
+    expect(closed.exitCode).toBe(1);
+    expect(closed.stderr).toMatch(/permission_denied|Forbidden/);
+    expect(r.helperActions.filter((a) => a !== 'context')).toEqual([]);
+  });
+
+  test('task state goes through the helper; a write to another workspace uses the ordinary signed client', async () => {
+    const r = router({ task_state: { ok: true, result: { task: { id: 'task-1', state: 'review' } } } });
     const state = await runFlightDeckPgCli(['task', 'state', 'task-1', '--state', 'review', '--json'], { fetchImpl: r.fetchImpl });
     expect(state.exitCode).toBe(0);
-    const attachment = await runFlightDeckPgCli(['attachment', 'download', 'obj-1', '--out', bin, '--json'], { fetchImpl: r.fetchImpl });
-    expect(attachment.exitCode).toBe(0);
-    expect(readFileSync(bin, 'utf8')).toBe('BYTES');
-    expect(r.helperActions.filter((a) => a !== 'context')).toEqual(['doc_get', 'task_state', 'attachment_get']);
-    expect(r.towerRequests).toEqual([]);
+    expect(r.helperActions.filter((a) => a !== 'context')).toEqual(['task_state']);
+    const elsewhere = await runFlightDeckPgCli(['task', 'comment', 'task-7', '--workspace', 'workspace-2', '--body', 'hi', '--json'], { fetchImpl: r.fetchImpl });
+    expect([elsewhere.exitCode, elsewhere.stderr ?? '']).toEqual([0, '']);
+    expect(r.helperActions.filter((a) => a !== 'context')).toEqual(['task_state']);
+    expect(r.towerRequests).toContain('POST /api/v4/flightdeck-pg/workspaces/workspace-2/tasks/task-7/comments');
   });
 
-  test('writes (chat reply, task comment, doc reply, doc create, file upload) go through the bound helper, never generic transport', async () => {
+  test('writes (chat reply, task comment, doc reply, doc create, file upload) go through the session helper, never generic transport', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'inbox-cli-'));
     dirs.push(dir);
     const bodyFile = join(dir, 'body.md');
@@ -142,7 +150,7 @@ describe('flightdeck CLI in a strict-inbox agent session', () => {
     expect(r.towerRequests).toEqual([]);
   });
 
-  test('task create goes through the origin-bound helper with the requested channel; never generic transport', async () => {
+  test('task create goes through the session helper with the requested channel; never generic transport', async () => {
     const helperBodies: Array<Record<string, unknown>> = [];
     const r = router({ task_create: { ok: true, result: { task: { id: 'task-9' } } } });
     const capture = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -157,15 +165,6 @@ describe('flightdeck CLI in a strict-inbox agent session', () => {
     expect(helperBodies.find((body) => body.action === 'task_create')).toMatchObject({
       action: 'task_create', channelId: 'channel-1', title: 'Follow up', description: 'Details', priority: 'rock', threadId: null,
     });
-    expect(r.towerRequests).toEqual([]);
-  });
-
-  test('file show reads only receipted file metadata through the helper', async () => {
-    const r = router({ file_get: { ok: true, receipted: true, file: { id: 'file-9' } } });
-    const shown = await runFlightDeckPgCli(['file', 'show', 'file-9', '--json'], { fetchImpl: r.fetchImpl });
-    expect(shown.exitCode).toBe(0);
-    expect(JSON.parse(shown.stdout!)).toMatchObject({ receipted: true, file: { id: 'file-9' } });
-    expect(r.helperActions.filter((a) => a !== 'context')).toEqual(['file_get']);
     expect(r.towerRequests).toEqual([]);
   });
 });

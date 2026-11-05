@@ -8,7 +8,8 @@ export type CeilingResult =
   | { status: 'halt' | 'backoff'; code: string; message: string };
 
 /**
- * Ensures Tower holds this bot under its notification-only ceiling in the workspace BEFORE any inbox subscription or
+ * Ensures Tower holds this bot under its notification-only delivery classification (addressed-only inbox; never an API
+ * ceiling) in the workspace BEFORE any inbox subscription or
  * dispatch: read the existing access profile, self-classify through the existing route when absent, and accept only a
  * Tower response that confirms the ceiling. Anything else is refused; there is never a broader fallback.
  */

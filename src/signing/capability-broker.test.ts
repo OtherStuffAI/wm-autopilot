@@ -719,6 +719,40 @@ describe("CapabilityBroker", () => {
     })).status).toBe(200);
   });
 
+  test("configured signing policy alone decides out-of-thread Tower signing; the signer stays pinned", async () => {
+    const policyFor = (mode: "standard-agent" | "full-agent") => buildDefaultAgentCapabilityPolicy({
+      towerUrl: "https://tower.example", autopilotUrl: "http://localhost:3600", ownerNpub: ownerA, workspaceId: "workspace-a", mode,
+    });
+    const sign = async (token: string, url: string, method = "GET", extra: Record<string, unknown> = {}) =>
+      call("/api/mcp/capabilities/nip98", token, { sessionId: "session-a", url, method, ...extra });
+    const otherThread = "https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-a/channels/c2/messages?thread_id=t2";
+    const otherWorkspace = "https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-b/docs/d1/body";
+
+    // Sign-anything policy: any target, including records unrelated to any notification, as the session's own bot.
+    const fullAgent = issue("session-a", ownerA, policyFor("full-agent"));
+    for (const url of [otherThread, otherWorkspace]) {
+      const response = await sign(fullAgent.token, url, "POST", { bodyHash: "cd".repeat(32), botNpub: records.get(ownerB)!.botNpub, pubkey: botPubkeyB });
+      expect([url, response.status]).toEqual([url, 200]);
+      const result = await response.json() as { token: string; signedBy: string };
+      const event = JSON.parse(Buffer.from(result.token.slice(6), "base64").toString("utf8"));
+      expect(result.signedBy).toBe(records.get(ownerA)!.botNpub);
+      expect(event.pubkey).toBe(botPubkeyA);
+      expect(event.tags).toContainEqual(["u", url]);
+      expect(event.tags).toContainEqual(["payload", "cd".repeat(32)]);
+      expect(broker.verifyNip98SessionBinding(event)).toBe("session-a");
+    }
+
+    // Restrictive policy keeps its own bounds: its workspace (any thread, no trigger binding), never another one.
+    const standard = issue("session-a", ownerA, policyFor("standard-agent"));
+    expect((await sign(standard.token, otherThread)).status).toBe(200);
+    expect((await sign(standard.token, "https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-a/docs/d1/comments")).status).toBe(200);
+    expect((await sign(standard.token, otherWorkspace)).status).toBe(403);
+    expect((await sign(standard.token, "https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-a/tasks", "POST")).status).toBe(400);
+
+    // A session cannot switch signer by naming another session.
+    expect((await call("/api/mcp/capabilities/nip98", fullAgent.token, { sessionId: "session-b", url: otherThread, method: "GET" })).status).toBe(403);
+  });
+
   test("returns NIP-98 denial diagnostics with method, URL, path, and mode", async () => {
     const issued = issue("session-a", ownerA, buildDefaultAgentCapabilityPolicy({
       towerUrl: "https://tower.example",

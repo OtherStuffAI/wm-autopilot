@@ -124,16 +124,6 @@ export async function fetchAgentInboxContext<T = Record<string, any>>(context: A
   return (await request<T>(context, 'GET', `/${encodeURIComponent(notificationId)}/context`)).json;
 }
 
-/** A record a human referenced in the notification's own text; Tower alone decides (404 reference_not_found otherwise). */
-export type AgentInboxReference = { type: 'thread'; channelId: string; threadId: string } | { type: 'doc' | 'task'; id: string };
-
-export async function fetchAgentInboxReference<T = Record<string, any>>(context: AgentInboxRequestContext, notificationId: string, reference: AgentInboxReference): Promise<T> {
-  const tail = reference.type === 'thread'
-    ? `threads/${encodeURIComponent(reference.channelId)}/${encodeURIComponent(reference.threadId)}`
-    : `${reference.type === 'doc' ? 'docs' : 'tasks'}/${encodeURIComponent(reference.id)}`;
-  return (await request<T>(context, 'GET', `/${encodeURIComponent(notificationId)}/references/${tail}`)).json;
-}
-
 export async function fetchAgentInboxAttachment(context: AgentInboxRequestContext, notificationId: string, storageObjectId: string): Promise<Response> {
   return (await request<unknown>(context, 'GET', `/${encodeURIComponent(notificationId)}/attachments/${encodeURIComponent(storageObjectId)}`)).response;
 }

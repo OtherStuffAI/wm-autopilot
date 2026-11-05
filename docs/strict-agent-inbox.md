@@ -42,13 +42,13 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 
 - **Existing profile-bound subscription:**
   - `POST /api/agent-chat/subscriptions/<id>/agent-inbox {"mode":"inbox_required"}`.
-  - Opting in is final: `{"mode":"legacy"}` is refused (`409 agent_inbox_downgrade_refused`) for any subscription in `inbox_required`. To stop a bot, pause or disconnect it; its Tower restrictions stay in place.
+  - Opting in is final: `{"mode":"legacy"}` is refused (`409 agent_inbox_downgrade_refused`) for any subscription in `inbox_required`. To stop a bot, pause or disconnect it; its Tower delivery classification stays in place.
 - **New bot connections (default):**
   - Every new subscription is a profile-bound Flight Deck PG strict inbox. This covers the Workspaces UI, `POST /api/agent-chat/subscriptions`, `POST /api/agent-chat/agent-connect/import`, NStack connect and SBIP-0009 kind 33357 discovery, all through `createOrUpdate`.
   - The mode is set before any verification or event connection, so a new bot never calls `/me`, `/events` or audience routes. Omitting `agentInboxMode` does not change this; `"inbox_required"` is still accepted, other values are rejected.
   - The profile must be named exactly: `agentProfileId` (UI and NStack offer a bot profile choice), or the 33357 recipient when it maps to an owned profile. Autopilot never probes local bots' workspace membership to pick one.
   - Without a profile and with no existing shared record to reconnect, the request fails with `400 agent_inbox_profile_required` before any key generation, backend health check or Tower request. A new connection without a full Flight Deck PG descriptor fails with `agent_inbox_flightdeck_pg_required`.
-  - Before its inbox loop creates a Tower inbox subscription, polls or dispatches anything, a newly connected bot must be under Tower's notification-only ceiling. Autopilot reads the existing `GET …/agent-notifications/access-profile`. If the ceiling is absent, it self-classifies with the existing `PUT` and accepts only Tower's confirmation. It re-verifies on every loop start. If it cannot verify, the subscription is `blocked` (`agent_inbox_ceiling_unverified`) and nothing is dispatched.
+  - Before its inbox loop creates a Tower inbox subscription, polls or dispatches anything, a newly connected bot must hold Tower's notification-only delivery classification (addressed-only inbox; never an API ceiling). Autopilot reads the existing `GET …/agent-notifications/access-profile`. If the classification is absent, it self-classifies with the existing `PUT` and accepts only Tower's confirmation. It re-verifies on every loop start. If it cannot verify, the subscription is `blocked` (`agent_inbox_ceiling_unverified`) and nothing is dispatched.
   - Like every strict-inbox subscription, it can never be moved back to the legacy feed.
   - A profile-bound request never reuses or re-binds a profileless (shared) record of the same bot npub; it gets its own record.
   - A replayed or older 33357 event never re-enrolls a workspace the bot was locally disconnected from, under any binding.
@@ -61,17 +61,16 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 ## Sessions after migration
 
 - **Fresh sessions.** Sessions created for an inbox delivery carry `flightdeckDeliveryMode: "agent_inbox"`. During an inbox delivery, chat, task and document sessions without that marker are never reused or natively resumed. This applies to sessions from before the migration and to sessions from another subscription. A fresh generation starts instead, and the previous session IDs are kept.
-- **Origin.** Every session tool call acts for one exact notification, its *origin*. Autopilot never picks "the newest notification for this location" and never borrows another session's notification.
+- **Access.** The strict inbox is a delivery profile: it decides which notifications wake the bot. It does not limit what the session may do. Session tools and the `flightdeck` CLI are the ordinary ones, signed by the session's own bot through the capability broker (the signer is pinned to the session; the bot's configured signing policy bounds what may be signed) and authorized by Tower against the bot's ACL. There is no exact-trigger restriction on reads or writes.
+- **Origin.** A session's *origin* is the one exact notification it was started or prompted for. It is provenance only: writes inside its location name it. Autopilot never picks "the newest notification for this location" and never borrows another session's notification.
   - Chat, task and document sessions: the origin is recorded when a turn's prompt is actually delivered, from that turn's own trigger. A notification that is only queued behind a running turn does not change it. Only a delivery that is provably refused is retracted. Any other failure may have been accepted, so the session keeps the intended origin and never falls back to an older one. A turn without a notification (legacy session path) is recorded as unbound and acts for nothing.
   - Pipeline runs: the notification that started the run. The run's sessions and its thread reply act only for it.
   - Dispatched workers: the parent's origin at dispatch time, fixed for the worker's lifetime. A manager's later callback turns keep the manager's own origin.
   - An origin is live only while its attempt is being dispatched, or after it was handled. It must also be at or after the subscription floor and not revoked. Failed, suppressed, revoked and pre-floor notifications never act, and there is no renewal (`agent_inbox_origin_expired`). A session without an origin gets `agent_inbox_no_origin`.
-- **Reads.** These come only from the origin's bound context (or an earlier turn of the same session): thread, task, document and comments. Generic Tower transport, record sync and context-tree helpers are refused.
-  - **Referenced records.** When a read names a thread, document or task the origin does not bind, the helper asks Tower's `GET …/agent-notifications/<id>/references/…` route with the bot's own signed request, once per live notification the session acts for (newest first, at most five). Tower serves it only if a human wrote a `mention:chat|doc|task` token for exactly that record in the notified text or its bounded transcript, and that human can currently read it in the same workspace. Any refusal keeps `agent_inbox_no_bound_notification`. References cover `thread_read`, `doc_get`, `task_get` and `task_comments`; they are read-only, grant no write, and a referenced document returns `captured_base: null`. References are not chained: a token inside a referenced thread or document grants nothing further, so a doc linked only from a referenced thread must be linked by the human in the notified text itself. Delegation comes only from the actual human writer of the linked text, not the notification author. Autopilot does not parse tokens or judge access. See Tower `docs/contract/agent-notifications-v1.md` (Referenced records).
+- **Reads.** Thread, task, document, comment, record-sync, transport and context-tree reads go to Tower as ordinary bot requests. Tower's ACL refusals are returned unchanged.
 - **Writes.**
-  - `chat reply`, `task comment`, `doc reply`, `doc create`, `task create` and `file upload` go through the Autopilot helper with the bot's own key.
-  - They are allowed only into the thread, task, document or channel of the current origin. Otherwise the error is `agent_inbox_write_unbound`.
-  - Tower re-checks binding for classified bots.
+  - `chat reply`, `task comment`, `doc reply`, `doc create`, `task create`, `file upload`, `task state` and `doc update` go through the Autopilot helper with the bot's own key (structured mentions and instruction signatures). A write in another workspace uses the ordinary signed client.
+  - A chat reply, doc, task or file created inside the current live origin's location names `origin_notification_id` (Tower may mint a provenance `work_receipt`). Anywhere else the write is an ordinary bot write; it is never refused for lacking an origin.
 - **File upload.** The helper uses the existing storage prepare → PUT → complete flow and then links the object as a channel file. Uploads are limited to 25 MiB.
 - **Mentions.** Pass structured mentions to address another agent: MCP `mentions`, or CLI `--mentions-json '[{"type":"agent","npub":"npub1…","label":"Name"}]'`.
   - The visible `@[Label](mention:agent:npub)` tag is derived from the same value.
@@ -82,22 +81,15 @@ The FD Dispatch tab and the workspace details page show these rows. A bot's own 
 - **Routing.** The pipeline router builds its context from the notification's bounded transcript.
 - **Invocation.** `flightdeck.threadInvocation` takes the channel and thread from the bound notification instead of scanning workspace scopes and channels.
 - **Replies.** Pipeline replies go only to the thread of the notification that started the run, while it is live.
-- **Learning pipelines** call Tower `/api/v4/learning/*`. Tower's ceiling admits a classified bot there only on its allowlisted learning routes, and only with an explicit learner delegation.
+- **Learning pipelines** call Tower `/api/v4/learning/*`, authorized like any other bot request; an explicit learner delegation can be named:
   - The delegation is named by the `x-learning-grant-id` header and a matching signed `learning_grant_id` NIP-98 tag.
   - The manager sets the delegation per agent and Tower with `PUT /api/agent-chat/agents/<agent-id>/learning-grants` (`{"workspaceId","grantId","learnerNpub?"}`). It never comes from chat or a model.
   - The router's learner check and the learning pipeline's space-graph commands (`--grant-id`) carry it.
-  - Without a mapping, the existing implicit learner selection is unchanged. That only works while the bot is unclassified.
+  - Without a mapping, the existing implicit learner selection is unchanged.
 
-## Work receipts (own output follow-ups)
+## Work receipts (provenance)
 
-Creates from a strict-inbox session (`doc create`, `task create`, `file upload`) send `origin_notification_id`. Tower may then mint a version-bound `work_receipt`, which the helper returns unchanged.
-- Autopilot keeps only receipts Tower returned for the exact entity and origin it sent. They narrow what the session may do and never grant beyond Tower.
-- When the session's origin does not bind that entity, the receipt lets the bot follow up on its own output:
-  - `doc show`/`doc update`, `task show`/`task state`, a top-level `task comment`, and `file show` (metadata only).
-  - Only the session that acted for the receipt's origin (or a worker or manager sharing it) may use it, and only while that origin is live.
-  - Only at the receipted version. A human edit, or a different body or file version, gives `409 agent_inbox_work_output_changed` with no content.
-  - After the bot's own update, Autopilot follows the advanced receipt Tower returns. If Tower returns none, the receipt is dropped and later follow-ups fail closed.
-- Comments, comment replies, attachments, file downloads and history are never served through a receipt.
+Creates inside the current origin's location send `origin_notification_id`; Tower may mint a version-bound `work_receipt`, which the helper returns unchanged. A receipt records which notification the output was produced for. It grants nothing: follow-up reads and updates of the bot's own output are ordinary ACL-authorized requests.
 
 ## Self-address
 

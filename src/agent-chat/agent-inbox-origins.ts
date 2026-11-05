@@ -111,6 +111,8 @@ export function setAgentInboxOriginStoresForTests(stores: { inbox: AgentInboxSto
   testStores = stores;
 }
 const inboxState = (): AgentInboxStore => testStores?.inbox ?? agentInboxStore();
+/** The inbox state origins resolve against (the shared store, or the test override). */
+export const agentInboxState = inboxState;
 
 // In-process ownership of running dispatch attempts. A write made inline by the current turn (before the attempt records
 // its outcome) acts for exactly this attempt. Reference-counted, so an overlapping retry of the same notification (for

@@ -79,9 +79,12 @@ export async function runFlightDeckPgCli(argv: string[], io: {
     }));
     const defaults = await resolveCommandDefaults(client, parsed.positionals, flags);
     const inboxSession = objectValue(initialContext?.agentInbox).mode === 'inbox_required';
-    const result = inboxSession && sessionId
-      ? await dispatchInboxSession(client, parsed.positionals, flags, defaults, { sessionId, wingmanUrl, fetchImpl: io.fetchImpl })
-      : await dispatch(client, parsed.positionals, flags, defaults);
+    const helperWrite = inboxSession && sessionId
+      ? await dispatchInboxSessionWrite(parsed.positionals, flags, defaults, {
+        sessionId, wingmanUrl, fetchImpl: io.fetchImpl, workspaceId: stringValue(objectValue(initialContext?.workspace).workspaceId) ?? null,
+      })
+      : undefined;
+    const result = helperWrite ?? await dispatch(client, parsed.positionals, flags, defaults);
     const text = formatOutput(result, flags.has('--json'));
     io.stdout?.(text);
     return { exitCode: 0, stdout: text };
@@ -119,18 +122,18 @@ export async function fetchFlightDeckDispatchContext(input: {
   }
 }
 
-// Strict-inbox agent sessions: reads come only from the bound notification context served by the Autopilot helper;
-// writes go through the same helper (the bot's own key, refused outside notified locations; Tower re-checks binding
-// for classified bots), never the generic Tower transport. Every other broad command is refused here.
-const INBOX_PASSTHROUGH_COMMANDS = new Set(['context']);
-
-async function dispatchInboxSession(
-  client: FlightDeckPgClient, args: string[], flags: FlagMap, defaults: FlightDeckPgCliDefaults,
-  broker: { sessionId: string; wingmanUrl: string | null; fetchImpl?: typeof fetch },
+// Strict-inbox agent sessions write through the Autopilot helper (the session's own bot key, structured mentions and
+// instruction signatures, origin provenance inside the notified location). Reads and every other command use the
+// ordinary signed Tower client: Tower authorizes the bot by its own ACL.
+async function dispatchInboxSessionWrite(
+  args: string[], flags: FlagMap, defaults: FlightDeckPgCliDefaults,
+  broker: { sessionId: string; wingmanUrl: string | null; fetchImpl?: typeof fetch; workspaceId: string | null },
 ): Promise<unknown> {
   const [area, action, id] = args;
   const command = `${area ?? ''} ${action ?? ''}`.trim();
-  if (INBOX_PASSTHROUGH_COMMANDS.has(command) || area === 'context') return dispatch(client, args, flags, defaults);
+  // The helper writes into the session's own workspace; another workspace goes through the ordinary signed client.
+  const workspaceFlag = stringFlag(flags, '--workspace');
+  if (workspaceFlag && workspaceFlag !== broker.workspaceId) return undefined;
   const helper = async (helperAction: string, params: Record<string, unknown>) => {
     const brokerUrl = Bun.env.WINGMAN_BROKER_URL?.trim().replace(/\/$/, '') || broker.wingmanUrl?.trim().replace(/\/$/, '') || '';
     return callCapabilityBroker<Record<string, unknown>>('/api/mcp/wingman/flightdeck', { action: helperAction, ...params }, {
@@ -172,20 +175,6 @@ async function dispatchInboxSession(
       base64_data: Buffer.from(await file.arrayBuffer()).toString('base64'),
     });
   }
-  if (command === 'thread read') return helper('thread_read', { channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, threadId });
-  if (command === 'task show') return helper('task_get', { taskId });
-  if (command === 'task comments') return helper('task_comments', { taskId });
-  if (command === 'doc show') return helper('doc_get', { documentId: id, includeBody: flags.has('--body') });
-  if (command === 'doc comments') return helper('doc_comments', { documentId: id });
-  // Metadata of a file this agent created, at the version Tower receipted (no bytes).
-  if (command === 'file show') return helper('file_get', { fileId: requiredArg(id, 'file id') });
-  if (command === 'attachment download') {
-    const out = requiredFlag(flags, '--out', 'output path');
-    const result = await helper('attachment_get', { storageObjectId: id, channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, threadId: stringFlag(flags, '--thread') ?? defaults.threadId ?? null });
-    await Bun.write(out, Buffer.from(String(result.base64_data ?? ''), 'base64'));
-    return { ok: true, storage_object_id: id, out, size_bytes: result.size_bytes ?? null, content_type: result.content_type ?? null, bounded: true };
-  }
-  // Writes whose pre-reads (row version, canonical base) must also come from the bound context.
   if (command === 'task state') return helper('task_state', { taskId, state: requiredFlag(flags, '--state', 'state') });
   if (command === 'doc update') {
     const hasBase = flags.get('--base-row-version') || flags.get('--base-version-id') || flags.get('--base-body-sha256-hex');
@@ -194,15 +183,7 @@ async function dispatchInboxSession(
       ...(hasBase ? { captured_base: { row_version: Number(flags.get('--base-row-version')), base_version_id: String(flags.get('--base-version-id') ?? ''), base_body_sha256_hex: String(flags.get('--base-body-sha256-hex') ?? '') } } : {}),
     });
   }
-  if (command === 'doc download' || area === 'doc-download') {
-    const documentId = area === 'doc-download' ? action : id;
-    const out = area === 'doc-download' ? (id ?? stringFlag(flags, '--out')) : requiredFlag(flags, '--out', 'output path');
-    const result = await helper('doc_get', { documentId });
-    if (!out) throw new Error('Missing required output path.');
-    await Bun.write(out, String(result.body_text ?? ''));
-    return { ok: true, documentId, out, bounded: true, notification_id: result.notification_id ?? null };
-  }
-  throw Object.assign(new Error(`'${command}' is not available to a strict-inbox agent session: reads are limited to the notified thread, task or document (agent_inbox_unbound_action).`), { code: 'agent_inbox_unbound_action' });
+  return undefined;
 }
 
 /** `--mentions-json '[{"type":"agent","npub":"npub1…","label":"Name"}]'`: explicit structured mentions (validated by the helper). */

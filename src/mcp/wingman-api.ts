@@ -6,8 +6,7 @@ import { invokeNativeProjectTool } from '../pipelines/native-project-tool.ts';
 import { readFlightDeckHistory } from "../flightdeck-pg/thread-history.ts";
 import { applyFlightDeckMentions } from "./flightdeck-mentions.ts";
 import { parseSessionFileUpload, uploadSessionFileToChannel } from "./flightdeck-file-upload.ts";
-import { inboxAwareFetchers, inboxOriginOwner, inboxSelfAddress, isInboxSession, runInScope, workReceiptOf, type BoundOrigin } from "./agent-inbox-session-helper";
-import { routeInboxHelperCall } from "./agent-inbox-helper-route";
+import { currentInboxWriteOrigin, inboxAwareFetchers, inboxOriginOwner, inboxSelfAddress, isInboxSession, workReceiptOf, type BoundOrigin } from "./agent-inbox-session-helper";
 import { flightDeckSessionTransportBinding, type FlightDeckTransportBinding } from "../agent-chat/flightdeck-session-transport";
 /**
  * Wingman Action API Handler
@@ -1407,32 +1406,23 @@ async function handleFlightDeckHelper(
         npub: resolved.botIdentity?.botNpub ?? asString(asObject(resolved.root.agent).botNpub),
         available: Boolean(resolved.botIdentity),
       },
-      // Strict-inbox sessions read only through bound notification context (CLI routes reads via this helper).
+      // Delivery profile only: strict-inbox sessions use the normal signed tools and CLI.
       agentInbox: isInboxSession(resolved.subscriptionId) ? { mode: "inbox_required" } : null,
     });
   }
 
   const missing = requireFlightDeckPgContext(resolved);
   if (missing) return missing;
-  if (isInboxSession(resolved.subscriptionId)) {
-    // Strict-inbox profile: every call acts for the session's exact origin notification (or a Tower work receipt for the
-    // bot's own output); generic Tower proxies are refused.
-    return routeInboxHelperCall({
-      action, body,
-      owner: inboxOriginOwner({ session: resolved.session, rootRunId: resolved.rootRunId, subscriptionId: resolved.subscriptionId }),
-      ids: {
-        channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
-        taskId: action.startsWith("task_") ? resolveTaskId(resolved, body) : null, documentId: action.startsWith("doc_") ? resolveDocumentId(resolved, body) : null,
-      },
-      target: {
-        subscriptionId: resolved.subscriptionId, backendConnectionId: resolved.backendConnectionId ?? null, backendBaseUrl: resolved.backendBaseUrl!,
-        workspaceId: resolved.workspaceId!, appNpub: resolved.appNpub!, botIdentity: resolved.botIdentity!,
-      },
-      runAction: (origin) => handleFlightDeckAction(deps, request, action, body, sessionId, resolved, origin),
-      runScoped: (scope, origin) => runInScope(scope, () => handleFlightDeckAction(deps, request, action, body, sessionId, resolved, origin)),
-    });
-  }
-  return handleFlightDeckAction(deps, request, action, body, sessionId, resolved);
+  // Strict-inbox sessions use the same signed actions as every bot session: Tower authorizes each request by the bot's
+  // own ACL. A write inside the location of the notification the session currently acts for carries that origin (work
+  // receipt provenance, deliberate self-address signing); anything else is an ordinary bot write.
+  const inboxOrigin = isInboxSession(resolved.subscriptionId)
+    ? currentInboxWriteOrigin(inboxOriginOwner({ session: resolved.session, rootRunId: resolved.rootRunId, subscriptionId: resolved.subscriptionId }), action, {
+      channelId: resolveChannelId(resolved, body), threadId: resolveThreadId(resolved, body),
+      taskId: action.startsWith("task_") ? resolveTaskId(resolved, body) : null, documentId: action.startsWith("doc_") ? resolveDocumentId(resolved, body) : null,
+    })
+    : undefined;
+  return handleFlightDeckAction(deps, request, action, body, sessionId, resolved, inboxOrigin);
 }
 
 const scopedDocReads = inboxAwareFetchers({ fetchDocument: fetchFlightDeckPgDocument });
@@ -1445,7 +1435,7 @@ async function handleFlightDeckAction(
   body: JsonObject,
   sessionId: string,
   resolved: FlightDeckMcpContext,
-  /** Strict inbox: the exact live origin this call acts for (absent for legacy sessions). */
+  /** Strict inbox: the live origin covering this write's location (absent otherwise and for legacy sessions). */
   inboxOrigin?: BoundOrigin,
 ): Promise<Response> {
   if (action.startsWith("context_tree_")) {
