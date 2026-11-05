@@ -242,3 +242,37 @@ regressions remain relevant. Production storage, proxies, mounts and managed
 restarts require activation smoke tests; no production destination is assumed.
 
 A malformed grants file also blocks identity/binding edits with `storage_config_invalid`; repair the operator file before retrying. Source schema is additive at activation; disposable fixture databases must be recreated when testing earlier source snapshots. Recovery runs health/descriptor checks per call; retrieve receipts for manifest objects and use their authenticated chunk hash lists to avoid unnecessary per-chunk proofs.
+
+## Confirmed collection payload deletion (source extension)
+
+Descriptor feature `confirmed_collection_deletion` is required for every new collection operation. The original protocol remains `managed-app-storage-v1`. These operations add no generic object delete, caller URL, header or method surface. Every destination request remains exact-origin/service/workspace/delegation/installation/app bound and NIP-98 signed with the existing isolated installation key. Common signed body fields remain `installation_id`, `app_id`, `revision`, `expected_service_npub`; new paths are fixed POST siblings of `prepare` under that delegation.
+
+| Broker operation / destination path | Additional body fields | Behavior |
+| --- | --- | --- |
+| `collection-begin` | `metadata`, `membership_digest` | Immutable resumable draft; metadata has `set_id`, manifest-derived `source {origin,identity,scope,workspaceId}`, `created`, `anchor {object_id,sha256}`, `total_count` (1–100000). |
+| `collection-page` | `set_id`, `page`, `refs` | Immutable numbered pages of up to 50 exact `{name,part,object_id,sha256,bytes}` refs; exact retry accepted. |
+| `collection-seal` | `set_id` | Atomic owned/complete/non-tombstoned membership and canonical digest verification. |
+| `collection-abort` | `set_id` | Signed abort only while unsealed; no payload deleted. |
+| `collection-status` | `set_id`, `page` | Metadata, membership page and publisher confirmation evidence when deleted. |
+| `collection-list` | `page` | Five bound sets per page; no other tenant metadata. |
+| `deletion-preview` | `set_id` | Immutable 15-minute snapshot, exclusive/retained payload partition, anchor bytes, complete counts/digest and graph/grant revisions. No object/token/quota release. |
+| `deletion-page` | `preview_id`, `page` | Up to 25 exact refs with `delete_payload` or `retained_shared`; active snapshot revision checks. Confirmed snapshot evidence stays readable for recovery. |
+| `deletion-arm` | `preview_id`, `digest` | App calls only after all pages/index verification; separate <=120-second single-use server-only secret. |
+| `deletion-cancel` | `preview_id` | Invalidates unconsumed confirmation, no payload changes. |
+| `deletion-confirm` | `preview_id`, `digest`, `confirmation_token`, `set_id`, `anchor_sha256`, `membership_digest`, `total_count`, `graph_revision`, `snapshot_expires_at`, `confirmation_expires_at` | Rejects stale/replay; atomic consumed confirmation, signed publisher receipt, durable set/object tombstones and exact job items before native removal. |
+| `deletion-status` | `preview_id` | Exact durable job logical/physical progress; publisher-signed confirmation evidence. |
+| `deletion-resume` | `preview_id` | Idempotent next exact persisted item; provider absence verified before quota release. |
+
+Bodies/responses remain <=16KiB and unknown fields are rejected. Snapshot digest uses recursively sorted JSON object keys and stable arrays; it binds source/date/anchor/destination/all refs and disposition/byte totals/revisions/expiry. Membership digest is SHA256 of JSON `{set_id,scope,workspaceId,anchor:{object_id,sha256},total_count,refs:[{name,part,object_id,sha256,bytes}]}`, refs sorted by name then part. JSONB ordering is normalized before hashing. Multipart registration and preview do not impose a 50-object set ceiling.
+
+The app independently verifies metadata and members against its locally trusted publisher-authenticated v2 encrypted index. V1 lacks scope and is refused for deletion. Unknown objects, pending uploads and drafts block deletion. All commit anchors remain immutable, complete and discoverable; shared payload and all metadata/receipts/history stay charged. Tombstoned payloads are excluded from generic complete-object pages; direct reads return typed `storage_object_deleted` (410). No deleted idempotency key can be reused.
+
+The confirm event, exact raw body and accepted time are stored unchanged. Recovery verifies its installation signer, exact URL/method/payload, all binding fields and the recomputed paged snapshot digest before calling a set owner-deleted. Unverified destination tombstones are incomplete/unverified. Never trust an unsigned boolean as owner authorization.
+
+Native S3 deletion is supported only under the explicit `MANAGED_STORAGE_PHYSICAL_DELETE_POLICY=never-versioned-exclusive-writer` policy attestation, with provider/IAM control excluding concurrent versioning changes or external managed-namespace writers. Enabled/suspended/unknown bucket versioning fails closed. `GetBucketVersioning` -> `DeleteObject` (204, no version/marker) -> exact `HeadObject` 404 -> second version check must succeed. Object-lock, denied/unknown responses, timeouts or a versioning race keep bytes charged and the durable job resumable. The official pinned AWS SDK is confined to the provider module; Bun S3 continues the existing bounded data path. This proves provider API absence under that policy, not secure erasure or replica purge.
+
+Uploads/completion, membership and tombstone intent serialize by graph/object locks. Token mint/validation refuses tombstones; an in-flight download re-reads tombstone state after data fetch without a long delegation lock. Physical IO is outside the graph lock and progress uses a per-job lock/CAS. Logical deletion and physical confirmation are separate fields; only `physical_absent` payload bytes are released. Metadata reservations and object count remain charged.
+
+Source-only installation does not activate this protocol or perform deletion. Disposable PG, in-memory objects, synthetic NIP-98, and a dedicated ephemeral MinIO container cover stale/replay/cancel/foreign binding, multipart 419430400-byte/1600-object deletion and restart resume, shared refs, middle/head recovery anchors, forged tombstone refusal, interrupted removal/quota, concurrent download and native versioning semantics. No existing remote backup deletion is authorized by these tests.
+
+Unconfirmed preview snapshots are bounded operational cache, **uncharged** and not quota-gated: a full destination must still be able to delete. Replacement/expiry reclaims unconfirmed snapshots and cancellation clears their large payload immediately; one active snapshot per set. Confirmed evidence remains charged without preventing cleanup, even when this temporarily exceeds the previous quota. A stored confirmation receipt contains its already-consumed token as historical proof, never reusable authority; no active token is returned to a browser or logged. Old-installation objects and aborted draft payloads remain explicit orphan/refusal cases. Ordinary v2 recovery falls back to payload verification if collection registration or the descriptor feature is absent.

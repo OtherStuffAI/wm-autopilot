@@ -1,3 +1,4 @@
+import { isCollectionOperation, validateCollectionResponse, type CollectionOperation } from './remote-storage-collections';
 import { validateStorageCursor, validatePublisherReceipt } from "./remote-storage-recovery";
 import type { RemoteStorageGrant } from "./remote-storage-grants";
 import { REMOTE_STORAGE_PREFIX, REMOTE_STORAGE_PROTOCOL, REMOTE_STORAGE_TOKEN_HEADER, storageAssert, storageHash, storageObject, storageUuid,
@@ -22,6 +23,7 @@ export function validateStorageResponse(value: unknown, grant: RemoteStorageGran
   storageAssert(row.protocol === REMOTE_STORAGE_PROTOCOL && row.service_npub === grant.serviceNpub
     && row.workspace_id === grant.workspaceId && row.delegation_id === grant.delegationId
     && row.installation_id === grant.installationId, "storage_response_binding_mismatch", 502);
+  if(isCollectionOperation(operation.operation)) return validateCollectionResponse(row,grant,operation as CollectionOperation,now);
   const binding = { protocol: row.protocol, service_npub: row.service_npub, workspace_id: row.workspace_id,
     delegation_id: row.delegation_id, installation_id: row.installation_id };
   if (operation.operation === "status" && Object.hasOwn(operation, "cursor")) {
@@ -43,6 +45,7 @@ export function validateStorageResponse(value: unknown, grant: RemoteStorageGran
       && Number(row.max_object_bytes) <= grant.maxObjectBytes && row.billing === "operator_budget"
       && row.budget_mode === "operator_allocated_unmetered" && typeof row.billing_ok === "boolean", "storage_response_invalid", 502);
     return { ...binding, remaining_bytes: row.remaining_bytes, remaining_objects: row.remaining_objects,
+      physical_delete_policy: row.physical_delete_policy === "never_versioned_exclusive_writer" ? "never_versioned_exclusive_writer" : "disabled",
       max_object_bytes: row.max_object_bytes, max_receipt_bytes: 6144, list_cursor: validateStorageCursor(row.list_cursor, grant), billing: row.billing, budget_mode: row.budget_mode, billing_ok: row.billing_ok };
   }
   storageAssert(typeof row.object_id === "string" && storageUuid.test(row.object_id)

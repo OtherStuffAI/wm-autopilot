@@ -1,3 +1,4 @@
+import { isCollectionOperation, parseCollectionOperation, type CollectionOperation } from './remote-storage-collections';
 export const REMOTE_STORAGE_BROKER_PATH = "/api/internal/wapps/remote-storage";
 export const REMOTE_STORAGE_PREFIX = "/api/v4/managed-app-storage";
 export const REMOTE_STORAGE_PROTOCOL = "managed-app-storage-v1";
@@ -49,12 +50,13 @@ export async function readStorageJson(input: Request | Response, signal: AbortSi
     reader.releaseLock();
   }
 }
-export type RemoteStorageOperation =
+export type RemoteStorageOperation = CollectionOperation
   | { operation: "prepare"; idempotencyKey: string; sha256: string; sizeBytes: number }
   | { operation: "status"; objectId?: string; cursor?: string }
   | { operation: "complete" | "download-url"; objectId: string };
 export function parseStorageOperation(value: unknown, maxBytes: number): RemoteStorageOperation {
   const row = storageObject(value);
+  if (isCollectionOperation(String(row.operation))) return parseCollectionOperation(row);
   if (row.operation === "prepare") {
     storageObject(row, ["operation", "idempotencyKey", "sha256", "sizeBytes"]);
     storageAssert(typeof row.idempotencyKey === "string" && storageUuid.test(row.idempotencyKey)

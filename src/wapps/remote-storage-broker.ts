@@ -1,3 +1,4 @@
+import { isCollectionOperation } from './remote-storage-collections';
 import { createHash, randomBytes } from "node:crypto";
 import type { WappStore } from "./wapp-store";
 import { createWappNip98Authorization } from "./wapp-publishing-client";
@@ -84,12 +85,14 @@ export class RemoteStorageBroker {
         && Array.isArray(descriptor.body.features) && ["durable_idempotency", "quota_reservations", "private_objects",
           "immutable_completion", "revocable_downloads", "bounded_stream_uploads", "recovery_status", "publisher_receipts"].every(f => (descriptor.body.features as unknown[]).includes(f)),
       "storage_delegation_unsupported", 409);
+      if(isCollectionOperation(operation.operation)) storageAssert((descriptor.body.features as unknown[]).includes("confirmed_collection_deletion"),"storage_delegation_unsupported",409);
       this.validate(token);
+      const extra = isCollectionOperation(operation.operation) ? Object.fromEntries(Object.entries(operation).filter(([k])=>k!=="operation")) : {};
       const body = { installation_id: grant.installationId, app_id: grant.appId, revision: grant.revision,
-        expected_service_npub: grant.serviceNpub, ...(operation.operation === "prepare"
+        expected_service_npub: grant.serviceNpub, ...extra, ...(operation.operation === "prepare"
           ? { idempotency_key: operation.idempotencyKey, sha256_hex: operation.sha256, size_bytes: operation.sizeBytes } : operation.operation === "status" && Object.hasOwn(operation, "cursor") ? { cursor: operation.cursor } : {}) };
       const path = `${REMOTE_STORAGE_PREFIX}/workspaces/${grant.workspaceId}/delegations/${grant.delegationId}/`
-        + (operation.operation === "prepare" ? "prepare" : operation.operation === "status" && !Object.hasOwn(operation, "objectId")
+        + (isCollectionOperation(operation.operation) ? operation.operation : operation.operation === "prepare" ? "prepare" : operation.operation === "status" && !Object.hasOwn(operation, "objectId")
           ? "status" : `objects/${"objectId" in operation ? operation.objectId : ""}/${operation.operation}`);
       const url = grant.origin + path;
       const serializedBody = JSON.stringify(body);
@@ -105,9 +108,9 @@ export class RemoteStorageBroker {
         const status = result.response.status;
         if (status === 401 || status === 403) throw new RemoteStorageError("storage_delegation_denied", status);
         const allowed = new Set(["storage_credits_required", "storage_budget_exhausted", "storage_idempotency_conflict", "storage_identity_mismatch",
-          "storage_object_not_found", "storage_upload_incomplete", "storage_transfer_busy", "storage_size_invalid", "storage_billing_unconfigured"]);
+          "storage_object_not_found", "storage_upload_incomplete", "storage_transfer_busy", "storage_size_invalid", "storage_billing_unconfigured", "storage_object_deleted", "storage_collection_not_found", "storage_collection_invalid", "storage_collection_incomplete", "storage_collection_sealed", "storage_anchor_role_conflict", "storage_collection_not_active", "storage_unsealed_collection_blocks_delete", "storage_unregistered_objects_block_delete", "storage_preview_limit", "storage_preview_not_found", "storage_preview_stale", "storage_confirmation_invalid", "storage_confirmation_used", "storage_job_not_found", "storage_job_conflict", "storage_physical_delete_unsupported", "storage_physical_policy_required", "storage_versioned_delete_unsupported", "storage_physical_delete_unconfirmed"]);
         const code = typeof result.body.error === "string" && allowed.has(result.body.error) ? result.body.error : "storage_destination_rejected";
-        throw new RemoteStorageError(code, [402, 404, 409, 413, 429, 503].includes(status) ? status : 502);
+        throw new RemoteStorageError(code, [402, 404, 409, 410, 413, 429, 503].includes(status) ? status : 502);
       }
       let response: Record<string, unknown>;
       try { response = validateStorageResponse(result.body, grant, operation, this.now()); }
