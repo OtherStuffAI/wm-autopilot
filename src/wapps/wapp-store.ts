@@ -1,3 +1,4 @@
+import { assertStorageIdentityRotationAllowed } from "./remote-storage-grants";
 import { randomUUID } from "node:crypto";
 import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
 import { mkdirSync } from "node:fs";
@@ -315,6 +316,7 @@ export class WappStore {
     if (input.sourceWingmanUrl !== undefined) add("source_wingman_url", input.sourceWingmanUrl);
     if (input.subdomainAlias !== undefined) add("subdomain_alias", input.subdomainAlias);
     if (input.towerBindingId !== undefined || input.appNsec !== undefined || input.appKeyMode !== undefined) {
+      assertStorageIdentityRotationAllowed(existing.wappInstallationId);
       const appKey = resolveUpdatedStoredWappKey({
         existing,
         towerBindingId: input.towerBindingId,
@@ -388,6 +390,7 @@ export class WappStore {
     if (!existing.towerBindingId) {
       throw new Error(`WApp ${id} is not Tower-backed`);
     }
+    assertStorageIdentityRotationAllowed(existing.wappInstallationId);
     stageWappPublisherKey(this.db, id, mode, importedNsec);
     this.migrateSigningKeysToBroker(id);
     return this.get(id);
@@ -399,6 +402,7 @@ export class WappStore {
     if (!existing.pendingPublisherNpub || !this.hasAppSigningKey(id, true)) {
       throw new Error(`WApp ${id} has no pending publisher key`);
     }
+    assertStorageIdentityRotationAllowed(existing.wappInstallationId);
     await this.withAppSigningKey(id, (nsec) => this.signingBroker.provision({
       id,
       ownerNpub: existing.ownerNpub,

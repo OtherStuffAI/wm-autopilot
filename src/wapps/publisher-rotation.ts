@@ -1,3 +1,5 @@
+import { RemoteStorageError } from "./remote-storage-contract";
+import { assertStorageIdentityRotationAllowed } from "./remote-storage-grants";
 import { createWappAppNsec } from "./app-key";
 import { TowerWappActivityRoutes, WappPublishingClient } from "./wapp-publishing-client";
 import type { WappAppKeyMode, WappRecord } from "./types";
@@ -56,6 +58,11 @@ export async function handleWappPublisherRotation(
 ): Promise<Response> {
   if (text(body.confirmWappInstallationId ?? body.confirm_wapp_installation_id) !== wapp.wappInstallationId) {
     return Response.json({ error: "confirmWappInstallationId must match the WApp installation" }, { status: 400 });
+  }
+  try { assertStorageIdentityRotationAllowed(wapp.wappInstallationId); }
+  catch (error) {
+    if (!(error instanceof RemoteStorageError)) throw error;
+    return Response.json({ error: error.code }, { status: error.status });
   }
   if (!wapp.towerBinding) {
     return Response.json({ error: "WApp is not Tower-backed" }, { status: 400 });

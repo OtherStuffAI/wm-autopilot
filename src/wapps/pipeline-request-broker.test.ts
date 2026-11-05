@@ -87,6 +87,7 @@ test("managed app publication preflight verifies the pinned native tool before a
 test("denies foreign runs/routes, callback widening, drift, expiry and revocation",()=>fixture(async x=>{
   for(const input of [{method:"GET",path:"/api/pipelines/runs/foreign"},{method:"POST",path:"/api/sessions"},
     {method:"GET",path:"/api/pipelines/webhook-signer?admin=true"},
+    {method:"POST",path:"/api/v4/managed-app-storage/workspaces/foreign/delegations/foreign/prepare"},
     {method:"POST",path:x.path,serializedBody:JSON.stringify({...x.payload,webhook:{url:"https://other.example/result"}})}]) {
     expect((await x.broker.request(x.token,input,x.ctx)).status).toBe(403);
   }

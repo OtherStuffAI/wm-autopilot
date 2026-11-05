@@ -1,3 +1,4 @@
+import { configureRemoteStorageSignerGuard, createRemoteStorageSignerGuard } from "./wapps/remote-storage-runtime";
 import { isInstanceAdmin } from "./auth/admin-authority";
 import { classifyStoredBotUsers, listBotUserIdentities } from "./auth/bot-user-identities";
 import { resolveAppAuthority, withAppAdminAccess } from "./auth/app-admin";
@@ -1730,6 +1731,9 @@ const flightDeckSessionTurnBridge = new FlightDeckSessionTurnBridge({
   publicationFilter: duplicateCallbackPublicationFilter,
   log: console,
 });
+configureRemoteStorageSignerGuard(createRemoteStorageSignerGuard({
+  instanceIdentity: wingmanInstanceIdentity, botKeys: botKeyStore, profiles: agentDefinitionStore,
+}));
 const profileBotIdentityRunner = createProfileBotIdentityRunner({
   instanceIdentity: wingmanInstanceIdentity,
   botKeyStore,

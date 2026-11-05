@@ -1,3 +1,5 @@
+import type { RemoteStorageBroker } from "../wapps/remote-storage-broker";
+import { getRemoteStorageBroker, issueRemoteStorageRuntime } from "../wapps/remote-storage-runtime";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -150,6 +152,7 @@ export class AppProcessManager {
   private readonly spawn: typeof Bun.spawn;
   private readonly towerDbRequestBroker: WappTowerDbRequestBroker;
   private readonly fipsIngressManager: FipsAppIngressManager;
+  private readonly remoteStorageBroker: RemoteStorageBroker;
 
   constructor(
     registry: AppRegistry = appRegistry,
@@ -160,6 +163,7 @@ export class AppProcessManager {
     spawn: typeof Bun.spawn = Bun.spawn,
     towerDbRequestBroker: WappTowerDbRequestBroker = wappTowerDbRequestBroker,
     fipsIngressManager: FipsAppIngressManager = fipsAppIngressManager,
+    remoteStorageBroker: RemoteStorageBroker = getRemoteStorageBroker(),
   ) {
     this.registry = registry;
     this.adminNpubs = adminNpubs === undefined ? getConfiguredAdminNpubs() : normaliseNpubList(adminNpubs);
@@ -169,6 +173,7 @@ export class AppProcessManager {
     this.spawn = spawn;
     this.towerDbRequestBroker = towerDbRequestBroker;
     this.fipsIngressManager = fipsIngressManager;
+    this.remoteStorageBroker = remoteStorageBroker;
   }
 
   configureTowerRegistration(input: {
@@ -209,6 +214,7 @@ export class AppProcessManager {
   async stop(appId: string): Promise<AppProcessStatus> {
     return this.runAction(appId, "stop", async (app) => {
       await this.stopFipsIngress(app.id);
+      this.remoteStorageBroker.revokeApp(app.id);
       this.towerDbRequestBroker.revokeApp(app.id);
       // Clear runtime port first
       runtimePortRegistry.clear(app.id);
@@ -252,6 +258,7 @@ export class AppProcessManager {
         throw new AppScriptMissingError(app.id, "restart");
       }
       await awaitAppStartup(() => this.ensureTowerWappRegistered(app), signal);
+      this.remoteStorageBroker.revokeApp(app.id);
       this.towerDbRequestBroker.revokeApp(app.id);
       await awaitAppStartup(() => this.stopFipsIngress(app.id), signal);
 
@@ -385,6 +392,7 @@ export class AppProcessManager {
     }
 
     await this.stopFipsIngress(app.id);
+    this.remoteStorageBroker.revokeApp(app.id);
     this.towerDbRequestBroker.revokeApp(app.id);
     if (app.pm2Name) {
       try {
@@ -618,6 +626,7 @@ export class AppProcessManager {
     let launch: Awaited<ReturnType<typeof addUserAppToEcosystem>> | undefined;
     try {
       if (wapp?.towerBindingId) {
+        this.remoteStorageBroker.revokeApp(app.id);
         this.towerDbRequestBroker.revokeApp(app.id);
         ({ capability, bindings: towerBindings } = this.issueTowerDbRuntime(wapp));
       }
@@ -633,6 +642,7 @@ export class AppProcessManager {
           } : undefined,
         )
         : {};
+      Object.assign(wappRuntimeEnv, issueRemoteStorageRuntime(app.id, this.config.port, this.remoteStorageBroker));
       launch = await addUserAppToEcosystem({
         app,
         userAlias,
@@ -648,6 +658,7 @@ export class AppProcessManager {
       await this.registerRuntimePort(app, launch.processName, signal);
       return launch.processName;
     } catch (error) {
+      this.remoteStorageBroker.revokeApp(app.id);
       if (capability) this.towerDbRequestBroker.revokeToken(capability.token);
       throw error;
     } finally {

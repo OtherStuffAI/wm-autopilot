@@ -16,9 +16,10 @@ const FORBIDDEN_RAW_CAPABILITY_KEYS = new Set([
   "NOSTR_CONNECT_URI",
 ]);
 
-function assignSafeAppEnvironment(target: Record<string, string>, source: Record<string, string> | undefined): void {
+function assignSafeAppEnvironment(target: Record<string, string>, source: Record<string, string> | undefined, runtime = false): void {
   for (const [key, value] of Object.entries(source ?? {})) {
-    if (!FORBIDDEN_RAW_CAPABILITY_KEYS.has(key.toUpperCase())) target[key] = value;
+    if (!FORBIDDEN_RAW_CAPABILITY_KEYS.has(key.toUpperCase())
+      && (runtime || key.toUpperCase() !== "WAPP_REMOTE_STORAGE_CAPABILITY")) target[key] = value;
   }
 }
 
@@ -37,7 +38,7 @@ export function buildManagedAppEnvironment(input: ManagedAppEnvironmentInput): R
     if (value) env[key] = value;
   }
   assignSafeAppEnvironment(env, input.app.env);
-  assignSafeAppEnvironment(env, input.wappEnv);
+  assignSafeAppEnvironment(env, input.wappEnv, true);
   env.WINGMAN_PROCESS_KIND = "user-app";
   env.APP_ID = input.app.id;
   env.APP_LABEL = input.app.label;
