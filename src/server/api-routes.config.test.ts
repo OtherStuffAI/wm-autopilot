@@ -411,6 +411,8 @@ describe("createApiRouteHandler config defaults", () => {
       limit: 25,
       offset: 0,
       includeIgnoredAndSuppressed: false,
+      subscriptionId: null,
+      agentId: null,
       managerNpub: "npub1manager",
     });
   });
