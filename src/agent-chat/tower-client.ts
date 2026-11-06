@@ -563,7 +563,7 @@ export function buildFlightDeckPgMessageInstructionSignature(params: {
   };
 }
 
-async function buildFlightDeckPgMessageInstructionSignatureForIdentity(params: {
+export async function buildFlightDeckPgMessageInstructionSignatureForIdentity(params: {
   botIdentity: RuntimeBotIdentity;
   body: string;
   workspaceId: string;
