@@ -276,10 +276,9 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
       discardStage(cache);
       cache.unavailable();
     }
-    if (!options.preserveCacheOnRepair && error instanceof RecordSyncHttpError && REPAIR_ERRORS.has(error.code)) {
-      cache.repair();
+    if (error instanceof RecordSyncHttpError && REPAIR_ERRORS.has(error.code)) {
       errors.push(
-        `${error.message}; retained downloads/pending intent; fresh cache ID will bootstrap next wake`,
+        `${error.message}; cache identity, downloads and pending intent retained; explicit registration recovery required`,
       );
     } else {
       if (

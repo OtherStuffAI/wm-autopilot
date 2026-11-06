@@ -168,6 +168,16 @@ export class RecordSyncCache {
       })
       .immediate();
   }
+  /** Call only after explicit server retirement succeeded (or was read back absent). */
+  rebootstrap(): void {
+    this.db.transaction(() => {
+      const old = this.assertFence();
+      this.db.exec("CREATE TABLE IF NOT EXISTS registration_repairs (generation TEXT PRIMARY KEY, state TEXT NOT NULL)");
+      this.db.query("INSERT INTO registration_repairs VALUES(?,?)").run(old.generation, JSON.stringify(old));
+      this.db.query("UPDATE ack_intents SET status='repair' WHERE generation=? AND status='pending'").run(old.generation);
+      this.save({ ...fresh(), clientId: old.clientId });
+    }).immediate();
+  }
   register(r: Registration, fence: Fence): void {
     this.db
       .transaction(() => {

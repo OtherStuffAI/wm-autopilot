@@ -204,3 +204,45 @@ Retries consume the explicit wake cap; no-progress budget deferrals without a
 retry delay stop for inspection. A standalone setup failure still throws a typed
 rate-limit error; callers must preserve existing output/continuation and respect
 its `retryAfterMs` before retrying the same operation. Never start a new review or sync while draining a pinned review.
+
+## Registration capacity and explicit recovery
+
+Normal wakes preserve the cache UUID, generation, downloads and pending ack on
+reset/expiry/pruning/token errors. They report explicit recovery rather than
+minting replacement device IDs that exhaust Tower's 32 registrations. Download
+certification remains unavailable until recovery succeeds.
+
+A supervised operator can free one obsolete registration using a saved wake JSON
+from this exact cache and actor. The helper verifies that its generation remains
+stored locally and differs from the current generation, then checks Tower reports
+reset/expiry/pruning before retiring that registration. It refuses healthy devices.
+Use only an obsolete registration whose replacement is established; never guess IDs.
+
+```sh
+bun clis/heartbeat-retire-client.ts <cache.sqlite> <saved-old-wake.json>
+```
+
+For a future failed current registration, save the failing wake JSON, then use:
+
+```sh
+bun clis/heartbeat-retire-client.ts <cache.sqlite> <failed-current-wake.json> --reset-current
+bun clis/heartbeat-wake.ts --catch-up --large-record-transport host-finite --max-wakes 100
+```
+
+Explicit current reset requires matching cache/actor/generation and a reset,
+expiry, pruning, missing-registration or token-invalid error, with unavailable
+local authority. It retires only that registration, then atomically archives the
+complete prior cache state and pending intent and starts a fresh generation using
+the **same UUID**. All old downloads remain. It never adopts a server checkpoint
+without matching rows. Registration and snapshot resume on the next wake. If the
+process exits after remote retirement, repeat with the same evidence: an absent
+registration permits the local transition; a completed local transition invalidates
+that old evidence. A failed/uncertain DELETE leaves local state unchanged: read back
+before retry. Never reset while another writer owns the lease.
+
+Recovery deliberately selects the existing finite host transport before requests;
+it never switches transport after denial. Exact signer and bound workspace are
+checked, each response/request is bounded, and no private keys are used. A denied
+capability is an activation/authority gap, not permission to bypass the broker.
+After catch-up, validate a fresh bounded wake separately. Summary delivery still
+requires inspection and does not authorize publishing stale assessments.

@@ -88,19 +88,24 @@ describe("negotiated heartbeat", () => {
       rmSync(f.cacheRoot, { recursive: true, force: true });
     }
   });
-  test("token expiry preserves downloads and repairs with fresh identity", async () => {
+  test("token expiry preserves cache identity and downloads until explicit recovery", async () => {
     const f = fixture([pagePayload([change("retained")])], { maxPages: 1 });
     try {
       const a = await f.run();
       f.setPageError("page_token_invalid");
       const b = await f.run();
       expect(b.complete).toBe(false);
-      expect(b.cache.clientId).not.toBe(a.cache.clientId);
+      expect(b.cache.clientId).toBe(a.cache.clientId);
+      expect(b.cache.generation).toBe(a.cache.generation);
+      expect(b.errors.join()).toContain("explicit registration recovery required");
       const db = new Database(a.cache.path, { readonly: true });
       expect(
         (db.query("SELECT count(*) AS n FROM rows").get() as { n: number }).n,
       ).toBe(1);
       db.close();
+      const retry = await f.run();
+      expect(retry.cache.clientId).toBe(a.cache.clientId);
+      expect(retry.cache.generation).toBe(a.cache.generation);
       f.setPageError(null);
       const c = await f.run();
       expect(c.cache.clientId).toBe(b.cache.clientId);
