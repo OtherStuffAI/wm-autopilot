@@ -34,6 +34,8 @@ test("retirement checks reset before DELETE and preserves current cache", async 
     const state = cache.state();
     const methods: string[] = [];
     let reset = false;
+    let uncertainDelete = false;
+    let absent = false;
     const context = { wingmanUrl: "https://broker", sessionId: "test", capabilityToken: "test", fetch: (async (input: any, init: any) => {
       if (new URL(String(input)).pathname.endsWith("/identity")) return Response.json({ identityType: "agent", botNpub: "bot" });
       const b = JSON.parse(init.body);
@@ -42,7 +44,7 @@ test("retirement checks reset before DELETE and preserves current cache", async 
       if (String(input).endsWith("/nip98")) return Response.json({ token: "Nostr fixture" });
       methods.push(b.method);
       expect(b.url).toContain(`/clients/${b.url.includes(old.clientId) ? old.clientId : state.clientId}?protocol_version=2`);
-      return Response.json({ status: b.method === "DELETE" ? 200 : reset ? 409 : 200, bodyBase64: Buffer.from(JSON.stringify(b.method === "DELETE" ? { protocol_version: 2, client_id: /clients\/([^?]+)/.exec(b.url)![1], retired: true } : reset ? { error: "reset_required" } : {})).toString("base64") });
+      return Response.json({ status: b.method === "DELETE" ? uncertainDelete ? 500 : 200 : absent || reset ? 409 : 200, bodyBase64: Buffer.from(JSON.stringify(b.method === "DELETE" ? { protocol_version: 2, client_id: /clients\/([^?]+)/.exec(b.url)![1], retired: true } : absent ? { error: "client_not_registered" } : reset ? { error: "reset_required" } : {})).toString("base64") });
     }) as typeof fetch };
     await expect(retireObsoleteRegistration(cache, evidence, context)).rejects.toThrow("refusing retirement");
     expect(methods).toEqual(["GET"]);
@@ -62,6 +64,19 @@ test("retirement checks reset before DELETE and preserves current cache", async 
     expect(cache.db.query("SELECT status FROM ack_intents WHERE generation=?").get(state.generation)).toEqual({ status: "repair" });
     await expect(retireObsoleteRegistration(cache, failed, context, true)).rejects.toThrow("matching failed-wake evidence");
     expect(cache.db.query("SELECT state FROM registration_repairs").get()).toEqual({ state: JSON.stringify(state) });
+    expect(cache.db.query("SELECT count(*) AS n FROM rows").get()).toEqual({ n: 1 });
+    const beforeUncertain = cache.state();
+    const retryEvidence = { ...failed, cache: { ...failed.cache, generation: beforeUncertain.generation } };
+    uncertainDelete = true;
+    await expect(retireObsoleteRegistration(cache, retryEvidence, context, true)).rejects.toThrow("read back before retry");
+    expect(cache.state()).toEqual(beforeUncertain);
+    const beforeAbsent = methods.length;
+    absent = true;
+    const recovered = await retireObsoleteRegistration(cache, retryEvidence, context, true);
+    expect(recovered.alreadyAbsent).toBe(true);
+    expect(methods.slice(beforeAbsent)).toEqual(["GET"]);
+    expect(cache.state().clientId).toBe(beforeUncertain.clientId);
+    expect(cache.state().generation).not.toBe(beforeUncertain.generation);
     expect(cache.db.query("SELECT count(*) AS n FROM rows").get()).toEqual({ n: 1 });
 
   } finally { cache.close(); rmSync(root, { recursive: true }); }
