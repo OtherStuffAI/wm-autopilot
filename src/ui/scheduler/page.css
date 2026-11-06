@@ -88,6 +88,7 @@
 .wm-trigger-card-title h3 { margin: 0 0 0.25rem; font-size: 1rem; overflow-wrap: anywhere; }
 .wm-trigger-badges { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .wm-trigger-badge { font-size: 0.72rem; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--border-primary); color: var(--text-secondary); background: var(--bg-primary); }
+.wm-trigger-badge--run-launched { color: #d97706; border-color: currentColor; }
 .wm-trigger-badge--enabled, .wm-trigger-badge--run-success { color: #16a34a; border-color: currentColor; }
 .wm-trigger-badge--unsupported, .wm-trigger-badge--run-error { color: var(--danger, #ef4444); border-color: currentColor; }
 .wm-trigger-badge--disabled { color: var(--text-tertiary); }

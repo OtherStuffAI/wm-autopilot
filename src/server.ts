@@ -287,6 +287,7 @@ import { createWingmanWebSocketHandler, type WingmanWebSocketData } from "./serv
 import { ensureAgentApiBinary } from "./server/bootstrap/agentapi";
 import { captureRuntimeIdentity } from "./server/bootstrap/runtime-identity";
 import { SchedulerStore } from "./scheduler/scheduler-store";
+import { createScheduledSessionContextResolver } from "./scheduler/session-context";
 import { SchedulerEngine } from "./scheduler/scheduler-engine";
 import { requireSuccessfulPipelineExecution } from "./scheduler/pipeline-execution-result";
 import { createSchedulerApiHandler } from "./scheduler/scheduler-api";
@@ -559,14 +560,19 @@ function onBotKeyUnlockedHook(npub: string, secretKey: Uint8Array, botPubkeyHex:
   accessGrantListener?.subscribe(npub, secretKey, botPubkeyHex);
 }
 
+const scheduledSessionContextResolver = createScheduledSessionContextResolver({
+  resolveTransport: (binding) => workspaceSubscriptionManager.resolveFlightDeckTurnDelivery(binding),
+  getSubscription: (id) => workspaceSubscriptionStore.getBySubscriptionId(id),
+  getActiveBotOwnerNpub: (npub) => botKeyStore.getActiveKeyForBotNpub(npub)?.userNpub ?? null,
+});
+
 const schedulerEngine = new SchedulerEngine({
   store: schedulerStore,
+  resolveSessionMetadata: scheduledSessionContextResolver,
   createSession: (agent, dir, name, origin, targetFile, explicitNpub, metadata, model) =>
     manager.createSession(agent, dir, name, origin, targetFile, explicitNpub, metadata, model),
   addPrompt: (sid, content) => promptQueueStore.addPrompt(sid, { content }),
-  dispatchPrompt: (session) => {
-    void maybeAutoDispatchQueuedPrompt(session);
-  },
+  dispatchPrompt: (session) => maybeAutoDispatchQueuedPrompt(session),
   awaitSessionReadyForPrompt: async (session, agent) => {
     const timeoutMs = agent === "codex" ? 120000 : 60000;
     await waitForSessionPromptReadiness({
@@ -622,6 +628,7 @@ const schedulerEngine = new SchedulerEngine({
 });
 
 const schedulerApiHandler = createSchedulerApiHandler({
+  validateSessionContext: scheduledSessionContextResolver,
   store: schedulerStore,
   engine: schedulerEngine,
   isAdmin: () => isInstanceAdmin(getRequestContext(), isConfiguredAdminNpub),

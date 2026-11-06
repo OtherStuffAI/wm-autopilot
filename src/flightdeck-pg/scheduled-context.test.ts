@@ -20,7 +20,7 @@ function fixture() {
   const subscription = { subscriptionId: config.subscriptionId, workspaceId: config.workspaceId,
     managedByNpub: "owner", botNpub: "bot", lifecycleStatus: "active", towerServiceNpub: "tower",
     backendConnectionId: "connection", backendBaseUrl: "https://tower.test", sourceAppNpub: "app" };
-  const context = { workspace: { workspaceId: config.workspaceId, subscriptionId: config.subscriptionId,
+  const context = { scheduledSession: session, workspace: { workspaceId: config.workspaceId, subscriptionId: config.subscriptionId,
     backendBaseUrl: subscription.backendBaseUrl, sourceAppNpub: "app" }, bot: { npub: "bot", available: true },
     chat: { channelId: config.channelId, threadId: config.threadId },
     routing: { bindingType: "task" }, record: { recordId: config.taskId } };
@@ -32,7 +32,8 @@ function fixture() {
       if (path.endsWith("/scheduler/jobs")) return { jobs: [job] };
       if (path.includes("/subscriptions/")) return { subscription };
       if (path.endsWith("/metadata")) return { metadata: session.metadata };
-      return session;
+      if (path === "/api/sessions") return { sessions: [session] };
+      throw new Error(`Unexpected ${method} ${path}`);
     },
     context: async () => context,
   } };

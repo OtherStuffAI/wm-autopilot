@@ -80,7 +80,8 @@ function runHistory() {
     <ul class="wm-trigger-run-list" x-show="!loadingRuns && runs.length > 0">
       <template x-for="run in runs" :key="run.id">
         <li>
-          <span class="wm-trigger-badge" :class="'wm-trigger-badge--run-' + run.status" x-text="run.status"></span>
+          <span class="wm-trigger-badge" :class="'wm-trigger-badge--run-' + (run.status === 'success' && run.sessionId ? 'launched' : run.status)" x-text="run.statusLabel || (run.status === 'success' && run.sessionId ? 'Launched (legacy)' : run.status)"></span>
+          <span class="wm-trigger-meta" data-testid="scheduler-run-outcome" x-text="run.statusDetail || (run.sessionId ? 'Runtime completion and delivery are unverified.' : '')"></span>
           <span class="wm-trigger-meta" x-text="formatTime(run.startedAt)"></span>
           <a x-show="run.sessionId" :href="'/live/' + run.sessionId" class="wm-trigger-link" x-text="'Session ' + (run.sessionId || '').slice(0, 8) + '…'"></a>
           <a x-show="run.pipelineRunId" :href="'/pipelines/runs/' + run.pipelineRunId" class="wm-trigger-link" x-text="'Pipeline run ' + (run.pipelineRunId || '').slice(0, 8) + '…'"></a>

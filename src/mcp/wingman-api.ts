@@ -1,3 +1,4 @@
+import { scheduledSessionSnapshot } from "./scheduled-session-snapshot";
 import { capturedDocumentBase, documentUpdateBase, requireCapturedDocumentBase } from "../flightdeck-pg/document-update-base.ts";
 import { acquireNegotiatedDocumentEditLease } from "../agent-chat/document-edit-lease.ts";
 import { handleContextTreeHelper } from "./context-tree-helper.ts";
@@ -1383,6 +1384,7 @@ async function handleFlightDeckHelper(
       mode: asString(resolved.runtime.mode),
       runId: resolved.runId,
       hasRunContext: Boolean(resolved.run),
+      scheduledSession: scheduledSessionSnapshot(resolved.session),
       workspace: {
         workspaceId: resolved.workspaceId,
         backendBaseUrl: resolved.backendBaseUrl,

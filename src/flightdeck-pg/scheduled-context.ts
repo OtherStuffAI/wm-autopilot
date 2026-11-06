@@ -1,31 +1,10 @@
-import { z } from "zod";
-import { buildFlightDeckSessionMetadata } from "../agent-chat/flightdeck-session-metadata.ts";
 import type { WorkspaceSubscriptionRecord } from "../agent-chat/types.ts";
+import { scheduledSessionContextSchema, buildScheduledSessionContextMetadata } from "../scheduler/session-context.ts";
 
-const id = z.string().uuid();
-export const scheduledContextSchema = z.object({
-  ownerNpub: z.string().min(1),
-  subscriptionId: id,
-  workspaceId: id,
-  scopeId: id,
-  channelId: id,
-  threadId: id,
-  taskId: id,
-}).strict();
-export type ScheduledContext = z.infer<typeof scheduledContextSchema>;
+export const scheduledContextSchema = scheduledSessionContextSchema;
+export type ScheduledContext = import("../scheduler/session-context.ts").ScheduledSessionContext;
 type RecordValue = Record<string, any>;
 type RequestJson = (method: string, path: string, body?: unknown) => Promise<RecordValue>;
-const subscriptionTransportSchema = z.object({
-  subscriptionId: id,
-  workspaceId: id,
-  managedByNpub: z.string().min(1),
-  botNpub: z.string().min(1),
-  lifecycleStatus: z.literal("active"),
-  towerServiceNpub: z.string().min(1),
-  backendConnectionId: z.string().min(1),
-  backendBaseUrl: z.string().url(),
-  sourceAppNpub: z.string().min(1),
-});
 
 /** Bind only the calling scheduled session through existing authenticated APIs. */
 export async function bindScheduledFlightDeckContext(input: {
@@ -36,8 +15,9 @@ export async function bindScheduledFlightDeckContext(input: {
 }): Promise<RecordValue> {
   const config = scheduledContextSchema.parse(input.config);
   const sessionPath = `/api/sessions/${encodeURIComponent(input.sessionId)}`;
-  const session = await input.request("GET", sessionPath);
-  if (session.id !== input.sessionId || session.npub !== config.ownerNpub
+  const session = (await input.context()).scheduledSession;
+  if (!session) throw new Error("The live broker does not expose exact scheduled-session context; host activation is required.");
+  if (!session || session.id !== input.sessionId || session.npub !== config.ownerNpub
     || session.origin?.type !== "scheduler" || !session.origin.id
     || ["stopped", "error"].includes(session.status)) {
     throw new Error("Binding requires the caller's active scheduled session and exact owner.");
@@ -57,18 +37,10 @@ export async function bindScheduledFlightDeckContext(input: {
     || subscription.botNpub !== botNpub || subscription.lifecycleStatus !== "active") {
     throw new Error("Scheduled Flight Deck subscription is missing, inactive or belongs to another owner, bot or workspace.");
   }
-  const transport = subscriptionTransportSchema.safeParse(subscription);
-  if (!transport.success) {
-    throw new Error("Scheduled Flight Deck subscription requires Tower service identity, backend connection, URL and app identity.");
-  }
-  const metadata = {
-    ...buildFlightDeckSessionMetadata(subscription as WorkspaceSubscriptionRecord, botNpub, config),
-    bindingType: "task",
-    bindingId: config.taskId,
-  };
+  const metadata = buildScheduledSessionContextMetadata(job, config, subscription as WorkspaceSubscriptionRecord);
   for (const [key, value] of Object.entries(metadata)) {
     const existing = session.metadata?.[key];
-    if (existing != null && existing !== value) {
+    if (value !== undefined && existing != null && existing !== value) {
       throw new Error(`Scheduled session already has a conflicting ${key} binding.`);
     }
   }
@@ -85,8 +57,9 @@ export async function bindScheduledFlightDeckContext(input: {
     || context.workspace?.backendBaseUrl !== subscription.backendBaseUrl
     || context.workspace?.sourceAppNpub !== subscription.sourceAppNpub
     || context.bot?.npub !== botNpub || context.bot?.available !== true
-    || context.chat?.channelId !== config.channelId || context.chat?.threadId !== config.threadId
-    || context.routing?.bindingType !== "task" || context.record?.recordId !== config.taskId) {
+    || (config.channelId && context.chat?.channelId !== config.channelId)
+    || (config.threadId && context.chat?.threadId !== config.threadId)
+    || (config.taskId && (context.routing?.bindingType !== "task" || context.record?.recordId !== config.taskId))) {
     throw new Error("Live broker did not resolve the exact scheduled Flight Deck context.");
   }
   return context;

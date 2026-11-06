@@ -12,174 +12,20 @@ import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { databaseFile } from "../storage/message-store";
+import type { ScheduledJob, ScheduledJobRun, CreateJobInput, UpdateJobInput } from "./scheduler-types";
+import { JOB_SELECT_COLS, rowToJob, type RawJobRow } from "./scheduler-row";
+import { initialiseSchedulerSchema } from "./scheduler-schema";
 import { reconcileHeartbeatReliabilityDefaults } from "./heartbeat-reliability-defaults";
 
 // ============================================================
 // Types
 // ============================================================
 
-export type TriggerType = "cron" | "file_watcher";
-export type ScheduledTriggerType = TriggerType | "unsupported";
-export type SchedulerActionType = "session" | "pipeline" | "cleanup";
-
-export const RELAY_TRIGGER_UNSUPPORTED_REASON =
-  'Nostr relay scheduler triggers are unsupported and cannot initiate work.';
-
-export interface ScheduledJob {
-  id: string;
-  name: string;
-  userNpub: string;
-  agentId: string | null;
-  botNpub: string;
-  wrappedKeyCiphertext: string;
-  wrappedKeyNonce: string;
-  agent: string;
-  model: string | null;
-  workingDirectory: string;
-  initialPrompt: string;
-  nightwatchmanEnabled: boolean;
-  triggerType: ScheduledTriggerType;
-  persistedTriggerType: string;
-  unsupportedReason: string | null;
-  cronExpression: string;
-  timezone: string;
-  watchDirectory: string | null;
-  filePattern: string;
-  activeStartTime: string | null;
-  activeEndTime: string | null;
-  actionType: SchedulerActionType;
-  pipelineDefinitionId: string | null;
-  pipelineInputJson: string | null;
-  pipelineAgent: string | null;
-  wappActivityInstallationId: string | null;
-  enabled: boolean;
-  lastRunAt: string | null;
-  nextRunAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ScheduledJobRun {
-  id: string;
-  jobId: string;
-  sessionId: string | null;
-  pipelineRunId: string | null;
-  startedAt: string;
-  status: "started" | "success" | "error";
-  errorMessage: string | null;
-}
-
-export interface CreateJobInput {
-  id?: string;
-  name: string;
-  userNpub: string;
-  agentId?: string | null;
-  botNpub: string;
-  wrappedKeyCiphertext: string;
-  wrappedKeyNonce: string;
-  agent: string;
-  model?: string | null;
-  workingDirectory: string;
-  initialPrompt: string;
-  nightwatchmanEnabled?: boolean;
-  triggerType?: TriggerType;
-  cronExpression?: string;
-  timezone?: string;
-  watchDirectory?: string;
-  filePattern?: string;
-  activeStartTime?: string;
-  activeEndTime?: string;
-  actionType?: SchedulerActionType;
-  pipelineDefinitionId?: string | null;
-  pipelineInputJson?: string | null;
-  pipelineAgent?: string | null;
-  wappActivityInstallationId?: string | null;
-  enabled?: boolean;
-}
-
-export interface UpdateJobInput {
-  name?: string;
-  agentId?: string | null;
-  botNpub?: string;
-  agent?: string;
-  model?: string | null;
-  workingDirectory?: string;
-  initialPrompt?: string;
-  nightwatchmanEnabled?: boolean;
-  triggerType?: TriggerType;
-  cronExpression?: string;
-  timezone?: string;
-  watchDirectory?: string;
-  filePattern?: string;
-  activeStartTime?: string | null;
-  activeEndTime?: string | null;
-  actionType?: SchedulerActionType;
-  pipelineDefinitionId?: string | null;
-  pipelineInputJson?: string | null;
-  pipelineAgent?: string | null;
-  wappActivityInstallationId?: string | null;
-  enabled?: boolean;
-  lastRunAt?: string;
-  nextRunAt?: string;
-}
-
+export type { TriggerType, ScheduledTriggerType, SchedulerActionType, ScheduledJob, ScheduledJobRun, CreateJobInput, UpdateJobInput } from "./scheduler-types";
+export { RELAY_TRIGGER_UNSUPPORTED_REASON } from "./scheduler-types";
 // ============================================================
 // Raw row type (integers, not booleans)
 // ============================================================
-
-interface RawJobRow {
-  id: string;
-  name: string;
-  userNpub: string;
-  agentId: string | null;
-  botNpub: string;
-  wrappedKeyCiphertext: string;
-  wrappedKeyNonce: string;
-  agent: string;
-  model: string | null;
-  workingDirectory: string;
-  initialPrompt: string;
-  nightwatchmanEnabled: number;
-  triggerType: string;
-  cronExpression: string;
-  timezone: string;
-  watchDirectory: string | null;
-  filePattern: string;
-  activeStartTime: string | null;
-  activeEndTime: string | null;
-  actionType: string;
-  pipelineDefinitionId: string | null;
-  pipelineInputJson: string | null;
-  pipelineAgent: string | null;
-  wappActivityInstallationId: string | null;
-  enabled: number;
-  lastRunAt: string | null;
-  nextRunAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-function rowToJob(row: RawJobRow): ScheduledJob {
-  const persistedTriggerType = row.triggerType || "cron";
-  const triggerType: ScheduledTriggerType = persistedTriggerType === "cron" || persistedTriggerType === "file_watcher"
-    ? persistedTriggerType
-    : "unsupported";
-  const unsupportedReason = triggerType === "unsupported"
-    ? persistedTriggerType === "nostr"
-      ? RELAY_TRIGGER_UNSUPPORTED_REASON
-      : `Scheduler trigger type "${persistedTriggerType}" is unsupported and cannot initiate work.`
-    : null;
-  return {
-    ...row,
-    nightwatchmanEnabled: Boolean(row.nightwatchmanEnabled),
-    triggerType,
-    persistedTriggerType,
-    unsupportedReason,
-    actionType: (row.actionType || "session") as SchedulerActionType,
-    filePattern: row.filePattern || "*",
-    enabled: Boolean(row.enabled) && triggerType !== "unsupported",
-  };
-}
 
 // ============================================================
 // Store Implementation
@@ -187,33 +33,6 @@ function rowToJob(row: RawJobRow): ScheduledJob {
 
 const DEFAULT_DB_PATH = databaseFile;
 
-const JOB_SELECT_COLS = `
-  id, name,
-  user_npub AS userNpub,
-  agent_id AS agentId,
-  bot_npub AS botNpub,
-  wrapped_key_ciphertext AS wrappedKeyCiphertext,
-  wrapped_key_nonce AS wrappedKeyNonce,
-  agent, model, working_directory AS workingDirectory,
-  initial_prompt AS initialPrompt,
-  nightwatchman_enabled AS nightwatchmanEnabled,
-  trigger_type AS triggerType,
-  cron_expression AS cronExpression,
-  timezone,
-  watch_directory AS watchDirectory,
-  file_pattern AS filePattern,
-  active_start_time AS activeStartTime,
-  active_end_time AS activeEndTime,
-  action_type AS actionType,
-  pipeline_definition_id AS pipelineDefinitionId,
-  pipeline_input_json AS pipelineInputJson,
-  pipeline_agent AS pipelineAgent,
-  wapp_activity_installation_id AS wappActivityInstallationId,
-  enabled,
-  last_run_at AS lastRunAt,
-  next_run_at AS nextRunAt,
-  created_at AS createdAt,
-  updated_at AS updatedAt`;
 
 class SchedulerStore {
   private readonly db: Database;
@@ -223,7 +42,8 @@ class SchedulerStore {
     this.db = new Database(filePath);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
-    this.initialise();
+    initialiseSchedulerSchema(this.db);
+    reconcileHeartbeatReliabilityDefaults(this);
   }
 
   // ----------------------------------------------------------
@@ -278,6 +98,7 @@ class SchedulerStore {
         now,
       );
 
+    if (input.flightdeckContext) this.updateJob(id, { flightdeckContext: input.flightdeckContext });
     return this.getJob(id)!;
   }
 
@@ -337,6 +158,10 @@ class SchedulerStore {
     const values: unknown[] = [];
     let paramIndex = 1;
 
+    if (input.flightdeckContext !== undefined) {
+      sets.push(`flightdeck_context_json = ?${paramIndex++}`);
+      values.push(input.flightdeckContext === null ? null : JSON.stringify(input.flightdeckContext));
+    }
     if (input.name !== undefined) {
       sets.push(`name = ?${paramIndex++}`);
       values.push(input.name);
@@ -468,6 +293,10 @@ class SchedulerStore {
     return id;
   }
 
+  linkSessionRun(runId: string, sessionId: string): void {
+    this.db.query("UPDATE scheduled_job_runs SET session_id = ?2 WHERE id = ?1").run(runId, sessionId);
+  }
+
   linkPipelineRun(runId: string, pipelineRunId: string): void {
     this.db
       .query(
@@ -480,7 +309,7 @@ class SchedulerStore {
 
   completeRun(
     runId: string,
-    status: "success" | "error",
+    status: "launched" | "success" | "error",
     sessionId?: string,
     errorMessage?: string,
     pipelineRunId?: string,
@@ -517,79 +346,7 @@ class SchedulerStore {
   // Initialization
   // ----------------------------------------------------------
 
-  private initialise() {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS scheduled_jobs (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        user_npub TEXT NOT NULL,
-        agent_id TEXT,
-        bot_npub TEXT NOT NULL,
-        wrapped_key_ciphertext TEXT NOT NULL,
-        wrapped_key_nonce TEXT NOT NULL,
-        agent TEXT NOT NULL,
-        model TEXT,
-        working_directory TEXT NOT NULL,
-        initial_prompt TEXT NOT NULL,
-        nightwatchman_enabled INTEGER NOT NULL DEFAULT 0,
-        action_type TEXT NOT NULL DEFAULT 'session',
-        pipeline_definition_id TEXT,
-        pipeline_input_json TEXT,
-        pipeline_agent TEXT,
-        cron_expression TEXT NOT NULL,
-        timezone TEXT NOT NULL DEFAULT 'UTC',
-        enabled INTEGER NOT NULL DEFAULT 1,
-        last_run_at TEXT,
-        next_run_at TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
 
-      CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_user
-        ON scheduled_jobs(user_npub);
-      CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_enabled
-        ON scheduled_jobs(enabled);
-
-      CREATE TABLE IF NOT EXISTS scheduled_job_runs (
-        id TEXT PRIMARY KEY,
-        job_id TEXT NOT NULL,
-        session_id TEXT,
-        pipeline_run_id TEXT,
-        started_at TEXT NOT NULL,
-        status TEXT NOT NULL,
-        error_message TEXT,
-        FOREIGN KEY (job_id) REFERENCES scheduled_jobs(id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_scheduled_job_runs_job
-        ON scheduled_job_runs(job_id);
-      CREATE INDEX IF NOT EXISTS idx_scheduled_job_runs_started
-        ON scheduled_job_runs(started_at DESC);
-    `);
-
-    // Migration: add trigger_type columns for file watcher support
-    const migrations = [
-      "ALTER TABLE scheduled_jobs ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'cron'",
-      "ALTER TABLE scheduled_jobs ADD COLUMN watch_directory TEXT",
-      "ALTER TABLE scheduled_jobs ADD COLUMN file_pattern TEXT DEFAULT '*'",
-      "ALTER TABLE scheduled_jobs ADD COLUMN active_start_time TEXT",
-      "ALTER TABLE scheduled_jobs ADD COLUMN active_end_time TEXT",
-      "ALTER TABLE scheduled_jobs ADD COLUMN action_type TEXT NOT NULL DEFAULT 'session'",
-      "ALTER TABLE scheduled_jobs ADD COLUMN pipeline_definition_id TEXT",
-      "ALTER TABLE scheduled_jobs ADD COLUMN pipeline_input_json TEXT",
-      "ALTER TABLE scheduled_jobs ADD COLUMN pipeline_agent TEXT",
-      "ALTER TABLE scheduled_job_runs ADD COLUMN pipeline_run_id TEXT",
-      "ALTER TABLE scheduled_jobs ADD COLUMN wapp_activity_installation_id TEXT",
-      "ALTER TABLE scheduled_jobs ADD COLUMN model TEXT",
-      "ALTER TABLE scheduled_jobs ADD COLUMN agent_id TEXT",
-    ];
-    for (const sql of migrations) {
-      try { this.db.exec(sql); } catch { /* column already exists */ }
-    }
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_agent ON scheduled_jobs(agent_id)");
-    this.db.exec("UPDATE scheduled_jobs SET nightwatchman_enabled = 0 WHERE nightwatchman_enabled <> 0");
-    reconcileHeartbeatReliabilityDefaults(this);
-  }
 }
 
 export { SchedulerStore };

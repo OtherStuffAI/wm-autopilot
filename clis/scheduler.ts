@@ -8,6 +8,8 @@
 
 import { parseCommonFlags, buildConfig, requestJson, requestJsonBotCrypto, resolveBaseUrl } from './lib/auth';
 import { readFileSync } from 'node:fs';
+import { scheduledSessionContextSchema, type ScheduledSessionContext } from '../src/scheduler/session-context';
+import { describeSchedulerRun } from '../src/scheduler/run-outcome';
 
 type TriggerType = 'cron' | 'file_watcher';
 
@@ -51,6 +53,7 @@ Active window options:
   --active-end <HH:MM>       End of active window (e.g. 05:00)
 
 Update options:
+  --flightdeck-context-file <path> Exact scheduled Flight Deck binding JSON (null clears it)
   --bot-npub <npub>         Bind the trigger to an active bot identity owned by the scheduler owner
   --enabled <true|false>     Enable/disable trigger
 
@@ -112,6 +115,7 @@ interface ParsedOptions {
   activeEndTime?: string;
   enabled?: boolean;
   botNpub?: string;
+  flightdeckContext?: ScheduledSessionContext | null;
   positional: string[];
 }
 
@@ -144,6 +148,13 @@ function parseSchedulerOptions(args: string[]): ParsedOptions {
   for (let i = 0; i < args.length; i++) {
     const token = args[i]!;
     switch (token) {
+      case '--flightdeck-context-file': {
+        const path = args[++i];
+        if (!path) throw new Error('--flightdeck-context-file requires a path');
+        const value = JSON.parse(readFileSync(path, 'utf8'));
+        parsed.flightdeckContext = value === null ? null : scheduledSessionContextSchema.parse(value);
+        break;
+      }
       case '--name': {
         const value = args[++i];
         if (!value) throw new Error('--name requires a value');
@@ -314,12 +325,14 @@ function printRunList(runs: SchedulerRun[]): void {
   console.log('ID\tSTATUS\tSTARTED\tFINISHED\tSESSION\tERROR');
   for (const run of runs) {
     const id = String(run.id ?? '').slice(0, 8);
-    const status = String(run.status ?? '-');
+    const outcome = describeSchedulerRun(run as Parameters<typeof describeSchedulerRun>[0]);
+    const status = String(run.statusLabel ?? outcome.statusLabel);
     const started = String(run.startedAt ?? '-');
     const finished = String(run.finishedAt ?? '-');
     const session = String(run.sessionId ?? '-').slice(0, 8);
     const error = String(run.error ?? '-');
     console.log(`${id}\t${status}\t${started}\t${finished}\t${session}\t${error}`);
+    console.log(`  ${String(run.statusDetail ?? outcome.statusDetail)}`);
   }
 }
 
@@ -353,6 +366,7 @@ function buildCreatePayload(options: ParsedOptions): Record<string, unknown> {
     triggerType,
   };
   if (options.botNpub) payload.botNpub = options.botNpub;
+  if (options.flightdeckContext !== undefined) payload.flightdeckContext = options.flightdeckContext;
 
   if (actionType === 'pipeline') {
     payload.pipelineDefinitionId = options.pipelineDefinitionId;
@@ -379,6 +393,7 @@ function buildCreatePayload(options: ParsedOptions): Record<string, unknown> {
 function buildUpdatePayload(options: ParsedOptions): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
 
+  if (options.flightdeckContext !== undefined) payload.flightdeckContext = options.flightdeckContext;
   if (options.name !== undefined) payload.name = options.name;
   if (options.botNpub !== undefined) payload.botNpub = options.botNpub;
   if (options.actionType !== undefined) payload.actionType = options.actionType;

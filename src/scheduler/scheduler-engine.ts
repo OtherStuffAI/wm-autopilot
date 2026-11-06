@@ -12,6 +12,7 @@ import { watch as fsWatch, type FSWatcher } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
+import { globToRegex, isWithinActiveWindow } from "./trigger-conditions";
 import { Cron } from "croner";
 
 import type { SchedulerStore, ScheduledJob } from "./scheduler-store";
@@ -37,8 +38,9 @@ export interface SchedulerEngineDeps {
     metadata?: SessionMetadataInput,
     model?: string,
   ) => Promise<SessionSnapshot>;
+  resolveSessionMetadata?: (job: ScheduledJob) => SessionMetadataInput | Promise<SessionMetadataInput>;
   addPrompt: (sessionId: string, content: string) => void;
-  dispatchPrompt: (session: SessionSnapshot) => void;
+  dispatchPrompt: (session: SessionSnapshot) => void | Promise<void>;
   awaitSessionReadyForPrompt?: (session: SessionSnapshot, agent: AgentType) => Promise<void>;
   runPipeline?: (job: ScheduledJob, input: JsonObject, onRunCreated?: (pipelineRunId: string) => void, pipelineAgent?: string) => Promise<string>;
   cleanupStopNextActionSessions?: (job: ScheduledJob) => Promise<SchedulerCleanupResult>;
@@ -63,53 +65,6 @@ export interface SchedulerCleanupResult {
 // ============================================================
 // Engine
 // ============================================================
-
-/**
- * Check whether the current time (in the given timezone) falls within an
- * active time window defined by HH:MM start/end strings.
- * Handles overnight windows where start > end (e.g. 22:00–05:00).
- * Returns true if no window is configured (both null).
- */
-function isWithinActiveWindow(
-  startTime: string | null,
-  endTime: string | null,
-  timezone: string,
-): boolean {
-  if (!startTime || !endTime) return true;
-
-  const now = new Date();
-  const formatter = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: timezone || "UTC",
-  });
-  const nowStr = formatter.format(now); // "HH:MM"
-  const [nowH = 0, nowM = 0] = nowStr.split(":").map(Number);
-  const nowMinutes = nowH * 60 + nowM;
-
-  const [startH = 0, startM = 0] = startTime.split(":").map(Number);
-  const startMinutes = startH * 60 + startM;
-
-  const [endH = 0, endM = 0] = endTime.split(":").map(Number);
-  const endMinutes = endH * 60 + endM;
-
-  if (startMinutes <= endMinutes) {
-    // Same-day window: e.g. 09:00–17:00
-    return nowMinutes >= startMinutes && nowMinutes < endMinutes;
-  }
-  // Overnight window: e.g. 22:00–05:00
-  return nowMinutes >= startMinutes || nowMinutes < endMinutes;
-}
-
-/** Convert a simple glob pattern (e.g. "*.json") into a RegExp. */
-function globToRegex(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, ".*")
-    .replace(/\?/g, ".");
-  return new RegExp(`^${escaped}$`, "i");
-}
 
 interface FileWatcherEntry {
   watcher: FSWatcher;
@@ -285,6 +240,7 @@ class SchedulerEngine {
     }
 
     const runId = this.deps.store.recordRun(jobId);
+    let linkedSessionId: string | undefined;
     let linkedPipelineRunId: string | undefined;
 
     try {
@@ -322,6 +278,10 @@ class SchedulerEngine {
         return { pipelineRunId };
       }
 
+      let contextMetadata: SessionMetadataInput;
+      if (this.deps.resolveSessionMetadata) contextMetadata = await this.deps.resolveSessionMetadata(job);
+      else if (job.flightdeckContext) throw new Error("Scheduled Flight Deck context resolver is unavailable");
+
       // 3. Create session with explicit npub
       const now = new Date();
       const dd = String(now.getDate()).padStart(2, "0");
@@ -338,12 +298,17 @@ class SchedulerEngine {
         undefined,
         job.userNpub,
         {
+          ...contextMetadata,
           AGENT: true,
+          agentChatAgentId: job.agentId ?? undefined,
           agentChatBotNpub: job.botNpub,
           wappActivityInstallationId: job.wappActivityInstallationId ?? undefined,
         },
         job.model ?? undefined,
       );
+
+      linkedSessionId = session.id;
+      this.deps.store.linkSessionRun(runId, session.id);
 
       // 4. Wait for steady runtime readiness before prompt injection
       if (this.deps.awaitSessionReadyForPrompt) {
@@ -354,17 +319,17 @@ class SchedulerEngine {
       this.deps.addPrompt(session.id, job.initialPrompt);
 
       // 6. Dispatch the prompt
-      this.deps.dispatchPrompt(session);
+      await this.deps.dispatchPrompt(session);
 
-      // 7. Update job and record success
+      // A dispatch attempt may defer: launch does not prove prompt acceptance or delivery.
       this.updateJobAfterSuccess(jobId);
-      this.deps.store.completeRun(runId, "success", session.id);
+      this.deps.store.completeRun(runId, "launched", session.id);
 
       console.log(`[scheduler] Job "${job.name}" triggered — session ${session.id}`);
       return { sessionId: session.id };
     } catch (err) {
       const message = (err as Error).message ?? String(err);
-      this.deps.store.completeRun(runId, "error", undefined, message, linkedPipelineRunId);
+      this.deps.store.completeRun(runId, "error", linkedSessionId, message, linkedPipelineRunId);
       console.error(`[scheduler] Job "${job.name}" failed: ${message}`);
       throw err;
     }
