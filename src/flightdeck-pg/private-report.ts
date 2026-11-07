@@ -57,6 +57,7 @@ async function messages(context: PrivateReportContext, channelId: string, reques
 export async function readOwnPrivateHistory(context: PrivateReportContext, request: PrivateReportRequest, since: string, until: string) {
   const start = Date.parse(since); const end = Date.parse(until);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) throw new Error("An explicit valid review window is required.");
+  if (end > Date.now()) throw new Error("Review window must end at or before the current time; future history cannot be reviewed.");
   const { channels } = await listOwnPrivateConversations(context, request);
   const conversations = [];
   for (const channel of channels) {
@@ -72,6 +73,8 @@ export async function readOwnPrivateHistory(context: PrivateReportContext, reque
 export async function sendPrivateReport(context: PrivateReportContext, request: PrivateReportRequest, input: {
   recipient: string; body: string; clientRequestId: string; dryRun?: boolean;
 }) {
+  // Tower canonicalizes message text before validating its signature and saving it.
+  input = { ...input, body: input.body.trim(), clientRequestId: input.clientRequestId.trim() };
   if (!input.recipient || input.recipient === context.bot.npub || !input.body.trim() || !input.clientRequestId.trim()) {
     throw new Error("Distinct exact recipient, report body and stable client request id are required.");
   }
@@ -102,4 +105,15 @@ export async function sendPrivateReport(context: PrivateReportContext, request: 
     || message.sender_npub !== context.bot.npub) throw new Error("Private report delivery is unverified; reconcile before retrying.");
   return { delivered: true, channelId: channel.id, messageId: message.id, recipient: input.recipient,
     clientRequestId: input.clientRequestId, reused: prior.length === 1 };
+}
+
+/** Select the most recent completed daily interval, never the next boundary. */
+export function completedDailyReportWindow(boundaryHourUtc: number, now = Date.now()) {
+  if (!Number.isInteger(boundaryHourUtc) || boundaryHourUtc < 0 || boundaryHourUtc > 23 || !Number.isFinite(now)) {
+    throw new Error("An explicit UTC boundary hour from 0 through 23 and valid current time are required.");
+  }
+  const day = 24 * 60 * 60 * 1000;
+  const offset = boundaryHourUtc * 60 * 60 * 1000;
+  const end = Math.floor((now - offset) / day) * day + offset;
+  return { since: new Date(end - day).toISOString(), until: new Date(end).toISOString(), reportDate: new Date(end).toISOString().slice(0, 10) };
 }

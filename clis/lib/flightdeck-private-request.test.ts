@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
-import { privateReportRequest } from "./flightdeck-private-request";
+import { privateReportRequest, privateReportResponseError } from "./flightdeck-private-request";
 import { requirePrivateReportContext } from "../../src/flightdeck-pg/private-report";
 
 test("private message transport signs kind33358 then the full NIP98 payload and refuses redirects", async () => {
@@ -39,4 +39,16 @@ test("private message transport signs kind33358 then the full NIP98 payload and 
     globalThis.fetch = fetchBefore;
     for (const [key, value] of Object.entries(savedEnv)) { if (value === undefined) delete Bun.env[key]; else Bun.env[key] = value; }
   }
+});
+
+test("diagnostics identify request and validation fields without leaking response content", () => {
+  const error = privateReportResponseError("POST", "/api/v4/flightdeck-pg/workspaces/test/channels/test/messages", 400, {
+    code: "validation_error", error: "private text", details: { fields: [
+      { path: "message_signature.body_sha256", code: "invalid", message: "secret report" },
+      { path: "secret report", code: "sensitive text" },
+    ] },
+  });
+  expect(error.message).toContain("POST /api/v4/flightdeck-pg/workspaces/test/channels/test/messages");
+  expect(error.message).toContain("message_signature.body_sha256:invalid");
+  expect(error.message).not.toMatch(/secret report|sensitive text|private text/);
 });

@@ -47,7 +47,18 @@ export function privateReportRequest(context: PrivateReportContext): PrivateRepo
       ...(body !== undefined ? { "content-type": "application/json" } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(Math.max(1, Math.min(30_000, deadline - Date.now()))) });
     const value = await boundedJson(response);
-    if (!response.ok) throw new Error(`Tower private report request failed (${response.status}): ${String(value.code ?? value.error ?? "request_failed")}`);
+    if (!response.ok) throw privateReportResponseError(method, url.pathname, response.status, value);
     return value;
   };
+}
+
+/** Never include response prose, body text, query values or signatures in diagnostics. */
+export function privateReportResponseError(method: string, path: string, status: number, value: Record<string, unknown>) {
+  const token = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9_.-]{1,160}$/.test(value) ? value : "unknown";
+  const details = value.details as { fields?: unknown } | undefined;
+  const fields = Array.isArray(details?.fields) ? details.fields.slice(0, 20).map(field => {
+    const item = field as { path?: unknown; code?: unknown } | null;
+    return `${token(item?.path)}:${token(item?.code)}`;
+  }).join(", ") : "";
+  return new Error(`Tower private report ${method} ${path} failed (${status}): ${token(value.code)}${fields ? `; fields: ${fields}` : ""}`);
 }
