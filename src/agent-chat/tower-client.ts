@@ -1,3 +1,4 @@
+import { validateCommentPage } from "../flightdeck-pg/comment-pages.ts";
 import { canonicalMentionsSha256 } from './mention-signature';
 import { prepareTowerRequestUrl, fetchTowerRequest, transportForConnection } from "./tower-transport-runtime";
 import { createHash } from 'node:crypto';
@@ -1239,6 +1240,7 @@ export async function createFlightDeckPgChannelMessage(params: {
   appNpub: string;
   botIdentity: RuntimeBotIdentity;
   body: string;
+  mentions?: unknown[];
   threadId?: string | null;
   createThread?: boolean;
   metadata?: Record<string, unknown> | null;
@@ -1254,6 +1256,7 @@ export async function createFlightDeckPgChannelMessage(params: {
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
   const body = {
     body: params.body,
+    ...(params.mentions?.length ? { mentions: params.mentions } : {}),
     message_signature: await buildFlightDeckPgMessageInstructionSignatureForIdentity({
       botIdentity: params.botIdentity,
       body: params.body,
@@ -1863,10 +1866,11 @@ export async function fetchFlightDeckPgDocumentComments(params: {
     throw Object.assign(new Error(error.message), error);
   }
   const payload = await response.json() as Partial<FlightDeckPgDocumentCommentsResult>;
+  validateCommentPage(payload);
   return {
     ...payload,
-    comments: Array.isArray(payload.comments) ? payload.comments : [],
-    next_cursor: typeof payload.next_cursor === 'string' ? payload.next_cursor : null,
+    comments: payload.comments,
+    next_cursor: payload.next_cursor,
   };
 }
 
@@ -1879,6 +1883,7 @@ export async function createFlightDeckPgDocumentComment(params: {
   appNpub: string;
   botIdentity: RuntimeBotIdentity;
   body: string;
+  mentions?: unknown[];
   parentCommentId?: string | null;
   metadata?: Record<string, unknown> | null;
   signal?: AbortSignal;
@@ -1887,6 +1892,7 @@ export async function createFlightDeckPgDocumentComment(params: {
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
   const requestBody = {
     body: params.body,
+    ...(params.mentions?.length ? { mentions: params.mentions } : {}),
     ...(params.parentCommentId ? { parent_comment_id: params.parentCommentId } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
   };
@@ -2225,6 +2231,7 @@ export async function createFlightDeckPgTaskComment(params: {
   appNpub: string;
   botIdentity: RuntimeBotIdentity;
   body: string;
+  mentions?: unknown[];
   threadId?: string | null;
   metadata?: Record<string, unknown> | null;
   clientRequestId?: string | null;
@@ -2234,6 +2241,7 @@ export async function createFlightDeckPgTaskComment(params: {
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
   const body = {
     body: params.body,
+    ...(params.mentions?.length ? { mentions: params.mentions } : {}),
     ...(params.clientRequestId ? { client_request_id: params.clientRequestId } : {}),
     ...(params.threadId ? { thread_id: params.threadId } : {}),
     ...(params.metadata ? { metadata: params.metadata } : {}),
@@ -2271,11 +2279,13 @@ export async function fetchFlightDeckPgTaskComments(params: {
   appNpub: string;
   botIdentity: RuntimeBotIdentity;
   limit?: number;
+  cursor?: string | null;
   signal?: AbortSignal;
 }): Promise<FlightDeckPgTaskCommentsResult> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/tasks/${encodeURIComponent(params.taskId)}/comments`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path, {
     limit: params.limit ?? 200,
+    cursor: params.cursor ?? undefined,
   });
   const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity,
@@ -2295,10 +2305,11 @@ export async function fetchFlightDeckPgTaskComments(params: {
     throw Object.assign(new Error(error.message), error);
   }
   const payload = await response.json() as Partial<FlightDeckPgTaskCommentsResult>;
+  validateCommentPage(payload);
   return {
     ...payload,
-    comments: Array.isArray(payload.comments) ? payload.comments : [],
-    next_cursor: typeof payload.next_cursor === 'string' ? payload.next_cursor : null,
+    comments: payload.comments,
+    next_cursor: payload.next_cursor,
   };
 }
 

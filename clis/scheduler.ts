@@ -6,12 +6,16 @@
  * Commands: list, create, update, delete, trigger, runs
  */
 
-import { parseCommonFlags, buildConfig, requestJson, requestJsonBotCrypto, resolveBaseUrl } from './lib/auth';
-import { readFileSync } from 'node:fs';
-import { scheduledSessionContextSchema, type ScheduledSessionContext } from '../src/scheduler/session-context';
+import { parseCommonFlags, buildAuthConfig, requestJsonWithAuth } from './lib/auth';
 import { describeSchedulerRun } from '../src/scheduler/run-outcome';
 
 type TriggerType = 'cron' | 'file_watcher';
+
+import { validateCommandArguments } from "./lib/command-options";
+import { formatSchedulerOutcome } from "./lib/scheduler-output";
+
+import { parseSchedulerCommand } from "./lib/scheduler-options";
+import { buildCreatePayload, buildUpdatePayload } from "./lib/scheduler-payload";
 
 const USAGE = `Wingman scheduler trigger CLI (NIP-98)
 
@@ -58,7 +62,7 @@ Update options:
   --enabled <true|false>     Enable/disable trigger
 
 Common options:
-  --url <url>                Wingman URL (env: WINGMAN_URL, default: http://localhost:3000)
+  --url <url>                Wingman URL (env: WINGMAN_URL, default: http://localhost:3600)
   --owner <npub>             Operate in an owner's delegated scheduler space
   --key <nsec|hex>           Operator-only Nostr private key (env: WINGMAN_NSEC)
   --bot-crypto               Sign via bot-crypto API (for agent sessions)
@@ -94,199 +98,6 @@ interface SchedulerRun {
   sessionId?: string;
   error?: string | null;
   [key: string]: unknown;
-}
-
-interface ParsedOptions {
-  name?: string;
-  agent?: string;
-  model?: string;
-  workingDirectory?: string;
-  prompt?: string;
-  actionType?: 'session' | 'pipeline';
-  pipelineDefinitionId?: string | null;
-  pipelineInput?: Record<string, unknown>;
-  pipelineAgent?: string | null;
-  triggerType?: TriggerType;
-  cronExpression?: string;
-  timezone?: string;
-  watchDirectory?: string;
-  filePattern?: string;
-  activeStartTime?: string;
-  activeEndTime?: string;
-  enabled?: boolean;
-  botNpub?: string;
-  flightdeckContext?: ScheduledSessionContext | null;
-  positional: string[];
-}
-
-function parseBooleanFlag(value: string | undefined, flagName: string): boolean {
-  if (value === undefined) {
-    throw new Error(`${flagName} requires a value: true or false`);
-  }
-  const normalized = value.trim().toLowerCase();
-  if (normalized === 'true') return true;
-  if (normalized === 'false') return false;
-  throw new Error(`${flagName} must be true or false`);
-}
-
-function parseJsonObjectFlag(value: string, flagName: string): Record<string, unknown> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error(`${flagName} must be valid JSON`);
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`${flagName} must be a JSON object`);
-  }
-  return parsed as Record<string, unknown>;
-}
-
-function parseSchedulerOptions(args: string[]): ParsedOptions {
-  const parsed: ParsedOptions = { positional: [] };
-
-  for (let i = 0; i < args.length; i++) {
-    const token = args[i]!;
-    switch (token) {
-      case '--flightdeck-context-file': {
-        const path = args[++i];
-        if (!path) throw new Error('--flightdeck-context-file requires a path');
-        const value = JSON.parse(readFileSync(path, 'utf8'));
-        parsed.flightdeckContext = value === null ? null : scheduledSessionContextSchema.parse(value);
-        break;
-      }
-      case '--name': {
-        const value = args[++i];
-        if (!value) throw new Error('--name requires a value');
-        parsed.name = value;
-        break;
-      }
-      case '--agent': {
-        const value = args[++i];
-        if (!value) throw new Error('--agent requires a value');
-        parsed.agent = value;
-        break;
-      }
-      case '--model': {
-        const value = args[++i];
-        if (!value) throw new Error('--model requires a value');
-        parsed.model = value;
-        break;
-      }
-      case '--bot-npub': {
-        const value = args[++i];
-        if (!value) throw new Error('--bot-npub requires a value');
-        parsed.botNpub = value;
-        break;
-      }
-      case '--working-directory':
-      case '--directory': {
-        const value = args[++i];
-        if (!value) throw new Error(`${token} requires a value`);
-        parsed.workingDirectory = value;
-        break;
-      }
-      case '--prompt':
-      case '--initial-prompt': {
-        const value = args[++i];
-        if (!value) throw new Error(`${token} requires a value`);
-        parsed.prompt = value;
-        break;
-      }
-      case '--prompt-file': {
-        const value = args[++i];
-        if (!value) throw new Error('--prompt-file requires a path');
-        parsed.prompt = readFileSync(value, 'utf8');
-        break;
-      }
-      case '--action-type': {
-        const value = args[++i];
-        if (!value) throw new Error('--action-type requires a value');
-        if (value === 'session' || value === 'pipeline') {
-          parsed.actionType = value;
-        } else {
-          throw new Error('--action-type must be session or pipeline');
-        }
-        break;
-      }
-      case '--pipeline-definition-id':
-      case '--pipeline':
-      case '--pipeline-id': {
-        const value = args[++i];
-        if (!value) throw new Error(`${token} requires a value`);
-        parsed.pipelineDefinitionId = value;
-        break;
-      }
-      case '--pipeline-input':
-      case '--pipeline-input-json': {
-        const value = args[++i];
-        if (!value) throw new Error(`${token} requires a JSON object value`);
-        parsed.pipelineInput = parseJsonObjectFlag(value, token);
-        break;
-      }
-      case '--pipeline-agent': {
-        const value = args[++i];
-        if (!value) throw new Error('--pipeline-agent requires a value');
-        parsed.pipelineAgent = value;
-        break;
-      }
-      case '--trigger-type': {
-        const value = args[++i];
-        if (!value) throw new Error('--trigger-type requires a value');
-        if (value === 'cron' || value === 'file_watcher') {
-          parsed.triggerType = value;
-        } else {
-          throw new Error('--trigger-type must be cron or file_watcher; Nostr relay triggers are unsupported');
-        }
-        break;
-      }
-      case '--cron':
-      case '--cron-expression': {
-        const value = args[++i];
-        if (!value) throw new Error(`${token} requires a value`);
-        parsed.cronExpression = value;
-        break;
-      }
-      case '--timezone': {
-        const value = args[++i];
-        if (!value) throw new Error('--timezone requires a value');
-        parsed.timezone = value;
-        break;
-      }
-      case '--watch-directory': {
-        const value = args[++i];
-        if (!value) throw new Error('--watch-directory requires a value');
-        parsed.watchDirectory = value;
-        break;
-      }
-      case '--file-pattern': {
-        const value = args[++i];
-        if (!value) throw new Error('--file-pattern requires a value');
-        parsed.filePattern = value;
-        break;
-      }
-      case '--active-start': {
-        const value = args[++i];
-        if (!value) throw new Error('--active-start requires a value (HH:MM)');
-        parsed.activeStartTime = value;
-        break;
-      }
-      case '--active-end': {
-        const value = args[++i];
-        if (!value) throw new Error('--active-end requires a value (HH:MM)');
-        parsed.activeEndTime = value;
-        break;
-      }
-      case '--enabled': {
-        parsed.enabled = parseBooleanFlag(args[++i], '--enabled');
-        break;
-      }
-      default:
-        parsed.positional.push(token);
-    }
-  }
-
-  return parsed;
 }
 
 function printJobList(jobs: SchedulerJob[]): void {
@@ -336,99 +147,9 @@ function printRunList(runs: SchedulerRun[]): void {
   }
 }
 
-function buildCreatePayload(options: ParsedOptions): Record<string, unknown> {
-  const name = options.name?.trim();
-  const agent = options.agent?.trim();
-  const workingDirectory = options.workingDirectory?.trim();
-  const initialPrompt = options.prompt?.trim();
-  const actionType = options.actionType ?? 'session';
-
-  if (!name) throw new Error('create requires --name <name>');
-  if (actionType === 'pipeline') {
-    if (!options.pipelineDefinitionId) throw new Error('create requires --pipeline-definition-id <id> for pipeline jobs');
-  } else {
-    if (!agent) throw new Error('create requires --agent <agent>');
-    if (!workingDirectory) throw new Error('create requires --working-directory <path>');
-    if (!initialPrompt) throw new Error('create requires --prompt <text>');
-  }
-
-  const triggerType = options.triggerType ?? 'cron';
-  if (triggerType === 'cron' && !options.cronExpression) {
-    throw new Error('create requires --cron <expr> when --trigger-type cron');
-  }
-  if (triggerType === 'file_watcher' && !options.watchDirectory) {
-    throw new Error('create requires --watch-directory <path> when --trigger-type file_watcher');
-  }
-
-  const payload: Record<string, unknown> = {
-    name,
-    actionType,
-    triggerType,
-  };
-  if (options.botNpub) payload.botNpub = options.botNpub;
-  if (options.flightdeckContext !== undefined) payload.flightdeckContext = options.flightdeckContext;
-
-  if (actionType === 'pipeline') {
-    payload.pipelineDefinitionId = options.pipelineDefinitionId;
-    payload.pipelineInput = options.pipelineInput ?? {};
-    if (options.pipelineAgent !== undefined) payload.pipelineAgent = options.pipelineAgent;
-  } else {
-    payload.agent = agent;
-    if (options.model) payload.model = options.model;
-    payload.workingDirectory = workingDirectory;
-    payload.initialPrompt = initialPrompt;
-  }
-
-  if (options.cronExpression) payload.cronExpression = options.cronExpression;
-  if (options.timezone) payload.timezone = options.timezone;
-  if (options.watchDirectory) payload.watchDirectory = options.watchDirectory;
-  if (options.filePattern) payload.filePattern = options.filePattern;
-  if (options.activeStartTime) payload.activeStartTime = options.activeStartTime;
-  if (options.activeEndTime) payload.activeEndTime = options.activeEndTime;
-  if (options.enabled !== undefined) payload.enabled = options.enabled;
-
-  return payload;
-}
-
-function buildUpdatePayload(options: ParsedOptions): Record<string, unknown> {
-  const payload: Record<string, unknown> = {};
-
-  if (options.flightdeckContext !== undefined) payload.flightdeckContext = options.flightdeckContext;
-  if (options.name !== undefined) payload.name = options.name;
-  if (options.botNpub !== undefined) payload.botNpub = options.botNpub;
-  if (options.actionType !== undefined) payload.actionType = options.actionType;
-  if (options.agent !== undefined) payload.agent = options.agent;
-  if (options.model !== undefined) payload.model = options.model;
-  if (options.workingDirectory !== undefined) payload.workingDirectory = options.workingDirectory;
-  if (options.prompt !== undefined) payload.initialPrompt = options.prompt;
-  if (options.pipelineDefinitionId !== undefined) payload.pipelineDefinitionId = options.pipelineDefinitionId;
-  if (options.pipelineInput !== undefined) payload.pipelineInput = options.pipelineInput;
-  if (options.pipelineAgent !== undefined) payload.pipelineAgent = options.pipelineAgent;
-  if (options.triggerType !== undefined) payload.triggerType = options.triggerType;
-  if (options.cronExpression !== undefined) payload.cronExpression = options.cronExpression;
-  if (options.timezone !== undefined) payload.timezone = options.timezone;
-  if (options.watchDirectory !== undefined) payload.watchDirectory = options.watchDirectory;
-  if (options.filePattern !== undefined) payload.filePattern = options.filePattern;
-  if (options.activeStartTime !== undefined) payload.activeStartTime = options.activeStartTime;
-  if (options.activeEndTime !== undefined) payload.activeEndTime = options.activeEndTime;
-  if (options.enabled !== undefined) payload.enabled = options.enabled;
-
-  if (Object.keys(payload).length === 0) {
-    throw new Error('update requires at least one field to change');
-  }
-
-  return payload;
-}
-
 async function run(): Promise<void> {
   const { args, urlInput, keyInput, asJson, help, botCrypto } = parseCommonFlags(Bun.argv.slice(2));
-  const ownerIndex = args.indexOf('--owner');
-  const owner = ownerIndex >= 0 ? args[ownerIndex + 1]?.trim() : undefined;
-  if (ownerIndex >= 0) {
-    if (!owner) throw new Error('--owner requires an npub');
-    args.splice(ownerIndex, 2);
-  }
-  const options = parseSchedulerOptions(args);
+  const { options, owner } = parseSchedulerCommand(args);
 
   const command = options.positional[0]?.toLowerCase() ?? 'help';
   const id = options.positional[1];
@@ -438,18 +159,13 @@ async function run(): Promise<void> {
     return;
   }
 
-  const baseUrl = resolveBaseUrl(urlInput);
-  const config = botCrypto ? null : buildConfig(urlInput, keyInput);
-  const req = <T>(
-    method: string,
-    path: string,
-    body?: unknown,
-  ): Promise<T> => botCrypto
-    ? requestJsonBotCrypto<T>(baseUrl, method, path, body)
-    : requestJson<T>(config!.baseUrl, config!.secretKey, method, path, body);
+  validateCommandArguments(command, options.positional, { list: 1, create: 1, update: 2, delete: 2, trigger: 2, runs: 2 });
+  if (command !== "create" && command !== "update" && Object.keys(options).some(key => key !== "positional")) throw new Error("Job configuration options require create or update");
+  const auth = buildAuthConfig(urlInput, keyInput, botCrypto);
   const schedulerPath = (path: string): string => owner
     ? `/api/owners/${encodeURIComponent(owner)}/scheduler${path.slice('/api/scheduler'.length)}`
     : path;
+  const req = <T>(method: string, path: string, body?: unknown) => requestJsonWithAuth<T>(auth, method, path, body);
 
   switch (command) {
     case 'list': {
@@ -523,7 +239,7 @@ async function run(): Promise<void> {
       if (asJson) {
         console.log(JSON.stringify(payload, null, 2));
       } else {
-        console.log(`Triggered: ${id} (session ${String(payload.sessionId ?? '?')})`);
+        console.log(`Triggered: ${id} (${formatSchedulerOutcome(payload)})`);
       }
       break;
     }

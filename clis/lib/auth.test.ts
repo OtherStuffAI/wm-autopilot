@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 
-import { buildAuthConfig, parseCommonFlags, resolveSecretKey } from "./auth";
+import { buildAuthConfig, parseCommonFlags, resolveSecretKey, resolveBaseUrl } from "./auth";
 
 describe("resolveSecretKey — CLI auth env resolution", () => {
   const originalEnv = { ...Bun.env };
@@ -121,4 +121,20 @@ describe("resolveSecretKey — CLI auth env resolution", () => {
 
     expect(parseCommonFlags(["list", "--key", "a".repeat(64)]).botCrypto).toBeFalse();
   });
+});
+
+test("shared CLI default matches the server default and honors explicit URL", () => {
+  const originalUrl = Bun.env.WINGMAN_URL;
+  const originalPort = Bun.env.PORT;
+  try {
+    delete Bun.env.WINGMAN_URL;
+    delete Bun.env.PORT;
+    expect(resolveBaseUrl()).toBe("http://127.0.0.1:3600");
+    Bun.env.PORT = "4567";
+    expect(resolveBaseUrl()).toBe("http://127.0.0.1:4567");
+    expect(resolveBaseUrl("https://explicit.example/")).toBe("https://explicit.example");
+  } finally {
+    if (originalUrl === undefined) delete Bun.env.WINGMAN_URL; else Bun.env.WINGMAN_URL = originalUrl;
+    if (originalPort === undefined) delete Bun.env.PORT; else Bun.env.PORT = originalPort;
+  }
 });

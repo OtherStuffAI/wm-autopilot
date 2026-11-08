@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 
-import { parseCommonFlags, buildConfig, requestJson, requestJsonBotCrypto, resolveBaseUrl } from './lib/auth';
+import { parseCommonFlags, buildAuthConfig, requestJsonWithAuth } from './lib/auth';
+
+import { parseCommandOptions, validateCommandArguments, ownerApiPath } from "./lib/command-options";
 
 const USAGE = `Wingman pipelines CLI (NIP-98)
 
@@ -15,7 +17,8 @@ Commands:
   compact-completed          Clear duplicate step/event payloads for completed runs
 
 Common options:
-  --url <url>                Wingman URL (env: WINGMAN_URL, default: http://localhost:3000)
+  --owner <npub>            Select owner space (requires admin authority)
+  --url <url>                Wingman URL (env: WINGMAN_URL, default: http://localhost:3600)
   --key <nsec|hex>           Operator-only Nostr private key (env: WINGMAN_NSEC)
   --bot-crypto               Sign via bot-crypto API (for agent sessions)
   --json                     Print raw JSON response
@@ -168,19 +171,23 @@ function printStepList(steps: PipelineStep[]): void {
 
 async function run(): Promise<void> {
   const { args, urlInput, keyInput, asJson, help, botCrypto } = parseCommonFlags(Bun.argv.slice(2));
-  const command = args[0]?.toLowerCase() ?? 'help';
-  const id = args[1];
+  const parsed = parseCommandOptions(args, { "--owner": "value", "--dry-run": "boolean", "--include-errored": "boolean", "--name": "value", "--run-name": "value", "--definition-id": "value", "--older-than": "value", "--limit": "value" });
+  const owner = parsed.options["--owner"] as string | undefined;
+  if (parsed.options["--name"] && parsed.options["--run-name"]) throw new Error("Use only one of --name and --run-name");
+  const command = parsed.positional[0]?.toLowerCase() ?? 'help';
+  const id = parsed.positional[1];
 
   if (help || command === 'help') {
     console.log(USAGE);
     return;
   }
 
-  const baseUrl = resolveBaseUrl(urlInput);
-  const config = botCrypto ? null : buildConfig(urlInput, keyInput);
-  const req = <T>(method: string, path: string, body?: unknown): Promise<T> => botCrypto
-    ? requestJsonBotCrypto<T>(baseUrl, method, path, body)
-    : requestJson<T>(config!.baseUrl, config!.secretKey, method, path, body);
+  validateCommandArguments(command, parsed.positional, { runs: 1, list: 1, show: 2, steps: 2, resume: 2, "compact-completed": 1 });
+  if (command !== "compact-completed" && Object.keys(parsed.options).some(key => key !== "--owner")) throw new Error("Compaction options require compact-completed");
+  const compactArgs = Object.entries(parsed.options).filter(([key]) => key !== "--owner").flatMap(([key, value]) => value === true ? [key] : [key, String(value)]);
+  const compactOptions = command === "compact-completed" ? parseCompactCompletedOptions(compactArgs) : undefined;
+  const auth = buildAuthConfig(urlInput, keyInput, botCrypto);
+  const req = <T>(method: string, path: string, body?: unknown) => requestJsonWithAuth<T>(auth, method, ownerApiPath(path, owner), body);
 
   switch (command) {
     case 'runs':
@@ -243,7 +250,7 @@ async function run(): Promise<void> {
     }
 
     case 'compact-completed': {
-      const options = parseCompactCompletedOptions(args.slice(1));
+      const options = compactOptions!;
       const payload = await req<PipelineCompactionResult>(
         'POST',
         '/api/pipelines/runs/compact-completed',

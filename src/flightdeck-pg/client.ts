@@ -1,3 +1,6 @@
+import { renameFlightDeckThread, downloadFlightDeckFile } from "./record-commands.ts";
+import { readCommentPages } from "./comment-pages.ts";
+import { withCliMentions, type ActorMention } from "./mentions.ts";
 import { capturedDocumentBase, documentUpdateBase, requireCapturedDocumentBase, type CapturedDocumentBase } from "./document-update-base.ts";
 import { ContextTreeClient } from "./context-tree.ts";
 import { acquireDocumentEditLease } from "./document-edit-lease.ts";
@@ -329,8 +332,12 @@ export class FlightDeckPgClient {
     return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}`);
   }
 
-  async listThreads(workspaceId: string, channelId: string, limit?: number) {
-    return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/threads`, { limit });
+  async listThreads(workspaceId: string, channelId: string, limit?: number, cursor?: string | null) {
+    return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/threads`, { limit, cursor });
+  }
+
+  async renameThread(workspaceId: string, threadId: string, title: string) {
+    return renameFlightDeckThread(this.signedJson.bind(this), workspaceId, threadId, title);
   }
 
   async readThread(workspaceId: string, channelId: string, threadId?: string | null, limit?: number) {
@@ -346,8 +353,8 @@ export class FlightDeckPgClient {
     });
   }
 
-  async reply(workspaceId: string, channelId: string, threadId: string | null, body: string) {
-    return await createFlightDeckPgChannelMessage({ ...this.base({ workspaceId }), channelId, threadId, body });
+  async reply(workspaceId: string, channelId: string, threadId: string | null, body: string, mentions: ActorMention[] = [], createThread?: boolean) {
+    return await createFlightDeckPgChannelMessage({ ...this.base({ workspaceId }), channelId, threadId, ...withCliMentions(body, mentions), createThread });
   }
 
   async listTasks(workspaceId: string, input: { channelId?: string | null; scopeId?: string | null; limit?: number; cursor?: string | null }) {
@@ -398,20 +405,20 @@ export class FlightDeckPgClient {
     return await updateFlightDeckPgTaskState({ ...this.base({ workspaceId, taskId }), state, rowVersion, leaseToken });
   }
 
-  async listTaskComments(workspaceId: string, taskId: string, limit?: number) {
-    return await fetchFlightDeckPgTaskComments({ ...this.base({ workspaceId, taskId }), limit });
+  async listTaskComments(workspaceId: string, taskId: string, limit?: number, cursor?: string | null, all = false) {
+    return await readCommentPages(next => fetchFlightDeckPgTaskComments({ ...this.base({ workspaceId, taskId }), limit, cursor: next }), { cursor, all });
   }
 
-  async commentTask(workspaceId: string, taskId: string, body: string, threadId?: string | null) {
-    return await createFlightDeckPgTaskComment({ ...this.base({ workspaceId, taskId }), body, threadId });
+  async commentTask(workspaceId: string, taskId: string, body: string, threadId?: string | null, mentions: ActorMention[] = []) {
+    return await createFlightDeckPgTaskComment({ ...this.base({ workspaceId, taskId }), ...withCliMentions(body, mentions), threadId });
   }
 
   async assignTask(workspaceId: string, taskId: string, actorId: string) {
     return await assignFlightDeckPgTask({ ...this.base({ workspaceId, taskId }), actorId });
   }
 
-  async listDocs(workspaceId: string, channelId: string, limit?: number) {
-    return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/docs`, { limit });
+  async listDocs(workspaceId: string, channelId: string, limit?: number, cursor?: string | null) {
+    return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/docs`, { limit, cursor });
   }
 
   async createDoc(workspaceId: string, channelId: string, title: string, body: string) {
@@ -446,12 +453,12 @@ export class FlightDeckPgClient {
     });
   }
 
-  async listDocComments(workspaceId: string, documentId: string, limit?: number) {
-    return await fetchFlightDeckPgDocumentComments({ ...this.base({ workspaceId }), documentId, limit });
+  async listDocComments(workspaceId: string, documentId: string, limit?: number, cursor?: string | null, all = false) {
+    return await readCommentPages(next => fetchFlightDeckPgDocumentComments({ ...this.base({ workspaceId }), documentId, limit, cursor: next }), { cursor, all });
   }
 
-  async replyDoc(workspaceId: string, documentId: string, body: string, parentCommentId?: string | null) {
-    return await createFlightDeckPgDocumentComment({ ...this.base({ workspaceId }), documentId, body, parentCommentId });
+  async replyDoc(workspaceId: string, documentId: string, body: string, parentCommentId?: string | null, mentions: ActorMention[] = []) {
+    return await createFlightDeckPgDocumentComment({ ...this.base({ workspaceId }), documentId, ...withCliMentions(body, mentions), parentCommentId });
   }
 
   async downloadDoc(workspaceId: string, documentRef: string, outPath: string, input: {
@@ -472,7 +479,7 @@ export class FlightDeckPgClient {
     }
     const commentsResult = input.includeComments === false
       ? { comments: [] as FlightDeckPgDocumentComment[] }
-      : await this.listDocComments(workspaceId, documentId, 500);
+      : await this.listDocComments(workspaceId, documentId, 500, null, true);
     const comments = commentsResult.comments.map((comment): Record<string, unknown> => ({ ...comment }));
     const markdown = buildDownloadedDocumentMarkdown({
       documentId,
@@ -493,8 +500,8 @@ export class FlightDeckPgClient {
     };
   }
 
-  async listFiles(workspaceId: string, channelId: string, limit?: number) {
-    return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/files`, { limit });
+  async listFiles(workspaceId: string, channelId: string, limit?: number, cursor?: string | null) {
+    return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/files`, { limit, cursor });
   }
 
   async uploadFile(workspaceId: string, channelId: string, path: string, contentType?: string | null) {
@@ -515,6 +522,10 @@ export class FlightDeckPgClient {
   async showFile(workspaceId: string, fileId: string, includeObject = false) {
     const suffix = includeObject ? '/object' : '';
     return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/files/${encodeURIComponent(fileId)}${suffix}`);
+  }
+
+  async downloadFile(workspaceId: string, fileId: string, outPath: string) {
+    return downloadFlightDeckFile(await this.showFile(workspaceId, fileId, true), fileId, outPath);
   }
 
   async fileBlossom(workspaceId: string, fileId: string, action: 'status' | 'publish' | 'unpublish', versionId?: string) {

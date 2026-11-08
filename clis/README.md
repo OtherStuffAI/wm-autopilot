@@ -52,7 +52,7 @@ bun clis/appctl.ts starters-delete <id>
 
 ```bash
 bun clis/sessions.ts list
-bun clis/sessions.ts create claude-code --name "my-task" --directory /tmp/project --nightwatch true
+bun clis/sessions.ts create claude-code --name "my-task" --directory /tmp/project
 bun clis/sessions.ts info <session-id>
 bun clis/sessions.ts logs <session-id>
 bun clis/sessions.ts send <session-id> "do the thing"
@@ -98,9 +98,11 @@ bun clis/wingman.ts dispatch retry <dispatch-id>
 
 ### delegate-sessions — Bot-delegated session management
 
-Use this when you are operating as a user's Wingman bot and want the server
-to authorize based on the bot->owner relationship rather than a browser session
-or agent `SESSION_ID`.
+This compatibility frontend uses maintained session routes and shared broker
+credentials. It reads caller space by default; `--owner <npub>` explicitly selects
+a delegated owner space under server authorization. It does not infer a legacy
+bot owner or require exported signing keys. Prefer `sessions.ts` for additional
+session operations.
 
 ```bash
 bun clis/sessions.ts list --bot-crypto
@@ -121,7 +123,7 @@ bun clis/status.ts apps                    # app summary
 bun clis/status.ts sessions                # session summary
 bun clis/status.ts config                  # server configuration
 bun clis/status.ts flags                   # feature flags
-bun clis/status.ts flags-set <id> true     # set a feature flag
+bun clis/status.ts flags-set <key> on_admin # states: off, on_admin, on; true/false aliases
 bun clis/status.ts restart                 # trigger warm restart
 bun clis/status.ts restart --bot-crypto # stop sessions, restart, then native-resume or start fresh
 bun clis/status.ts restart-status --bot-crypto # agent: check restart progress
@@ -131,7 +133,8 @@ bun clis/status.ts restart-status --bot-crypto # agent: check restart progress
 
 ```bash
 bun clis/deploy.ts list
-bun clis/deploy.ts deploy <app-id> --caprover-name my-app-prod
+bun clis/deploy.ts deploy <app-id> --target <exact-target-name> --caprover-name my-app-prod
+bun clis/deploy.ts deployments <app-id> --owner <owner-npub> # inspect exact registered app
 bun clis/deploy.ts status <app-id>
 bun clis/deploy.ts logs <app-id>
 ```
@@ -145,12 +148,51 @@ them to a supported trigger type.
 
 ```bash
 bun clis/scheduler.ts list
-bun clis/scheduler.ts create --name "Daily run" --agent codex --working-directory /tmp/project --prompt "check repo" --trigger-type cron --cron "0 * * * *" --nightwatch true
-bun clis/scheduler.ts update <job-id> --enabled false --nightwatch false
+bun clis/scheduler.ts create --name "Daily run" --agent codex --working-directory /tmp/project --prompt "check repo" --trigger-type cron --cron "0 * * * *"
+bun clis/scheduler.ts update <job-id> --enabled false
 bun clis/scheduler.ts delete <job-id>
 bun clis/scheduler.ts trigger <job-id>
 bun clis/scheduler.ts runs <job-id>
 ```
+
+Operational CLIs reject unknown flags, flags for a different command, and surplus
+arguments before requests. `--nightwatch` is retired; it does not configure jobs.
+Scheduler trigger text distinguishes sessions, pipeline runs, cleanup and no work.
+
+Deployment and legacy delegated-session commands use the shared session broker
+automatically in managed sessions; `--bot-crypto` makes that choice explicit.
+The delegated-session compatibility CLI uses maintained `/api/sessions` routes,
+with optional explicit `--owner` and create `--model`; it does not use obsolete
+`/api/delegate-sessions` owner inference. Exact IDs avoid collection lookup. `deploy`, `pipelines`
+and `scheduler` accept `--owner <npub>` and never substitute a default owner when
+that value is missing. Owner-space authorization remains enforced by the server.
+
+`deploy deployments <exact-local-app-id>` reads the supported CapRover inspection
+API using existing broker credentials. Optional `--caprover-name` selects the
+remote name explicitly; without it the registered link is used. `--target <name>`
+filters inspection to an exact configured target and fails if none matches.
+`deploy` requires an explicit non-`all` target, sent as `caproverTarget`. It does not log
+into CapRover directly. Deployments and scheduler/feature-flag changes require
+separate operational authorization; these examples do not grant it.
+
+`status flags` and `status full` show each flag's stored and effective state.
+`status flags-set <key> <off|on_admin|on>` updates the existing flag with PATCH;
+`true` and `false` map to `on` and `off`. Invalid states fail before requests.
+Full status surfaces failed API reads instead of reporting empty status.
+
+The shared default URL is `http://127.0.0.1:3600`; `--url`, `WINGMAN_URL` and
+`PORT` override it in that order. Deployment commands run from current source;
+server authorization repairs require separately approved runtime activation.
+
+See [maintained Flight Deck workflows](../docs/cli-flightdeck-workflows.md) for
+complete comment retrieval, routed mentions, thread creation/renaming, verified
+file downloads and safe document editing.
+
+Older raw-key Flight Deck scripts such as `mycode/flightdeck-create-doc.mjs`
+are retired for brokered sessions. Use maintained `wingman.ts flightdeck` task
+and document commands; never export operator signing material to revive helpers.
+CapRover inspection now uses `deploy.ts deployments` rather than a standalone
+signed API helper. Other helpers must be assessed against current CLI coverage.
 
 ## Common flags
 
@@ -158,6 +200,7 @@ bun clis/scheduler.ts runs <job-id>
 |------|-------------|
 | `--url <url>` | Wingman server URL |
 | `--key <nsec\|hex>` | Nostr signing key |
+| `--bot-crypto` | Use the current session capability broker |
 | `--json` | Raw JSON output |
 | `-h, --help` | Show help |
 
@@ -170,7 +213,8 @@ bun clis/scheduler.ts runs <job-id>
 - `requestJson()` — authenticated fetch wrapper
 - `resolveBaseUrl()` — URL resolution from flags/env
 - `parseCommonFlags()` — shared CLI flag parsing
-- `buildConfig()` — combine URL + key into a CliConfig
+- `buildConfig()` — combine URL + operator key into a CliConfig
+- `buildAuthConfig()` / `requestJsonWithAuth()` — shared broker/operator auth
 
 ### Explicit prompt delivery recovery
 

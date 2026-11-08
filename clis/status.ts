@@ -8,6 +8,9 @@
 
 import { parseCommonFlags, buildAuthConfig, requestJsonWithAuth } from "./lib/auth";
 
+import { validateCommandArguments } from "./lib/command-options";
+import { parseFlagState, printFeatureFlags, readFeatureFlags } from "./lib/feature-flags-output";
+
 const USAGE = `Wingman system status CLI (NIP-98)
 
 Usage:
@@ -20,14 +23,14 @@ Commands:
   sessions             List active sessions
   config               Show server configuration
   flags                Show feature flags
-  flags-set <id> <val> Set a feature flag (val: true/false)
+  flags-set <key> <state> Set state: off, on_admin, on (true/false aliases)
   restart              Restart and recover sessions by native resume or fresh launch
   restart-resume       Compatibility alias for restart
   fips                 Show Autopilot mesh endpoint and listener status
   restart-status       Check restart status
 
 Options:
-  --url <url>          Wingman URL (env: WINGMAN_URL, default: http://localhost:3000)
+  --url <url>          Wingman URL (env: WINGMAN_URL, default: http://localhost:3600)
   --key <nsec|hex>     Operator-only Nostr private key (env: WINGMAN_NSEC)
   --bot-crypto         Use this live agent session's capability broker
   --json               Print raw JSON response
@@ -104,6 +107,8 @@ async function run() {
     return;
   }
 
+  validateCommandArguments(command, args.length ? args : [command], { overview: 1, full: 1, apps: 1, sessions: 1, config: 1, flags: 1, "flags-set": 3, restart: 1, "restart-resume": 1, fips: 1, "restart-status": 1 });
+  const flagState = command === "flags-set" ? parseFlagState(args[2]!) : undefined;
   const auth = buildAuthConfig(urlInput, keyInput, botCrypto);
   const { baseUrl } = auth;
   const request = <T>(method: string, path: string, body?: unknown) =>
@@ -134,9 +139,9 @@ async function run() {
       const [appsPayload, sessionsPayload, configPayload, flagsPayload, archivePayload] = await Promise.all([
         request<{ apps?: AppInfo[] }>("GET", "/api/apps"),
         request<unknown>("GET", "/api/sessions"),
-        request<Record<string, unknown>>("GET", "/api/config").catch(() => null),
-        request<{ flags?: Record<string, unknown> }>("GET", "/api/feature-flags").catch(() => null),
-        request<{ sessions?: SessionInfo[] }>("GET", "/api/archive?limit=5").catch(() => null),
+        request<Record<string, unknown>>("GET", "/api/config"),
+        request<{ flags?: unknown }>("GET", "/api/feature-flags"),
+        request<{ sessions?: SessionInfo[] }>("GET", "/api/archive?limit=5"),
       ]);
 
       const apps = Array.isArray(appsPayload.apps) ? appsPayload.apps : [];
@@ -172,21 +177,9 @@ async function run() {
         console.log("");
       }
 
-      // Feature flags
-      if (flagsPayload?.flags) {
-        const flags = flagsPayload.flags as Record<string, unknown>;
-        const entries = Object.entries(flags);
-        if (entries.length > 0) {
-          console.log("Feature flags:");
-          for (const [key, val] of entries) {
-            const enabled = typeof val === "object" && val !== null
-              ? (val as Record<string, unknown>).enabled
-              : val;
-            console.log(`  ${key}: ${enabled}`);
-          }
-          console.log("");
-        }
-      }
+      console.log("Feature flags:");
+      printFeatureFlags(readFeatureFlags(flagsPayload));
+      console.log("");
 
       // Apps
       console.log(`Apps: ${apps.length}`);
@@ -259,22 +252,11 @@ async function run() {
     }
 
     case "flags": {
-      const payload = await request<{ flags?: Record<string, unknown> }>("GET", "/api/feature-flags");
+      const payload = await request<{ flags?: unknown }>("GET", "/api/feature-flags");
       if (asJson) {
         console.log(JSON.stringify(payload, null, 2));
       } else {
-        const flags = payload.flags ?? {};
-        const entries = Object.entries(flags);
-        if (entries.length === 0) {
-          console.log("No feature flags.");
-        } else {
-          for (const [key, val] of entries) {
-            const enabled = typeof val === "object" && val !== null
-              ? (val as Record<string, unknown>).enabled
-              : val;
-            console.log(`${key}\t${enabled}`);
-          }
-        }
+        printFeatureFlags(readFeatureFlags(payload));
       }
       break;
     }
@@ -282,13 +264,13 @@ async function run() {
     case "flags-set": {
       const flagId = args[1];
       const flagVal = args[2];
-      if (!flagId || !flagVal) throw new Error("flags-set requires <flag-id> <true|false>");
-      const enabled = flagVal === "true";
-      const payload = await request<Record<string, unknown>>("POST", "/api/feature-flags", { id: flagId, enabled });
+      if (!flagId || !flagVal) throw new Error("flags-set requires <key> <off|on_admin|on>");
+
+      const payload = await request<Record<string, unknown>>("PATCH", `/api/feature-flags/${encodeURIComponent(flagId)}`, { state: flagState });
       if (asJson) {
         console.log(JSON.stringify(payload, null, 2));
       } else {
-        console.log(`${flagId} = ${enabled}`);
+        console.log(`${flagId} = ${flagState}`);
       }
       break;
     }

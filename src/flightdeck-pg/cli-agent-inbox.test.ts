@@ -1,3 +1,4 @@
+import { nip19 } from "nostr-tools";
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -128,11 +129,12 @@ describe('flightdeck CLI in a strict-inbox agent session', () => {
       if (new URL(request.url).pathname === '/api/mcp/wingman/flightdeck') helperBodies.push(await request.clone().json());
       return r.fetchImpl(request);
     }) as typeof fetch;
-    const mention = JSON.stringify([{ type: 'agent', npub: 'npub1target', label: 'Brick' }]);
+    const targetNpub = nip19.npubEncode('2'.repeat(64));
+    const mention = JSON.stringify([{ type: 'agent', npub: targetNpub, label: 'Brick' }]);
     const runs = [
       ['chat', 'reply', '--channel', 'channel-1', '--thread', 'thread-1', '--body', 'hello', '--mentions-json', mention],
       ['task', 'comment', 'task-1', '--body', 'noted'],
-      ['doc', 'reply', 'doc-1', '--body', 'agreed', '--comment', 'root-1'],
+      ['doc', 'reply', 'doc-1', '--body', 'agreed', '--comment', 'root-1', '--mentions-json', mention],
       ['doc', 'create', '--channel', 'channel-1', '--title', 'Notes', '--body-file', bodyFile],
       ['file', 'upload', '--channel', 'channel-1', '--path', bodyFile, '--content-type', 'text/markdown'],
     ];
@@ -143,10 +145,44 @@ describe('flightdeck CLI in a strict-inbox agent session', () => {
     const writes = helperBodies.filter((body) => body.action !== 'context');
     expect(writes.map((body) => body.action)).toEqual(['chat_reply', 'task_comment', 'doc_reply', 'doc_create', 'file_upload']);
     expect(writes[4]).toMatchObject({ channelId: 'channel-1', fileName: 'body.md', contentType: 'text/markdown', base64_data: Buffer.from('# Notes').toString('base64') });
-    expect(writes[0]).toMatchObject({ channelId: 'channel-1', threadId: 'thread-1', body: 'hello', mentions: [{ type: 'agent', npub: 'npub1target', label: 'Brick' }] });
-    expect(writes[2]).toMatchObject({ documentId: 'doc-1', commentId: 'root-1' });
+    expect(writes[0]).toMatchObject({ channelId: 'channel-1', threadId: 'thread-1', body: `hello\n\n@[Brick](mention:agent:${targetNpub})`, mentions: [{ type: 'agent', npub: targetNpub, label: 'Brick' }] });
+    expect(writes[2]).toMatchObject({ documentId: 'doc-1', commentId: 'root-1', body: `agreed\n\n@[Brick](mention:agent:${targetNpub})`, mentions: [{ type: 'agent', npub: targetNpub, label: 'Brick' }] });
     expect(writes[3]).toMatchObject({ channelId: 'channel-1', title: 'Notes', body: '# Notes' });
     expect(helperBodies.some((body) => body.action === 'transport_prepare')).toBe(false);
+    expect(r.towerRequests).toEqual([]);
+  });
+
+  test('cross-workspace comments retain mentions through ordinary broker-signed client', async () => {
+    const r = router({});
+    const payloads: Record<string, unknown>[] = [];
+    const fetchImpl = (async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url.includes("tower.test") && request.method === "POST") payloads.push(await request.clone().json());
+      return r.fetchImpl(request);
+    }) as typeof fetch;
+    globalThis.fetch = fetchImpl;
+    const npub = nip19.npubEncode("2".repeat(64));
+    for (const area of ["task", "doc"]) {
+      const result = await runFlightDeckPgCli([area, area === "task" ? "comment" : "reply", "id", "--workspace", "workspace-2", "--body", "hello", "--mentions-json", JSON.stringify([{ type: "agent", npub, label: "Peer" }])], { fetchImpl });
+      expect(result.exitCode).toBe(0);
+    }
+    expect(payloads).toHaveLength(2);
+    for (const payload of payloads) expect(payload).toMatchObject({ body: `hello\n\n@[Peer](mention:agent:${npub})`, mentions: [{ type: "agent", npub, label: "Peer" }] });
+    expect(r.helperActions.filter(action => action !== "context")).toEqual([]);
+    expect(r.towerAuth).toEqual(["Nostr broker-signed", "Nostr broker-signed"]);
+  });
+
+  test('new strict-inbox thread uses helper provenance and explicit createThread', async () => {
+    const r = router({ chat_reply: { ok: true } });
+    const writes: Record<string, unknown>[] = [];
+    const fetchImpl = (async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url.includes("/api/mcp/wingman/flightdeck")) writes.push(await request.clone().json());
+      return r.fetchImpl(request);
+    }) as typeof fetch;
+    const result = await runFlightDeckPgCli(["thread", "create", "--channel", "channel-1", "--body", "New topic"], { fetchImpl });
+    expect(result.exitCode).toBe(0);
+    expect(writes.find(body => body.action === "chat_reply")).toMatchObject({ channelId: "channel-1", createThread: true, body: "New topic" });
     expect(r.towerRequests).toEqual([]);
   });
 

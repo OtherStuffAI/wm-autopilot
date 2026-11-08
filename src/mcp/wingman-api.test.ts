@@ -324,7 +324,7 @@ describe("wingman-api Flight Deck helpers", () => {
     const requests: Request[] = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       requests.push(input instanceof Request ? input : new Request(input, init));
-      return Response.json({ comments: [] });
+      return Response.json({ comments: [], next_cursor: null });
     }) as typeof fetch;
     try {
       expect((await call("task_comments"))?.status).toBe(200);

@@ -3,19 +3,21 @@
 /**
  * Wingman delegated session management CLI.
  *
- * Uses the caller's bot nsec directly over NIP-98 and relies on the
- * server-side bot->owner relationship to authorize session control.
+ * Uses shared broker/operator authentication and the server-side
+ * maintained caller/explicit-owner session routes for authorization.
  */
 
-import { buildConfig, parseCommonFlags, requestJson, resolveBaseUrl } from "./lib/auth";
+import { buildAuthConfig, parseCommonFlags, requestJsonWithAuth } from "./lib/auth";
 
-const USAGE = `Wingman delegated session management CLI
+import { parseCommandOptions, validateCommandArguments, ownerApiPath } from "./lib/command-options";
+
+const USAGE = `Wingman delegated session compatibility CLI (maintained session routes)
 
 Usage:
   bun clis/delegate-sessions.ts <command> [id] [options]
 
 Commands:
-  list                 List sessions for the owner linked to this bot
+  list                 List sessions in caller space or explicit --owner space
   create <agent-type>  Create a delegated session
   info <id>            Show session details
   read <id>            Read live session messages
@@ -23,11 +25,13 @@ Commands:
   stop <id>            Stop a session
 
 Options:
-  --url <url>          Wingman URL (env: WINGMAN_URL, default: http://localhost:3000)
+  --url <url>          Wingman URL (env: WINGMAN_URL, default: http://localhost:3600)
   --key <nsec|hex>     Operator-only Nostr private key (env: WINGMAN_NSEC)
   --name <name>        Session name (for create)
   --directory <path>   Working directory (for create)
-  --model <model>      Model override (accepted but currently unused by the route)
+  --bot-crypto         Use session capability broker
+  --owner <npub>       Select explicit delegated owner space
+  --model <model>      Model override (create)
   --metadata <json>    Session metadata JSON (for create)
   --json               Print raw JSON response
   -h, --help           Show help
@@ -76,36 +80,19 @@ function printMessages(messages: Array<Record<string, unknown>>) {
 }
 
 async function run() {
-  const { args, urlInput, keyInput, asJson, help } = parseCommonFlags(Bun.argv.slice(2));
+  const { args, urlInput, keyInput, asJson, help, botCrypto } = parseCommonFlags(Bun.argv.slice(2));
 
-  let name: string | undefined;
-  let directory: string | undefined;
-  let model: string | undefined;
+  const validated = parseCommandOptions(args, { "--name": "value", "--directory": "value", "--metadata": "value", "--model": "value", "--owner": "value" });
+  const positional = validated.positional;
+  const name = validated.options["--name"] as string | undefined;
+  const owner = validated.options["--owner"] as string | undefined;
+  const model = validated.options["--model"] as string | undefined;
+  const directory = validated.options["--directory"] as string | undefined;
   let metadata: Record<string, unknown> | undefined;
-  const positional: string[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const flag = args[i]!;
-    if (flag === "--name") {
-      name = args[++i];
-      if (!name) throw new Error("--name requires a value");
-    } else if (flag === "--directory") {
-      directory = args[++i];
-      if (!directory) throw new Error("--directory requires a value");
-    } else if (flag === "--model") {
-      model = args[++i];
-      if (!model) throw new Error("--model requires a value");
-    } else if (flag === "--metadata") {
-      const rawMetadata = args[++i];
-      if (!rawMetadata) throw new Error("--metadata requires a JSON value");
-      const parsed = JSON.parse(rawMetadata);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error("--metadata must be a JSON object");
-      }
-      metadata = parsed as Record<string, unknown>;
-    } else {
-      positional.push(flag);
-    }
+  if (validated.options["--metadata"]) {
+    const parsed = JSON.parse(String(validated.options["--metadata"]));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("--metadata must be a JSON object");
+    metadata = parsed;
   }
 
   const command = positional[0]?.toLowerCase() ?? "help";
@@ -114,15 +101,17 @@ async function run() {
     return;
   }
 
-  const baseUrl = resolveBaseUrl(urlInput);
-  const { secretKey } = buildConfig(urlInput, keyInput);
+  validateCommandArguments(command, positional, { list: 1, create: 2, info: 2, read: 2, logs: 2, send: 3, stop: 2 });
+  if (command !== "create" && Object.keys(validated.options).some(key => key !== "--owner")) throw new Error("Creation options require create");
+  const auth = buildAuthConfig(urlInput, keyInput, botCrypto);
   const req = <T>(method: string, path: string, body?: unknown) =>
-    requestJson<T>(baseUrl, secretKey, method, path, body);
+    requestJsonWithAuth<T>(auth, method, ownerApiPath(path, owner), body);
 
   switch (command) {
     case "list": {
-      const payload = await req<{ sessions?: Session[] }>("GET", "/api/delegate-sessions");
-      const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      const payload = await req<{ sessions?: Session[] }>("GET", "/api/sessions");
+      if (!Array.isArray(payload.sessions)) throw new Error("Invalid sessions response");
+      const sessions = payload.sessions;
       if (asJson) {
         console.log(JSON.stringify(sessions, null, 2));
       } else {
@@ -139,7 +128,7 @@ async function run() {
       if (directory) body.directory = directory;
       if (model) body.model = model;
       if (metadata) body.metadata = metadata;
-      const payload = await req<Record<string, unknown>>("POST", "/api/delegate-sessions", body);
+      const payload = await req<Record<string, unknown>>("POST", "/api/sessions", body);
       console.log(asJson ? JSON.stringify(payload, null, 2) : `Created delegated session: ${String(payload.id ?? "unknown")}`);
       break;
     }
@@ -147,7 +136,7 @@ async function run() {
     case "info": {
       const id = positional[1];
       if (!id) throw new Error("info requires <id>");
-      const payload = await req<Record<string, unknown>>("GET", `/api/delegate-sessions/${encodeURIComponent(id)}`);
+      const payload = await req<Record<string, unknown>>("GET", `/api/sessions/${encodeURIComponent(id)}`);
       console.log(JSON.stringify(payload, null, 2));
       break;
     }
@@ -158,7 +147,7 @@ async function run() {
       if (!id) throw new Error(`${command} requires <id>`);
       const payload = await req<{ messages?: Array<Record<string, unknown>> }>(
         "GET",
-        `/api/delegate-sessions/${encodeURIComponent(id)}/messages?refresh=true`,
+        `/api/sessions/${encodeURIComponent(id)}/messages?refresh=true`,
       );
       const messages = Array.isArray(payload.messages) ? payload.messages : [];
       if (asJson) {
@@ -176,7 +165,7 @@ async function run() {
       if (!message) throw new Error("send requires a message after the session id");
       const payload = await req<Record<string, unknown>>(
         "POST",
-        `/api/delegate-sessions/${encodeURIComponent(id)}/messages`,
+        `/api/sessions/${encodeURIComponent(id)}/messages`,
         { content: message },
       );
       console.log(asJson ? JSON.stringify(payload, null, 2) : `Sent to ${id}`);
@@ -186,7 +175,7 @@ async function run() {
     case "stop": {
       const id = positional[1];
       if (!id) throw new Error("stop requires <id>");
-      const payload = await req<Record<string, unknown>>("DELETE", `/api/delegate-sessions/${encodeURIComponent(id)}`);
+      const payload = await req<Record<string, unknown>>("DELETE", `/api/sessions/${encodeURIComponent(id)}`);
       console.log(asJson ? JSON.stringify(payload, null, 2) : `Stopped delegated session: ${id}`);
       break;
     }

@@ -83,6 +83,26 @@ describe("strict-inbox session MCP helper", () => {
     expect(requests.every((request) => request.headers.get("authorization")?.startsWith("Nostr "))).toBe(true);
   });
 
+  test("document reply keeps canonical visible and structured mentions through the actual helper", async () => {
+    const call = handlerFor();
+    const originalFetch = globalThis.fetch;
+    const requests: Request[] = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = new Request(input, init); requests.push(request);
+      return Response.json({ comment: { id: "reply" } });
+    }) as typeof fetch;
+    const npub = nip19.npubEncode("2".repeat(64));
+    try {
+      const response = await call({ action: "doc_reply", documentId: "doc-1", commentId: "root-1", body: "Reviewed", mentions: [{ type: "agent", npub, label: "Peer" }] });
+      expect(response.status).toBe(200);
+      const payload = await requests[0]!.json();
+      expect(payload).toMatchObject({ parent_comment_id: "root-1", body: `@[Peer](mention:agent:${npub}) Reviewed`, mentions: [{ type: "agent", npub, label: "Peer" }], metadata: { mentions: [{ type: "agent", npub, label: "Peer" }], source_session_id: "direct-1" } });
+      const rejected = await call({ action: "doc_reply", documentId: "doc-1", commentId: "root-1", body: "Reviewed", mentions: "invalid" });
+      expect(rejected.status).toBe(400);
+      expect(requests).toHaveLength(1);
+    } finally { globalThis.fetch = originalFetch; }
+  });
+
   test("record-sync and transport helpers are no longer refused locally for strict-inbox sessions", async () => {
     const call = handlerFor();
     for (const action of ["transport_request", "record_sync_request"]) {

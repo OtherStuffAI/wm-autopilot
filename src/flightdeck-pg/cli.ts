@@ -1,3 +1,6 @@
+import { usageText } from "./cli-help.ts";
+import { parseCliMentions, withCliMentions } from "./mentions.ts";
+import { parseFlightDeckOptions } from "./cli-options.ts";
 import { contextCliHelp, runContextCli } from "./context-cli.ts";
 import { FlightDeckPgResponseError } from "./response-error.ts";
 import { readFileSync } from 'node:fs';
@@ -30,7 +33,7 @@ export async function runFlightDeckPgCli(argv: string[], io: {
   fetchImpl?: typeof fetch;
 } = {}): Promise<FlightDeckPgCliResult> {
   try {
-    const parsed = parseFlags(argv);
+    const parsed = parseFlightDeckOptions(argv);
     if (!parsed.positionals.length || parsed.positionals[0] === "help" || parsed.flags.has("--help") ||
       (parsed.positionals[0] === "context-tree" && parsed.positionals[1] === "help")) {
       const stdout = parsed.positionals[0] === "context-tree" ? contextCliHelp : usageText();
@@ -38,6 +41,10 @@ export async function runFlightDeckPgCli(argv: string[], io: {
       return { exitCode: 0, stdout };
     }
     const flags = parsed.flags;
+    if (flags.has("--mentions-json") || (typeof flags.get("--body") === "string" && String(flags.get("--body")).match(/mention:(agent|person):/))) {
+      const message = withCliMentions(requiredFlag(flags, "--body", "body"), mentionsFlag(flags).mentions);
+      flags.set("--body", message.body);
+    }
     const keyInput = stringFlag(flags, '--key') ?? undefined;
     const sessionId = stringFlag(flags, '--session-id') ?? Bun.env.SESSION_ID ?? null;
     const wingmanUrl = stringFlag(flags, '--url') ?? Bun.env.WINGMAN_URL ?? null;
@@ -142,6 +149,10 @@ async function dispatchInboxSessionWrite(
   };
   const threadId = id ?? defaults.threadId ?? null;
   const taskId = id ?? defaults.taskId ?? null;
+  if (command === "chat create" || command === "thread create") {
+    return helper("chat_reply", { channelId: stringFlag(flags, "--channel") ?? defaults.channelId ?? null,
+      createThread: true, body: requiredFlag(flags, "--body", "body"), ...mentionsFlag(flags) });
+  }
   if (command === 'chat reply') {
     return helper('chat_reply', {
       channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, threadId: stringFlag(flags, '--thread') ?? defaults.threadId ?? null,
@@ -151,7 +162,7 @@ async function dispatchInboxSessionWrite(
   if (command === 'task comment') {
     return helper('task_comment', { taskId, body: requiredFlag(flags, '--body', 'body'), threadId: stringFlag(flags, '--thread') ?? null, ...mentionsFlag(flags) });
   }
-  if (command === 'doc reply') return helper('doc_reply', { documentId: requiredArg(id, 'doc id'), body: requiredFlag(flags, '--body', 'body'), commentId: stringFlag(flags, '--comment') ?? null });
+  if (command === 'doc reply') return helper('doc_reply', { documentId: requiredArg(id, 'doc id'), body: requiredFlag(flags, '--body', 'body'), commentId: stringFlag(flags, '--comment') ?? null, ...mentionsFlag(flags) });
   if (command === 'doc create') {
     return helper('doc_create', {
       channelId: stringFlag(flags, '--channel') ?? defaults.channelId ?? null, title: requiredFlag(flags, '--title', 'title'),
@@ -187,14 +198,8 @@ async function dispatchInboxSessionWrite(
 }
 
 /** `--mentions-json '[{"type":"agent","npub":"npub1…","label":"Name"}]'`: explicit structured mentions (validated by the helper). */
-function mentionsFlag(flags: FlagMap): { mentions?: unknown } {
-  const raw = stringFlag(flags, '--mentions-json');
-  if (!raw) return {};
-  try {
-    return { mentions: JSON.parse(raw) };
-  } catch {
-    throw new Error('--mentions-json must be a JSON array of {type, npub, label} mentions.');
-  }
+function mentionsFlag(flags: FlagMap) {
+  return { mentions: parseCliMentions(stringFlag(flags, "--mentions-json")) };
 }
 
 async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagMap, defaults: FlightDeckPgCliDefaults): Promise<unknown> {
@@ -214,9 +219,11 @@ async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagM
   if (area === 'scope' && action === 'show') return await client.showScope(workspaceId, requiredArg(id ?? defaults.scopeId, 'scope id'));
   if (area === 'channels' && action === 'list') return await client.listChannels(workspaceId, requiredValue(flags, defaults, '--scope', 'scope id'), limit);
   if (area === 'channel' && action === 'show') return await client.showChannel(workspaceId, requiredArg(id ?? defaults.channelId, 'channel id'));
-  if (area === 'threads' && action === 'list') return await client.listThreads(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), limit);
+  if (area === 'threads' && action === 'list') return await client.listThreads(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), limit, stringFlag(flags, '--cursor'));
   if (area === 'thread' && action === 'read') return await client.readThread(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), requiredArg(id ?? defaults.threadId, 'thread id'), limit);
-  if (area === 'chat' && action === 'reply') return await client.reply(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), requiredValue(flags, defaults, '--thread', 'thread id'), requiredFlag(flags, '--body', 'body'));
+  if (area === 'chat' && action === 'reply') return await client.reply(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), requiredValue(flags, defaults, '--thread', 'thread id'), requiredFlag(flags, '--body', 'body'), mentionsFlag(flags).mentions);
+  if ((area === "chat" || area === "thread") && action === "create") return client.reply(workspaceId, requiredValue(flags, defaults, "--channel", "channel id"), null, requiredFlag(flags, "--body", "body"), mentionsFlag(flags).mentions, true);
+  if (area === "thread" && action === "rename") return client.renameThread(workspaceId, requiredArg(id, "thread id"), requiredFlag(flags, "--title", "title"));
   if (area === 'tasks' && action === 'list') return await client.listTasks(workspaceId, {
     channelId: valueFromFlagOrDefault(flags, defaults, '--channel'),
     scopeId: valueFromFlagOrDefault(flags, defaults, '--scope'),
@@ -234,10 +241,10 @@ async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagM
   if (area === 'task' && action === 'patch') return await client.patchTask(workspaceId, requiredArg(id ?? defaults.taskId, 'task id'), readJsonFile(requiredFlag(flags, '--json-file', 'json file')));
   if (area === 'task' && action === 'move') return await client.moveTask(workspaceId, requiredArg(id ?? defaults.taskId, 'task id'), requiredFlag(flags, '--destination-channel', 'destination channel id'), stringFlag(flags, '--destination-scope'));
   if (area === 'task' && action === 'state') return await client.updateTaskState(workspaceId, requiredArg(id ?? defaults.taskId, 'task id'), requiredFlag(flags, '--state', 'state'));
-  if (area === 'task' && action === 'comments') return await client.listTaskComments(workspaceId, requiredArg(id ?? defaults.taskId, 'task id'), limit);
-  if (area === 'task' && action === 'comment') return await client.commentTask(workspaceId, requiredArg(id ?? defaults.taskId, 'task id'), requiredFlag(flags, '--body', 'body'), valueFromFlagOrDefault(flags, defaults, '--thread'));
+  if (area === 'task' && action === 'comments') return await client.listTaskComments(workspaceId, requiredArg(id ?? defaults.taskId, 'task id'), limit, stringFlag(flags, '--cursor'), flags.has('--all'));
+  if (area === 'task' && action === 'comment') return await client.commentTask(workspaceId, requiredArg(id ?? defaults.taskId, 'task id'), requiredFlag(flags, '--body', 'body'), valueFromFlagOrDefault(flags, defaults, '--thread'), mentionsFlag(flags).mentions);
   if (area === 'task' && action === 'assign') return await client.assignTask(workspaceId, requiredArg(id ?? defaults.taskId, 'task id'), requiredFlag(flags, '--agent', 'agent actor id'));
-  if (area === 'docs' && action === 'list') return await client.listDocs(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), limit);
+  if (area === 'docs' && action === 'list') return await client.listDocs(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), limit, stringFlag(flags, '--cursor'));
   if (area === 'doc' && action === 'create') return await client.createDoc(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), requiredFlag(flags, '--title', 'title'), readTextFile(requiredFlag(flags, '--body-file', 'body file')));
   if (area === 'doc' && action === 'show') return await client.showDoc(workspaceId, requiredArg(id, 'doc id'), flags.has('--body'));
   if (area === 'doc' && action === 'download') return await client.downloadDoc(workspaceId, requiredArg(id, 'doc ref'), requiredFlag(flags, '--out', 'output path'), {
@@ -253,9 +260,9 @@ async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagM
       row_version: Number(flags.get('--base-row-version')), base_version_id: String(flags.get('--base-version-id') ?? ''), base_body_sha256_hex: String(flags.get('--base-body-sha256-hex') ?? ''),
     } : undefined);
   if (area === 'doc' && action === 'move') return await client.moveDoc(workspaceId, requiredArg(id, 'doc id'), requiredFlag(flags, '--destination-channel', 'destination channel id'), stringFlag(flags, '--destination-scope'));
-  if (area === 'doc' && action === 'comments') return await client.listDocComments(workspaceId, requiredArg(id, 'doc id'), limit);
-  if (area === 'doc' && action === 'reply') return await client.replyDoc(workspaceId, requiredArg(id, 'doc id'), requiredFlag(flags, '--body', 'body'), stringFlag(flags, '--comment'));
-  if (area === 'files' && action === 'list') return await client.listFiles(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), limit);
+  if (area === 'doc' && action === 'comments') return await client.listDocComments(workspaceId, requiredArg(id, 'doc id'), limit, stringFlag(flags, '--cursor'), flags.has('--all'));
+  if (area === 'doc' && action === 'reply') return await client.replyDoc(workspaceId, requiredArg(id, 'doc id'), requiredFlag(flags, '--body', 'body'), stringFlag(flags, '--comment'), mentionsFlag(flags).mentions);
+  if (area === 'files' && action === 'list') return await client.listFiles(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), limit, stringFlag(flags, '--cursor'));
   if (area === 'file' && action === 'upload') return await client.uploadFile(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), requiredFlag(flags, '--path', 'path'), stringFlag(flags, '--content-type'));
   if (area === 'attachment' && ['blossom', 'publish', 'unpublish'].includes(action || '')) {
     if (action === 'publish' && !flags.has('--public')) throw new Error('--public is required to acknowledge anonymous downloading and copying.');
@@ -267,6 +274,7 @@ async function dispatch(client: FlightDeckPgClient, args: string[], flags: FlagM
     return await client.fileBlossom(workspaceId, requiredArg(id, 'file id'), action === 'blossom' ? 'status' : action as 'publish' | 'unpublish',
       action === 'blossom' ? undefined : requiredFlag(flags, '--version', 'selected file version id'));
   }
+  if (area === "file" && action === "download") return client.downloadFile(workspaceId, requiredArg(id, "file id"), requiredFlag(flags, "--out", "output path"));
   if (area === 'file' && action === 'show') return await client.showFile(workspaceId, requiredArg(id, 'file id'), flags.has('--object'));
   if (area === 'audio' && action === 'create') return await client.createAudio(workspaceId, requiredValue(flags, defaults, '--channel', 'channel id'), requiredFlag(flags, '--file', 'file'), stringFlag(flags, '--content-type'));
   if (area === 'reactions' && action === 'create') return await client.createReaction(workspaceId, requiredFlag(flags, '--target', 'target'), requiredFlag(flags, '--emoji', 'emoji'));
@@ -350,6 +358,10 @@ function commandUsesDispatchContext(args: string[]): boolean {
     'threads:list',
     'thread:read',
     'chat:reply',
+    'chat:create',
+    'thread:create',
+    'thread:rename',
+    'file:download',
     'tasks:list',
     'task:show',
     'task:create',
@@ -404,7 +416,7 @@ function hasAllRequiredDispatchFlags(args: string[], flags: FlagMap): boolean {
   if (['task:show', 'task:patch', 'task:move', 'task:state', 'task:comments', 'task:comment', 'task:assign'].includes(`${area}:${action}`)) return Boolean(id);
   if (['doc:download'].includes(`${area}:${action}`)) return Boolean(id);
   if (area === 'doc-download') return Boolean(action);
-  if (['task:create', 'doc:create', 'file:upload', 'audio:create'].includes(`${area}:${action}`)) return Boolean(stringFlag(flags, '--channel'));
+  if (['task:create', 'doc:create', 'file:upload', 'audio:create', 'chat:create', 'thread:create'].includes(`${area}:${action}`)) return Boolean(stringFlag(flags, '--channel'));
   if (['workroom:show', 'workroom:events', 'workroom:event', 'workroom:links', 'workroom:link', 'workroom:approval-request', 'workroom:production-merge-check', 'approval:show'].includes(`${area}:${action}`)) return Boolean(id);
   return true;
 }
@@ -425,26 +437,6 @@ function parseDispatchDefaults(context: Record<string, unknown>): FlightDeckPgCl
     scopeId: stringValue(routing.scopeId) ?? stringValue(workspace.scopeId),
     taskId: bindingType === 'task' ? bindingId : recordFamily === 'task' ? recordId : undefined,
   };
-}
-
-function parseFlags(argv: string[]): { positionals: string[]; flags: FlagMap } {
-  const flags: FlagMap = new Map();
-  const positionals: string[] = [];
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index] ?? '';
-    if (!arg.startsWith('--')) {
-      positionals.push(arg);
-      continue;
-    }
-    const next = argv[index + 1];
-    if (!next || next.startsWith('--')) {
-      flags.set(arg, true);
-      continue;
-    }
-    flags.set(arg, next);
-    index += 1;
-  }
-  return { positionals, flags };
 }
 
 function stringFlag(flags: FlagMap, name: string): string | null {
@@ -531,43 +523,4 @@ function serializeError(error: unknown): Record<string, unknown> {
     return { ok: false, error: error.message, missingRoute: error.routeGap };
   }
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
-}
-
-function usageText(): string {
-  return `${contextCliHelp}
-
-Wingman Flight Deck PG CLI
-
-Usage:
-  bun clis/wingman.ts flightdeck context --json
-  bun clis/wingman.ts flightdeck status --json
-  bun clis/wingman.ts flightdeck workspaces list --json
-  bun clis/wingman.ts flightdeck tasks list --workspace <workspace-id> --channel <channel-id> [--cursor <opaque-cursor>] [--limit 100] --json
-  bun clis/wingman.ts flightdeck task show <task-id> --workspace <workspace-id> --json
-  bun clis/wingman.ts flightdeck task comment <task-id> --workspace <workspace-id> --body "..." --json
-  bun clis/wingman.ts flightdeck task state <task-id> --workspace <workspace-id> --state in_progress --json
-  bun clis/wingman.ts flightdeck task move <task-id> --workspace <workspace-id> --destination-channel <channel-id> [--destination-scope <scope-id>] --json
-  bun clis/wingman.ts flightdeck thread read <thread-id> --workspace <workspace-id> --channel <channel-id> [--limit <page-size>] --json
-    Reads all effective transcript pages; --limit is page size (1–500, default 200), not a total cap.
-  bun clis/wingman.ts flightdeck chat reply --workspace <workspace-id> --channel <channel-id> --thread <thread-id> --body "..." --json
-    Strict-inbox sessions: chat reply / task comment accept --mentions-json '[{"type":"agent","npub":"npub1…","label":"Name"}]' (structured mentions route; visible tags alone do not).
-  bun clis/wingman.ts flightdeck doc create --workspace <workspace-id> --channel <channel-id> --title "..." --body-file file.md --json
-  bun clis/wingman.ts flightdeck doc download <doc-ref> --workspace <workspace-id> --out ./tmp/design.md --json
-  bun clis/wingman.ts flightdeck doc move <doc-id> --workspace <workspace-id> --destination-channel <channel-id> [--destination-scope <scope-id>] --json
-  bun clis/wingman.ts flightdeck attachment blossom <storage-id> --message <message-id> --workspace <workspace-id> --json
-  bun clis/wingman.ts flightdeck attachment publish <storage-id> --message <message-id> --public --workspace <workspace-id> --json
-  bun clis/wingman.ts flightdeck attachment unpublish <storage-id> --message <message-id> --workspace <workspace-id> --json
-  bun clis/wingman.ts flightdeck file blossom <file-id> --workspace <workspace-id> --json
-  bun clis/wingman.ts flightdeck file publish <file-id> --version <version-id> --public --workspace <workspace-id> --json
-  bun clis/wingman.ts flightdeck file unpublish <file-id> --version <version-id> --workspace <workspace-id> --json
-  bun clis/wingman.ts flightdeck file upload --workspace <workspace-id> --channel <channel-id> --path ./artifact.png --json
-  bun clis/wingman.ts flightdeck workroom show <workroom-id> --workspace <workspace-id> --json
-  bun clis/wingman.ts flightdeck workroom event <workroom-id> --workspace <workspace-id> --type pr_ready --title "PR ready" --json
-  bun clis/wingman.ts flightdeck workroom link <workroom-id> --workspace <workspace-id> --link-type pull_request --target-type pull_request --external-url https://github.com/org/repo/pull/1 --json
-  bun clis/wingman.ts flightdeck workroom approval-request <workroom-id> --workspace <workspace-id> --repo org/repo --to-branch deployed --commit abc123 --json
-
-Agent sessions automatically use the capability broker and hydrate omitted
-Tower, app, workspace, channel, thread, task, and scope values from dispatch
-context. Use --bot-crypto to require broker mode explicitly. --key and
-WINGMAN_NSEC are operator-only.`;
 }

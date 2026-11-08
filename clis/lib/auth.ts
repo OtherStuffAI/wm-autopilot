@@ -247,7 +247,7 @@ export function resolveCapabilityBrokerUrl(targetBaseUrl?: string): string {
 
 /**
  * Resolve the Wingman base URL from CLI flag or env.
- * Priority: urlInput arg → WINGMAN_URL → http://localhost:{PORT} → http://localhost:3000
+ * Priority: urlInput arg → WINGMAN_URL → http://localhost:{PORT} → http://localhost:3600
  */
 export function resolveBaseUrl(urlInput?: string): string {
   let url: string;
@@ -256,8 +256,8 @@ export function resolveBaseUrl(urlInput?: string): string {
   } else if (Bun.env.WINGMAN_URL) {
     url = Bun.env.WINGMAN_URL.replace(/\/$/, "");
   } else {
-    const port = Number.parseInt(Bun.env.PORT ?? "3000", 10);
-    const effectivePort = Number.isFinite(port) && port > 0 ? port : 3000;
+    const port = Number.parseInt(Bun.env.PORT ?? "3600", 10);
+    const effectivePort = Number.isFinite(port) && port > 0 ? port : 3600;
     url = `http://127.0.0.1:${effectivePort}`;
   }
   // Validate URL scheme to prevent SSRF via protocol smuggling

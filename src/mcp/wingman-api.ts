@@ -1636,18 +1636,22 @@ async function handleFlightDeckAction(
     if (!documentId) return jsonError("documentId is required", 400);
     if (!parentCommentId) return jsonError("commentId is required", 400);
     if (!replyBody) return jsonError("body is required", 400);
+    const mentioned = applyFlightDeckMentions(replyBody, body.mentions);
+    if ("error" in mentioned) return jsonError(mentioned.error, 400);
     try {
       const result = await createFlightDeckPgDocumentComment({
         ...pg,
         documentId,
         parentCommentId,
-        body: replyBody,
+        body: mentioned.body,
+        mentions: mentioned.metadata?.mentions,
         metadata: {
           autopilot_mcp_helper: true,
           source_session_id: sessionId,
           source_pipeline_run_id: resolved.runId,
           source_record_id: asString(resolved.record.recordId),
           ...asObject(body.metadata),
+          ...(mentioned.metadata ?? {}),
         },
       });
       deps.documentDirectStore?.recordCallback({ sessionId, kind: 'document_comment_reply', documentId, commentId: parentCommentId, state: 'succeeded' });
