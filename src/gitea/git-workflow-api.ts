@@ -22,7 +22,7 @@ import {
   mergeBranch,
   getMergeReport,
 } from "./git-workflow-ops";
-import { runPushGuard } from "./push-guard";
+import { PushReviewError, runPushGuard } from "./push-guard";
 import { parseBody, jsonError } from "../utils/request-utils";
 
 // ---------------------------------------------------------------------------
@@ -195,6 +195,7 @@ export function createGitWorkflowApiHandler(deps: GitWorkflowApiDependencies) {
 
       return jsonError("Not found", 404);
     } catch (err) {
+      if (err instanceof PushReviewError) return jsonError(err.message, 400);
       console.error("[git-workflow-api] Error:", err);
       return jsonError((err as Error).message, 500);
     }
@@ -390,18 +391,21 @@ async function handlePush(
   const ctx = resolveSessionContext(deps, sessionId);
   if (ctx instanceof Response) return ctx;
 
-  const guard = await runPushGuard(ctx.directory);
+  const requestedBranch = typeof body.branch === "string" ? body.branch.trim() : "";
+  const branch = requestedBranch || await resolveCurrentBranch(ctx.directory);
+  if (!branch) {
+    return jsonError("Unable to determine the current branch", 400);
+  }
+
+  const guard = await runPushGuard(ctx.directory, {
+    reviewedLargeFiles: body.reviewedLargeFiles as boolean | undefined,
+    reviewReason: body.reviewReason as string | undefined,
+  }, `refs/heads/${branch}`);
   if (!guard.allowed) {
     return Response.json(
       { error: "Push blocked by safety guard", issues: guard.issues },
       { status: 400 },
     );
-  }
-
-  const requestedBranch = typeof body.branch === "string" ? body.branch.trim() : "";
-  const branch = requestedBranch || await resolveCurrentBranch(ctx.directory);
-  if (!branch) {
-    return jsonError("Unable to determine the current branch", 400);
   }
 
   const remote = await resolvePreferredPushRemote(ctx.directory, branch);

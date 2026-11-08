@@ -13,6 +13,8 @@
 import { z } from "zod";
 
 export const gitPushSchema = {
+  reviewedLargeFiles: z.boolean().optional().describe("Explicit acknowledgement that oversized files have been reviewed; overrides file size only."),
+  reviewReason: z.string().min(1).optional().describe("Reviewer and reason required with reviewedLargeFiles=true."),
   branch: z
     .string()
     .optional()
@@ -24,6 +26,8 @@ export const gitPushDescription =
   "Uses Wingman's host-scoped credential helpers for GitHub HTTPS and Gitea remotes.";
 
 interface GitPushParams {
+  reviewedLargeFiles?: boolean;
+  reviewReason?: string;
   branch?: string;
 }
 
@@ -95,13 +99,7 @@ function formatPushGuardMessage(guard: PushGuardResponse): string {
           lines.push(`  - ${f}`);
         }
       }
-      lines.push(
-        "\n**To fix:**",
-        "1. Add large files to `.gitignore`",
-        "2. Untrack them: `git rm --cached <path>`",
-        "3. Consider using Git LFS for large binary files",
-        "4. Commit and retry the push\n",
-      );
+      lines.push("\nReview the oversized files and complete diff. Follow the server guidance above; other guard categories remain blocking.");
     } else {
       // Unknown category — show raw
       lines.push(`### ${issue.category}\n`, issue.message);
@@ -152,6 +150,8 @@ export async function handleGitPush(
       body: JSON.stringify({
         sessionId,
         branch: params.branch,
+        reviewedLargeFiles: params.reviewedLargeFiles,
+        reviewReason: params.reviewReason,
       }),
     });
 

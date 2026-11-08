@@ -8,6 +8,8 @@
  * Used by both the HTTP API (gitea-api.ts) and MCP tool (git-push.ts).
  */
 
+import { guardedCommitAndPush } from "./guarded-push";
+import type { PushReview } from "./push-guard";
 import { ensureCredentialHelper, getGiteaGitEnv } from "./credential-helper";
 import { repoExists, createRepo, isGiteaConfigured, type GiteaConfig } from "./gitea-client";
 import { deriveRepoName } from "./name-generator";
@@ -252,24 +254,17 @@ export async function setGiteaRemote(opts: {
  * Push the current (or specified) branch to the "gitea" remote.
  */
 export async function pushToGitea(opts: {
+  review?: PushReview;
   directory: string;
   opConfig: GiteaOperationConfig;
   branch?: string;
 }): Promise<GiteaOperationResult> {
   const { directory, opConfig } = opts;
-  const branch = opts.branch || await getCurrentBranch(directory, opConfig);
-
-  const result = await runGiteaGit(
-    ["push", "gitea", branch],
-    directory,
-    opConfig,
-  );
-
-  return {
-    success: result.exitCode === 0,
-    stdout: result.stdout,
-    stderr: result.stderr,
-  };
+  const result = await guardedCommitAndPush({
+    directory, remote: "gitea", branch: opts.branch || await getCurrentBranch(directory, opConfig),
+    review: opts.review, run: (args) => runGiteaGit(args, directory, opConfig),
+  });
+  return { success: result.exitCode === 0, stdout: result.stdout, stderr: result.stderr };
 }
 
 /**
@@ -300,56 +295,17 @@ export async function pullFromGitea(opts: {
  * Stage all changes, commit with a message, and push to "gitea" remote.
  */
 export async function commitAndPushToGitea(opts: {
+  review?: PushReview;
   directory: string;
   opConfig: GiteaOperationConfig;
   message?: string;
 }): Promise<GiteaOperationResult> {
   const { directory, opConfig } = opts;
-  const commitMessage = opts.message || "updates";
-
-  // Make sure this directory has its own git repo — not a parent's
   await ensureGitRepo(directory, opConfig);
-
-  // Stage all changes
-  const add = await runGiteaGit(["add", "."], directory, opConfig);
-  if (add.exitCode !== 0) {
-    return { success: false, stdout: add.stdout, stderr: `git add failed: ${add.stderr}` };
-  }
-
-  // Check if there's anything to commit
-  const status = await runGiteaGit(["status", "--porcelain"], directory, opConfig);
-  if (status.stdout.length === 0) {
-    // Nothing to commit — just push
-    const branch = await getCurrentBranch(directory, opConfig);
-    const push = await runGiteaGit(["push", "gitea", branch], directory, opConfig);
-    return {
-      success: push.exitCode === 0,
-      stdout: "Nothing to commit. " + push.stdout,
-      stderr: push.stderr,
-    };
-  }
-
-  // Commit
-  const commit = await runGiteaGit(
-    ["commit", "-m", commitMessage],
-    directory,
-    opConfig,
-  );
-  if (commit.exitCode !== 0) {
-    return { success: false, stdout: commit.stdout, stderr: `git commit failed: ${commit.stderr}` };
-  }
-
-  // Push
-  const branch = await getCurrentBranch(directory, opConfig);
-  const push = await runGiteaGit(
-    ["push", "gitea", branch],
-    directory,
-    opConfig,
-  );
-
-  return {
-    success: push.exitCode === 0,
-    stdout: [commit.stdout, push.stdout].filter(Boolean).join("\n"),
-    stderr: push.stderr,
-  };
+  const result = await guardedCommitAndPush({
+    directory, remote: "gitea", branch: await getCurrentBranch(directory, opConfig),
+    message: opts.message, commit: true, review: opts.review,
+    run: (args) => runGiteaGit(args, directory, opConfig),
+  });
+  return { success: result.exitCode === 0, stdout: result.stdout, stderr: result.stderr };
 }

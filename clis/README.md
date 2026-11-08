@@ -175,3 +175,37 @@ bun clis/scheduler.ts runs <job-id>
 ### Explicit prompt delivery recovery
 
 `bun clis/wingman.ts session queue reconcile <item-id> --revision <read-revision> --claim-token <read-token> --resolution accepted|retry --reason <evidence>` uses exact current-session broker authority. `accepted` records verified acceptance without sending; `retry` explicitly permits another delivery and may duplicate possibly accepted work. Stale versions/tokens and active sends conflict. See [queue delivery and retention contract](../docs/session-prompt-queue.md). No automatic timeout replay or raw-key fallback.
+
+### Reviewed Git publication
+
+Run the current source without restarting Autopilot:
+
+```bash
+bun clis/git-push.ts commit-and-push --directory /path/to/repo --remote origin --branch main --message "fix: describe change"
+```
+
+The default command stages all nonignored changes and blocks oversized committed files.
+Review the full diff and the listed oversized files before deliberately accepting size:
+
+```bash
+bun clis/git-push.ts reviewed-commit-and-push --directory /path/to/repo --remote origin --branch main --message "fix: describe change" --acknowledge-large-files --review-reason "Reviewer: why these files belong in Git"
+```
+
+Both review flags are required. This overrides only the 5 MB size block; dangerous
+tracked file patterns and a missing committed `.gitignore` remain blocking. The
+command checks the staged tree, commits only when needed, checks the final commit
+again after hooks, prints accepted oversized paths and the reason, and pushes that
+exact commit to the named branch. Commit failure prevents push. No force push or
+history rewriting is performed. A block can leave changes staged for inspection.
+The `push` subcommand pushes existing committed content with normal checks.
+
+Git inherits the caller's existing credentials, including Wingman's host-scoped
+`GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_*` / `GIT_CONFIG_VALUE_*` credential helpers
+and their broker environment. Existing configured Git/SSH credentials also work.
+Run from the authorized session environment; do not copy tokens into arguments,
+remote URLs, or documentation. Interactive credential prompts are disabled.
+
+API push requests and MCP `git_push` accept `reviewedLargeFiles: true` with a
+nonempty `reviewReason`. These server/MCP changes require an explicitly approved
+Autopilot host restart; a source checkout update alone does not activate them.
+The CLI above runs fresh source immediately and does not restart the host.

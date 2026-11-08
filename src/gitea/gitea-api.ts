@@ -20,7 +20,8 @@ import {
   type GiteaOperationConfig,
 } from "./gitea-operations";
 import { resolveGiteaCredentials } from "./gitea-user-manager";
-import { runPushGuard } from "./push-guard";
+import { PushReviewError } from "./push-guard";
+import { PushGuardError } from "./guarded-push";
 import { browserSubscribers } from "../mcp/browser-subscribers";
 import { parseBody, jsonError } from "../utils/request-utils";
 
@@ -122,10 +123,23 @@ export function createGiteaApiHandler(deps: GiteaApiDependencies) {
 
       return jsonError("Not found", 404);
     } catch (err) {
+      if (err instanceof PushReviewError) return jsonError(err.message, 400);
+      if (err instanceof PushGuardError) return Response.json({ error: "Push blocked by safety guard", issues: err.guard.issues }, { status: 400 });
       console.error("[gitea-api] Error:", err);
       return jsonError((err as Error).message, 500);
     }
   };
+}
+
+async function notifyPushBlock<T>(npub: string | null | undefined, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof PushGuardError && npub) {
+      browserSubscribers.send(npub, { type: "pushguard:blocked", issues: error.guard.issues });
+    }
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,28 +200,12 @@ async function handlePush(
   const ctx = resolveSessionContext(deps, sessionId);
   if (ctx instanceof Response) return ctx;
 
-  // Run push safety guard
-  const guard = await runPushGuard(ctx.directory);
-  if (!guard.allowed) {
-    // Notify browser via SSE so the user sees why
-    const session = deps.getSession(sessionId);
-    if (session?.npub) {
-      browserSubscribers.send(session.npub, {
-        type: "pushguard:blocked",
-        issues: guard.issues,
-      });
-    }
-    return Response.json(
-      { error: "Push blocked by safety guard", issues: guard.issues },
-      { status: 400 },
-    );
-  }
-
-  const result = await pushToGitea({
+  const result = await notifyPushBlock(deps.getSession(sessionId)?.npub, () => pushToGitea({
     directory: ctx.directory,
     opConfig: ctx.opConfig,
+    review: { reviewedLargeFiles: body.reviewedLargeFiles as boolean | undefined, reviewReason: body.reviewReason as string | undefined },
     branch: body.branch as string | undefined,
-  });
+  }));
 
   if (!result.success) {
     return jsonError(result.stderr || "Push failed", 500);
@@ -267,28 +265,12 @@ async function handleCommitAndPush(
   const ctx = resolveSessionContext(deps, sessionId);
   if (ctx instanceof Response) return ctx;
 
-  // Run push safety guard
-  const guard = await runPushGuard(ctx.directory);
-  if (!guard.allowed) {
-    // Notify browser via SSE so the user sees why
-    const session = deps.getSession(sessionId);
-    if (session?.npub) {
-      browserSubscribers.send(session.npub, {
-        type: "pushguard:blocked",
-        issues: guard.issues,
-      });
-    }
-    return Response.json(
-      { error: "Push blocked by safety guard", issues: guard.issues },
-      { status: 400 },
-    );
-  }
-
-  const result = await commitAndPushToGitea({
+  const result = await notifyPushBlock(deps.getSession(sessionId)?.npub, () => commitAndPushToGitea({
     directory: ctx.directory,
     opConfig: ctx.opConfig,
+    review: { reviewedLargeFiles: body.reviewedLargeFiles as boolean | undefined, reviewReason: body.reviewReason as string | undefined },
     message: body.message as string | undefined,
-  });
+  }));
 
   if (!result.success) {
     return jsonError(result.stderr || "Commit and push failed", 500);
