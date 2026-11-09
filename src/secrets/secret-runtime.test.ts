@@ -102,9 +102,9 @@ function brokerFixture() {
   const broker = new CapabilityBroker({ importedSecrets: secrets, getSession: id => id === live.id ? live : null,
     botKeyStore: { getActiveKeyForUser: () => record, getActiveKeyForBotNpub: npub => npub === bot ? record : null }, keyVault: { withKey: async (_record, operation) => operation(botKey) } });
   const issued = broker.issueSessionCapability({ sessionId: live.id, ownerNpub: owner, profileId: "profile-one", botNpub: bot, policy: { operations: ["identity.read"] } as never });
-  const call = (body: Record<string, unknown>, token = issued.token) => broker.handle(new Request("http://localhost/api/mcp/capabilities/secrets", {
+  const call = (body: Record<string, unknown>, token = issued.token, route = "secrets") => broker.handle(new Request(`http://localhost/api/mcp/capabilities/${route}`, {
     method: "POST", headers: { authorization: `Bearer ${token}`, "x-wingman-capability-nonce": crypto.randomUUID(), "content-type": "application/json" }, body: JSON.stringify({ sessionId: live.id, ...body }),
-  }), new URL("http://localhost/api/mcp/capabilities/secrets"), "POST");
+  }), new URL(`http://localhost/api/mcp/capabilities/${route}`), "POST");
   return { broker, live, call };
 }
 test("broker enforces bound bot/session, signing-only denial and revocation", async () => {
@@ -169,4 +169,21 @@ test("all-kind imported signing works through bound pipeline and session without
   expect((await call({ credentialRef: secret.id, operation: "sign", event: request }))!.status).toBe(403);
   secrets.revoke(owner, "local", secret.id, secret.revision);
   await expect(executeSecretPipelineFunction("secrets.signNostr", { credentialRef: secret.id, event: request }, pipelines, run.id)).rejects.toThrow("secret_use_denied");
+});
+
+test("broker configures a provider reference without credential export or asserted bindings", async () => {
+  const secret = secrets.create(owner, "local", { label: "provider", type: "secret", value: "synthetic-provider-only", policy });
+  const { call, live, broker } = brokerFixture();
+  const input = { operation: "configure", credentialRef: secret.id, models: ["kimi-k3-1-pro"], revision: 0, enabled: true };
+  const response = (await call(input, undefined, "model-provider"))!;
+  expect(response.status).toBe(200);
+  const text = await response.text();
+  expect(text).toContain(secret.id); expect(text).not.toContain("synthetic-provider-only");
+  expect(secrets.get(owner, "local", secret.id).policy.allowExport).toBe(false);
+  expect((await call({ operation: "status", workspaceId: "other" }, undefined, "model-provider"))!.status).toBe(403);
+  live.metadata!.agentChatBotNpub = owner;
+  expect((await call({ operation: "status" }, undefined, "model-provider"))!.status).toBe(403);
+  live.metadata!.agentChatBotNpub = bot;
+  broker.revokeSession(live.id);
+  expect((await call({ operation: "status" }, undefined, "model-provider"))!.status).toBe(403);
 });

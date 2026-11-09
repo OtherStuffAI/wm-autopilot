@@ -4,6 +4,8 @@ import {
 } from "../agents/acp-permission-policy";
 
 export interface SessionMetadata {
+  modelProvider?: "tinfoil";
+  modelProviderWorkspaceId?: string;
   AGENT: boolean;
   billingMode: "subscription" | "credits";
   /** Transport selected at session creation/rehydration; never changed in place. */
@@ -240,6 +242,8 @@ export const normaliseSessionMetadata = (
     : undefined;
 
   return {
+    modelProvider: metadata?.modelProvider === "tinfoil" ? "tinfoil" : undefined,
+    modelProviderWorkspaceId: cleanString(metadata?.modelProviderWorkspaceId) || undefined,
     AGENT: Boolean(metadata?.AGENT),
     billingMode: metadata?.billingMode === "credits" ? "credits" : "subscription",
     agentTransport: typeof metadata?.agentTransport === "string" && AGENT_TRANSPORTS.has(metadata.agentTransport)

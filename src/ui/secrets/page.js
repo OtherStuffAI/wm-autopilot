@@ -1,3 +1,4 @@
+import { modelProviderPanel } from "./model-provider.js";
 import Alpine from "/vendor/alpinejs/module.esm.js";
 import { Dexie, secretsDb } from "./db.js";
 import { saveSecret, snapshotId, syncSecrets, revokeSecret, syncSecretAudit, registerHostedSiteGrant, revokeHostedSiteGrant, syncHostedSiteGrantAudit } from "./service.js";
@@ -75,6 +76,7 @@ export function createSecretsPage({ ownerNpub } = {}) {
   }
   host.renderSecretSnapshot = snapshot => {
     listing.replaceChildren();
+    listing.append(modelProviderPanel(snapshot, { ownerNpub, workspace, refresh: () => host.secretSync(), onError: host.secretError, setEditing: value => { editing = value; } }));
     const oldSelector = toolbar.querySelector("label"); oldSelector?.remove();
     const picker = select(snapshot.inventory.workspaces.map(row => [row.id, row.label]), workspace);
     picker.disabled = editing;

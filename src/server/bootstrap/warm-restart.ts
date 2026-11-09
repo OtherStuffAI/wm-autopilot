@@ -150,6 +150,12 @@ export const rehydrateWarmSessions = async (
       continue;
     }
 
+    if (record.metadata?.modelProvider === "tinfoil") {
+      console.warn(`[restart] Tinfoil session ${record.id} requires restart-and-resume replacement to renew provider credentials; transcript retained`);
+      failed.push(record.id);
+      continue;
+    }
+
     const port = typeof record.port === "number" && Number.isFinite(record.port) ? record.port : null;
     if (!port) {
       failed.push(record.id);
@@ -199,6 +205,7 @@ export const rehydrateWarmSessions = async (
     const snapshot = manager.rehydrateSession({
       id: record.id,
       agent: agentName as AgentType,
+      model: record.model ?? undefined,
       port,
       name: record.name ?? record.id,
       startedAt: record.startedAt,
@@ -228,6 +235,7 @@ export const rehydrateWarmSessions = async (
     store.recordSession({
       id: snapshot.id,
       agent: snapshot.agent,
+      model: snapshot.model,
       startedAt: snapshot.startedAt,
       name: snapshot.name,
       npub: snapshot.npub,

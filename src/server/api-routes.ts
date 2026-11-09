@@ -1,3 +1,4 @@
+import { handleModelProviderRoutes } from "../model-providers/provider-routes";
 import { handleWappRemoteStorageRoute } from "./wapp-remote-storage-route";
 import { createApiRequestAuth } from "./api-request-auth";
 import { handleSecretRoutes, type SecretRoutesContext } from "../secrets/secret-routes";
@@ -450,6 +451,8 @@ function createResolvedApiRouteHandler(ctx: ApiRoutesContext) {
     }
 
     if (ctx.secretRoutesContext) {
+      const providerResponse = await handleModelProviderRoutes(request, url, authContext, ctx.secretRoutesContext);
+      if (providerResponse) return providerResponse;
       const response = await handleSecretRoutes(request, url, authContext, ctx.secretRoutesContext);
       if (response) return response;
     }

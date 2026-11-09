@@ -32,12 +32,14 @@ export function revokeSecret(workspace, id, revision) {
 
 export function snapshotId(ownerNpub, workspace) { return `${ownerNpub}:${workspace}`; }
 export async function syncSecrets(ownerNpub, workspace = "local") {
-  const [inventory, payload, hosted] = await Promise.all([loadSecretInventory(), loadSecrets(workspace),
-    loadHostedSiteGrants(workspace)]);
+  const [inventory, payload, hosted, provider] = await Promise.all([loadSecretInventory(), loadSecrets(workspace),
+    loadHostedSiteGrants(workspace), loadModelProvider(workspace)]);
   if (!Array.isArray(payload.secrets) || !Array.isArray(inventory.workspaces)
     || !Array.isArray(inventory.identities) || !Array.isArray(inventory.pipelines) || !Array.isArray(hosted.grants)) throw new Error("Invalid secrets metadata response");
   const previous = await secretsDb.snapshots.get(snapshotId(ownerNpub, workspace));
   await secretsDb.snapshots.put({ id: snapshotId(ownerNpub, workspace), ownerNpub, workspace,
+    modelProviderAvailable: provider.available, modelProvider: provider.connection,
+    modelProviderTest: previous?.modelProviderTest || null,
     hostedSiteGrantAvailable: hosted.available,
     hostedSiteGrants: hosted.grants.map(hostedSiteGrantMetadata),
     hostedSiteGrantAudit: previous?.hostedSiteGrantAudit || [],
@@ -79,4 +81,27 @@ export async function syncSecretAudit(ownerNpub, workspace, id) {
   if (!Array.isArray(payload.audit)) throw new Error("Invalid audit response");
   await secretsDb.snapshots.update(snapshotId(ownerNpub, workspace), { auditId: id,
     audit: payload.audit.map(({ at, operation, identity, context, contextId, outcome }) => ({ at, operation, identity, context, contextId, outcome })) });
+}
+
+async function loadModelProvider(workspace) {
+  try { const result = await request(`/api/model-providers/tinfoil?workspace=${encodeURIComponent(workspace)}`); return { available: true, connection: providerMetadata(result.connection) }; }
+  catch (error) { if (error.status === 404) return { available: false, connection: null }; throw error; }
+}
+function providerMetadata(value) {
+  if (!value) return null;
+  const { provider, credentialRef, models, enabled, revision, updatedAt } = value;
+  if (provider !== "tinfoil" || typeof credentialRef !== "string" || !Array.isArray(models) || models.some(model => typeof model !== "string") || typeof revision !== "number") throw new Error("Invalid provider metadata");
+  return { provider, credentialRef, models, enabled: enabled === true, revision, updatedAt };
+}
+export async function saveModelProvider(ownerNpub, workspace, payload) {
+  const result = await request(`/api/model-providers/tinfoil?workspace=${encodeURIComponent(workspace)}`, {
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+  });
+  await secretsDb.snapshots.update(snapshotId(ownerNpub, workspace), { modelProvider: providerMetadata(result.connection), modelProviderTest: null });
+}
+export async function testModelProvider(ownerNpub, workspace, identityNpub) {
+  const result = await request(`/api/model-providers/tinfoil/test?workspace=${encodeURIComponent(workspace)}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ identityNpub }),
+  });
+  await secretsDb.snapshots.update(snapshotId(ownerNpub, workspace), { modelProviderTest: { connected: result.connected === true, model: String(result.model), toolCalling: result.toolCalling === true } });
 }

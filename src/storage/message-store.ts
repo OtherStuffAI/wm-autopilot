@@ -74,7 +74,7 @@ export interface SessionRecordInput {
   command?: string[];
   runtimeStatus?: AgentRuntimeStatus | null;
   origin?: SessionOrigin | null;
-  /** Model used for private chat sessions (agent='chat') */
+  /** Selected inference model for chat and agent sessions. */
   model?: string;
   /** Target file for writer-mode sessions */
   targetFile?: string;
@@ -100,7 +100,7 @@ export interface StoredSessionRecord {
   command: string | null;
   runtimeStatus: AgentRuntimeStatus | null;
   origin: SessionOrigin | null;
-  /** Model used for private chat sessions (agent='chat') */
+  /** Selected inference model for chat and agent sessions. */
   model: string | null;
   /** Target file for writer-mode sessions */
   targetFile: string | null;

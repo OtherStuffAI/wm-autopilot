@@ -28,6 +28,12 @@ export function createModelsSettingsSection(options = {}) {
   section.className = 'wm-card wm-model-settings';
   section.dataset.testid = 'models-settings-section';
 
+  const providerSetup = document.createElement('a');
+  providerSetup.href = '/secrets';
+  providerSetup.textContent = 'Configure Tinfoil with a saved credential in Secrets';
+  providerSetup.setAttribute('aria-label', 'Configure Tinfoil model provider');
+  providerSetup.dataset.testid = 'models-tinfoil-settings';
+
   const heading = document.createElement('h2');
   heading.textContent = 'OpenRouter launch order';
   const description = document.createElement('p');
@@ -257,7 +263,7 @@ export function createModelsSettingsSection(options = {}) {
     }
   }
 
-  section.append(heading, description, provider, source, form);
+  section.append(heading, description, provider, source, form, providerSetup);
   void load();
   return section;
 }

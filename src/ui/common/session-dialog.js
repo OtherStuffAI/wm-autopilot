@@ -1,3 +1,4 @@
+import { createModelProviderLaunch } from "./model-provider-launch.js";
 import { buildSessionLaunchMetadata } from "./session-launch-metadata.js";
 import { createLaunchProviderApprovalController } from "../sessions/provider-approval-control.js";
 import { showDialogElement } from "./dialog-element.js";
@@ -222,6 +223,8 @@ export const createSessionDialogController = (options) => {
     panel: advancedPanel, getConfig, agentSelect, transportSelect: codexTransportSelect,
   });
 
+  const modelProvider = createModelProviderLaunch({ modelSelect, agentSelect, onChange: () => updateModelOptions() });
+
   const collectValues = () => {
     const agentId = agentSelect?.value ?? "";
     const workingDirectory = directoryInput?.value ?? "";
@@ -236,10 +239,12 @@ export const createSessionDialogController = (options) => {
     const acpPermissionPolicy = acpPermissionPolicySelect?.value?.trim() || "";
     const nextAction = nextActionSelect?.value?.trim() || "";
     const nextActionTemplate = nextActionTemplateInput?.value?.trim() || "";
-    const metadata = buildSessionLaunchMetadata({
+    const launchMetadata = buildSessionLaunchMetadata({
       goal, acpPermissionPolicy, agentId, transport: codexTransportSelect?.value,
       nextAction, nextActionTemplate, providerApprovalPolicy: providerApprovals.getPolicy(),
     });
+    const providerMetadata = modelProvider?.metadata() || {};
+    const metadata = Object.keys(providerMetadata).length ? { ...launchMetadata, ...providerMetadata } : launchMetadata;
     const writerMode = writerModeCheckbox?.checked ?? false;
     const targetFile = writerMode ? (targetFileInput?.value?.trim() || null) : null;
     return {
@@ -255,10 +260,12 @@ export const createSessionDialogController = (options) => {
 
   const updateModelOptions = () => {
     providerApprovals.sync();
+    modelProvider?.sync();
     if (codexTransportField) codexTransportField.hidden = agentSelect?.value !== "codex";
     if (!modelSelect) return;
     const agentId = (agentSelect?.value ?? "").trim().toLowerCase();
-    const availableModels = getModelOptionsForAgent(getConfig?.(), agentId);
+    const fallbackModels = getModelOptionsForAgent(getConfig?.(), agentId);
+    const availableModels = modelProvider?.models(fallbackModels) ?? fallbackModels;
     const current = (modelSelect.value ?? "").trim();
     const nextValue = availableModels.includes(current) ? current : (availableModels[0] ?? "");
 

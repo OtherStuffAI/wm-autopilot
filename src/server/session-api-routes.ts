@@ -1,3 +1,4 @@
+import { sessionRecord } from "../sessions/session-record";
 import { handleSessionHistory } from "./session-history-response";
 import { sessionMessageResponse } from "./session-message-response";
 import { handleQueueRoutes } from "./session-queue-routes";
@@ -263,25 +264,7 @@ const persistLiveSessionRecord = (
   ctx: SessionApiContext,
   session: SessionSnapshot,
 ): void => {
-  ctx.messageStore.recordSession({
-    id: session.id,
-    agent: session.agent,
-    startedAt: session.startedAt,
-    name: session.name,
-    npub: session.npub,
-    port: session.port,
-    pid: session.pid,
-    workingDirectory: session.workingDirectory,
-    command: session.command,
-    runtimeStatus: session.agentRuntimeStatus ?? null,
-    origin: session.origin ?? null,
-    pm2Name: session.pm2Name,
-    tmuxSession: session.tmuxSession,
-    tmuxWindow: session.tmuxWindow,
-    targetFile: session.targetFile,
-    tabOrder: session.tabOrder ?? null,
-    metadata: session.metadata,
-  });
+  ctx.messageStore.recordSession(sessionRecord(session));
 };
 
 async function createNativeResumeSession(
@@ -310,6 +293,7 @@ async function createNativeResumeSession(
     undefined,
     launch.ownerNpub,
     launch.metadata,
+    source.model || undefined,
   );
   await recordLiveSession(ctx, session);
   return Response.json({
@@ -1521,6 +1505,7 @@ export async function handleSessionApi(
           ctx.messageStore.recordSession({
             id: updated.id,
             agent: updated.agent,
+            model: updated.model,
             startedAt: updated.startedAt,
             name: updated.name ?? undefined,
             npub: updated.npub ?? undefined,
@@ -2021,6 +2006,7 @@ export async function handleSessionApi(
           ctx.messageStore.recordSession({
             id: updated.id,
             agent: updated.agent,
+            model: updated.model,
             startedAt: updated.startedAt,
             name: updated.name ?? undefined,
             npub: updated.npub ?? undefined,
@@ -2755,6 +2741,7 @@ async function handleForkToWorktree(
     ctx.messageStore.recordSession({
       id: newSession.id,
       agent: newSession.agent,
+      model: newSession.model,
       startedAt: newSession.startedAt,
       name: newSession.name,
       npub: newSession.npub,

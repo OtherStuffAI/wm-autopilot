@@ -1,3 +1,4 @@
+import { tinfoilRunnerEnvironment } from "../model-providers/runner-config";
 import { sessionApprovalEnabled, sessionApprovalConfigured, notifySessionApprovalChanges } from "./session-approval-policy";
 import { buildClaudeAdapterContext } from "./claude-adapter-context";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -268,6 +269,7 @@ export type RecordAdapterUsage = (data: {
 }) => Promise<void>;
 
 export interface ProcessManagerOptions {
+  resolveModelProvider?: (input: { sessionId: string; ownerNpub: string; botNpub: string; workspaceId: string; model: string }) => { baseUrl: string; token: string };
   resolveBillingLaunchConfig?: (input: BillingLaunchInput) => Promise<BillingLaunchResult>;
   recordAdapterUsage?: RecordAdapterUsage;
   isAdminNpub?: (npub: string | null | undefined) => boolean;
@@ -498,6 +500,7 @@ export class ProcessManager {
   private readonly resolveBillingLaunchConfig?: (input: BillingLaunchInput) => Promise<BillingLaunchResult>;
   private readonly recordAdapterUsage?: RecordAdapterUsage;
   private readonly isAdminNpub?: ProcessManagerOptions["isAdminNpub"];
+  private readonly resolveModelProvider?: ProcessManagerOptions["resolveModelProvider"];
   private readonly issueSessionCapability?: ProcessManagerOptions["issueSessionCapability"];
   private readonly revokeSessionCapabilities?: ProcessManagerOptions["revokeSessionCapabilities"];
   private readonly resolveTowerGitGatewayOrigins?: ProcessManagerOptions["resolveTowerGitGatewayOrigins"];
@@ -515,6 +518,7 @@ export class ProcessManager {
     this.resolveBillingLaunchConfig = options.resolveBillingLaunchConfig;
     this.recordAdapterUsage = options.recordAdapterUsage;
     this.isAdminNpub = options.isAdminNpub;
+    this.resolveModelProvider = options.resolveModelProvider;
     this.issueSessionCapability = options.issueSessionCapability;
     this.revokeSessionCapabilities = options.revokeSessionCapabilities;
     this.resolveTowerGitGatewayOrigins = options.resolveTowerGitGatewayOrigins;
@@ -624,6 +628,12 @@ export class ProcessManager {
       throw new Error(`Unknown agent: ${agent}`);
     }
 
+    const tinfoil = metadata?.modelProvider === "tinfoil" || model?.startsWith("tinfoil/") === true;
+    if (tinfoil && !["pi", "opencode", "goose"].includes(agent)) throw new Error("tinfoil_runner_unsupported");
+    const providerModel = tinfoil ? (model ?? "").replace(/^tinfoil\//, "") : "";
+    if (tinfoil && !providerModel) throw new Error("tinfoil_model_required");
+    if (tinfoil && metadata?.flightdeckWorkspaceId && metadata.modelProviderWorkspaceId
+      && metadata.flightdeckWorkspaceId !== metadata.modelProviderWorkspaceId) throw new Error("tinfoil_workspace_mismatch");
     const port = this.allocatePort();
     const id = crypto.randomUUID();
     const sessionName = this.normaliseSessionName(name, agent, port);
@@ -643,10 +653,10 @@ export class ProcessManager {
     const configuredOpenRouterModels = getConfiguredOpenRouterModels(
       instanceSettingsService.getAppValue(MODEL_PROVIDERS_SETTING_KEY),
     );
-    const resolvedModel = agent === "goose"
+    const resolvedModel = tinfoil ? (agent === "goose" ? providerModel : `tinfoil/${providerModel}`) : agent === "goose"
       ? requestedModel
       : resolveRuntimeModel(agent, requestedModel, configuredOpenRouterModels);
-    let sessionModel = agent === "goose"
+    let sessionModel = tinfoil ? resolvedModel : agent === "goose"
       ? resolveGooseModelOverride(model, instanceSettingsService.get("agents.goose_model"))
       : resolvedModel || undefined;
 
@@ -664,7 +674,8 @@ export class ProcessManager {
       }
     }
 
-    let sessionMetadata = normaliseSessionMetadata(metadata);
+    let sessionMetadata = normaliseSessionMetadata(tinfoil ? { ...metadata, billingMode: "subscription", modelProvider: "tinfoil",
+      modelProviderWorkspaceId: metadata?.flightdeckWorkspaceId || metadata?.modelProviderWorkspaceId || "local" } : metadata);
     const agentTransport = preferNativeCodexForAutomation(
       agent,
       resolveAgentTransport(agent, sessionMetadata.agentTransport),
@@ -733,7 +744,7 @@ export class ProcessManager {
         },
       };
     }
-    if (agent === "opencode" && configuredOpenRouterModels !== null) {
+    if (!tinfoil && agent === "opencode" && configuredOpenRouterModels !== null) {
       session.definition = {
         ...session.definition,
         env: withOpenCodeModelConfigEnvironment(
@@ -831,9 +842,16 @@ export class ProcessManager {
       if (injectedEnvKeys.length > 0) {
         this.appendLog(session, `[manager] post-injection env keys: ${injectedEnvKeys.join(", ")}`);
       }
+      if (tinfoil) {
+        if (!npub || !botNpub || !this.resolveModelProvider) throw new Error("tinfoil_session_identity_required");
+        const runtime = this.resolveModelProvider({ sessionId: id, ownerNpub: npub, botNpub,
+          workspaceId: sessionMetadata.modelProviderWorkspaceId!, model: providerModel });
+        session.definition = { ...session.definition, env: await tinfoilRunnerEnvironment(agent, providerModel, runtime,
+          join(homedir(), ".wingmen", "provider-sessions", id), session.definition.env) };
+      }
       mcpInjectMs = Date.now() - mcpInjectStartedAt;
     } catch (mcpError) {
-      const fatalMcpFailure = Boolean(npub && this.issueSessionCapability)
+      const fatalMcpFailure = tinfoil || Boolean(npub && this.issueSessionCapability)
         || sessionMetadata.AGENT === true
         || origin?.type === "scheduler"
         || agent === "claude"
@@ -921,7 +939,7 @@ export class ProcessManager {
     // Inject billing proxy env for supported providers when credits billing is enabled.
     try {
       const billingInjectStartedAt = Date.now();
-      if (this.resolveBillingLaunchConfig) {
+      if (!tinfoil && this.resolveBillingLaunchConfig) {
         const launchConfig = await this.resolveBillingLaunchConfig({
           sessionId: id,
           agent,
@@ -1044,7 +1062,7 @@ export class ProcessManager {
         piAcpCli: agent === "pi"
           ? instanceSettingsService.get("agents.pi_acp_cli") || undefined
           : undefined,
-        piOpenRouterApiKey: agent === "pi" && agentTransport === "pi-acp"
+        piOpenRouterApiKey: !tinfoil && agent === "pi" && agentTransport === "pi-acp"
           ? instanceSettingsService.get("integrations.openrouter_api_key") || undefined
           : undefined,
         ...buildDeepSeekAdapterContext(session),
@@ -1131,6 +1149,9 @@ export class ProcessManager {
     const isAdmin = this.isAdminUser(npub);
     const userAlias = this.resolveUserAlias(npub);
 
+    // Ephemeral provider grants cannot be attached to a preserved process.
+    // Controlled restart replacement creates fresh grants and preserves transcript.
+    if (input.metadata?.modelProvider === "tinfoil") return null;
     let rehydratedMetadata = normaliseSessionMetadata(input.metadata);
     const agentTransport = resolveAgentTransport(input.agent, rehydratedMetadata.agentTransport);
     const rehydratedAcpPermissionPolicy = rehydratedMetadata.acpPermissionPolicy

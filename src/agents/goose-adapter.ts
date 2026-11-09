@@ -9,6 +9,11 @@ export function buildGooseRuntimeEnv(context: AdapterSessionContext): Record<str
     ...(process.env as Record<string, string>),
     ...(context.env ?? {}),
   };
+  if (env.WINGMAN_MODEL_PROVIDER === "tinfoil") {
+    env.GOOSE_PROVIDER = "openai";
+    if (context.model) env.GOOSE_MODEL = context.model.replace(/^tinfoil\//, "");
+    return env;
+  }
   const model = context.model?.trim();
   if (model) env.GOOSE_MODEL = model;
   const provider = context.gooseCompletedTurn ? "openrouter" : env.GOOSE_PROVIDER?.trim() || context.gooseProvider?.trim();

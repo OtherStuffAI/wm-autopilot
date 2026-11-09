@@ -1,3 +1,4 @@
+import { executeSessionProvider } from "../model-providers/provider-session";
 import { learningGrantTagRefusal, splitLearningGrantTags } from "./learning-grant-tag";
 import { reservedEventError } from "./reserved-event-policy";
 import { adminMaySignEvent } from "./admin-signing-policy";
@@ -229,6 +230,7 @@ export interface CapabilityBrokerDependencies {
   /** The learning delegation the operator mapped to a bot on a Tower origin (signed `learning_grant_id` tags only). */
   learningGrantFor?: (botNpub: string, towerOrigin: string) => string | null;
   importedSecrets?: SecretStore;
+  testModelProvider?: (consumer: import("../secrets/secret-policy").SecretConsumer) => Promise<unknown>;
   hasWappLoginAuthority?: (input: WappLoginRequest) => boolean;
   fetchWappLogin?: typeof fetch;
   botKeyStore: Pick<BotKeyStore, "getActiveKeyForUser"> & Partial<Pick<BotKeyStore, "getActiveKeyForBotNpub">>;
@@ -584,6 +586,7 @@ export class CapabilityBroker {
     if (url.pathname === "/api/mcp/capabilities/git-bootstrap") return Response.json({ error: "Retired: use native Forgejo account and repository APIs." }, { status: 410 });
     if (url.pathname === "/api/mcp/capabilities/git-credential") return await this.handleGitCredential(request);
     if (url.pathname === "/api/mcp/capabilities/secrets") return await this.handleImportedSecret(request);
+    if (url.pathname === "/api/mcp/capabilities/model-provider") return await this.handleImportedSecret(request, true);
     if (url.pathname === "/api/mcp/capabilities/nostr-event") return await this.handleNostrEvent(request);
     if (url.pathname === "/api/mcp/capabilities/nip44/encrypt") return await this.handleNip44Encrypt(request);
     if (url.pathname === "/api/mcp/capabilities/nip44/decrypt") return await this.handleNip44Decrypt(request);
@@ -682,7 +685,7 @@ export class CapabilityBroker {
     return { capability, botRecord: capability.keySource === "instance" ? null : botRecord };
   }
 
-  private async handleImportedSecret(request: Request): Promise<Response> {
+  private async handleImportedSecret(request: Request, provider = false): Promise<Response> {
     try {
       const text = await request.text();
       if (Buffer.byteLength(text) > 100_000) throw new SecretError("request_too_large", 413);
@@ -694,8 +697,9 @@ export class CapabilityBroker {
       const live = this.deps.getSession(capability.sessionId);
       if (!live || live.metadata?.agentChatBotNpub !== capability.botNpub
         || live.metadata?.agentChatAgentId !== capability.profileId) throw new SecretError("stale_session_binding", 403);
-      const result = consumeSessionSecret(this.deps.importedSecrets, capability,
-        live.metadata?.flightdeckWorkspaceId, body);
+      const result = provider
+        ? await executeSessionProvider(this.deps.importedSecrets, capability, live.metadata?.flightdeckWorkspaceId, body, this.deps.testModelProvider)
+        : consumeSessionSecret(this.deps.importedSecrets, capability, live.metadata?.flightdeckWorkspaceId, body);
       return Response.json(result, { headers: { "cache-control": "no-store" } });
     } catch (error) {
       return Response.json({ error: error instanceof SecretError ? error.code : "secret_request_failed" },

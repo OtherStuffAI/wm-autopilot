@@ -1,3 +1,5 @@
+import { sessionRecord } from "./sessions/session-record";
+import { createModelProviderService } from "./model-providers/provider-service";
 import { configureRemoteStorageSignerGuard, createRemoteStorageSignerGuard } from "./wapps/remote-storage-runtime";
 import { isInstanceAdmin } from "./auth/admin-authority";
 import { classifyStoredBotUsers, listBotUserIdentities } from "./auth/bot-user-identities";
@@ -686,6 +688,8 @@ const importedSecretStore = new SecretStore(join(wingmanDataDir, "imported-secre
 const hostedSiteSigner = new HostedSiteSigner(join(wingmanDataDir, "hosted-site-grants.sqlite"), importedSecretStore,
   (appId) => appRegistry.getApp(appId));
 configureSecretRuntime(importedSecretStore);
+const modelProviderService = createModelProviderService(importedSecretStore, id => manager?.getSession(id) ?? null);
+process.once("exit", () => modelProviderService.close());
 const giteaApiHandler = createGiteaApiHandler({
   getSession: (sid: string) => manager.getSession(sid),
   config,
@@ -877,6 +881,7 @@ const capabilityBroker = new CapabilityBroker({
     listAvailableConnections: (npub) => backendConnectionStore.listAvailableForManagerNpub(npub),
   }),
   importedSecrets: importedSecretStore,
+  testModelProvider: consumer => modelProviderService.test(consumer.ownerNpub, consumer.workspaceId, consumer.identityNpub),
   botKeyStore,
   keyVault: brokerKeyVault,
   getInstanceIdentity: () => wingmanInstanceIdentity,
@@ -934,6 +939,9 @@ const agentProfileKeyRotation = new AgentProfileKeyRotation({
   },
 });
 manager = new ProcessManager(config, {
+  resolveModelProvider: input => modelProviderService.gateway.issue(input.sessionId, {
+    ownerNpub: input.ownerNpub, workspaceId: input.workspaceId, identityNpub: input.botNpub, context: "session", contextId: input.botNpub,
+  }, input.model),
   resolveBillingLaunchConfig: (input) => teamBillingService.resolveLaunchConfig(input),
   isAdminNpub: isConfiguredAdminNpub,
   recordAdapterUsage: async (data) => {
@@ -950,6 +958,7 @@ manager = new ProcessManager(config, {
   issueSessionCapability: (input) => sessionCapabilityIssuer.issue(input),
   revokeSessionCapabilities: (sessionId) => {
     capabilityBroker.revokeSession(sessionId);
+    modelProviderService.gateway.revoke(sessionId);
   },
   resolveTowerGitGatewayOrigins: async ({ sessionId, capabilityToken, brokerUrl }) => {
     const result = await callCapabilityBroker<{ gatewayOrigins: string[] }>(
@@ -1303,23 +1312,7 @@ manager.on((event) => {
         console.warn(`[admin] failed to record identity ${sessionOwnerNpub}:`, error);
       }
     }
-    messageStore.recordSession({
-      id: event.session.id,
-      agent: event.session.agent,
-      startedAt: event.session.startedAt,
-      name: event.session.name,
-      npub: event.session.npub,
-      port: event.session.port,
-      pid: event.session.pid,
-      workingDirectory: event.session.workingDirectory,
-      command: event.session.command,
-      runtimeStatus: event.session.agentRuntimeStatus ?? null,
-      origin: event.session.origin ?? null,
-      pm2Name: event.session.pm2Name,
-      tmuxSession: event.session.tmuxSession,
-      tmuxWindow: event.session.tmuxWindow,
-      metadata: event.session.metadata,
-    });
+    messageStore.recordSession(sessionRecord(event.session));
     messageStore.replaceMessages(event.session.id, []);
     void maybeAutoDispatchQueuedPrompt(event.session);
     // Broadcast to browser so home page / nav live-refresh
@@ -1365,23 +1358,7 @@ manager.on((event) => {
         }
       }
     }
-    messageStore.recordSession({
-      id: event.session.id,
-      agent: event.session.agent,
-      startedAt: event.session.startedAt,
-      name: event.session.name,
-      npub: event.session.npub,
-      port: event.session.port,
-      pid: event.session.pid,
-      workingDirectory: event.session.workingDirectory,
-      command: event.session.command,
-      runtimeStatus: event.session.agentRuntimeStatus ?? null,
-      origin: event.session.origin ?? null,
-      pm2Name: event.session.pm2Name,
-      tmuxSession: event.session.tmuxSession,
-      tmuxWindow: event.session.tmuxWindow,
-      metadata: event.session.metadata,
-    });
+    messageStore.recordSession(sessionRecord(event.session));
     void maybeAutoDispatchQueuedPrompt(event.session);
     // Broadcast to browser so home page / nav live-refresh
     if (sessionOwnerNpub) {
@@ -2840,6 +2817,7 @@ const handleApi = createApiRouteHandler({
   botCryptoApiHandler,
   capabilityBrokerApiHandler: (request, url, method) => capabilityBroker.handle(request, url, method),
   secretRoutesContext: {
+    testModelProvider: (owner, workspace, identity) => modelProviderService.test(owner, workspace, identity),
     hostedSiteSigner,
     store: importedSecretStore,
     inventory: createSecretInventory({

@@ -11,6 +11,7 @@ export interface SecretInventory {
   pipelines: Array<{ id: string; label: string }>;
 }
 export interface SecretRoutesContext {
+  testModelProvider?: (owner: string, workspace: string, identity: string) => Promise<unknown>;
   hostedSiteSigner?: HostedSiteSigner;
   store: SecretStore;
   inventory: (owner: string) => Promise<SecretInventory>;

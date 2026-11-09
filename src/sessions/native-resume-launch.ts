@@ -11,7 +11,7 @@ import { resolveSessionOwnerNpub } from "./session-ownership";
 
 export type NativeResumeSourceSession = Pick<
   SessionSnapshot | StoredSessionRecord,
-  "id" | "agent" | "name" | "npub" | "workingDirectory" | "metadata"
+  "id" | "agent" | "name" | "npub" | "workingDirectory" | "metadata" | "model"
 >;
 
 export interface NativeResumeLaunch {

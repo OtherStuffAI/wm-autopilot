@@ -84,6 +84,7 @@ export async function createRestartReplacement(
 ): Promise<RestartReplacementResult> {
   let nativeResumeFailure = "Native resume metadata is unavailable";
   try {
+    if (source.metadata?.modelProvider === "tinfoil") throw new Error("Tinfoil restart renews session credentials with a fresh runner and preserved transcript");
     const launch = resolveNativeResumeLaunch(source, isAgentType, actorNpub);
     try {
       const session = await manager.createSession(
@@ -94,6 +95,7 @@ export async function createRestartReplacement(
         undefined,
         launch.ownerNpub,
         launch.metadata,
+        source.model || undefined,
       );
       return {
         sourceSessionId: source.id,
@@ -121,6 +123,7 @@ export async function createRestartReplacement(
       undefined,
       fresh.ownerNpub,
       fresh.metadata,
+      source.model || undefined,
     );
     return {
       sourceSessionId: source.id,

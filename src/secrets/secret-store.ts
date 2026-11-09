@@ -8,6 +8,9 @@ import { assertPrivateFile, privateDatabaseFile, SecretCustody } from "./secret-
 import { assertSecretUse, boundedText, deniedPolicy, normalizeSecretPolicy, object, SecretError, validatedNpub, type SecretConsumer, type SecretPolicy } from "./secret-policy";
 import { signSecretEvent } from "./secret-events";
 
+export interface ProviderConnection {
+  provider: "tinfoil"; credentialRef: string; models: string[]; enabled: boolean; revision: number; updatedAt: string;
+}
 export interface SecretRecord {
   id: string; ownerNpub: string; workspaceId: string; label: string; type: "secret" | "nostr";
   publicNpub: string | null; policy: SecretPolicy; revision: number;
@@ -42,6 +45,7 @@ export class SecretStore {
     this.db = new Database(path);
     this.db.exec(`PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS imported_secrets (id TEXT PRIMARY KEY, owner TEXT NOT NULL, workspace TEXT NOT NULL, metadata TEXT NOT NULL, envelope TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS model_provider_connections (owner TEXT NOT NULL, workspace TEXT NOT NULL, provider TEXT NOT NULL, metadata TEXT NOT NULL, PRIMARY KEY(owner, workspace, provider));
       CREATE TABLE IF NOT EXISTS imported_secret_audit (id INTEGER PRIMARY KEY, secret_id TEXT NOT NULL, owner TEXT NOT NULL, workspace TEXT NOT NULL, at TEXT NOT NULL, operation TEXT NOT NULL, identity TEXT NOT NULL, context TEXT NOT NULL, context_id TEXT NOT NULL, outcome TEXT NOT NULL);`);
   }
   list(owner: string, workspace: string): SecretRecord[] {
@@ -157,6 +161,28 @@ export class SecretStore {
     }
   }
 
+  /** Metadata only; credential values remain in encrypted custody. */
+  providerConnection(owner: string, workspace: string): ProviderConnection | null {
+    const row = this.db.query("SELECT metadata FROM model_provider_connections WHERE owner=? AND workspace=? AND provider='tinfoil'").get(owner, workspace) as { metadata: string } | null;
+    return row ? JSON.parse(row.metadata) : null;
+  }
+  saveProviderConnection(owner: string, workspace: string, inputValue: unknown): ProviderConnection {
+    const input = object(inputValue);
+    if (Object.keys(input).some(key => !["credentialRef", "models", "revision", "enabled"].includes(key))) throw new SecretError("invalid_provider_configuration");
+    const previous = this.providerConnection(owner, workspace);
+    if (input.revision !== (previous?.revision ?? 0)) throw new SecretError("stale_provider_revision", 409);
+    const credentialRef = boundedText(input.credentialRef, 128);
+    const secret = this.get(owner, workspace, credentialRef);
+    if (secret.type !== "secret" || secret.revokedAt) throw new SecretError("active_service_credential_required", 403);
+    if (!Array.isArray(input.models) || !input.models.length || input.models.length > 32
+      || input.models.some(model => typeof model !== "string" || !/^[a-z0-9][a-z0-9.-]{0,127}$/.test(model))
+      || typeof input.enabled !== "boolean") throw new SecretError("invalid_provider_configuration");
+    const record: ProviderConnection = { provider: "tinfoil", credentialRef, models: [...new Set(input.models as string[])],
+      enabled: input.enabled, revision: (previous?.revision ?? 0) + 1, updatedAt: new Date().toISOString() };
+    this.db.query("INSERT OR REPLACE INTO model_provider_connections VALUES (?,?,?,?)").run(owner, workspace, "tinfoil", JSON.stringify(record));
+    this.audit(secret, "provider_configuration", owner, "management", "tinfoil", "allowed");
+    return record;
+  }
   history(owner: string, workspace: string, id: string) {
     this.get(owner, workspace, id);
     return this.db.query("SELECT at, operation, identity, context, context_id AS contextId, outcome FROM imported_secret_audit WHERE secret_id=? AND owner=? AND workspace=? ORDER BY id DESC LIMIT 100").all(id, owner, workspace);
