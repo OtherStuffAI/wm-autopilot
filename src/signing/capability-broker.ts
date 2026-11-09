@@ -1,3 +1,4 @@
+import { sessionIdentityBinding } from "./session-identity-binding";
 import { executeSessionProvider } from "../model-providers/provider-session";
 import { learningGrantTagRefusal, splitLearningGrantTags } from "./learning-grant-tag";
 import { reservedEventError } from "./reserved-event-policy";
@@ -404,12 +405,7 @@ export class CapabilityBroker {
       throw new Error("Cannot issue capability for an inactive session");
     }
     const metadata = session.metadata as Record<string, unknown> | undefined;
-    const boundProfileId = typeof metadata?.agentChatAgentId === "string"
-      ? metadata.agentChatAgentId
-      : typeof metadata?.agentProfileId === "string" ? metadata.agentProfileId : null;
-    const boundBotNpub = typeof metadata?.agentChatBotNpub === "string"
-      ? metadata.agentChatBotNpub
-      : typeof metadata?.flightdeckAgentNpub === "string" ? metadata.flightdeckAgentNpub : null;
+    const { profileId: boundProfileId, botNpub: boundBotNpub } = sessionIdentityBinding(metadata);
     if (input.profileId && boundProfileId !== input.profileId) {
       throw new Error("Session profile binding does not match requested capability identity");
     }
@@ -695,8 +691,9 @@ export class CapabilityBroker {
       if (!this.deps.importedSecrets) throw new SecretError("secrets_runtime_unavailable", 503);
       const { capability } = authorized;
       const live = this.deps.getSession(capability.sessionId);
-      if (!live || live.metadata?.agentChatBotNpub !== capability.botNpub
-        || live.metadata?.agentChatAgentId !== capability.profileId) throw new SecretError("stale_session_binding", 403);
+      const binding = sessionIdentityBinding(live?.metadata);
+      if (!live || binding.botNpub !== capability.botNpub
+        || binding.profileId !== capability.profileId) throw new SecretError("stale_session_binding", 403);
       const result = provider
         ? await executeSessionProvider(this.deps.importedSecrets, capability, live.metadata?.flightdeckWorkspaceId, body, this.deps.testModelProvider)
         : consumeSessionSecret(this.deps.importedSecrets, capability, live.metadata?.flightdeckWorkspaceId, body);

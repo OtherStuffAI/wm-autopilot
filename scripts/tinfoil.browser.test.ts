@@ -19,24 +19,25 @@ suite("Tinfoil metadata UI", () => {
     store = new SecretStore(join(root, "secrets.sqlite"), join(root, "master.key"));
     const owner = nip19.npubEncode(getPublicKey(generateSecretKey()));
     const bot = nip19.npubEncode(getPublicKey(generateSecretKey()));
-    const secret = store.create(owner, "local", { type: "secret", label: "Synthetic Tinfoil key", value: "BROWSER_MUST_NOT_PERSIST_KEY_7921", policy: {
+    const secret = store.create(owner, "saved-space", { type: "secret", label: "Synthetic Tinfoil key", value: "BROWSER_MUST_NOT_PERSIST_KEY_7921", policy: {
       ...deniedPolicy(), identities: [bot], agents: { enabled: true, mode: "selected", ids: [bot] },
     } });
     const assets = createProjectStaticAssetService(resolve(import.meta.dir, ".."));
-    const ctx = { store, inventory: async () => ({ workspaces: [{ id: "local", label: "Autopilot local" }], identities: [{ npub: bot, label: "Allowed bot", type: "bot" as const }], pipelines: [] }),
+    const ctx = { store, inventory: async () => ({ workspaces: [{ id: "local", label: "Autopilot local" }, { id: "saved-space", label: "Saved credential workspace" }], identities: [{ npub: bot, label: "Allowed bot", type: "bot" as const }], pipelines: [] }),
       testModelProvider: async () => ({ connected: true, toolCalling: true, model: "kimi-k3-1-pro", verifiedProxy: true }) };
     const { chromium } = await import(module!);
     browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
     server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
       const url = new URL(request.url);
-      if (url.pathname === "/") return new Response(`<!doctype html><html><head><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/secrets/page.css"></head><body><main><div id="page"></div><section aria-label="Launch"><select id="runner"><option value="pi">Pi</option></select><label>Model<select id="model"></select></label></section></main><script type="module">
+      if (["/", "/settings/models", "/secrets"].includes(url.pathname)) return new Response(`<!doctype html><html><head><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/secrets/page.css"></head><body><main><div id="page"></div><section aria-label="Launch"><select id="runner"><option value="pi">Pi</option></select><label>Model<select id="model"></select></label></section></main><script type="module">
         import Alpine from '/vendor/alpinejs/module.esm.js';
         import { createSecretsPage } from '/secrets/page.js';
+        import { createTinfoilSettingsSection } from '/views/settings/tinfoil-settings-section.js';
         import { secretsDb } from '/secrets/db.js';
         import { state } from '/state/index.js';
         import { createModelProviderLaunch } from '/common/model-provider-launch.js';
         state.identity.npub='${owner}'; state.identity.authenticated=true;
-        document.querySelector('#page').append(createSecretsPage({ownerNpub:'${owner}'}));
+        document.querySelector('#page').append(location.pathname === '/secrets' ? createSecretsPage({ownerNpub:'${owner}'}) : createTinfoilSettingsSection({ownerNpub:'${owner}'}));
         const modelSelect=document.querySelector('#model');
         const launch=createModelProviderLaunch({modelSelect,agentSelect:document.querySelector('#runner'),onChange:()=>{launch.sync();modelSelect.replaceChildren(...launch.models(['existing/model']).map(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;return o;}));}});
         launch.sync();window.fixtureDb=secretsDb;window.launch=launch;Alpine.start();
@@ -47,7 +48,7 @@ suite("Tinfoil metadata UI", () => {
     } });
     const page = await browser.newPage(); const errors: string[] = [];
     page.on("pageerror", (error: Error) => errors.push(error.message));
-    await page.goto(server.url.href);
+    await page.goto(new URL("/settings/models?workspace=saved-space", server.url).href);
     await page.getByTestId("tinfoil-credential").selectOption(secret.id);
     await page.getByTestId("tinfoil-save").click();
     await page.waitForFunction(() => document.querySelector('[data-testid="tinfoil-test"]')?.hasAttribute("disabled") === false);
@@ -56,11 +57,24 @@ suite("Tinfoil metadata UI", () => {
     await page.waitForFunction(() => document.querySelector('[data-testid="tinfoil-provider-status"]')?.textContent?.includes("verified"));
     expect(await page.getByTestId("session-provider-workspace").isVisible()).toBe(false);
     await page.getByTestId("session-model-provider").selectOption("tinfoil");
+    await page.getByTestId("session-provider-workspace").selectOption("saved-space");
     await page.waitForFunction(() => (document.querySelector('#model') as HTMLSelectElement)?.value === "kimi-k3-1-pro");
     expect(await page.getByTestId("session-provider-workspace").isVisible()).toBe(true);
-    expect(await page.evaluate(() => (window as any).launch.metadata())).toEqual({ modelProvider: "tinfoil", modelProviderWorkspaceId: "local" });
+    expect(await page.evaluate(() => (window as any).launch.metadata())).toEqual({ modelProvider: "tinfoil", modelProviderWorkspaceId: "saved-space" });
     const persisted = await page.evaluate(async () => JSON.stringify(await (window as any).fixtureDb.snapshots.toArray()));
     expect(persisted).toContain(secret.id); expect(persisted).not.toContain("BROWSER_MUST_NOT_PERSIST_KEY_7921");
+    const beforeNavigation = store.providerConnection(owner, "saved-space");
+    const secretBeforeNavigation = store.get(owner, "saved-space", secret.id);
+    await page.getByRole("link", { name: "Manage model provider credentials in Secrets" }).click();
+    await page.getByTestId(`secret-${secret.id}`).waitFor();
+    expect(await page.getByTestId("tinfoil-provider").count()).toBe(0);
+    await page.getByRole("link", { name: "Open model provider settings" }).click();
+    await page.getByTestId("tinfoil-credential").waitFor();
+    expect(await page.getByTestId("tinfoil-credential").inputValue()).toBe(secret.id);
+    expect(await page.getByTestId("tinfoil-models").inputValue()).toBe("kimi-k3-1-pro");
+    expect(await page.getByTestId("model-provider-workspace").inputValue()).toBe("saved-space");
+    expect(store.providerConnection(owner, "saved-space")).toEqual(beforeNavigation);
+    expect(store.get(owner, "saved-space", secret.id)).toEqual(secretBeforeNavigation);
     expect(errors).toEqual([]);
     if (process.env.TINFOIL_SCREENSHOT) await page.screenshot({ path: process.env.TINFOIL_SCREENSHOT, fullPage: true });
   }, 30_000);

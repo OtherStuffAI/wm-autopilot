@@ -36,7 +36,7 @@ export function createModelProviderLaunch({ modelSelect, agentSelect, onChange }
         }
         workspace.value = selected;
       }
-      status.textContent = connection?.enabled ? "Uses the saved credential policy. Choose an allowed agent profile." : "Configure Tinfoil in Secrets for this workspace first.";
+      status.textContent = connection?.enabled ? "Uses the saved credential policy. Choose an allowed agent profile." : "Configure Tinfoil in Settings → Model choices for this workspace first.";
       onChange();
     }, error: error => { status.textContent = error.message; } });
     await syncSecrets(owner, workspace.value);

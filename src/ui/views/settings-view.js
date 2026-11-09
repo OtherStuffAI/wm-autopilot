@@ -1,3 +1,4 @@
+import { createTinfoilSettingsSection } from "./settings/tinfoil-settings-section.js";
 import { createSettingsPurposeGuide } from './settings/settings-purpose.js';
 import { createSettingsTabs } from './settings-tabs.js';
 import {
@@ -35,7 +36,7 @@ const PAGE_COPY = Object.freeze({
   workspaces: ['Workspaces', 'Your servers, workspaces, and bots — connected through Agent Direct.'],
   agentProfiles: ['Bots', 'Manage your bots, their working folders, and the tools they use.'],
   remote: ['Remote instruction prompt', 'Control the context added to remote instructions and review its supported variables.'],
-  models: ['Model choices', 'Choose and order the OpenRouter models offered when launching compatible agents.'],
+  models: ['Model choices', 'Manage saved model provider connections and the models offered when launching agents.'],
   hosting: ['App Hosting', 'Instance routing defaults and the web app ports assigned to your account.'],
   restart: ['Restart', 'Restart Autopilot with one consistent session recovery policy.'],
   system: ['Server configuration', 'Installation-wide defaults, optional services, and deployment maintenance.'],
@@ -248,11 +249,12 @@ export function initSettingsView(deps) {
     if (state.identity.isAdmin) {
       return createPage(
         'models',
+        createTinfoilSettingsSection({ ownerNpub: state.identity.npub }),
         createHarnessModelsSection({ onSaved: refreshConfig, notify: showToast }),
         createModelsSettingsSection({ onSaved: refreshConfig, notify: showToast }),
       );
     }
-    return createPage('models', createManagedCard('Managed by administrator', 'Launch model order is an instance setting. Ask an administrator to change the configured models.'));
+    return createPage('models', state.identity.authenticated ? createTinfoilSettingsSection({ ownerNpub: state.identity.npub }) : null, createManagedCard('Managed by administrator', 'Launch model order is an instance setting. Ask an administrator to change the configured models.'));
   }
 
   function renderHostingPage() {

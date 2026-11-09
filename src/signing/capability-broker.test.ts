@@ -1,3 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SecretStore } from "../secrets/secret-store";
+import { deniedPolicy } from "../secrets/secret-policy";
 import { createHash } from "node:crypto";
 import { Nip98ReplayCache, verifyNip98Request } from "../auth/nip98-verifier";
 import { liveAdminSigningTargets } from "./admin-signing-targets";
@@ -1172,4 +1177,39 @@ describe("CapabilityBroker learning delegation tag", () => {
     broker = createBroker();
     expect((await sign("https://tower.example/api/v4/learning/mastery", "GET", [["learning_grant_id", GRANT]])).status).toBe(403);
   });
+});
+
+
+test.each(["agentProfileId", "agentChatAgentId"])("provider broker accepts issued %s binding and rejects changes", async profileField => {
+  const root = mkdtempSync(join(tmpdir(), "wm-local-provider-binding-"));
+  const store = new SecretStore(join(root, "secrets.sqlite"), join(root, "master.key"));
+  const owner = nip19.npubEncode(getPublicKey(generateSecretKey()));
+  const botRecord = { ...records.get(ownerA)!, userNpub: owner };
+  const bot = botRecord.botNpub;
+  const local = { ...sessions.get("session-a")!, npub: owner, metadata: { [profileField]: "local-profile", agentChatBotNpub: bot } };
+  try {
+    const secret = store.create(owner, "local", { type: "secret", label: "Test credential", value: "synthetic-key",
+      policy: { ...deniedPolicy(), identities: [bot], agents: { enabled: true, mode: "selected", ids: [bot] } } });
+    const connection = store.saveProviderConnection(owner, "local", { credentialRef: secret.id, models: ["kimi-k3-1-pro"], enabled: true, revision: 0 });
+    let tested = 0;
+    broker = createBroker({ getSession: () => local, botKeyStore: { getActiveKeyForUser: () => botRecord, getActiveKeyForBotNpub: () => botRecord }, importedSecrets: store, testModelProvider: async consumer => {
+      expect(consumer.workspaceId).toBe("local"); expect(consumer.identityNpub).toBe(bot); tested += 1; return { connected: true };
+    } });
+    const issued = broker.issueSessionCapability({ sessionId: local.id, ownerNpub: owner, policy });
+    const status = () => call("/api/mcp/capabilities/model-provider", issued.token, { sessionId: local.id, operation: "status" });
+    expect(await (await status()).json()).toEqual({ workspaceId: "local", connection });
+    expect((await call("/api/mcp/capabilities/model-provider", issued.token, { sessionId: local.id, operation: "test" })).status).toBe(200);
+    expect(tested).toBe(1);
+    local.metadata[profileField] = "other-profile";
+    expect(await (await status()).json()).toEqual({ error: "stale_session_binding" });
+    local.metadata[profileField] = "local-profile";
+    local.metadata.agentChatBotNpub = records.get(ownerB)!.botNpub;
+    expect(await (await status()).json()).toEqual({ error: "stale_session_binding" });
+    local.metadata.agentChatBotNpub = bot;
+    (local.metadata as Record<string, unknown>).flightdeckWorkspaceId = "other-workspace";
+    expect(await (await status()).json()).toEqual({ error: "stale_session_binding" });
+    expect(tested).toBe(1);
+    expect(store.providerConnection(owner, "local")).toEqual(connection);
+    expect(store.get(owner, "local", secret.id).policy.allowExport).toBe(false);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
 });

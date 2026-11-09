@@ -1,4 +1,3 @@
-import { modelProviderPanel } from "./model-provider.js";
 import Alpine from "/vendor/alpinejs/module.esm.js";
 import { Dexie, secretsDb } from "./db.js";
 import { saveSecret, snapshotId, syncSecrets, revokeSecret, syncSecretAudit, registerHostedSiteGrant, revokeHostedSiteGrant, syncHostedSiteGrantAudit } from "./service.js";
@@ -10,7 +9,7 @@ Alpine.data("autopilotSecrets", () => ({
   snapshot: null,
   init() {
     this.$watch("snapshot", value => { if (value) this.$el.renderSecretSnapshot(value); });
-    this.watchWorkspace("local");
+    this.watchWorkspace(this.$el.secretWorkspace);
     this.$el.secretSync();
   },
   watchWorkspace(workspace) {
@@ -33,12 +32,15 @@ export function createSecretsPage({ ownerNpub } = {}) {
   host.dataset.owner = ownerNpub || ""; host.setAttribute("x-data", "autopilotSecrets");
   const header = element("header"); header.append(element("h1", "Secrets"),
     element("p", "Manage encrypted credentials for Autopilot pipelines and agent sessions. Values are never shown in this list."));
+  const providers = element("a", "Manage model provider connections in Settings");
+  providers.href = `/settings/models?workspace=${encodeURIComponent(new URLSearchParams(window.location.search).get("workspace") || "local")}`; providers.setAttribute("aria-label", "Open model provider settings"); header.append(providers);
   const status = element("p", "Loading secrets…"); status.setAttribute("aria-live", "polite");
   status.setAttribute("role", "status"); status.dataset.testid = "secrets-status";
   const toolbar = element("div", "", "wm-secret-toolbar");
   const listing = element("div"); const editor = element("div"); const audit = element("section");
   audit.setAttribute("aria-label", "Secret access audit"); audit.dataset.testid = "secret-audit";
-  let workspace = "local"; let busy = false; let editing = false; let stopped = false;
+  let workspace = new URLSearchParams(window.location.search).get("workspace") || "local";
+  host.secretWorkspace = workspace; let busy = false; let editing = false; let stopped = false;
   const newButton = button("Add secret", async () => {
     const snapshot = await secretsDb.snapshots.get(snapshotId(ownerNpub, workspace));
     if (!snapshot) return host.secretError(new Error("Refresh metadata before adding a secret"));
@@ -75,14 +77,19 @@ export function createSecretsPage({ ownerNpub } = {}) {
     editor.querySelector("select")?.focus();
   }
   host.renderSecretSnapshot = snapshot => {
+    if (snapshot.workspace !== workspace) return;
     listing.replaceChildren();
-    listing.append(modelProviderPanel(snapshot, { ownerNpub, workspace, refresh: () => host.secretSync(), onError: host.secretError, setEditing: value => { editing = value; } }));
+    providers.href = `/settings/models?workspace=${encodeURIComponent(workspace)}`;
     const oldSelector = toolbar.querySelector("label"); oldSelector?.remove();
     const picker = select(snapshot.inventory.workspaces.map(row => [row.id, row.label]), workspace);
     picker.disabled = editing;
     picker.addEventListener("change", () => {
       if (editing) { picker.value = workspace; return; }
-      workspace = picker.value; listing.replaceChildren(); audit.replaceChildren();
+      workspace = picker.value;
+      providers.href = `/settings/models?workspace=${encodeURIComponent(workspace)}`;
+      const url = new URL(window.location.href); url.searchParams.set("workspace", workspace);
+      window.history.replaceState(window.history.state, "", url);
+      listing.replaceChildren(); audit.replaceChildren();
       Alpine.$data(host).watchWorkspace(workspace); void host.secretSync();
     });
     toolbar.prepend(field("Workspace", picker, "secrets-workspace"));

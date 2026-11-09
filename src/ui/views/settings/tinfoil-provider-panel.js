@@ -1,5 +1,5 @@
-import { button, element, field, input, select } from "./controls.js";
-import { saveModelProvider, testModelProvider } from "./service.js";
+import { button, element, field, input, select } from "../../secrets/controls.js";
+import { saveModelProvider, testModelProvider } from "../../secrets/service.js";
 
 export function modelProviderPanel(snapshot, { ownerNpub, workspace, refresh, onError, setEditing = () => {} }) {
   const panel = element("section", "", "wm-card");
@@ -10,11 +10,14 @@ export function modelProviderPanel(snapshot, { ownerNpub, workspace, refresh, on
   }
   const connection = snapshot.modelProvider;
   const secrets = snapshot.secrets.filter(record => record.type === "secret" && !record.revokedAt);
+  if (connection?.credentialRef && !secrets.some(row => row.id === connection.credentialRef)) {
+    secrets.push({ id: connection.credentialRef, label: `${connection.credentialRef} (saved reference unavailable)` });
+  }
   const reference = select([["", "Select saved credential"], ...secrets.map(row => [row.id, row.label])], connection?.credentialRef || "");
   const models = input("text", (connection?.models || ["kimi-k3-1-pro"]).join(", "));
   const enabled = input("checkbox"); enabled.checked = connection?.enabled ?? true;
   const identity = select([["", "Select allowed agent identity"], ...snapshot.inventory.identities.filter(row => row.type === "bot").map(row => [row.npub, row.label])], "");
-  const state = element("p", snapshot.modelProviderTest?.connected ? `Connection and tool calling verified for ${snapshot.modelProviderTest.model}.` : "Save a connection, then test with an allowed identity. Tests make a small billed request.");
+  const state = element("p", snapshot.modelProviderTest?.connected && snapshot.modelProviderTest?.toolCalling ? `Connection and tool calling verified for ${snapshot.modelProviderTest.model}.` : "Save a connection, then test with an allowed identity. Tests make a small billed request.");
   state.setAttribute("role", "status"); state.setAttribute("aria-live", "polite"); state.dataset.testid = "tinfoil-provider-status";
   const save = button("Save Tinfoil connection", async () => {
     save.disabled = true;

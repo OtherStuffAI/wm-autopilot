@@ -33,6 +33,7 @@ export function createSettingsPurposeGuide() {
   for (const [label, detail, href] of [
     ['Bots', 'Name, picture, working folder, agent tool and model', '/settings/automation/agent-profiles'],
     ['Workspaces', 'Servers, workspace connections and participating bots', '/settings/automation/workspaces'],
+    ['Model choices', 'Saved model provider connections and launch models', '/settings/models'],
     ['API keys & accounts', 'Your provider and developer credentials', '/settings/credentials'],
     ['Users & access', 'Approved people and access permissions', '/settings/access'],
   ]) {

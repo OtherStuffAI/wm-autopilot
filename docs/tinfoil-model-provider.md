@@ -13,10 +13,10 @@ Autopilot can run Pi, OpenCode and Goose locally while sending their inference t
    This installs v0.2.9 into `~/.local/bin`, verifying its SHA-256 against the official GitHub release asset digest. The service checks `TINFOIL_PROXY_CLI`, then its executable PATH, then `~/.local/bin/tinfoil-proxy`. The proxy must support the verified `--handshake` startup protocol. Runtime startup never downloads executable code.
 
 2. In **Secrets**, select the credential's existing workspace. Add or edit an ordinary saved secret using the existing encrypted custody UI. Keep raw return disabled. Grant only the bot identities and selected agent consumers that should use the provider; both grants must allow each identity.
-3. In the **Tinfoil model provider** section, select the saved credential, enter exact allowed model IDs, and save. The connection stores only the reference, enabled state, allowlist and revision. Test with one of the allowed bot identities. Testing makes a small billed inference request and checks a real function call; it returns deterministic connection/model/tool status, never the upstream response body or key.
+3. In **Settings → Model choices → Model providers**, select the same workspace. In the **Tinfoil model provider** section, select the saved credential, enter exact allowed model IDs, and save. The connection stores only the reference, enabled state, allowlist and revision. Test with one of the allowed bot identities. Testing makes a small billed inference request and checks a real function call; it returns deterministic connection/model/tool status, never the upstream response body or key.
 4. In the session launch dialog, choose Pi, OpenCode or Goose, then **Tinfoil**, its workspace and a configured model. Choose a bot profile already authorized by the secret policy. An unavailable identity, workspace, secret or model fails explicitly; there is no provider fallback.
 
-Settings → Model choices links to this connection panel; the existing OpenRouter configuration is preserved. Browser metadata is materialized through Dexie before rendering; the existing Secrets Alpine subscription drives updates. No provider key is returned to the browser.
+Settings → Model choices contains this connection panel; Secrets manages only credentials and permissions; the existing OpenRouter configuration is preserved. Browser metadata is materialized through Dexie before rendering; a Settings Alpine subscription drives updates. No provider key is returned to the browser.
 
 ## Broker configuration and testing
 
@@ -28,7 +28,7 @@ bun clis/model-provider.ts configure <saved-secret-reference> kimi-k3-1-pro 0
 bun clis/model-provider.ts test
 ```
 
-The last configure argument is the expected connection revision (`0` for a new connection). Updates require the current revision. The dedicated broker route is `POST /api/mcp/capabilities/model-provider`. It accepts `status`, `configure`, or `test`; it does not accept identity, owner, arbitrary URL, credential value or workspace overrides. An absent route requires server activation. The ordinary secret management API remains human-only.
+The last configure argument is the expected connection revision (`0` for a new connection). Updates require the current revision. The dedicated broker route is `POST /api/mcp/capabilities/model-provider`. It accepts `status`, `configure`, or `test`; it does not accept identity, owner, arbitrary URL, credential value or workspace overrides. An absent route requires server activation. Ordinary local sessions use the same server-owned profile and bot binding as capability issuance; an identity, profile or workspace change invalidates use. The ordinary secret management API remains human-only.
 
 A secret in `local` is not automatically available in a Flight Deck workspace. Configure and launch in the credential's actual workspace with a matching authorized identity. Resolve mismatches through the owner UI; do not broaden policy or export the key to make a test pass.
 

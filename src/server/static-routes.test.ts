@@ -76,7 +76,8 @@ describe("createStaticRouteHandler", () => {
     expect(dispatchResponse?.headers.get("content-type")).toBe("application/javascript; charset=utf-8");
 
     for (const pathname of [
-      "/secrets/model-provider.js",
+      "/views/settings/tinfoil-provider-panel.js",
+      "/views/settings/tinfoil-settings-section.js",
       "/common/model-provider-launch.js",
       "/terminal/connection.js",
       "/pipelines/child-run-links.js",
