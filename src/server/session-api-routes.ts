@@ -1,3 +1,4 @@
+import { parseSessionModelInput } from "./session-model-input";
 import { sessionRecord } from "../sessions/session-record";
 import { handleSessionHistory } from "./session-history-response";
 import { sessionMessageResponse } from "./session-message-response";
@@ -1137,6 +1138,12 @@ export async function handleSessionApi(
       if (!ctx.isAgentType(agent)) {
         return Response.json({ error: "Invalid agent selection" }, { status: 400 });
       }
+      let model: string | undefined;
+      try {
+        model = parseSessionModelInput(payload?.model);
+      } catch (error) {
+        return Response.json({ error: (error as Error).message }, { status: 400 });
+      }
       const directoryInput = typeof payload?.directory === "string" ? payload.directory : undefined;
       const rawName =
         payload && typeof payload === "object" && payload !== null
@@ -1190,6 +1197,7 @@ export async function handleSessionApi(
           lastManagedByNpub: authContext.subjectNpub ?? authContext.npub ?? undefined,
           chargeToNpub: ownerNpub,
         },
+        model,
       );
       await recordLiveSession(ctx, session);
       return Response.json(ctx.serializeSession(session), { status: 201 });
@@ -1304,6 +1312,12 @@ export async function handleSessionApi(
         if (!ctx.isAgentType(agent)) {
           return Response.json({ error: "Invalid agent selection" }, { status: 400 });
         }
+        let model: string | undefined;
+        try {
+          model = parseSessionModelInput(payload?.model);
+        } catch (error) {
+          return Response.json({ error: (error as Error).message }, { status: 400 });
+        }
         const directoryInput = typeof payload?.directory === "string" ? payload.directory : undefined;
         const rawName = payload && typeof payload === "object" && payload !== null ? payload.name : null;
         let workspace: SessionWorkspaceRequest = null;
@@ -1366,6 +1380,7 @@ export async function handleSessionApi(
             ),
             AGENT: true,
           },
+          model,
         );
         await recordLiveSession(ctx, session);
         return Response.json(ctx.serializeSession(session), { status: 201 });
@@ -1704,6 +1719,12 @@ export async function handleSessionApi(
       if (!ctx.isAgentType(agent)) {
         return Response.json({ error: "Invalid agent selection" }, { status: 400 });
       }
+      let model: string | undefined;
+      try {
+        model = parseSessionModelInput(payload?.model);
+      } catch (error) {
+        return Response.json({ error: (error as Error).message }, { status: 400 });
+      }
       const directoryInput = typeof payload?.directory === "string" ? payload.directory : undefined;
       const rawName =
         payload && typeof payload === "object" && payload !== null
@@ -1752,7 +1773,6 @@ export async function handleSessionApi(
           ? payload.metadata as Record<string, unknown>
           : null;
       const callerRequestedAgent = rawMetadata?.AGENT === true;
-      const rawModel = typeof payload?.model === "string" ? payload.model.trim() : "";
       const session = await ctx.manager.createSession(
         agent,
         workingDirectory,
@@ -1768,7 +1788,7 @@ export async function handleSessionApi(
           lastManagedByNpub: authContext.subjectNpub ?? authContext.npub ?? undefined,
           chargeToNpub: sessionOwnerNpub ?? undefined,
         },
-        rawModel.length > 0 ? rawModel : undefined,
+        model,
       );
       if (nightWatch?.enabled) {
         ctx.enableNightWatch(session.id, {

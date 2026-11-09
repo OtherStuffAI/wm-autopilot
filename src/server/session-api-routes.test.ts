@@ -151,6 +151,52 @@ describe("handleSessionApi", () => {
       } : null,
     } as any, ...overrides });
   }
+  for (const path of ["/api/sessions", "/api/owners/npub1owner/sessions", "/api/delegate-sessions"]) {
+    test(`${path} forwards the selected model and provider metadata`, async () => {
+      const createSession = mock(buildCtx().manager.createSession);
+      const ctx = whiteNoiseCtx({ isAgentType: (value): value is "pi" => value === "pi", manager: { ...buildCtx().manager, createSession } as any });
+      const metadata = { modelProvider: "tinfoil", modelProviderWorkspaceId: "local", agentProfileId: "existing-profile" };
+      const url = new URL(`http://localhost:3021${path}`);
+      const response = await handleSessionApi(new Request(url, {
+        method: "POST", body: JSON.stringify({ agent: "pi", model: "kimi-k3-1-pro", metadata }),
+      }), url, "POST", makeAuth(), ctx);
+      expect(response?.status).toBe(201);
+      expect(createSession).toHaveBeenCalledTimes(1);
+      const args = createSession.mock.calls[0]!;
+      expect(args[0]).toBe("pi");
+      expect(args[7]).toBe("kimi-k3-1-pro");
+      expect(args[5]).toBe("npub1owner");
+      expect(args[6]).toMatchObject({ ...metadata, AGENT: true, ownerNpub: "npub1owner", createdByNpub: "npub1bot" });
+    });
+
+    test(`${path} rejects invalid models before launching`, async () => {
+      const createSession = mock(buildCtx().manager.createSession);
+      const ctx = whiteNoiseCtx({ isAgentType: (value): value is "pi" => value === "pi", manager: { ...buildCtx().manager, createSession } as any });
+      const url = new URL(`http://localhost:3021${path}`);
+      for (const model of [123, true, {}, ["kimi-k3-1-pro"]]) {
+        const response = await handleSessionApi(new Request(url, {
+          method: "POST", body: JSON.stringify({ agent: "pi", model }),
+        }), url, "POST", makeAuth(), ctx);
+        expect(response?.status).toBe(400);
+        expect(await response!.json()).toEqual({ error: "Invalid model selection" });
+      }
+      expect(createSession).not.toHaveBeenCalled();
+    });
+
+    test(`${path} preserves optional and trimmed model semantics`, async () => {
+      const createSession = mock(buildCtx().manager.createSession);
+      const ctx = whiteNoiseCtx({ isAgentType: (value): value is "pi" => value === "pi", manager: { ...buildCtx().manager, createSession } as any });
+      const url = new URL(`http://localhost:3021${path}`);
+      for (const [model, expected] of [[undefined, undefined], [null, undefined], ["  ", undefined], [" kimi-k3-1-pro ", "kimi-k3-1-pro"]]) {
+        const response = await handleSessionApi(new Request(url, {
+          method: "POST", body: JSON.stringify({ agent: "pi", model }),
+        }), url, "POST", makeAuth(), ctx);
+        expect(response?.status).toBe(201);
+        expect(createSession.mock.calls.at(-1)![7]).toBe(expected);
+      }
+    });
+  }
+
   test("owner-space White Noise creation preserves the conversation origin after authorization", async () => {
     const group = "ab".repeat(16);
     const url = new URL("http://localhost:3021/api/owners/npub1owner/sessions");

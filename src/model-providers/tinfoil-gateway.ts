@@ -1,8 +1,9 @@
+import { sessionIdentityBinding } from "../signing/session-identity-binding";
 import { randomBytes, createHash } from "node:crypto";
 import type { SecretStore, ProviderConnection } from "../secrets/secret-store";
 import { assertSecretUse, SecretError, type SecretConsumer } from "../secrets/secret-policy";
 
-type LiveSession = { npub?: string; status: string; model?: string; metadata?: { modelProvider?: string; modelProviderWorkspaceId?: string; flightdeckWorkspaceId?: string; agentChatBotNpub?: string; agentChatAgentId?: string } };
+type LiveSession = { npub?: string; status: string; model?: string; metadata?: { modelProvider?: string; modelProviderWorkspaceId?: string; flightdeckWorkspaceId?: string; agentChatBotNpub?: string; flightdeckAgentNpub?: string; agentChatAgentId?: string; agentProfileId?: string } };
 interface Grant {
   sessionId: string; consumer: SecretConsumer; connection: ProviderConnection; model: string; expiresAt: number; profileId: string; secretRevision: number;
 }
@@ -20,10 +21,11 @@ export class TinfoilGateway {
     const secret = this.store.get(consumer.ownerNpub, consumer.workspaceId, connection.credentialRef);
     assertSecretUse(secret, consumer);
     const live = this.getSession(sessionId);
-    if (!live?.metadata?.agentChatAgentId || live.metadata.agentChatBotNpub !== consumer.identityNpub) throw new SecretError("tinfoil_identity_binding_required", 403);
+    const binding = sessionIdentityBinding(live?.metadata);
+    if (!binding.profileId || binding.botNpub !== consumer.identityNpub) throw new SecretError("tinfoil_identity_binding_required", 403);
     this.revoke(sessionId);
     const token = randomBytes(32).toString("base64url");
-    this.grants.set(digest(token), { sessionId, consumer: { ...consumer }, connection, model, profileId: live.metadata.agentChatAgentId, secretRevision: secret.revision, expiresAt: Date.now() + 12 * 60 * 60 * 1000 });
+    this.grants.set(digest(token), { sessionId, consumer: { ...consumer }, connection, model, profileId: binding.profileId, secretRevision: secret.revision, expiresAt: Date.now() + 12 * 60 * 60 * 1000 });
     if (!this.server) this.server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, maxRequestBodySize: 8 * 1024 * 1024,
       fetch: request => this.handle(request) });
     return { baseUrl: `http://127.0.0.1:${this.server.port}/v1`, token };
@@ -33,8 +35,9 @@ export class TinfoilGateway {
     if (![...this.grants.values()].includes(grant)) throw new SecretError("tinfoil_grant_revoked", 403);
     const session = this.getSession(grant.sessionId);
     const connection = this.store.providerConnection(grant.consumer.ownerNpub, grant.consumer.workspaceId);
+    const binding = sessionIdentityBinding(session?.metadata);
     if (grant.expiresAt <= Date.now() || !session || session.status !== "running" || session.npub !== grant.consumer.ownerNpub
-      || session.metadata?.agentChatBotNpub !== grant.consumer.identityNpub || session.metadata.agentChatAgentId !== grant.profileId
+      || binding.botNpub !== grant.consumer.identityNpub || binding.profileId !== grant.profileId
       || session.metadata?.modelProvider !== "tinfoil" || session.metadata.modelProviderWorkspaceId !== grant.consumer.workspaceId
       || (session.metadata.flightdeckWorkspaceId && session.metadata.flightdeckWorkspaceId !== grant.consumer.workspaceId)
       || ![grant.model, `tinfoil/${grant.model}`].includes(session.model ?? "")

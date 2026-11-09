@@ -11,7 +11,7 @@ import { handleModelProviderRoutes } from "./provider-routes";
 
 const fixtures: Array<() => void> = [];
 afterEach(() => { while (fixtures.length) fixtures.pop()!(); });
-function setup(fetchImpl?: typeof fetch) {
+function setup(fetchImpl?: typeof fetch, localProfile = false) {
   const root = mkdtempSync(join(tmpdir(), "tinfoil-test-"));
   const store = new SecretStore(join(root, "secrets.sqlite"), join(root, "master.key"));
   const owner = nip19.npubEncode(getPublicKey(generateSecretKey()));
@@ -20,7 +20,7 @@ function setup(fetchImpl?: typeof fetch) {
     policy: { ...deniedPolicy(), identities: [identity], agents: { enabled: true, mode: "selected", ids: [identity] } } });
   store.saveProviderConnection(owner, "local", { credentialRef: secret.id, models: ["kimi-k3-1-pro"], revision: 0, enabled: true });
   const session = { npub: owner, status: "running", model: "tinfoil/kimi-k3-1-pro", metadata: {
-    modelProvider: "tinfoil", modelProviderWorkspaceId: "local", agentChatBotNpub: identity, agentChatAgentId: "profile" } };
+    modelProvider: "tinfoil", modelProviderWorkspaceId: "local", agentChatBotNpub: identity, ...(localProfile ? { agentProfileId: "profile" } : { agentChatAgentId: "profile" }) } };
   const consumer = { ownerNpub: owner, workspaceId: "local", identityNpub: identity, context: "session" as const, contextId: identity };
   const gateway = new TinfoilGateway(store, () => session, async () => "http://127.0.0.1:3301/v1", fetchImpl ?? (async () => Response.json({ choices: [] })) as typeof fetch);
   const runtime = gateway.issue("session", consumer, "kimi-k3-1-pro");
@@ -137,3 +137,22 @@ test("rotating saved credentials invalidates an existing session grant", async (
   f.store.update(f.owner, "local", f.secret.id, { revision: 1, value: "rotated-test-service-key" });
   expect((await f.gateway.handle(f.request())).status).toBe(403);
 });
+
+for (const change of ["unchanged", "profile", "identity", "missing-profile", "missing-identity", "revoked"] as const) {
+  test(`local profile gateway binding: ${change}`, async () => {
+    let forwarded = false;
+    const f = setup((async () => { forwarded = true; return Response.json({ choices: [] }); }) as typeof fetch, true);
+    if (change === "profile") f.session.metadata.agentProfileId = "different-profile";
+    if (change === "identity") f.session.metadata.agentChatBotNpub = "different-bot";
+    if (change === "missing-profile") delete f.session.metadata.agentProfileId;
+    if (change === "missing-identity") f.session.metadata.agentChatBotNpub = "";
+    if (change === "revoked") f.gateway.revoke("session");
+    const response = await f.gateway.handle(f.request());
+    expect(response.status).toBe(change === "unchanged" ? 200 : change === "revoked" ? 401 : 403);
+    await response.text();
+    expect(forwarded).toBe(change === "unchanged");
+    if (change === "missing-profile" || change === "missing-identity" || change === "identity") {
+      expect(() => f.gateway.issue("session", f.consumer, "kimi-k3-1-pro")).toThrow("tinfoil_identity_binding_required");
+    }
+  });
+}
