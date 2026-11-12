@@ -2,6 +2,7 @@ import { assertFamilyCompatibility } from "./record-family-compatibility.ts";
 import { assertHandoverProgress } from "./record-handover.ts";
 import { saveLargeRecordUndo } from "./record-large-record-undo.ts";
 import { initializeRecordCache } from "./record-cache-schema.ts";
+import { recordCacheError } from "./record-cache-capacity.ts";
 import { readCacheReview, readCacheCounts, readCacheAuthority } from "./record-cache-review.ts";
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
@@ -81,8 +82,8 @@ export class RecordSyncCache {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
-    initializeRecordCache(this.db);
     try {
+      initializeRecordCache(this.db);
       this.db
         .transaction(() => {
           const existing = this.db
@@ -107,8 +108,9 @@ export class RecordSyncCache {
         })
         .immediate();
     } catch (error) {
+      const reported = recordCacheError(this.db, error);
       this.db.close();
-      throw error;
+      throw reported;
     }
   }
   state(): CacheState {

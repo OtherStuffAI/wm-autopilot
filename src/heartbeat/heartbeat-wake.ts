@@ -16,6 +16,7 @@ import {
   RecordSyncBudgetError,
 } from "./record-sync-client.ts";
 import { RecordSyncCache, cachePath } from "./record-sync-cache.ts";
+import { recordCacheError, recordCacheStorage } from "./record-cache-capacity.ts";
 import {
   PAGE_MS,
   page,
@@ -286,7 +287,8 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
         (error.status === 401 || error.status === 403)
       )
         cache.unavailable();
-      errors.push(error instanceof Error ? error.message : String(error));
+      const reported = recordCacheError(cache.db, error);
+      errors.push(reported instanceof Error ? reported.message : String(reported));
     }
   }
   try {
@@ -371,6 +373,7 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
       },
       cache: {
         path,
+        storage: recordCacheStorage(cache.db),
         clientId: state.clientId,
         generation: state.generation,
         pendingAck: Boolean(cache.pending()),
@@ -389,6 +392,8 @@ export async function runHeartbeatWake(options: HeartbeatWakeOptions) {
         },
       ],
     };
+  } catch (error) {
+    throw recordCacheError(cache.db, error);
   } finally {
     cache.close();
   }

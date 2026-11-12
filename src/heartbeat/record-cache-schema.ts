@@ -1,7 +1,9 @@
 import type { Database } from "bun:sqlite";
+import { configureRecordCacheCapacity } from "./record-cache-capacity.ts";
 
 export function initializeRecordCache(db: Database): void {
-  db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA max_page_count=65536; PRAGMA busy_timeout=1000;
+  configureRecordCacheCapacity(db);
+  db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=1000;
       CREATE TABLE IF NOT EXISTS review_continuations (cursor TEXT PRIMARY KEY, position TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS review_session (id INTEGER PRIMARY KEY CHECK(id=1), session TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta (id INTEGER PRIMARY KEY CHECK(id=1), partition TEXT NOT NULL, state TEXT NOT NULL);

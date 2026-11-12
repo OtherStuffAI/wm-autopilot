@@ -57,6 +57,28 @@ repository checkout has a different default directory: explicitly select the
 existing location when moving the CLI. Cache partitioning also includes
 Tower/workspace/app/viewer, so a different bot is a different cache.
 
+The SQLite cache has a **2 GiB per-partition main-database ceiling**, calculated
+from its actual page size. `WINGMAN_HEARTBEAT_CACHE_MAX_BYTES` accepts an integer
+byte count from 1 MiB through 16 GiB. The setting applies when the next source
+CLI/collector opens the cache; it does not require an Autopilot restart. An
+existing cache larger than the requested bound fails configuration explicitly.
+WAL/journal files and temporary disk use require additional free space; this is
+not a limit on the whole cache directory or filesystem.
+
+Wake JSON includes `cache.storage.allocatedBytes`, `freeBytes` (reusable pages)
+and `limitBytes`. A `SQLITE_FULL` failure reports those values and incomplete
+coverage while retaining saved sync progress. Check filesystem space and the
+configured ceiling, then retry the **same cache** after correcting capacity.
+Do not delete the cache, copy its cursor alone, or filter out older records to
+make a daily report fit. The recent review window limits summaries, not downloads.
+
+Downloaded generations, rejected downloads and pending acknowledgement/rollback
+evidence remain retained. Old generations can be needed for repair diagnosis;
+automatic eviction cannot prove they are disposable. There is no age-based
+purge. If a partition approaches the new ceiling, raise its explicit bound
+within the supported maximum or arrange a separately reviewed archival/retirement
+policy. Increasing capacity does not certify sync or change review authority.
+
 Review selects all active tasks plus records updated in the fixed recent window,
 with each canonical record included once. Older active tasks come first, then
 recent records; both use indexed `(updated,family,id)` keyset ordering. Each

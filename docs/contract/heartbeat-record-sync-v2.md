@@ -46,10 +46,16 @@ The cache defaults to `data/heartbeat-record-sync/`, relative to the source repo
 with private file/directory permissions. `WINGMAN_HEARTBEAT_CACHE_DIR` or
 `--cache-dir` chooses another durable location. Keep it on local persistent
 storage supporting SQLite locking; do not copy a live cursor without its rows.
-SQLite's page-count quota is 65,536 pages (normally 256 MiB). Storage exhaustion
-fails the page transaction and reports incomplete coverage, without deleting rows
-or pending intent. Retained generations may eventually need an explicit retention
-policy; this release does not purge them.
+SQLite's main-database quota defaults to 2 GiB per partition, deriving its page
+count from the actual page size. `WINGMAN_HEARTBEAT_CACHE_MAX_BYTES` may explicitly
+set 1 MiB through 16 GiB. A bound below the existing allocation is rejected;
+SQLite's silent upward adjustment must not masquerade as an enforced bound.
+WAL/temp files need additional disk headroom. Storage exhaustion fails the page
+transaction and reports incomplete coverage with allocation/free/limit diagnostics,
+without deleting rows or pending intent. Retained generations require a separately
+reviewed archival/retirement policy; this release does not purge them. Source CLI
+and collector invocations apply the policy on their next open, including legacy
+256 MiB caches; no server restart is needed for those source processes.
 
 ## Bounds and observation
 
