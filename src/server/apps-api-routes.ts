@@ -28,6 +28,7 @@ import {
 } from '../wapps/legacy-custody-migration-contract';
 import type { LegacyWappCustodyMigration } from '../wapps/legacy-custody-migration';
 import { appCommandAccessAction, appRouteAccessAction } from './apps-api-access';
+import { mergeAppCaproverEnvironment } from "./app-caprover-environment";
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD';
 
@@ -1366,6 +1367,10 @@ export async function handleAppsApi(
         }
         return Response.json({ error: (error as Error).message }, { status: 500 });
       }
+    }
+
+    if (parts.length === 6 && parts[4] === 'caprover' && method === 'PATCH' && parts[5] === 'environment') {
+      return mergeAppCaproverEnvironment(request, id, ctx);
     }
 
     if (parts[4] === 'caprover' && method === 'GET' && parts[5] === 'deployments') {
