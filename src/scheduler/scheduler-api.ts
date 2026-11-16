@@ -25,7 +25,7 @@ export interface SchedulerApiDependencies {
   engine: SchedulerEngine;
   getNpub: (request: Request) => string | null;
   getInstanceIdentity?: () => WingmanInstanceIdentity | null;
-  getActiveBotOwnerNpub?: (botNpub: string) => string | null;
+  validateRunIdentity: (job: { userNpub: string; botNpub: string }) => void;
   getAgentIdForBotNpub?: (botNpub: string, ownerNpub: string) => string | null;
 }
 

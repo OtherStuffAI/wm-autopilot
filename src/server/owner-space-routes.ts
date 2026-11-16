@@ -351,7 +351,7 @@ export async function handleOwnerSpaceApi(
       createRewrittenRequest(request, rewrittenUrl), rewrittenUrl, method, ownerAuth));
   }
 
-  if (matched.subpath === "/scheduler/jobs" || matched.subpath.startsWith("/scheduler/jobs/")) {
+  if (matched.subpath === "/scheduler/identities" || matched.subpath === "/scheduler/jobs" || matched.subpath.startsWith("/scheduler/jobs/")) {
     const requiredScope = resolveOwnerSchedulerScope(method, matched.subpath);
     const access = resolveOwnerAccess(
       authContext,

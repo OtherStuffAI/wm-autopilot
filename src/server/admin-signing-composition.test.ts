@@ -110,7 +110,7 @@ beforeEach(() => {
   const schedulerApiHandler = createSchedulerApiHandler({ store: scheduler,
     engine: { executeJob: async id => ({ id, triggered: true }), scheduleJob() {}, unscheduleJob() {} } as never,
     getNpub: () => getEffectiveOwnerNpub(getRequestContext()), isAdmin: () => isInstanceAdmin(getRequestContext(), isAdmin),
-    getActiveBotOwnerNpub: () => foreign,
+    validateRunIdentity: () => {},
   });
   const foreignSession = { ...session, id: "foreign-session", npub: foreign, metadata: {}, name: "Foreign" };
   const custodianSession = { ...foreignSession, npub: owner, id: "custodian-session" };

@@ -20,13 +20,13 @@ const job = { userNpub: "owner", botNpub: "bot", flightdeckContext: route };
 
 describe("scheduled launch context", () => {
   test("preserves exact delegated owner and bot and location", () => {
-    const resolve = createScheduledSessionContextResolver({ getSubscription: subscription, getActiveBotOwnerNpub: () => "owner" });
+    const resolve = createScheduledSessionContextResolver({ getSubscription: subscription, validateRunIdentity: ({ userNpub }) => { if (userNpub !== "owner") throw new Error("exact active bot"); } });
     expect(resolve(job)).toMatchObject({ flightdeckAgentNpub: "bot", flightdeckWorkspaceId: route.workspaceId,
       flightdeckSubscriptionId: route.subscriptionId, bindingType: "task", bindingId: route.taskId });
     expect(() => resolve({ ...job, userNpub: "another-owner" })).toThrow("exact active bot");
   });
   test("unavailable exact live transport fails instead of falling back to another subscription", () => {
-    const resolve = createScheduledSessionContextResolver({ getSubscription: subscription, getActiveBotOwnerNpub: () => "owner", resolveTransport: () => null });
+    const resolve = createScheduledSessionContextResolver({ getSubscription: subscription, validateRunIdentity: ({ userNpub }) => { if (userNpub !== "owner") throw new Error("exact active bot"); }, resolveTransport: () => null });
     expect(() => resolve(job)).toThrow("no exact live bot transport");
   });
   test.each(["managedByNpub", "botNpub", "workspaceId", "subscriptionId", "lifecycleStatus", "sseStatus"])(
@@ -40,7 +40,7 @@ describe("scheduled launch context", () => {
       expect(() => buildScheduledSessionContextMetadata(job, route, sub)).toThrow("Tower service identity");
     });
   test("does not infer or default a missing binding; workspace-only binds no public channel", () => {
-    const resolve = createScheduledSessionContextResolver({ getSubscription: subscription, getActiveBotOwnerNpub: () => "owner" });
+    const resolve = createScheduledSessionContextResolver({ getSubscription: subscription, validateRunIdentity: ({ userNpub }) => { if (userNpub !== "owner") throw new Error("exact active bot"); } });
     expect(resolve({ ...job, flightdeckContext: null })).toEqual({});
     expect(() => buildScheduledSessionContextMetadata(job, {}, subscription())).toThrow();
     expect(() => buildScheduledSessionContextMetadata(job, route, null)).toThrow();

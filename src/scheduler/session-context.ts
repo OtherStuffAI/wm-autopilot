@@ -55,12 +55,10 @@ export function buildScheduledSessionContextMetadata(
 export function createScheduledSessionContextResolver(deps: {
   getSubscription: (id: string) => WorkspaceSubscriptionRecord | null;
   resolveTransport?: (binding: FlightDeckTransportBinding) => { subscriptionId: string; backendBaseUrl: string; appNpub: string } | null;
-  getActiveBotOwnerNpub: (botNpub: string) => string | null;
+  validateRunIdentity: (job: Pick<ScheduledJob, "userNpub" | "botNpub">) => void;
 }): (job: Pick<ScheduledJob, "userNpub" | "botNpub" | "flightdeckContext">) => SessionMetadataInput {
   return (job) => {
-    if (deps.getActiveBotOwnerNpub(job.botNpub) !== job.userNpub) {
-      throw new Error("Scheduled trigger requires its exact active bot owned by the scheduler owner.");
-    }
+    deps.validateRunIdentity(job);
     if (!job.flightdeckContext) return {};
     const metadata = buildScheduledSessionContextMetadata(job, job.flightdeckContext,
       deps.getSubscription(job.flightdeckContext.subscriptionId));

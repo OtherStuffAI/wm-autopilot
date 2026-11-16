@@ -102,8 +102,12 @@ export async function handleCreateJob(
       { status: 400 },
     );
   }
-  if (actionType !== "cleanup" && requestedBotNpub && deps.getActiveBotOwnerNpub?.(requestedBotNpub) !== userNpub) {
-    return Response.json({ error: "botNpub must be an active bot identity owned by the scheduler owner" }, { status: 400 });
+  if (actionType !== "cleanup") {
+    try {
+      deps.validateRunIdentity({ userNpub, botNpub });
+    } catch (error) {
+      return Response.json({ error: (error as Error).message }, { status: 400 });
+    }
   }
 
   const context = parseScheduledContext(body.flightdeckContext, actionType, userNpub, botNpub, deps);
@@ -117,7 +121,7 @@ export async function handleCreateJob(
     name,
     userNpub,
     flightdeckContext: context,
-    agentId: deps.getAgentIdForBotNpub?.(botNpub, userNpub) ?? null,
+    agentId: actionType === "cleanup" ? null : deps.getAgentIdForBotNpub?.(botNpub, userNpub) ?? null,
     botNpub: actionType === "cleanup" ? "" : botNpub,
     wrappedKeyCiphertext: wrapped.ciphertext,
     wrappedKeyNonce: wrapped.nonce,
@@ -167,11 +171,7 @@ export async function handleUpdateJob(
     if (typeof body.botNpub !== "string") return Response.json({ error: "botNpub must be a string" }, { status: 400 });
     const botNpub = body.botNpub.trim();
     if (!botNpub) return Response.json({ error: "botNpub cannot be empty" }, { status: 400 });
-    if (deps.getActiveBotOwnerNpub?.(botNpub) !== existing.userNpub) {
-      return Response.json({ error: "botNpub must be an active bot identity owned by the scheduler owner" }, { status: 400 });
-    }
     update.botNpub = botNpub;
-    update.agentId = deps.getAgentIdForBotNpub?.(botNpub, existing.userNpub) ?? null;
   }
   if (body.actionType === "session" || body.actionType === "pipeline" || body.actionType === "cleanup") {
     update.actionType = body.actionType;
@@ -277,6 +277,19 @@ export async function handleUpdateJob(
     update.agentId = null;
   } else if (!existing.botNpub && !update.botNpub) {
     return Response.json({ error: "Choose a Run as identity (botNpub is required)." }, { status: 400 });
+  }
+
+  // Disabled historical jobs remain editable so operators can inspect/disable
+  // them; re-enabling, rebinding or changing action must validate the exact pair.
+  const needsIdentityValidation = Boolean(update.enabled ?? existing.enabled)
+    || body.botNpub !== undefined || body.actionType !== undefined;
+  if (nextActionType !== "cleanup" && needsIdentityValidation) {
+    try {
+      deps.validateRunIdentity({ userNpub: existing.userNpub, botNpub: String(update.botNpub ?? existing.botNpub) });
+      if (update.botNpub) update.agentId = deps.getAgentIdForBotNpub?.(String(update.botNpub), existing.userNpub) ?? null;
+    } catch (error) {
+      return Response.json({ error: (error as Error).message }, { status: 400 });
+    }
   }
 
   if (body.flightdeckContext !== undefined || (existing.flightdeckContext

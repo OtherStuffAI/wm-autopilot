@@ -30,8 +30,8 @@ function fixture() {
   let session: SessionSnapshot | null = null;
   const events: string[] = [];
   const deps: SchedulerEngineDeps = {
-    store, getInstanceIdentity: () => ({ npub: "instance" }) as any,
-    resolveSessionMetadata: createScheduledSessionContextResolver({ getSubscription: () => subscription, getActiveBotOwnerNpub: () => owner }),
+    store, validateRunIdentity: () => {}, getInstanceIdentity: () => ({ npub: "instance" }) as any,
+    resolveSessionMetadata: createScheduledSessionContextResolver({ getSubscription: () => subscription, validateRunIdentity: () => {} }),
     createSession: async (agent, dir, name, origin, _target, explicitNpub, metadata) => {
       events.push("create");
       session = { id: crypto.randomUUID(), agent, workingDirectory: dir, name, origin, npub: explicitNpub,
@@ -75,7 +75,7 @@ test("fresh scheduled session resolves actual broker context and exact signed ta
   });
   const fetchBefore = globalThis.fetch;
   const requests: Request[] = [];
-  globalThis.fetch = (async (url, init) => { requests.push(new Request(url, init)); return Response.json({ comments: [] }); }) as typeof fetch;
+  globalThis.fetch = (async (url, init) => { requests.push(new Request(url, init)); return Response.json({ comments: [], next_cursor: null, has_more: false, complete: true }); }) as typeof fetch;
   try { expect((await call("task_comments")).status).toBe(200); } finally { globalThis.fetch = fetchBefore; }
   expect(requests[0]!.url).toBe(`https://tower.test/api/v4/flightdeck-pg/workspaces/${f.route.workspaceId}/tasks/${f.route.taskId}/comments?limit=200`);
   const signed = JSON.parse(Buffer.from(requests[0]!.headers.get("authorization")!.slice(6), "base64").toString());

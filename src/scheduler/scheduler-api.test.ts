@@ -22,7 +22,7 @@ function createJob(store: SchedulerStore) {
   return store.createJob({
     name: "scheduled job",
     userNpub: "npub-user",
-    botNpub: "npub-bot",
+    botNpub: "npub-current-bot",
     wrappedKeyCiphertext: "ciphertext",
     wrappedKeyNonce: "nonce",
     agent: "codex",
@@ -44,7 +44,7 @@ function createHandler(store: SchedulerStore, executeJob?: (jobId: string) => Pr
     engine,
     getNpub: () => "npub-user",
     getInstanceIdentity: () => null,
-    getActiveBotOwnerNpub: (botNpub) => botNpub === "npub-current-bot" ? "npub-user" : botNpub === "npub-foreign" ? "npub-other" : null,
+    validateRunIdentity: ({ botNpub }) => { if (botNpub !== "npub-current-bot") throw new Error("Invalid identity"); },
     listRunIdentities: (owner) => owner === "npub-user" ? [{ botNpub: "npub-current-bot", name: "Rick" }] : [],
   });
 }
@@ -230,6 +230,7 @@ describe("explicit Run as API contract", () => {
     const store = new SchedulerStore(join(tempDir, "wingman.db"));
     const handler = createHandler(store);
     const job = createJob(store);
+    store.updateJob(job.id, { botNpub: "npub-bot", enabled: false });
     const edit = new Request(`http://wingman.test/api/scheduler/jobs/${job.id}`, { method: "PATCH", body: JSON.stringify({ name: "Historical" }) });
     expect((await handler(edit, new URL(edit.url), "PATCH")).status).toBe(200);
     expect(store.getJob(job.id)?.botNpub).toBe("npub-bot");

@@ -18,8 +18,8 @@ function fixture() {
   const sub = { ...route, managedByNpub: "owner", botNpub: "bot", lifecycleStatus: "active", sseStatus: "connected",
     towerServiceNpub: "tower", backendConnectionId: "connection", backendBaseUrl: "https://tower.test", sourceAppNpub: "app" } as unknown as WorkspaceSubscriptionRecord;
   const handler = createSchedulerApiHandler({ store, engine: { scheduleJob() {}, unscheduleJob() {} } as unknown as SchedulerEngine,
-    getNpub: () => "owner", getActiveBotOwnerNpub: () => "owner",
-    validateSessionContext: createScheduledSessionContextResolver({ getSubscription: () => sub, getActiveBotOwnerNpub: () => "owner" }),
+    getNpub: () => "owner", validateRunIdentity: () => {},
+    validateSessionContext: createScheduledSessionContextResolver({ getSubscription: () => sub, validateRunIdentity: () => {} }),
   });
   async function call(path: string, method: "GET" | "POST" | "PATCH", body?: object) {
     const url = new URL(`http://localhost/api/scheduler/jobs${path}`);

@@ -75,6 +75,7 @@ function createEngine(
   runPipeline: NonNullable<SchedulerEngineDeps["runPipeline"]>,
 ): SchedulerEngine {
   return new SchedulerEngine({
+    validateRunIdentity: () => {},
     store,
     createSession: async () => {
       throw new Error("pipeline jobs should not create sessions");
@@ -91,6 +92,7 @@ function createCleanupEngine(
   cleanupStopNextActionSessions: NonNullable<SchedulerEngineDeps["cleanupStopNextActionSessions"]>,
 ): SchedulerEngine {
   return new SchedulerEngine({
+    validateRunIdentity: () => {},
     store,
     createSession: async () => {
       throw new Error("cleanup jobs should not create sessions");
@@ -212,6 +214,7 @@ describe("SchedulerEngine WApp activity binding", () => {
     let createdMetadata: Parameters<SchedulerEngineDeps["createSession"]>[6];
     let createdModel: Parameters<SchedulerEngineDeps["createSession"]>[7];
     const engine = new SchedulerEngine({
+    validateRunIdentity: () => {},
       store,
       createSession: async (_agent, dir, name, origin, _target, npub, metadata, model) => {
         createdMetadata = metadata;
@@ -257,6 +260,7 @@ describe("SchedulerEngine unsupported historical jobs", () => {
     let dispatchPromptCalls = 0;
     let pipelineCalls = 0;
     const engine = new SchedulerEngine({
+    validateRunIdentity: () => {},
       store,
       createSession: async () => {
         createSessionCalls += 1;

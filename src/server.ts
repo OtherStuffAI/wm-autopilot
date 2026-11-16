@@ -8,7 +8,8 @@ import { createLiveAdminSigningTargets } from "./signing/configured-tower-signin
 import { setLiveSubscriptionIdentityResolver } from "./agent-chat/agent-activity-identity";
 import { rebindNativeDirectChatRecovery } from "./agent-chat/direct-chat-native-recovery";
 import { createDirectChatRuntimeServices } from "./agent-chat/direct-chat-runtime-services";
-import { listSchedulerRunIdentities } from "./scheduler/run-identities";
+import { createSchedulerRunIdentityPolicy } from "./scheduler/run-identity-policy";
+import { schedulerRequestAuthority } from "./scheduler/request-authority";
 import { scheduledPipelineLaunchOptions } from "./scheduler/pipeline-launch-options";
 import { createNightWatchRuntimeDeps } from "./server/nightwatch-runtime-deps";
 import { SecretStore } from "./secrets/secret-store";
@@ -562,13 +563,21 @@ function onBotKeyUnlockedHook(npub: string, secretKey: Uint8Array, botPubkeyHex:
   accessGrantListener?.subscribe(npub, secretKey, botPubkeyHex);
 }
 
+const schedulerRunIdentityPolicy = createSchedulerRunIdentityPolicy({
+  keys: botKeyStore,
+  listProfiles: (owner) => agentDefinitionStore.listForManagerNpub(owner),
+  getInstanceNpub: () => wingmanInstanceIdentity?.npub ?? null,
+  isKeyAvailable: (record) => brokerKeyVault.has(record),
+});
+
 const scheduledSessionContextResolver = createScheduledSessionContextResolver({
   resolveTransport: (binding) => workspaceSubscriptionManager.resolveFlightDeckTurnDelivery(binding),
   getSubscription: (id) => workspaceSubscriptionStore.getBySubscriptionId(id),
-  getActiveBotOwnerNpub: (npub) => botKeyStore.getActiveKeyForBotNpub(npub)?.userNpub ?? null,
+  validateRunIdentity: schedulerRunIdentityPolicy.validate,
 });
 
 const schedulerEngine = new SchedulerEngine({
+  validateRunIdentity: schedulerRunIdentityPolicy.validate,
   store: schedulerStore,
   resolveSessionMetadata: scheduledSessionContextResolver,
   createSession: (agent, dir, name, origin, targetFile, explicitNpub, metadata, model) =>
@@ -633,24 +642,10 @@ const schedulerApiHandler = createSchedulerApiHandler({
   validateSessionContext: scheduledSessionContextResolver,
   store: schedulerStore,
   engine: schedulerEngine,
-  isAdmin: () => isInstanceAdmin(getRequestContext(), isConfiguredAdminNpub),
-  listAllJobs: () => {
-    const auth = getRequestContext();
-    return !auth.targetOwnerNpub || auth.targetOwnerNpub === auth.subjectNpub;
-  },
-  listRunIdentities: (ownerNpub) => listSchedulerRunIdentities(ownerNpub, botKeyStore, agentDefinitionStore.listForManagerNpub(ownerNpub)),
-  getInstanceIdentity: () => wingmanInstanceIdentity,
-  getActiveBotOwnerNpub: (botNpub) => botKeyStore.getActiveKeyForBotNpub(botNpub)?.userNpub ?? null,
-  getAgentIdForBotNpub: (botNpub, ownerNpub) =>
-    agentDefinitionStore.listForManagerNpub(ownerNpub).find((agent) => agent.botNpub === botNpub)?.agentId ?? null,
-  getNpub: (request: Request) => {
-    const ctx = getRequestContext();
-    if (ctx?.targetOwnerNpub && isInstanceAdmin(ctx, isConfiguredAdminNpub)) return ctx.targetOwnerNpub;
-    if (ctx?.delegateRelationshipId && ctx.delegatedOwnerNpub) {
-      return ctx.delegatedOwnerNpub;
-    }
-    return ctx?.npub ?? null;
-  },
+  ...schedulerRequestAuthority(isConfiguredAdminNpub),
+  listRunIdentities: schedulerRunIdentityPolicy.list,
+  validateRunIdentity: schedulerRunIdentityPolicy.validate,
+  getAgentIdForBotNpub: (botNpub, userNpub) => botNpub ? schedulerRunIdentityPolicy.resolve({ botNpub, userNpub }).agentId : null,
 });
 const nip98GrantsStore = new Nip98GrantStore();
 const loginChallengeStore = new LoginChallengeStore();

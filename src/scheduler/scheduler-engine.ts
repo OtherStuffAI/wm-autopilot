@@ -27,6 +27,7 @@ import type { JsonObject } from "../pipelines/pipeline-store";
 // ============================================================
 
 export interface SchedulerEngineDeps {
+  validateRunIdentity: (job: ScheduledJob) => void;
   store: SchedulerStore;
   createSession: (
     agent: AgentType,
@@ -260,7 +261,7 @@ class SchedulerEngine {
         return { cleanup };
       }
 
-      if (!job.botNpub) throw new Error("Scheduled trigger has no Run as identity selected");
+      this.deps.validateRunIdentity(job);
       const instanceIdentity = this.deps.getInstanceIdentity?.() ?? null;
       if (!instanceIdentity) {
         throw new Error("WINGMAN_PRIV is required to execute scheduled jobs");
