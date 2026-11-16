@@ -1,3 +1,4 @@
+import { agentInboxState } from './agent-inbox-origins';
 import { ACCEPTED_TURN_INTERRUPTED, prepareFreshHumanSession, FreshHumanIntakeCoordinator, afterFreshHumanBoundary, assertCurrentHumanTurn } from "./fresh-human-session";
 import { buildAcceptedDirectChatRecoveryPrompt } from "./direct-chat-recovery-prompt";
 import { DirectChatRequestQueue } from "./direct-chat-request-queue.ts";
@@ -500,7 +501,11 @@ export class AgentDirectChatRuntime {
           : revisionDispatch
             ? history.filter((message) => message.messageId === input.event.entity_id)
           : undelivered.filter((message) => isAgentDirectMessageEligible(input.channel, message, agent.botNpub)), intercept)
-          .filter((message) => !delivered.has(message.messageId) || Boolean(pending?.sourceMessageIds.includes(message.messageId)));
+          .filter((message) => !delivered.has(message.messageId) || Boolean(pending?.sourceMessageIds.includes(message.messageId)))
+          // A strict inbox authorizes exactly its trigger. Transcript rows are context, not independently verified
+          // instructions. Accepted queued triggers have their own ordered request snapshot; pending sources retain ownership.
+          .filter((message) => !agentInboxState().isInboxRequired(input.subscription.subscriptionId)
+            || message.messageId === input.event.entity_id || Boolean(pending?.sourceMessageIds.includes(message.messageId)));
         if (delta.length === 0) continue;
         const replaceInterruptedSession = intercept.lastDecision === 'failed' && Boolean(intercept.freshStartMessageId);
         if (pendingAwaiting && pending) {

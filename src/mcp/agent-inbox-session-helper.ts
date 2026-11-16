@@ -67,10 +67,10 @@ export function resolveInboxWriteOrigin(owner: InboxOriginOwner, action: string,
 
 /**
  * A deliberate self-address (structured agent mention of the bot itself) from a strict-inbox session: names the live
- * non-self origin and the mentions to sign. Anything else (no origin, no self mention) is an ordinary message.
+ * non-self origin as optional provenance. The shared signed client binds self-mentions even when no origin exists.
  */
 export function inboxSelfAddress(origin: BoundOrigin | undefined, mentions: unknown, botNpub: string): { originNotificationId: string; mentions: unknown[] } | null {
-  if (!origin || !Array.isArray(mentions) || !mentionsAddressSelf(mentions, botNpub)) return null;
+  if (!origin || origin.envelope.reason === 'self_mention' || !Array.isArray(mentions) || !mentionsAddressSelf(mentions, botNpub)) return null;
   return { originNotificationId: origin.towerOriginId, mentions };
 }
 
@@ -91,7 +91,9 @@ export function currentInboxWriteOrigin(owner: InboxOriginOwner, action: string,
   ids: { channelId: string | null; threadId: string | null; taskId: string | null; documentId: string | null }, stores: InboxOriginStores = {}): BoundOrigin | undefined {
   if (!INBOX_ORIGIN_WRITE_ACTIONS.has(action)) return undefined;
   const origin = resolveInboxWriteOrigin(owner, action, ids, stores);
-  return origin instanceof Response ? undefined : origin;
+  // Tower receipts accept non-self origins only. A self-instruction is already execution-authorized,
+  // so its outputs are ordinary ACL writes, never fabricated human-origin receipts.
+  return origin instanceof Response || origin.envelope.reason === 'self_mention' ? undefined : origin;
 }
 
 export { inboxAwareFetchers };

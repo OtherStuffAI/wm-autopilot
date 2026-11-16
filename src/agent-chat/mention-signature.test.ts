@@ -27,13 +27,13 @@ describe('canonical structured mentions hash (Tower contract vectors)', () => {
 describe('chat message instruction signature', () => {
   const secret = generateSecretKey();
   const botNpub = nip19.npubEncode(getPublicKey(secret));
-  function send(selfAddress?: { originNotificationId: string; mentions: unknown[] }) {
+  function send(selfAddress?: { originNotificationId: string; mentions: unknown[] }, selfMention = true) {
     const requests: Array<Record<string, any>> = [];
     const botIdentity = {
       botNpub, botPubkeyHex: getPublicKey(secret), botSecret: new Uint8Array(secret),
       towerTransport: { prepare: async (url: string) => url, fetch: async (_url: string | URL, init: RequestInit) => { requests.push(JSON.parse(String(init.body))); return Response.json({ message: { id: 'm-1' } }); } },
     };
-    const mentions = [{ type: 'agent', npub: botNpub, label: 'Self' }];
+    const mentions = selfMention ? [{ type: 'agent', npub: botNpub, label: 'Self' }] : [];
     return createFlightDeckPgChannelMessage({
       backendBaseUrl: 'https://tower.example', workspaceId: 'ws-1', channelId: 'ch-1', threadId: 'th-1', appNpub: 'npub1app',
       botIdentity: botIdentity as any, body: 'Continue', metadata: { mentions }, ...(selfAddress ? { selfAddress } : {}),
@@ -41,11 +41,18 @@ describe('chat message instruction signature', () => {
   }
 
   test('ordinary messages are unchanged: no origin field and no mentions tag', async () => {
-    const { request } = await send();
+    const { request } = await send(undefined, false);
     expect(request.origin_notification_id).toBeUndefined();
     const event = request.message_signature.nostr_event;
     expect(event.tags.map((tag: string[]) => tag[0])).toEqual(['protocol', 'body_sha256', 'workspace_id', 'channel_id', 'thread_id']);
     expect(verifyEvent(event)).toBe(true);
+  });
+
+  test('a cross-thread self-address signs mentions without requiring a human origin', async () => {
+    const { request, mentions } = await send();
+    expect(request.origin_notification_id).toBeUndefined();
+    expect(request.message_signature.nostr_event.tags).toContainEqual(['mentions_sha256', canonicalMentionsSha256(mentions)]);
+    expect(verifyEvent(request.message_signature.nostr_event)).toBe(true);
   });
 
   test('a self-address names the origin and signs the canonical mentions hash', async () => {

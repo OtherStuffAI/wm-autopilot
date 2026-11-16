@@ -1,5 +1,5 @@
 import { validateCommentPage } from "../flightdeck-pg/comment-pages.ts";
-import { canonicalMentionsSha256 } from './mention-signature';
+import { canonicalMentionsSha256, mentionsAddressSelf } from './mention-signature';
 import { prepareTowerRequestUrl, fetchTowerRequest, transportForConnection } from "./tower-transport-runtime";
 import { createHash } from 'node:crypto';
 
@@ -1263,7 +1263,8 @@ export async function createFlightDeckPgChannelMessage(params: {
       workspaceId: params.workspaceId,
       channelId: params.channelId,
       threadId: params.threadId,
-      mentionsSha256: params.selfAddress ? canonicalMentionsSha256(params.selfAddress.mentions) : null,
+      mentionsSha256: mentionsAddressSelf(params.mentions ?? params.metadata?.mentions, params.botIdentity.botNpub)
+        ? canonicalMentionsSha256(params.mentions ?? params.metadata?.mentions) : null,
     }),
     ...(params.selfAddress ? { origin_notification_id: params.selfAddress.originNotificationId } : {}),
     ...(params.threadId ? { thread_id: params.threadId } : {}),

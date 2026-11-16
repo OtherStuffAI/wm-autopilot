@@ -59,6 +59,17 @@ describe('strict-inbox write provenance names only the session\'s own live origi
     } finally { f.done(); }
   });
 
+  test('self-instruction outputs use ordinary ACL writes without fabricating a human-origin receipt', () => {
+    const f = fixture();
+    try {
+      f.inbox.beginAttempt('sub-1', 'n-self', 1, { ...envelope('n-self', 1, { thread_id: 'thread-1' }), reason: 'self_mention' });
+      f.inbox.markHandled('sub-1', 'n-self', 1, 'handled', null);
+      f.origins.recordTurn('session-1', { subscriptionId: 'sub-1', notificationId: 'n-self' });
+      expect(currentInboxWriteOrigin(owner(), 'chat_reply', ids({ channelId: 'channel-1', threadId: 'thread-1' }), f.stores)).toBeUndefined();
+      expect(currentInboxWriteOrigin(owner(), 'task_create', ids({ channelId: 'channel-1' }), f.stores)).toBeUndefined();
+    } finally { f.done(); }
+  });
+
   test('only the actively processed attempt or a handled, unrevoked, post-floor notification is live', async () => {
     const f = fixture();
     try {
@@ -142,7 +153,8 @@ describe('strict-inbox deliberate self-address', () => {
     expect(inboxSelfAddress(origin, self, 'npub1bot')).toEqual({ originNotificationId: 'n-human', mentions: self });
     expect(inboxSelfAddress(origin, [{ type: 'agent', npub: 'npub1other' }], 'npub1bot')).toBeNull();
     expect(inboxSelfAddress(origin, undefined, 'npub1bot')).toBeNull();
-    // Legacy sessions (no origin) send ordinary messages, unchanged.
+    expect(inboxSelfAddress({ ...origin, envelope: { ...origin.envelope, reason: 'self_mention' } }, self, 'npub1bot')).toBeNull();
+    // No provenance is attached without a live non-self origin; the shared client still signs the self-mention.
     expect(inboxSelfAddress(undefined, self, 'npub1bot')).toBeNull();
   });
 });

@@ -94,15 +94,15 @@ Creates inside the current origin's location send `origin_notification_id`; Towe
 ## Self-address
 
 A chat reply whose structured mentions include the bot itself (`{"type":"agent","npub":<own npub>}`) is a deliberate self-address.
-- Autopilot sends `origin_notification_id` and adds a `mentions_sha256` tag to the message's kind-33358 instruction signature. The value is the lowercase hex SHA-256 of `JSON.stringify` of the deduped `{type, npub}` list, lowercased and sorted by npub then type.
-- `origin_notification_id` is the live non-self notification the session acts for. For a turn that was itself a self-address, it is the non-self notification that self-address named.
-- Ordinary messages carry neither, unchanged.
-- Tower decides whether to project the self-address (verified signature, live origin, current ACL). Autopilot still decides whether to execute it (instructor grants).
-- A `self_mention` notification binds nothing by itself. A session acting for one may write only while the non-self notification it names is live.
+- The ordinary signed client always binds the saved structured mentions with a `mentions_sha256` tag, including cross-thread/new-thread writes with no origin. The canonical hash remains unchanged.
+- `origin_notification_id` is optional same-location provenance. It is not execution authority and is not required for notification projection. Self-address turns do not fabricate human-origin work receipts; their outputs use ordinary bot ACL writes.
+- Tower projects only a verified exact signed revision with a structured self-mention and current recipient ACL. Autopilot independently checks instructor grants before executing it. Ordinary bot output without that mention never wakes the bot.
+- Self-notification liveness is independent of any optional origin. Its bounded context follows the same current-ACL rules as other addressed messages.
+- Strict chat dispatch treats only the independently verified notification trigger as actionable. Historical transcript rows stay context; accepted queued triggers retain their own ordered request snapshots. A later human nudge never labels a historical brief launched.
 
 ## Known limitations
 
-- **Self-mentions.** Projection of a deliberate self-address needs the matching Tower contract (reason `self_mention`). Until Tower runs it, a bot that mentions itself is not notified. Do not classify such bots before then.
+- **Self-mentions.** Requires matching Tower source with independent `self_mention` delivery and signed-mention binding; activate Tower before Autopilot. Source-only changes do not repair a running older service.
 - **Approvals and flow steps.** These still exist only on the legacy feed.
   - Flight Deck PG tasks carry no flow linkage, so inbox task triggers are handled like legacy Flight Deck PG task events.
   - If a task's inbox context ever carries flow markers, the trigger is acknowledged `failed_permanent` with code `agent_inbox_flow_unsupported`. It is never run as an ordinary task.

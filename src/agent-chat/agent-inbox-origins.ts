@@ -179,9 +179,8 @@ export function recordInboxRunOrigin(runId: string, store?: Pick<AgentInboxOrigi
 
 export type OriginRefusalCode = 'agent_inbox_no_origin' | 'agent_inbox_origin_expired';
 /**
- * `towerOriginId` is what Tower accepts as `origin_notification_id`: the notification itself, or for a deliberate
- * self-address notification (reason `self_mention`, which binds nothing by itself) the live non-self notification it
- * names.
+ * `towerOriginId` identifies the current notification. A self-address is independent of optional provenance;
+ * execution was authorized separately by the instructor gate. Receipt helpers attach only non-self origins.
  */
 export type LiveOrigin = { ok: true; origin: InboxOrigin; envelope: AgentInboxEnvelopeLike; towerOriginId: string } | { ok: false; code: OriginRefusalCode };
 
@@ -195,14 +194,7 @@ const instant = (value: unknown) => (typeof value === 'string' && value ? Date.p
  * revoked and pre-floor notifications are never live, and there is no renewal. Tower re-checks for classified bots.
  */
 export function liveInboxOrigin(origin: InboxOrigin | null, store: Pick<AgentInboxStore, 'bindingRecord' | 'get'> = inboxState()): LiveOrigin {
-  const live = liveRecordedOrigin(origin, store);
-  if (!live.ok || live.envelope.reason !== 'self_mention') return live;
-  // A self-address acts only while the non-self notification it names is itself live (never a chain of self rows).
-  const named = live.envelope.origin_notification_id;
-  if (!named) return { ok: false, code: 'agent_inbox_origin_expired' };
-  const nonSelf = liveRecordedOrigin({ subscriptionId: live.origin.subscriptionId, notificationId: named }, store);
-  if (!nonSelf.ok || nonSelf.envelope.reason === 'self_mention') return { ok: false, code: 'agent_inbox_origin_expired' };
-  return { ...live, towerOriginId: nonSelf.envelope.id };
+  return liveRecordedOrigin(origin, store);
 }
 
 function liveRecordedOrigin(origin: InboxOrigin | null, store: Pick<AgentInboxStore, 'bindingRecord' | 'get'>): LiveOrigin {

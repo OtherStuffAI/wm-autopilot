@@ -1,3 +1,5 @@
+import { AgentInboxStore } from './agent-inbox-store';
+import { AgentInboxOriginStore, setAgentInboxOriginStoresForTests } from './agent-inbox-origins';
 import { agentInboxScope, inboxAwareFetchers } from './agent-inbox-scope';
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import { AgentDirectLifecycleController, AgentSessionHealthPublicationStore } from "./agent-direct-lifecycle-controller.ts";
@@ -461,6 +463,42 @@ describe('Agent Direct Chat runtime', () => {
     expect(f.prompts).toHaveLength(1);
     expect(f.prompts[0]).toContain('@Example Agent start a new turn');
     expect(f.published).toHaveLength(1);
+  });
+
+  test('strict inbox launches only its verified trigger, never historical self-instructions carried as context', async () => {
+    const file = join(tmpdir(), `strict-trigger-${randomUUID()}.sqlite`);
+    const inbox = new AgentInboxStore(file);
+    const origins = new AgentInboxOriginStore(file);
+    inbox.setMode('sub1', 'inbox_required', 'test');
+    setAgentInboxOriginStoresForTests({ inbox, origins });
+    try {
+      const f = fixture();
+      const agent = f.agentStore.getByAgentId('exampleAgent')!;
+      f.agentStore.save({ ...agent, instructorNpubs: ['npub1human'] });
+      const historicalSelf = f.message('m1', 'Historical unauthorized self brief', true, f.subscription.botNpub);
+      const trigger = f.message('m2', 'Fresh human instruction', true);
+      expect(await f.handle([historicalSelf, trigger], 'm2')).toEqual({ handled: true, reason: 'direct_chat_queued' });
+      await f.runtime.waitForIdle();
+      expect(f.creates).toHaveLength(1);
+      const promptSection = f.prompts[0]!.split('# Prompt\n\n')[1]!;
+      expect(promptSection).toContain('Fresh human instruction');
+      expect(promptSection).not.toContain('Historical unauthorized self brief');
+      const outcomes = f.dispatchOutcomeStore.listPage(['sub1'], { limit: 100, offset: 0, includeIgnoredAndSuppressed: true }).rows;
+      expect(outcomes.some((row) => row.recordId === 'm1' && row.outcome === 'launched')).toBe(false);
+      expect(outcomes.some((row) => row.recordId === 'm2' && row.outcome === 'launched')).toBe(true);
+      await f.handle([historicalSelf, trigger], 'm2');
+      await f.runtime.waitForIdle();
+      expect(f.prompts).toHaveLength(1);
+      // A separate authorized self notification starts once in another thread, with no human origin.
+      f.agentStore.save({ ...agent, instructorNpubs: ['npub1human', f.subscription.botNpub] });
+      const self = { ...f.message('m3', 'Authorized new-thread self instruction', true, f.subscription.botNpub), thread_id: 'other-thread' };
+      await f.handle([self], 'm3');
+      await f.runtime.waitForIdle();
+      expect(f.prompts).toHaveLength(2);
+      await f.handle([self], 'm3');
+      await f.runtime.waitForIdle();
+      expect(f.prompts).toHaveLength(2);
+    } finally { setAgentInboxOriginStoresForTests(null); }
   });
 
   test('enforces the default inclusive window at the normal publication boundary', async () => {
