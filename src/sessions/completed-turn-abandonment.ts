@@ -10,7 +10,7 @@ export async function abandonCompletedTurn(input: {
   runtime: CompletedTurnRuntime;
 }) {
   const { owner, request, store, runtime } = input;
-  if (!owner || request.executionProfile || !runtime.abandon) throw Error("Dedicated native abandonment required");
+  if (!owner || request.executionProfile === "isolated-codex" || !runtime.abandon) throw Error("Dedicated native abandonment required");
   const row = store.request(owner, request.requestId);
   if (!row || row.requestJson !== JSON.stringify(request)) throw Error("Abandonment request binding denied");
   await runtime.authorize({ ...request, sessionId: row.sessionId }, owner);

@@ -1,3 +1,5 @@
+import { interviewSdkOptions } from "./scoped-interview/sdk-options.ts";
+import type { InterviewTools } from "./scoped-interview/tools.ts";
 import { writeServerLog } from "../logging/server-logger";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import type { AdapterSessionContext } from "./agent-adapter";
@@ -15,9 +17,13 @@ export function buildClaudeSdkEnvironment(context: AdapterSessionContext): Recor
   };
 }
 
-export async function buildClaudeSdkOptions(context: AdapterSessionContext, abortController: AbortController): Promise<Options> {
+export async function buildClaudeSdkOptions(context: AdapterSessionContext, abortController: AbortController, interviewTools?: InterviewTools): Promise<Options> {
   if (!context.workingDirectory) throw new Error("Claude SDK requires a working directory");
   if (context.claudeResume && !context.claudeSessionId) throw new Error("Claude SDK resume requires a native session identity");
+  if (context.executionProfile === "scoped-interview") {
+    if (!interviewTools) throw Error("Interview tools missing");
+    return interviewSdkOptions(context, abortController, interviewTools);
+  }
   if (!context.claudeMcpConfigPath) throw new Error("Claude SDK requires session-private MCP configuration");
   const config = await Bun.file(context.claudeMcpConfigPath).json();
   const server = config?.mcpServers?.wingman;

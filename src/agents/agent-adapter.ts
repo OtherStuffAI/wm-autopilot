@@ -45,6 +45,7 @@ export interface AdapterSessionContext {
   claudeCli?: string;
   claudeMcpConfigPath?: string;
   claudeSkipPermissions?: boolean;
+  executionProfile?: "scoped-interview";
   /** Codex thread ID for session resume (used by CodexAdapter) */
   codexThreadId?: string;
   /** Configured Codex CLI passed through to the Codex ACP adapter. */
@@ -98,6 +99,9 @@ export interface AdapterSessionContext {
 }
 
 export interface AgentAdapter {
+  configureScopedInterview?(input: import("./scoped-interview/contract.ts").ScopedInterviewInput, durationMs: number, imageContext?: import("./scoped-interview/attachment.ts").InterviewImageContext): void;
+  getCompletedTurnOutput?(): Record<string, unknown> | undefined;
+
   /** Get the agent's current runtime status */
   fetchStatus(timeoutMs?: number): Promise<AgentRuntimeStatus | null>;
 

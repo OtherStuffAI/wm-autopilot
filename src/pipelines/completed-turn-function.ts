@@ -14,13 +14,25 @@ export async function executeCompletedTurnFunction(input: {
   store: PipelineStore; sessionApiContext: SessionApiContext; runId: string; stepId: string;
   ownerNpub: string | null; request: JsonObject;
   activityWebhook?: ActivityWebhookSpec;
+  trustedExecutionProfile?: "scoped-interview";
 }): Promise<JsonObject> {
-  const request = parseCompletedTurnRequest(input.request);
+  if ((input.request.executionProfile === "scoped-interview") !== (input.trustedExecutionProfile === "scoped-interview")) throw Error("Scoped interviews require the dedicated pinned session.scopedInterviewTurn.v1 function");
+  const request = parseCompletedTurnRequest(input.request, input.ownerNpub ?? undefined);
+  if (request.executionProfile === "scoped-interview" && input.store.getStep(input.stepId)?.metadata?.agentTools) throw Error("Scoped interviews cannot register project tools");
   // Reject inconsistent declared configuration before prepare/send; transport failures remain independent.
   resolveActivityWebhook(input.store, input.runId, input.activityWebhook);
   const runtime = request.executionProfile === "isolated-codex"
     ? createIsolatedCompletedTurnRuntime(input.store.isolatedTurns, isolatedTurnConfiguration())
-    : createCompletedTurnRuntime(input.sessionApiContext,{projectTools:!!input.store.getStep(input.stepId)?.metadata?.agentTools});
+    : createCompletedTurnRuntime(input.sessionApiContext,{projectTools:!!input.store.getStep(input.stepId)?.metadata?.agentTools,
+      interviewImageContext: (captured) => {
+        if (!captured.scopedInterview?.attachmentSource) return undefined;
+        const row = input.store.completedTurns.request(input.ownerNpub ?? "",captured.requestId);
+        if (!row) throw Error("Interview image request receipt missing");
+        const trusted = input.store.composition.snapshot(row.runId)?.context.trustedWapp;
+        const run = input.store.getRun(row.runId);
+        if (!trusted || run?.ownerNpub !== trusted.appNpub || trusted.expiresAt <= Date.now()) throw Error("Interview image requires immutable WApp grant origin");
+        return {...trusted,runId:row.runId};
+      }});
   if(input.request.abandonUncertain===true){
     const receipt=await abandonCompletedTurn({owner:input.ownerNpub??'',request,store:input.store.completedTurns,runtime});
     input.store.addEvent({runId:input.runId,stepId:input.stepId,level:'info',type:'completed_turn_abandoned',message:'Dedicated builder stopped; saved history preserved',data:{receiptId:receipt.receiptId,status:receipt.status}});

@@ -1,3 +1,6 @@
+import { validateInterviewReply } from "./scoped-interview/reply.ts";
+import { InterviewTools, verifyInterviewInit } from "./scoped-interview/tools.ts";
+import type { ScopedInterviewInput } from "./scoped-interview/contract.ts";
 import { subscribeSessionApprovalChanges } from "./session-approval-policy";
 import { ClaudeSdkPermissions } from "./claude-sdk-permissions";
 import { randomUUID } from "node:crypto";
@@ -16,6 +19,17 @@ type State = "initializing" | "ready" | "busy" | "failed" | "disposed";
 
 /** Autopilot owns lifecycle; the official SDK owns only its Claude subprocess. */
 export class ClaudeAdapter implements AgentAdapter {
+  private readonly interview: InterviewTools | null;
+  private interviewDurationMs = 90_000;
+  private completedOutput: Record<string, unknown> = {};
+
+  configureScopedInterview(input: ScopedInterviewInput, durationMs: number, imageContext?: import("./scoped-interview/attachment.ts").InterviewImageContext): void {
+    if (!Number.isInteger(durationMs) || durationMs < 1 || durationMs > 90_000) throw Error("Invalid interview deadline");
+    if (!this.interview || this.activeTurn) throw Error("Interview configuration unavailable or active");
+    this.interview.configure(input,imageContext); this.interviewDurationMs = durationMs;
+  }
+  getCompletedTurnOutput(): Record<string, unknown> | undefined { return this.interview ? this.completedOutput : undefined; }
+
   private state: State = "initializing";
   private warm: WarmQuery | null = null;
   private query: Query | null = null;
@@ -34,6 +48,7 @@ export class ClaudeAdapter implements AgentAdapter {
   private readonly activity = new NativeSdkActivity((message) => this.emit({ type: "message", message }));
 
   constructor(private readonly context: AdapterSessionContext, private readonly start: typeof startup = startup) {
+    this.interview = context.executionProfile === "scoped-interview" ? new InterviewTools() : null;
     this.permissions = new ClaudeSdkPermissions(context.id, (permission) => this.emit({ type: "permission", permission }),
       (text) => sanitizeClaudeSdkError(new Error(text), context.env).message,
       context.providerAutoApprove, (text) => this.activity.upsert(`consent:${randomUUID()}`, "agent-tools", text),
@@ -74,8 +89,8 @@ export class ClaudeAdapter implements AgentAdapter {
     try {
       const options = await buildClaudeSdkOptions({
         ...this.context, model: this.model, claudeSessionId: this.sessionId ?? undefined, claudeResume: this.resume,
-      }, controller);
-      options.canUseTool = this.permissions.canUseTool;
+      }, controller, this.interview ?? undefined);
+      if (!this.interview) options.canUseTool = this.permissions.canUseTool;
       const warm = await this.start({ options, initializeTimeoutMs: timeoutMs });
       if (this.state === "disposed" || controller.signal.aborted) {
         warm.close();
@@ -122,11 +137,13 @@ export class ClaudeAdapter implements AgentAdapter {
 
   private async executeTurn(content: string, durable: boolean): Promise<string> {
     if (this.state === "busy") throw new Error("Claude SDK already has an active turn");
+    if (this.interview && !durable) throw Error("Scoped interview requires completed-turn delivery");
     await this.waitForReady();
     // Another caller may have claimed the warm process while readiness awaited.
     if (!this.warm) throw new Error("Claude SDK is not ready for a new turn");
     const warm = this.warm;
     const controller = this.abortController!;
+    this.completedOutput = {};
     const turnId = randomUUID();
     const redact = (text: string) => sanitizeClaudeSdkError(new Error(text), this.context.env).message;
     const normalizer = new ClaudeEventNormalizer(this.activity, turnId, redact);
@@ -140,12 +157,16 @@ export class ClaudeAdapter implements AgentAdapter {
     const journalSessionId = this.sessionId;
     this.setState("busy");
     this.activity.upsert(`${turnId}:user`, "user", redact(content));
+    const deadline = this.interview ? setTimeout(() => { controller.abort(); this.query?.close(); }, this.interviewDurationMs) : null;
     try {
+      this.interview?.begin(controller.signal);
       this.query = warm.query(content);
       if (this.context.claudeSkipPermissions && this.context.providerApprovalConfigured?.()) {
         await this.query.setPermissionMode("default");
       }
       let completed = false;
+      let verifiedInit = !this.interview;
+      let nativeConfiguration: Record<string, unknown> | undefined;
       let reply = "";
       for await (const message of this.query) {
         if (controller.signal.aborted) throw new Error("Agent turn interrupted.");
@@ -153,15 +174,19 @@ export class ClaudeAdapter implements AgentAdapter {
           if (durable && message.session_id !== journalSessionId) throw new Error("Claude native identity changed");
           this.captureSession(message.session_id);
           this.runningModel = message.model;
+          if (this.interview) { verifyInterviewInit(message, this.context.workingDirectory!); this.interview.confirmInit(); verifiedInit = true; nativeConfiguration = {tools:message.tools,mcpServers:message.mcp_servers,permissionMode:message.permissionMode,plugins:message.plugins,skills:message.skills}; }
           const wingman = message.mcp_servers.find((server) => server.name === "wingman");
-          if (wingman?.status !== "connected") throw new Error("Claude SDK Wingman MCP server is not connected");
+          if (!this.interview && wingman?.status !== "connected") throw new Error("Claude SDK Wingman MCP server is not connected");
         }
         if (message.type === "result") {
           if (message.origin?.kind === "task-notification") continue;
           if (durable && message.session_id !== journalSessionId) throw new Error("Claude terminal native identity changed");
+          if (!verifiedInit) throw Error("Native interview configuration not verified");
           this.captureSession(message.session_id);
           reply = normalizer.complete(message);
-          if (journalId) completeClaudeTurn({nativeSessionId:journalSessionId!,directory:this.context.workingDirectory!},journalId,reply);
+          if (this.interview) reply = validateInterviewReply(reply);
+          if (this.interview) this.completedOutput = {executionProfile: "scoped-interview", nativeConfiguration, sourceReceipts: [...this.interview.receipts]};
+          if (journalId) completeClaudeTurn({nativeSessionId:journalSessionId!,directory:this.context.workingDirectory!},journalId,reply,this.completedOutput);
           completed = true;
           break;
         }
@@ -177,6 +202,8 @@ export class ClaudeAdapter implements AgentAdapter {
       this.activity.upsert(`${turnId}:error`, "agent-error", failure.message);
       throw failure;
     } finally {
+      if (deadline) clearTimeout(deadline);
+      this.interview?.end();
       this.permissions.cancel();
       this.query?.close();
       this.query = null;
@@ -222,7 +249,7 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 
   private reconcilePermissionMode(): void {
-    if (!this.context.claudeSkipPermissions || !this.context.providerApprovalConfigured?.()) return;
+    if (this.interview || !this.context.claudeSkipPermissions || !this.context.providerApprovalConfigured?.()) return;
     if (this.query) {
       void this.query.setPermissionMode("default").catch((error) => {
         this.activity.upsert(`consent-error:${randomUUID()}`, "agent-error",

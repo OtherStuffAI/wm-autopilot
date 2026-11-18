@@ -1,3 +1,4 @@
+import { isNativeCompletedTurnFunction } from "./scoped-interview-registration.ts";
 import { createHash } from "node:crypto";
 import { resolvePath, type DeclarativeStep, type DeclarativePipeline } from "./declarative.ts";
 import { pipelineAuthorityInput } from "./pipeline-run-authority.ts";
@@ -55,7 +56,7 @@ export function validateActivityWebhookSteps(spec: DeclarativePipeline): void {
     for (const step of steps) {
       const value = (step as { activityWebhook?: unknown }).activityWebhook;
       if (value !== undefined) {
-        if (step.type !== "agent" && !(step.type === "code" && step.function === "session.completedTurn")) throw new Error("activityWebhook requires an agent or session.completedTurn step");
+        if (step.type !== "agent" && !(step.type === "code" && isNativeCompletedTurnFunction(step.function))) throw new Error("activityWebhook requires an agent or session.completedTurn step");
         validateActivityWebhookSpec(value);
       }
       if (step.type === "loop" && step.steps) visit(step.steps);

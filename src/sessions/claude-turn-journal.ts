@@ -4,7 +4,7 @@ import {homedir} from 'node:os';
 import {join, isAbsolute} from 'node:path';
 
 export interface ClaudeTurnContext {nativeSessionId:string;directory:string}
-interface Journal {schema:1;nativeSessionId:string;directory:string;turns:Array<{id:string;prompt:string;reply:string|null}>}
+interface Journal {schema:1;nativeSessionId:string;directory:string;turns:Array<{id:string;prompt:string;reply:string|null;output?:Record<string,unknown>}>}
 function location(c:ClaudeTurnContext) {
  if(!c.nativeSessionId||!isAbsolute(c.directory))throw Error('Invalid Claude journal binding');
  const root=process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR||join(homedir(),'.wingmen','runtime','claude-completed-turns');
@@ -28,13 +28,17 @@ export function beginClaudeTurn(c:ClaudeTurnContext,prompt:string):string {
  const d=read(c);if(d.turns.at(-1)?.reply===null)throw Error('Claude journal contains an uncertain turn; replay refused');
  const id=randomUUID();d.turns.push({id,prompt,reply:null});write(c,d);return id;
 }
-export function completeClaudeTurn(c:ClaudeTurnContext,id:string,reply:string):void {
+export function completeClaudeTurn(c:ClaudeTurnContext,id:string,reply:string,output?:Record<string,unknown>):void {
  const d=read(c),turn=d.turns.at(-1);if(!turn||turn.id!==id||turn.reply!==null||!reply.trim())throw Error('Claude terminal journal correlation denied');
- turn.reply=reply;write(c,d);
+ turn.reply=reply;if(output)turn.output=output;write(c,d);
 }
 export function claudeTurnCheckpoint(c:ClaudeTurnContext):number{return read(c).turns.length}
 export function recoverClaudeTurn(c:ClaudeTurnContext,checkpoint:number,prompt:string):string|null {
  const d=read(c);if(!Number.isInteger(checkpoint)||checkpoint<0||checkpoint>d.turns.length)throw Error('Claude checkpoint invalid');
  const turn=d.turns[checkpoint];if(!turn)return null;if(turn.prompt!==prompt)throw Error('Claude recovery prompt mismatch');
  return turn.reply;
+}
+
+export function recoverClaudeTurnOutput(c:ClaudeTurnContext,checkpoint:number,prompt:string):Record<string,unknown>|undefined {
+ recoverClaudeTurn(c,checkpoint,prompt);return read(c).turns[checkpoint]?.output;
 }

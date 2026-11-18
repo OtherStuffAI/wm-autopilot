@@ -1,3 +1,4 @@
+import { assertInterviewLaunch, assertInterviewMetadataUpdate } from "./scoped-interview/launch.ts";
 import { tinfoilRunnerEnvironment } from "../model-providers/runner-config";
 import { sessionApprovalEnabled, sessionApprovalConfigured, notifySessionApprovalChanges } from "./session-approval-policy";
 import { buildClaudeAdapterContext } from "./claude-adapter-context";
@@ -563,6 +564,7 @@ export class ProcessManager {
     if (!session) {
       return null;
     }
+    assertInterviewMetadataUpdate(session.metadata, metadata as Record<string, unknown>);
     session.metadata = normaliseSessionMetadata({
       ...session.metadata,
       ...(metadata ?? {}),
@@ -696,7 +698,9 @@ export class ProcessManager {
     const sessionWorkingDirectory = rawWorkingDirectory.startsWith("~/")
       ? resolve(homedir(), rawWorkingDirectory.slice(2))
       : rawWorkingDirectory;
-    if (requestNpub && this.resolvedSkillRevisionProvider) {
+    assertInterviewLaunch(agent, sessionWorkingDirectory, sessionMetadata);
+    const scopedInterview = sessionMetadata.executionProfile === "scoped-interview";
+    if (!scopedInterview && requestNpub && this.resolvedSkillRevisionProvider) {
       sessionMetadata = normaliseSessionMetadata({
         ...sessionMetadata,
         resolvedSkillRevisions: await this.resolvedSkillRevisionProvider(requestNpub, sessionWorkingDirectory),
@@ -704,6 +708,7 @@ export class ProcessManager {
     }
     sessionMetadata = prepareNativeAgentSessionMetadata(agent, sessionWorkingDirectory, sessionMetadata);
     command = buildNativeAgentCommand(command, agent, sessionMetadata);
+    if (scopedInterview) command = command.filter(arg => arg !== "--dangerously-skip-permissions");
 
     // Resolve user info
     const npub = requestNpub;
@@ -774,8 +779,8 @@ export class ProcessManager {
     let capabilityToken: string | undefined;
     let capabilityBrokerUrl: string | undefined;
 
-    // Inject MCP config so the agent discovers the Wingman MCP server
-    try {
+    // Scoped interviews never receive Wingman capabilities or MCP configuration.
+    if (!scopedInterview) try {
       const botKeyLookupStartedAt = Date.now();
       // Public instance identity is informational only. Agent operations use
       // the session's stable bot identity through an opaque broker capability.
@@ -871,7 +876,7 @@ export class ProcessManager {
 
     // Inject host-scoped git credentials so sessions can authenticate to
     // GitHub HTTPS remotes and per-user Gitea remotes without mutating ~/.gitconfig.
-    try {
+    if (!scopedInterview) try {
       const gitCredentialInjectStartedAt = Date.now();
       const dataDir = new URL("../../data", import.meta.url).pathname;
       const giteaCreds = resolveGiteaCredentials(npub, this.config);
@@ -1116,7 +1121,7 @@ export class ProcessManager {
     }
 
     // Track project for authenticated users (fire and forget)
-    trackProjectForSession(npub, sessionWorkingDirectory).catch(() => {});
+    if (!scopedInterview) trackProjectForSession(npub, sessionWorkingDirectory).catch(() => {});
 
     return this.toSnapshot(session);
   }

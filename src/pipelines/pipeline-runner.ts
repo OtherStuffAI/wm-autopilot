@@ -1,8 +1,9 @@
+import { isNativeCompletedTurnFunction, scopedInterviewTurnFunctionName } from "./scoped-interview-registration.ts";
 import { conversationDeletionFunctionName, executeConversationDeletionFunction } from "./conversation-deletion-function.ts";
 import type { PipelineSecretAuthority } from "../secrets/secret-authority";
 import { executeSecretPipelineFunction, secretPipelineFunctions } from "../secrets/secret-runtime";
 import { blockMissingPipelineHistory } from "./pipeline-history-resume";
-import { completedTurnFunctionName, executeCompletedTurnFunction } from "./completed-turn-function.ts";
+import { executeCompletedTurnFunction } from "./completed-turn-function.ts";
 import { resolveActivityWebhook, type ActivityWebhookSpec } from "./activity-webhook-contract.ts";
 import { bindActivityWebhook } from "./activity-webhook-binding.ts";
 import { retainAgentFinalResponse } from "./agent-final-response.ts";
@@ -287,7 +288,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     });
     setActiveStep(input, stepRecord.id);
     const fn = secretPipelineFunctions[step.function] ?? registry[step.function];
-    if (!fn && step.function !== completedTurnFunctionName) {
+    if (!fn && !isNativeCompletedTurnFunction(step.function)) {
       throw new Error(`Unknown pipeline function: ${step.function}`);
     }
     if (step.function === "flightdeck.returnToThread") assertPipelineReplyContext(store, input.runId, selected);
@@ -297,9 +298,10 @@ async function executePipelineStep(input: PipelineRunnerInput & {
       scope: "code_function_arguments", value: { function: step.function, arguments: request } });
     const result = step.function === conversationDeletionFunctionName
       ? await executeConversationDeletionFunction({store,sessionApiContext:input.sessionApiContext,ownerNpub:input.ownerNpub,request})
-      : step.function === completedTurnFunctionName
+      : isNativeCompletedTurnFunction(step.function)
       ? await executeCompletedTurnFunction({ store, sessionApiContext: input.sessionApiContext, runId: input.runId,
-        stepId: stepRecord.id, ownerNpub: input.ownerNpub, request, activityWebhook: step.activityWebhook })
+        stepId: stepRecord.id, ownerNpub: input.ownerNpub, request, activityWebhook: step.activityWebhook,
+        trustedExecutionProfile: step.function === scopedInterviewTurnFunctionName ? "scoped-interview" : undefined })
       : secretPipelineFunctions[step.function]
       ? await executeSecretPipelineFunction(step.function, request, store, input.runId)
       : await fn!(request);
@@ -311,7 +313,7 @@ async function executePipelineStep(input: PipelineRunnerInput & {
     throwIfRunCancelled(store, input.runId);
     assertObject(result, `step ${stepName} result`);
     const current = assignOutput(input.current, result, step.assign);
-    if (step.function === completedTurnFunctionName && result.status !== "completed") {
+    if (isNativeCompletedTurnFunction(step.function) && result.status !== "completed") {
       const message = typeof result.error === "string" ? result.error : "Completed native turn is pending or blocked; inspect receipt before recovery";
       store.completeStep({ id: stepRecord.id, status: "error", result: current, output: result, error: message });
       throw new PipelineHalt("error", current, message);

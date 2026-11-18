@@ -1,4 +1,4 @@
-const credentialKey = /^(?:authorization|proxyauthorization|cookie|setcookie|password|passphrase|nsec|secret(?:key)?|privatekey|apikey|accesstoken|refreshtoken|callbacktoken|token|bearer|bunkeruri|nwc)$/i;
+const credentialKey = /^(?:authorization|proxyauthorization|cookie|setcookie|password|passphrase|nsec|secret(?:key)?|privatekey|apikey|accesstoken|refreshtoken|callbacktoken|token|ticket|bearer|bunkeruri|nwc)$/i;
 
 export function redactPipelineValue(value: unknown, secrets: string[] = []): { value: unknown; redacted: boolean } {
   let redacted = false;

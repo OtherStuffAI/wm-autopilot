@@ -28,6 +28,7 @@ export interface SessionMetadata {
   bindingType?: SessionBindingType;
   bindingId?: string;
   nativeProjectTools?: boolean;
+  executionProfile?: "scoped-interview";
   flowId?: string;
   flowRunId?: string;
   pipelineRunId?: string;
@@ -280,6 +281,7 @@ export const normaliseSessionMetadata = (
       : undefined,
     bindingType,
     bindingId: bindingId || undefined,
+    executionProfile: metadata?.executionProfile === "scoped-interview" ? "scoped-interview" : undefined,
     nativeProjectTools: role==='completed-turn' && metadata?.nativeProjectTools===true ? true : undefined,
     flowId: flowId || undefined,
     flowRunId: flowRunId || undefined,

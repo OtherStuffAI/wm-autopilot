@@ -7,6 +7,7 @@ import { snapshotPipelineBlocks, type PipelineBlockSnapshots } from "./pipeline-
 import { captureViewerPin } from "./pipeline-viewer-capture-redaction";
 
 export interface PipelineRunContext {
+  trustedWapp?: {grantId: string; clientOrigin: string; appNpub: string; expiresAt: number};
   secretAuthority?: PipelineSecretAuthority;
   blockExpansions?: PipelineBlockSnapshots;
   viewerRedacted?: boolean;

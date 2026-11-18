@@ -1,6 +1,6 @@
 import { notifySessionApprovalChanges } from "./session-approval-policy";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, Query, SDKMessage, WarmQuery, startup } from "@anthropic-ai/claude-agent-sdk";
@@ -31,7 +31,7 @@ function controlledQuery() {
 }
 
 function fixture(overrides: Partial<AdapterSessionContext> = {}) {
-  const root = mkdtempSync(join(tmpdir(), "claude-sdk-test-")); roots.push(root);
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "claude-sdk-test-"))); roots.push(root);
   const path = join(root, "mcp.json");
   writeFileSync(path, JSON.stringify({ mcpServers: { wingman: { type: "stdio", command: "bun", args: ["stdio.ts"] } } }));
   const context: AdapterSessionContext = { id: "wingman-test", agent: "claude", port: 3700, host: "127.0.0.1",
@@ -263,3 +263,37 @@ for(const failure of ["error_max_turns","error_during_execution","error_max_stru
   }finally{await f.adapter.dispose();delete process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR;}
  });
 }
+
+test("scoped profile overrides autoapproval, sanitizes environment and persists verified native configuration", async () => {
+  const f=fixture({executionProfile:"scoped-interview",providerAutoApprove:()=>true,claudeMcpConfigPath:undefined});
+  process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR=join(f.context.workingDirectory!,"journal");
+  try {
+    await f.adapter.waitForReady();
+    const options=f.calls[0]!;
+    expect(options.tools).toEqual([]);expect(options.settingSources).toEqual([]);expect(options.plugins).toEqual([]);
+    expect(options.permissionMode).toBe("default");expect(options.allowDangerouslySkipPermissions).toBeUndefined();
+    expect(options.env?.WINGMAN_CAPABILITY).toBeUndefined();expect(options.env?.SSH_AUTH_SOCK).toBeUndefined();expect(options.env?.HTTPS_PROXY).toBeUndefined();expect(options.env?.CODEX_HOME).toBeUndefined();
+    expect((await options.canUseTool!("Bash",{command:"cat /etc/hosts"},{signal:AbortSignal.timeout(1000)}))?.behavior).toBe("deny");
+    expect((await options.canUseTool!("mcp__scoped_interview__public_web_read",{sourceId:"x"},{signal:AbortSignal.timeout(1000),mcpServer:{name:"scoped_interview",source:"dynamic"}}))?.behavior).toBe("deny");
+    await expect(f.adapter.sendMessage("ordinary delivery forbidden")).rejects.toThrow("completed-turn");
+    f.adapter.configureScopedInterview({sources:[],attachments:[]},1000);
+    const turn=f.adapter.sendCompletedMessage("exact profile turn");await flush();
+    f.streams[0]!.emit({type:"system",subtype:"init",session_id:"preallocated",cwd:f.context.workingDirectory,model:"sonnet",tools:["mcp__scoped_interview__public_web_read","mcp__scoped_interview__public_image_read"],mcp_servers:[{name:"scoped_interview",status:"connected",source:"sdk"}],permissionMode:"default",plugins:[],skills:[]});
+    f.streams[0]!.emit({...success('{"title":"Title","document":"Complete design","response":"Question"}'),session_id:"preallocated"});
+    expect(JSON.parse(await turn).document).toBe("Complete design");
+    expect(f.adapter.getCompletedTurnOutput()).toMatchObject({executionProfile:"scoped-interview",nativeConfiguration:{permissionMode:"default"},sourceReceipts:[]});
+  } finally {await f.adapter.dispose();delete process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR;}
+});
+
+for (const failure of ["missing-init","foreign-tools","deadline"] as const) test(`scoped ${failure} cannot create trusted terminal evidence`,async()=>{
+ const f=fixture({executionProfile:"scoped-interview",providerAutoApprove:()=>true});
+ process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR=join(f.context.workingDirectory!,"journal");
+ try {
+  await f.adapter.waitForReady();f.adapter.configureScopedInterview({sources:[],attachments:[]},failure==="deadline"?20:1000);
+  const pending=f.adapter.sendCompletedMessage("one profile turn");const rejection=pending.catch(error=>error);await flush();
+  if(failure==="foreign-tools") f.streams[0]!.emit({type:"system",subtype:"init",session_id:"preallocated",cwd:f.context.workingDirectory,tools:["Bash"],mcp_servers:[],permissionMode:"bypassPermissions"});
+  if(failure==="missing-init") f.streams[0]!.emit({...success('{"title":"T","document":"D","response":"R"}'),session_id:"preallocated"});
+  expect(await rejection).toBeInstanceOf(Error);
+  expect(recoverClaudeTurn({nativeSessionId:"preallocated",directory:f.context.workingDirectory!},0,"one profile turn")).toBeNull();
+ }finally{await f.adapter.dispose();delete process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR;}
+});

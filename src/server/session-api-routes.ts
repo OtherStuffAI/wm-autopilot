@@ -1,3 +1,4 @@
+import { assertInterviewMetadataUpdate } from "../agents/scoped-interview/launch.ts";
 import { parseSessionModelInput } from "./session-model-input";
 import { sessionRecord } from "../sessions/session-record";
 import { handleSessionHistory } from "./session-history-response";
@@ -500,6 +501,7 @@ const persistStoredSessionMetadata = (
   storedSession: StoredSessionRecord,
   metadataPatch: Record<string, unknown>,
 ): SessionMetadata => {
+  assertInterviewMetadataUpdate(normaliseSessionMetadata(storedSession.metadata),metadataPatch);
   const mergedMetadata = normaliseSessionMetadata({
     ...(storedSession.metadata ?? {}),
     ...metadataPatch,

@@ -18,7 +18,7 @@ import { callError, callFingerprint, callResponse, MAX_PIPELINE_WAIT_MS, PUBLIC_
 export async function handlePublicPipelineCall(request: Request, url: URL, authContext: RequestAuthContext,
   ctx: PipelineApiContext, definition: PipelineDefinitionRecord, ownerNpub: string, ownerAlias: string,
   trustedAppSecretAuthority?: PipelineSecretAuthority,
-  trustedAppExecution?: {registry:FunctionRegistry; beforeAccept:()=>Promise<void>; assertActive:()=>void}): Promise<Response> {
+  trustedAppExecution?: {trustedWapp?: import("./pipeline-composition-store.ts").PipelineRunContext["trustedWapp"]; registry:FunctionRegistry; beforeAccept:()=>Promise<void>; assertActive:()=>void}): Promise<Response> {
   const startedAt = performance.now();
   let body: Record<string, unknown>;
   try {
@@ -104,7 +104,7 @@ export async function handlePublicPipelineCall(request: Request, url: URL, authC
     run = ctx.store.publicCalls.create({ owner: ownerNpub, definitionId: definition.id, key: key as string | null, fingerprint, webhookUrl }, () => {
       const created = ctx.store.createRun({ definitionId: definition.id, definitionPath: definition.path,
         name: definition.spec.name, ownerNpub, ownerAlias, scope: definition.scope, input });
-      ctx.store.composition.pin(created.id, definition, { secretAuthority: trustedAppSecretAuthority ?? secretAuthorityFromAuth(authContext), functionHashes: pipelineFunctionHashes(definition, functions.registry) });
+      ctx.store.composition.pin(created.id, definition, { trustedWapp: trustedAppExecution?.trustedWapp, secretAuthority: trustedAppSecretAuthority ?? secretAuthorityFromAuth(authContext), functionHashes: pipelineFunctionHashes(definition, functions.registry) });
       if (learningKey) ctx.store.bindLearningRun(ownerNpub, definition.spec.name, learningKey, created.id);
       return created;
     });

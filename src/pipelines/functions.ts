@@ -1,3 +1,4 @@
+import { scopedInterviewTurnRegistration } from "./scoped-interview-registration.ts";
 import { searchTowerGraph, type TowerGraphSearchTransport } from "./tower-graph-search.ts";
 import { completedTurnRegistration } from "./completed-turn-registration.ts";
 import { createHash, randomUUID } from "node:crypto";
@@ -1209,6 +1210,7 @@ function latestThreadText(chatContext: Record<string, unknown>, fallback: unknow
 
 export const builtinPipelineFunctions: FunctionRegistry = {
   "session.completedTurn": completedTurnRegistration,
+  "session.scopedInterviewTurn.v1": scopedInterviewTurnRegistration,
   "session.deleteConversation": () => { throw Error("session.deleteConversation requires authenticated pipeline runner context"); },
   "spaceResearch.selectTopics": selectSpaceResearchTopics,
   "spaceResearch.validateSourcePlan": validateSpaceSourcePlan,

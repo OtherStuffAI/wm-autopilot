@@ -113,7 +113,7 @@ export class WappPipelineRequestBroker {
         response=await handlePublicPipelineCall(request,url,{npub:grant.appNpub,actorNpub:grant.appNpub,
           signerNpub:grant.appNpub,session:null,authMethod:"nip98"},ctx,definition,grant.appNpub,grant.definitionOwnerAlias,
           {principalNpub:grant.appNpub,workspaceId:"local",credentialOwnerNpub:grant.ownerNpub},
-          {registry:functions.registry,beforeAccept:async()=>{await this.authorize(token,access)},
+          {trustedWapp: grant.clientOrigin ? {grantId:grant.id,clientOrigin:grant.clientOrigin,appNpub:grant.appNpub,expiresAt:grant.expiresAt} : undefined,registry:functions.registry,beforeAccept:async()=>{await this.authorize(token,access)},
             assertActive:()=>{if(!this.grants.active(grant.id)||grant.expiresAt<=this.now())throw new Error("pipeline_grant_revoked")}});
         const body=await response.clone().json() as {runId?:unknown};
         if (response.ok && typeof body.runId==="string") this.grants.bindRun(grant.id,body.runId);

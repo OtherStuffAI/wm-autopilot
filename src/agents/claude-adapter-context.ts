@@ -27,6 +27,7 @@ export function buildClaudeAdapterContext(session: ClaudeLaunchSession, oauthTok
   }));
   return {
     nativeSdkHistory,
+    executionProfile: session.metadata.executionProfile,
     env,
     claudeCli: session.command[cliIndex],
     claudeMcpConfigPath: mcpIndex >= 0 ? session.command[mcpIndex + 1] : undefined,
