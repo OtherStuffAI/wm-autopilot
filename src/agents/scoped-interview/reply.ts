@@ -1,7 +1,6 @@
-/** Accept a complete JSON document, optionally in one JSON code fence; never extract partial action fragments. */
+/** Preserve completed native text. The consuming app owns optional design parsing. */
 export function validateInterviewReply(reply: string): string {
-  const fence = /^\s*```(?:json)?\s*\n([\s\S]*?)\n```\s*$/.exec(reply);
-  const value = JSON.parse(fence ? fence[1]! : reply);
-  if (!value || Array.isArray(value) || ["title","document","response"].some(key => typeof value[key] !== "string" || !value[key].trim())) throw Error("Complete interview title/document/response JSON required");
-  return JSON.stringify(value);
+  if (typeof reply !== "string" || !reply.trim()) throw Error("Completed interview reply is empty");
+  if (Buffer.byteLength(reply, "utf8") > 180000) throw Error("Completed interview reply exceeds size limit");
+  return reply;
 }

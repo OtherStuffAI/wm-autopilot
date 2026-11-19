@@ -285,6 +285,21 @@ test("scoped profile overrides autoapproval, sanitizes environment and persists 
   } finally {await f.adapter.dispose();delete process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR;}
 });
 
+test("scoped plain-text final completes and journals the actual reply without requiring a design",async()=>{
+ const f=fixture({executionProfile:"scoped-interview"});
+ process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR=join(f.context.workingDirectory!,"journal");
+ try {
+  await f.adapter.waitForReady();f.adapter.configureScopedInterview({sources:[],attachments:[]},1000);
+  const pending=f.adapter.sendCompletedMessage("a conversational turn");await flush();
+  f.streams[0]!.emit({type:"system",subtype:"init",session_id:"preallocated",cwd:f.context.workingDirectory,model:"sonnet",tools:["mcp__scoped_interview__public_web_read","mcp__scoped_interview__public_image_read"],mcp_servers:[{name:"scoped_interview",status:"connected",source:"sdk"}],permissionMode:"default",plugins:[],skills:[]});
+  const reply="A completed answer with a plain URL: https://example.org/source";
+  f.streams[0]!.emit({...success(reply),session_id:"preallocated"});
+  expect(await pending).toBe(reply);
+  expect(recoverClaudeTurn({nativeSessionId:"preallocated",directory:f.context.workingDirectory!},0,"a conversational turn")).toBe(reply);
+  expect(f.adapter.getCompletedTurnOutput()).toMatchObject({executionProfile:"scoped-interview",sourceReceipts:[]});
+ }finally{await f.adapter.dispose();delete process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR;}
+});
+
 for (const failure of ["missing-init","foreign-tools","deadline"] as const) test(`scoped ${failure} cannot create trusted terminal evidence`,async()=>{
  const f=fixture({executionProfile:"scoped-interview",providerAutoApprove:()=>true});
  process.env.WINGMAN_CLAUDE_TURN_JOURNAL_DIR=join(f.context.workingDirectory!,"journal");

@@ -87,8 +87,12 @@ test("ticket credentials and echoes are redacted before evidence capture", () =>
   expect(() => parseInterviewInput({attachmentSource:{url:"https://example.com/foreign",ticket:"a".repeat(43),jobId:"00000000-0000-0000-0000-000000000000",expiresAt:Date.now()+10000}})).toThrow("path");
 });
 
-test("completion requires whole design JSON, never classifier action emulation", () => {
-  expect(() => validateInterviewReply('{"action":"public_web_read"}')).toThrow();
-  expect(() => validateInterviewReply('prefix {"title":"t","document":"d","response":"r"}')).toThrow();
-  expect(JSON.parse(validateInterviewReply('```json\n{"title":"t","document":"d","response":"r"}\n```'))).toEqual({title:"t",document:"d",response:"r"});
+test("completed text is preserved without interpreting JSON, prose or action-looking output", () => {
+  for (const reply of ["A useful plain reply.", '{"response":"A useful answer"}', '{"action":"public_web_read"}', 'prefix {"title":"t","document":"d","response":"r"}', '```json\n{"title":"t","document":"d","response":"r"}\n```']) {
+    expect(validateInterviewReply(reply)).toBe(reply);
+  }
+  for (const reply of ["", " \n", "x".repeat(180001), "界".repeat(60001)]) {
+    expect(() => validateInterviewReply(reply)).toThrow();
+  }
+  expect(validateInterviewReply("界".repeat(60000))).toHaveLength(60000);
 });
