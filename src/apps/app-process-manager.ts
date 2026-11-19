@@ -1,3 +1,5 @@
+import type { RegisteredAppStorageBroker } from "../wapps/registered-app-storage-broker";
+import { getRegisteredAppStorageBroker, issueRegisteredAppStorageRuntime } from "../wapps/registered-app-storage-runtime";
 import type { RemoteStorageBroker } from "../wapps/remote-storage-broker";
 import { getRemoteStorageBroker, issueRemoteStorageRuntime } from "../wapps/remote-storage-runtime";
 import { appendFile, mkdir } from "node:fs/promises";
@@ -153,6 +155,7 @@ export class AppProcessManager {
   private readonly towerDbRequestBroker: WappTowerDbRequestBroker;
   private readonly fipsIngressManager: FipsAppIngressManager;
   private readonly remoteStorageBroker: RemoteStorageBroker;
+  private readonly registeredStorageBroker: RegisteredAppStorageBroker;
 
   constructor(
     registry: AppRegistry = appRegistry,
@@ -164,6 +167,7 @@ export class AppProcessManager {
     towerDbRequestBroker: WappTowerDbRequestBroker = wappTowerDbRequestBroker,
     fipsIngressManager: FipsAppIngressManager = fipsAppIngressManager,
     remoteStorageBroker: RemoteStorageBroker = getRemoteStorageBroker(),
+    registeredStorageBroker: RegisteredAppStorageBroker = getRegisteredAppStorageBroker(),
   ) {
     this.registry = registry;
     this.adminNpubs = adminNpubs === undefined ? getConfiguredAdminNpubs() : normaliseNpubList(adminNpubs);
@@ -174,6 +178,7 @@ export class AppProcessManager {
     this.towerDbRequestBroker = towerDbRequestBroker;
     this.fipsIngressManager = fipsIngressManager;
     this.remoteStorageBroker = remoteStorageBroker;
+    this.registeredStorageBroker = registeredStorageBroker;
   }
 
   configureTowerRegistration(input: {
@@ -215,6 +220,7 @@ export class AppProcessManager {
     return this.runAction(appId, "stop", async (app) => {
       await this.stopFipsIngress(app.id);
       this.remoteStorageBroker.revokeApp(app.id);
+      this.registeredStorageBroker.revokeApp(app.id);
       this.towerDbRequestBroker.revokeApp(app.id);
       // Clear runtime port first
       runtimePortRegistry.clear(app.id);
@@ -259,6 +265,7 @@ export class AppProcessManager {
       }
       await awaitAppStartup(() => this.ensureTowerWappRegistered(app), signal);
       this.remoteStorageBroker.revokeApp(app.id);
+      this.registeredStorageBroker.revokeApp(app.id);
       this.towerDbRequestBroker.revokeApp(app.id);
       await awaitAppStartup(() => this.stopFipsIngress(app.id), signal);
 
@@ -393,6 +400,7 @@ export class AppProcessManager {
 
     await this.stopFipsIngress(app.id);
     this.remoteStorageBroker.revokeApp(app.id);
+    this.registeredStorageBroker.revokeApp(app.id);
     this.towerDbRequestBroker.revokeApp(app.id);
     if (app.pm2Name) {
       try {
@@ -627,6 +635,7 @@ export class AppProcessManager {
     try {
       if (wapp?.towerBindingId) {
         this.remoteStorageBroker.revokeApp(app.id);
+        this.registeredStorageBroker.revokeApp(app.id);
         this.towerDbRequestBroker.revokeApp(app.id);
         ({ capability, bindings: towerBindings } = this.issueTowerDbRuntime(wapp));
       }
@@ -642,6 +651,7 @@ export class AppProcessManager {
           } : undefined,
         )
         : {};
+      if (wapp?.towerBindingId) Object.assign(wappRuntimeEnv, issueRegisteredAppStorageRuntime(wapp.id, app.id, this.config.port, this.registeredStorageBroker, towerBindings.map(binding => binding.installationId)));
       Object.assign(wappRuntimeEnv, issueRemoteStorageRuntime(app.id, this.config.port, this.remoteStorageBroker));
       launch = await addUserAppToEcosystem({
         app,
@@ -659,6 +669,7 @@ export class AppProcessManager {
       return launch.processName;
     } catch (error) {
       this.remoteStorageBroker.revokeApp(app.id);
+      this.registeredStorageBroker.revokeApp(app.id);
       if (capability) this.towerDbRequestBroker.revokeToken(capability.token);
       throw error;
     } finally {

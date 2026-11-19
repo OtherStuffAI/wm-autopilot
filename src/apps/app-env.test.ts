@@ -56,6 +56,7 @@ describe("app env helpers", () => {
       API_TOKEN: "ordinary-secret",
       WAPP_NSEC: "nsec1must-not-survive",
       WAPP_TOWER_DB_CAPABILITY: "must-not-be-configured",
+      WAPP_REGISTERED_APP_STORAGE_CAPABILITY: "must-not-be-configured",
       AGENT_NSEC: "f".repeat(64),
     };
     expect(hydrateAppEnv(input)).toEqual({ API_TOKEN: "ordinary-secret" });
@@ -63,6 +64,7 @@ describe("app env helpers", () => {
     expect(stored).toHaveProperty("API_TOKEN");
     expect(stored).not.toHaveProperty("WAPP_NSEC");
     expect(stored).not.toHaveProperty("WAPP_TOWER_DB_CAPABILITY");
+    expect(stored).not.toHaveProperty("WAPP_REGISTERED_APP_STORAGE_CAPABILITY");
     expect(stored).not.toHaveProperty("AGENT_NSEC");
   });
 });

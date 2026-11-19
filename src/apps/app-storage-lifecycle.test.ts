@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { getPublicKey, nip19 } from "nostr-tools";
 import { WappStore } from "../wapps/wapp-store";
 import { RemoteStorageBroker } from "../wapps/remote-storage-broker";
+import { RegisteredAppStorageBroker } from "../wapps/registered-app-storage-broker";
 import { appCommand } from "./app-command";
 import type { AppRecord } from "./app-registry";
 
@@ -45,10 +46,11 @@ test("managed storage lifecycle renews on restart, revokes on stop/failure, excl
     expiresAt: new Date(Date.now() + 3600_000).toISOString(), maxObjectBytes: 64, billing: "operator_budget" as const }];
   let configBad = false;
   const storage = new RemoteStorageBroker({ store, grants: () => { if (configBad) throw new RemoteStorageError("storage_config_invalid", 503); return grants; }, forbiddenSigner: () => false });
+  const registered = new RegisteredAppStorageBroker({ store, forbiddenSigner: () => false });
   const dbBroker = new WappTowerDbRequestBroker({ store, fetchImpl: async () => Response.json({ namespace: "ready" }) });
   const app: AppRecord = { id: "backup", root: directory, label: "Backup", ownerNpub: owner,
     scripts: { start: appCommand("bun", "start"), setup: appCommand("bun", "setup") },
-    env: { WAPP_REMOTE_STORAGE_CAPABILITY: "persisted-token-must-not-leak" },
+    env: { WAPP_REMOTE_STORAGE_CAPABILITY: "persisted-token-must-not-leak", WAPP_REGISTERED_APP_STORAGE_CAPABILITY: "persisted-token-must-not-leak" },
     tmuxSession: "storage-fixture", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), webApp: true, webAppPort: 4100 };
   const oneShotEnvs: Record<string, string>[] = [];
   const spawn = ((_cmd: unknown, options: { env: Record<string, string> }) => {
@@ -58,30 +60,40 @@ test("managed storage lifecycle renews on restart, revokes on stop/failure, excl
   const registry = { getApp: async () => app, updateApp: async (_id: string, updates: Partial<AppRecord>) => Object.assign(app, updates), listApps: async () => [app] };
   const fips = { start: async () => {}, stop: async () => {}, getEndpoint: () => null };
   const manager = new AppProcessManager(registry as any, [], store, null, { register: async () => ({}) } as any,
-    spawn, dbBroker, fips as any, storage);
+    spawn, dbBroker, fips as any, storage, registered);
   try {
     startFails = false;
     await manager.start(app.id);
     const first = environments.at(-1)!.WAPP_REMOTE_STORAGE_CAPABILITY!;
+    const registeredFirst = environments.at(-1)!.WAPP_REGISTERED_APP_STORAGE_CAPABILITY!;
+    expect(registeredFirst).toHaveLength(43);
     expect(first).toHaveLength(43);
     await manager.restart(app.id);
     const second = environments.at(-1)!.WAPP_REMOTE_STORAGE_CAPABILITY!;
+    const registeredSecond = environments.at(-1)!.WAPP_REGISTERED_APP_STORAGE_CAPABILITY!;
+    expect(registeredSecond).not.toBe(registeredFirst);
+    await expect(registered.request(registeredFirst, { method: "GET", path: "/descriptor" })).rejects.toMatchObject({ code: "capability_invalid" });
     expect(second).not.toBe(first);
     await expect(storage.request(first, { operation: "status" })).rejects.toMatchObject({ code: "capability_invalid" });
     await manager.stop(app.id);
+    await expect(registered.request(registeredSecond, { method: "GET", path: "/descriptor" })).rejects.toMatchObject({ code: "capability_invalid" });
     await expect(storage.request(second, { operation: "status" })).rejects.toMatchObject({ code: "capability_invalid" });
     await manager.setup(app.id);
     expect(oneShotEnvs).toHaveLength(1);
     expect(oneShotEnvs[0]).not.toHaveProperty("WAPP_REMOTE_STORAGE_CAPABILITY");
+    expect(oneShotEnvs[0]).not.toHaveProperty("WAPP_REGISTERED_APP_STORAGE_CAPABILITY");
     startFails = true;
     await expect(manager.start(app.id)).rejects.toThrow("fixture start failed");
     const failed = environments.at(-1)!.WAPP_REMOTE_STORAGE_CAPABILITY!;
+    const registeredFailed = environments.at(-1)!.WAPP_REGISTERED_APP_STORAGE_CAPABILITY!;
+    await expect(registered.request(registeredFailed, { method: "GET", path: "/descriptor" })).rejects.toMatchObject({ code: "capability_invalid" });
     await expect(storage.request(failed, { operation: "status" })).rejects.toMatchObject({ code: "capability_invalid" });
     configBad = true;
     startFails = false;
     await manager.start(app.id);
     expect(environments.at(-1)).toMatchObject({ WAPP_REMOTE_STORAGE_ERROR: "storage_config_invalid" });
     expect(environments.at(-1)).not.toHaveProperty("WAPP_REMOTE_STORAGE_CAPABILITY");
+    expect(environments.at(-1)!.WAPP_REGISTERED_APP_STORAGE_CAPABILITY).toHaveLength(43);
     configBad = false;
     grants.length = 0;
     startFails = false;

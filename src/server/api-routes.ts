@@ -1,3 +1,4 @@
+import { handleWappRegisteredAppStorageRoute } from "./wapp-registered-app-storage-route";
 import { handleModelProviderRoutes } from "../model-providers/provider-routes";
 import { handleWappRemoteStorageRoute } from "./wapp-remote-storage-route";
 import { createApiRequestAuth } from "./api-request-auth";
@@ -364,6 +365,11 @@ function createResolvedApiRouteHandler(ctx: ApiRoutesContext) {
       if (!ctx.pipelineApiContext) return Response.json({ error: "pipeline-runtime-unavailable" }, { status: 503 });
       return await handleWappRemotePipelineBrokerRoute({ request, url, broker: getWappPipelineBroker(), pipelines: ctx.pipelineApiContext })
         ?? Response.json({error:"not_found"},{status:404});
+    }
+
+    if (pathname === "/api/internal/wapps/registered-app-storage") {
+      return await handleWappRegisteredAppStorageRoute({ request, url, peer: ctx.getRequestIP?.(request) ?? null })
+        ?? Response.json({ error: "not_found" }, { status: 404 });
     }
 
     if (pathname === "/api/internal/wapps/remote-storage") {

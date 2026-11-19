@@ -215,16 +215,17 @@ describe("createUserAppEcosystemConfig WApp env injection", () => {
         userRootDir: dir,
         isAdmin: false,
         wappStore: store,
-        wappRuntimeEnv: getWappRuntimeEnvForWapp("wapp-tower", join(dir, "wapp-root"), store, {
+        wappRuntimeEnv: { ...getWappRuntimeEnvForWapp("wapp-tower", join(dir, "wapp-root"), store, {
           brokerUrl: "http://127.0.0.1:3600/api/internal/wapps/tower-db",
           capability: runtimeCapability,
-        }),
+        }), WAPP_REGISTERED_APP_STORAGE_CAPABILITY: "registered-storage-capability-sentinel" },
       });
       const ecosystem = await readEcosystemConfig(getEcosystemPath(dir, false));
       const managed = ecosystem.apps.find((entry) => entry.name === launch.processName)!;
       const pathIndex = managed.args.indexOf("--runtime-env-path");
       const keyIndex = managed.args.indexOf("--runtime-env-key");
       expect(JSON.stringify(ecosystem)).not.toContain(runtimeCapability);
+      expect(JSON.stringify(ecosystem)).not.toContain("registered-storage-capability-sentinel");
       expect(JSON.stringify(ecosystem)).not.toContain(appNsec);
       const runtimeEnv = await consumeAppRuntimeEnvelope({
         path: managed.args[pathIndex + 1]!,
@@ -232,6 +233,7 @@ describe("createUserAppEcosystemConfig WApp env injection", () => {
       }, "wapp-app");
       expect(runtimeEnv).toMatchObject({
         WAPP_TOWER_DB_CAPABILITY: runtimeCapability,
+        WAPP_REGISTERED_APP_STORAGE_CAPABILITY: "registered-storage-capability-sentinel",
         WAPP_TOWER_DB_BROKER_URL: "http://127.0.0.1:3600/api/internal/wapps/tower-db",
       });
       expect(runtimeEnv).not.toHaveProperty("WAPP_NSEC");

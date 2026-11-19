@@ -15,12 +15,13 @@ export function createRemoteStorageSignerGuard(input: {
 
 let signerGuard: ((npub: string) => boolean) | undefined;
 export function configureRemoteStorageSignerGuard(guard: (npub: string) => boolean): void { signerGuard = guard; }
+export function isForbiddenStorageSigner(npub: string): boolean {
+  if (!signerGuard) throw new RemoteStorageError("storage_signer_guard_unavailable", 503);
+  return signerGuard(npub);
+}
 let broker: RemoteStorageBroker | undefined;
 export function getRemoteStorageBroker(): RemoteStorageBroker {
-  return broker ??= new RemoteStorageBroker({ store: wappStore, forbiddenSigner: npub => {
-    if (!signerGuard) throw new RemoteStorageError("storage_signer_guard_unavailable", 503);
-    return signerGuard(npub);
-  } });
+  return broker ??= new RemoteStorageBroker({ store: wappStore, forbiddenSigner: isForbiddenStorageSigner });
 }
 /** Called only by managed start, never build/setup. Revokes old process authority. */
 export function issueRemoteStorageRuntime(appId: string, port: number, storageBroker = getRemoteStorageBroker()): Record<string, string> {
