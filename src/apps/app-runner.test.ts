@@ -22,6 +22,7 @@ describe("buildUserAppSpawnPlan", () => {
           HOST_ONLY: "yes",
           PORT: "3000",
           WINGMAN_PRIV: "server-secret-sentinel",
+          WAPP_REGISTERED_APP_STORAGE_CAPABILITY: "ambient-capability",
           OPENROUTER_API_KEY: "provider-secret-sentinel",
           SSH_AUTH_SOCK: "/tmp/agent.sock",
           HOME: "/host/home",
@@ -30,12 +31,18 @@ describe("buildUserAppSpawnPlan", () => {
         runtimeEnvReader: async () => ({
           API_TOKEN: "from-card",
           APP_ID: "ignored-by-runtime",
+          WAPP_REGISTERED_APP_STORAGE_CAPABILITY: "issued-capability",
+          WAPP_REMOTE_STORAGE_CAPABILITY: "issued-remote-capability",
+          WAPP_NSEC: "forbidden-envelope-key",
         }),
         redshiftDetector: async () => false,
       },
     );
 
     expect(plan.env.API_TOKEN).toBe("from-card");
+    expect(plan.env.WAPP_REGISTERED_APP_STORAGE_CAPABILITY).toBe("issued-capability");
+    expect(plan.env.WAPP_REMOTE_STORAGE_CAPABILITY).toBe("issued-remote-capability");
+    expect(plan.env.WAPP_NSEC).toBeUndefined();
     expect(plan.env.HOST_ONLY).toBeUndefined();
     expect(plan.env.DOTENV_ONLY).toBeUndefined();
     expect(plan.env.WINGMAN_PRIV).toBeUndefined();

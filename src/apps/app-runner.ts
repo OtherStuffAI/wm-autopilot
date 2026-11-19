@@ -178,11 +178,13 @@ export async function buildUserAppSpawnPlan(
     app: {
       id: input.appId,
       label: input.appLabel,
-      env: managedEnv,
       webAppPort: input.port ? Number.parseInt(input.port, 10) : null,
     },
     userAlias: input.userAlias,
     hostEnv,
+    // The authenticated envelope already combines stored settings and issued
+    // process capabilities. Preserve its runtime authority at this boundary.
+    wappEnv: managedEnv,
   });
 
   const hasRedshift = await (deps.redshiftDetector ?? hasRedshiftConfig)(input.appRoot);
