@@ -387,7 +387,7 @@ export class OpenCodeAdapter implements AgentAdapter {
       await this.emitLatestMessages();
       return;
     }
-    if (event.type === "message.updated" || event.type === "message.part.updated") {
+    if (event.type === "message.updated" || event.type === "message.part.updated" || event.type === "message.part.delta") {
       await this.emitLatestMessages();
       return;
     }

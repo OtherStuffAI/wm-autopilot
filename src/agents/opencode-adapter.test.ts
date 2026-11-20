@@ -222,6 +222,36 @@ describe("OpenCodeAdapter", () => {
     expect(paths).toEqual(["/config/providers"]);
   });
 
+  test("streams growing text on part deltas and ignores other sessions", async () => {
+    let text = "First";
+    let historyReads = 0;
+    globalThis.fetch = (async (input) => {
+      expect(new URL(requestUrl(input)).pathname).toBe("/session/opencode-session/message");
+      historyReads++;
+      return Response.json([{
+        info: { id: "message-1", sessionID: "opencode-session", role: "assistant", time: { created: 1_750_000_000_000 } },
+        parts: [{ id: "part-1", sessionID: "opencode-session", messageID: "message-1", type: "text", text }],
+      }]);
+    }) as typeof fetch;
+    const adapter = new OpenCodeAdapter(context);
+    const events: unknown[] = [];
+    const unsubscribe = adapter.subscribeToEvents((event) => events.push(event));
+    const handler = adapter as unknown as { handleEvent(event: Record<string, unknown>): Promise<void> };
+    const delta = { type: "message.part.delta", properties: {
+      sessionID: "opencode-session", messageID: "message-1", partID: "part-1", field: "text", delta: "First",
+    } };
+    await handler.handleEvent(delta);
+    text = "First second";
+    await handler.handleEvent({ ...delta, properties: { ...delta.properties, delta: " second" } });
+    await handler.handleEvent({ ...delta, properties: { ...delta.properties, sessionID: "other-session" } });
+    expect(historyReads).toBe(2);
+    expect(events).toMatchObject([
+      { type: "message", message: { role: "assistant", messageId: "part-1", content: "First" } },
+      { type: "message", message: { role: "assistant", messageId: "part-1", content: "First second" } },
+    ]);
+    unsubscribe();
+  });
+
   test("surfaces and resolves OpenCode permission requests", async () => {
     let requestedBody: unknown = null;
     globalThis.fetch = (async (input, init) => {
