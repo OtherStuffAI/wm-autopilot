@@ -1,3 +1,7 @@
+## Native artefact references in Flight Deck
+
+For channel-owned artefacts, reply with `@[Artefact title](mention:file:<file-uuid>)`; use `@[Document title](mention:doc:<doc-uuid>)` for ordinary Docs. Use the verified saved record ID in the intended workspace/channel. Include revision and access mode when handing back a save. These references open inside the current app. Hosted Ambulando URLs, including `artefactid`/`workspaceid` query links, are not chat/task/document handoffs and can disrupt the client. Service URLs remain for API calls, provenance and explicitly requested external-browser sharing; existing ACLs still apply. Read `ambulando-artefacts` for publication and revision handling.
+
 # Wingman V2 - AI Agent Orchestration Platform
 
 ## Project Overview
