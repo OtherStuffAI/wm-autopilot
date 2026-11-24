@@ -75,7 +75,7 @@ export async function handleInstanceSettingsApi(
   if (url.pathname === "/api/instance-settings/harness-models/discover" && method === "GET") {
     const harness = url.searchParams.get("harness")?.trim() ?? "";
     if (!isCliModelHarness(harness)) {
-      return Response.json({ error: "harness must be claude or codex" }, { status: 400 });
+      return Response.json({ error: "harness must be claude, codex or antigravity" }, { status: 400 });
     }
     try {
       return Response.json(await (ctx.discoverHarnessModels ?? discoverHarnessModels)(harness));

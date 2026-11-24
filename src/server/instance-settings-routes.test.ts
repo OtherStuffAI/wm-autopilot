@@ -54,6 +54,11 @@ describe("handleInstanceSettingsApi", () => {
     expect(response?.status).toBe(200);
     expect(await response?.json()).toMatchObject({ harness: "codex", models: ["gpt-6.1-sol"] });
 
+    const antigravityUrl = new URL("http://localhost/api/instance-settings/harness-models/discover?harness=antigravity");
+    const antigravity = await handleInstanceSettingsApi(new Request(antigravityUrl.toString()), antigravityUrl, "GET", authContext, ctx);
+    expect(antigravity?.status).toBe(200);
+    expect(await antigravity?.json()).toMatchObject({ harness: "antigravity" });
+
     const badUrl = new URL("http://localhost/api/instance-settings/harness-models/discover?harness=goose");
     const bad = await handleInstanceSettingsApi(new Request(badUrl.toString()), badUrl, "GET", authContext, ctx);
     expect(bad?.status).toBe(400);

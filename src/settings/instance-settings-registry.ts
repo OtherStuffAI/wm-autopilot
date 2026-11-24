@@ -457,6 +457,18 @@ export const INSTANCE_SETTING_DEFINITIONS: InstanceSettingDefinition[] = [
     compatibilityEnvName: "PI_ACP_CLI",
   },
   {
+    key: "agents.antigravity_cli",
+    label: "Antigravity CLI",
+    description: "Path or command for authenticated agy ACP sessions. See docs/antigravity.md.",
+    category: "agents",
+    type: "string",
+    envAliases: ["ANTIGRAVITY_CLI", "WINGMAN_ANTIGRAVITY_CLI"],
+    autoImport: true,
+    requiresRestart: true,
+    cleanupAllowed: true,
+    compatibilityEnvName: "ANTIGRAVITY_CLI",
+  },
+  {
     key: "agents.deepseek_acp_cli",
     label: "DeepSeek Harness ACP Executable",
     description: "Absolute path to an installed dsh 0.2.0-rc.2 executable. See docs/deepseek-harness.md.",
@@ -523,7 +535,7 @@ export const INSTANCE_SETTING_DEFINITIONS: InstanceSettingDefinition[] = [
   {
     key: "models.harnesses",
     label: "Harness Models",
-    description: "Selectable Claude Code and Codex models, refreshed from each CLI or edited manually.",
+    description: "Selectable Claude Code, Codex and Antigravity models, refreshed from each CLI or edited manually.",
     category: "agents",
     type: "json",
     envAliases: [],

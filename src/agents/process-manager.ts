@@ -47,6 +47,7 @@ import {
   waitForStatus,
 } from "./pm2-wrapper";
 import { injectMcpConfig, cleanupMcpConfig } from "./mcp-injector";
+import { buildAntigravityAdapterContext } from "./antigravity-session-context";
 import { buildDeepSeekAdapterContext } from "./deepseek-session-context";
 import { stopManagedSubprocess } from "./process-stop";
 import { waitForAgentApiLaunchReady } from "./agentapi-launch-readiness";
@@ -124,12 +125,13 @@ export function buildBunAgentLaunchCommand(
 }
 
 export function transportSkipsAgentApiSpawn(transport: AgentTransport): boolean {
-  return ["claude-sdk", "codex-acp", "codex-sdk", "goose-acp", "maple-acp", "deepseek-acp", "pi-acp"].includes(transport);
+  return ["antigravity-acp", "claude-sdk", "codex-acp", "codex-sdk", "goose-acp", "maple-acp", "deepseek-acp", "pi-acp"].includes(transport);
 }
 
 export function transportRequiresEagerReadiness(transport: AgentTransport): boolean {
   return transport === "claude-sdk" || transport === "codex-acp" ||
     transport === "goose-acp" ||
+    transport === "antigravity-acp" ||
     transport === "deepseek-acp" ||
     transport === "maple-acp" ||
     transport === "pi-acp" ||
@@ -137,7 +139,7 @@ export function transportRequiresEagerReadiness(transport: AgentTransport): bool
 }
 
 export function transportUsesAcpPermissionPolicy(transport: AgentTransport): boolean {
-  return transport === "codex-acp" || transport === "goose-acp" || transport === "deepseek-acp" || transport === "maple-acp" || transport === "pi-acp";
+  return transport === "antigravity-acp" || transport === "codex-acp" || transport === "goose-acp" || transport === "deepseek-acp" || transport === "maple-acp" || transport === "pi-acp";
 }
 
 export function resolveNewSessionAcpPermissionPolicy(
@@ -1071,6 +1073,7 @@ export class ProcessManager {
           ? instanceSettingsService.get("integrations.openrouter_api_key") || undefined
           : undefined,
         ...buildDeepSeekAdapterContext(session),
+        ...buildAntigravityAdapterContext(session),
         mapleAcpCli: agent === "maple"
           ? instanceSettingsService.get("agents.maple_acp_cli") || resolveWrappedAgentCli(session.command)
           : undefined,
@@ -1245,6 +1248,7 @@ export class ProcessManager {
         ? instanceSettingsService.get("integrations.openrouter_api_key") || undefined
         : undefined,
       ...buildDeepSeekAdapterContext(session),
+      ...buildAntigravityAdapterContext(session),
       mapleSessionId: session.metadata.nativeAgentSession?.agent === "maple"
         ? session.metadata.nativeAgentSession.sessionId
         : undefined,

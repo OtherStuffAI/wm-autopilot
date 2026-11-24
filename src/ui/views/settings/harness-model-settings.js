@@ -2,6 +2,7 @@ export const HARNESS_MODELS_SETTING_KEY = 'models.harnesses';
 export const CLI_MODEL_HARNESSES = [
   { id: 'claude', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
+  { id: 'antigravity', label: 'Antigravity' },
 ];
 
 const DEFAULT_MODEL_OPTION = 'default';

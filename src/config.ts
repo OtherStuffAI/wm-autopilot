@@ -379,6 +379,9 @@ function createDefaultAgents(
       extraArgs: openCodeExtraArgs,
       modelOptions: OPENCODE_MODEL_OPTIONS,
     }),
+    antigravity: withAgentCommand(agentApiBinary, "Antigravity", readEnvValue(env, "ANTIGRAVITY_CLI") ?? "agy", {
+      modelOptions: ["default", "gemini-4-neon-low", "gemini-4-neon-medium", "gemini-4-neon-high", "gemini-4-neon-xhigh"],
+    }),
     gemini: withAgentCommand(agentApiBinary, "Gemini", readEnvValue(env, "GEMINI_CLI") ?? "gemini", {
       type: "gemini",
       modelOptions: GEMINI_MODEL_OPTIONS,

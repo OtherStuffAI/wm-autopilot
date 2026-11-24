@@ -1,11 +1,11 @@
 /**
  * Editable model lists for harnesses whose CLIs publish their own model
- * catalogue (Claude Code and Codex). These are distinct from the OpenRouter
+ * catalogue (Claude Code, Codex and Antigravity). These are distinct from the OpenRouter
  * provider list in `models.providers`, which serves Goose, OpenCode and Pi.
  */
 
 export const HARNESS_MODELS_SETTING_KEY = "models.harnesses";
-export const CLI_MODEL_HARNESSES = ["claude", "codex"] as const;
+export const CLI_MODEL_HARNESSES = ["claude", "codex", "antigravity"] as const;
 export type CliModelHarness = typeof CLI_MODEL_HARNESSES[number];
 
 const DEFAULT_MODEL_OPTION = "default";
@@ -110,7 +110,8 @@ export function resolveHarnessModelOptions(
 
 /**
  * Pre-launch guard: a requested model outside the harness's current list
- * launches on the harness default instead.
+ * launches on the harness default instead. Antigravity validates against its
+ * authenticated ACP catalogue and must never fall back.
  */
 export function resolveLaunchModelForHarness(
   harness: string,
@@ -118,7 +119,7 @@ export function resolveLaunchModelForHarness(
   options: readonly string[],
 ): { model: string; fallbackFrom: string | null } {
   const requested = requestedModel.trim();
-  if (!requested || !isCliModelHarness(harness) || options.includes(requested)) {
+  if (!requested || !isCliModelHarness(harness) || harness === "antigravity" || options.includes(requested)) {
     return { model: requested, fallbackFrom: null };
   }
   return { model: "", fallbackFrom: requested };

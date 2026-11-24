@@ -1,12 +1,15 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { buildInheritedAgentEnvironment } from "../agents/agent-environment";
+import { instanceSettingsService } from "./instance-settings-service";
 import type { CliModelHarness } from "./harness-models";
 
 /**
- * Reads the model catalogues the Claude Code and Codex CLIs cache locally.
- * Both formats are CLI-internal, so parsing is defensive and fails loudly
- * rather than returning a partial list.
+ * Reads local Claude/Codex catalogues and the authenticated Antigravity CLI
+ * catalogue. Discovery failures leave saved lists unchanged.
  */
 
 export interface DiscoveredHarnessModels {
@@ -24,6 +27,7 @@ export async function discoverHarnessModels(
   harness: CliModelHarness,
   env: DiscoveryEnv = process.env,
 ): Promise<DiscoveredHarnessModels> {
+  if (harness === "antigravity") return discoverAntigravityModels(env);
   return harness === "codex" ? discoverCodexModels(env) : discoverClaudeModels(env);
 }
 
@@ -114,4 +118,29 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+/** Authenticated account catalogue, obtained without reading provider credentials. */
+export async function discoverAntigravityModels(env: DiscoveryEnv = process.env): Promise<DiscoveredHarnessModels> {
+  const command = instanceSettingsService.get("agents.antigravity_cli") || env.ANTIGRAVITY_CLI?.trim() || "agy";
+  let stdout: string;
+  try {
+    ({ stdout } = await promisify(execFile)(command, ["models"], {
+      env: buildInheritedAgentEnvironment(env), timeout: 30_000, maxBuffer: 1024 * 1024,
+    }));
+  } catch {
+    throw new Error("Antigravity model discovery failed. Verify the configured agy executable and sign in on the Autopilot host. The saved list was not changed.");
+  }
+  return {
+    harness: "antigravity", models: parseAntigravityModels(stdout),
+    source: `${command} models`, fetchedAt: new Date().toISOString(),
+  };
+}
+
+export function parseAntigravityModels(output: string): string[] {
+  const models = output.split(/\r?\n/).filter((line) => line.includes("\t")).map((line) => line.split("\t")[0]!.trim());
+  if (models.some((model) => !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(model))) {
+    throw new Error("Antigravity returned an invalid model catalogue; the saved list was not changed.");
+  }
+  return requireModels(models, "agy models");
 }

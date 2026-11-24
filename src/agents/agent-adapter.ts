@@ -76,6 +76,9 @@ export interface AdapterSessionContext {
   piAcpCli?: string;
   /** OpenRouter credential injected into the Pi ACP subprocess without persisting it in session metadata. */
   piOpenRouterApiKey?: string;
+  /** Authenticated Antigravity executable and native ACP session to load. */
+  antigravityCli?: string;
+  antigravitySessionId?: string;
   /** Absolute pinned DeepSeek Harness executable path. */
   deepseekAcpCli?: string;
   deepseekApiKey?: string;
@@ -199,7 +202,7 @@ export const OPENCODE_NATIVE_SDK_FLAG = "opencode-use-native-sdk";
 export const GOOSE_NATIVE_ACP_FLAG = "goose-use-native-acp";
 export const PI_ACP_FLAG = "pi-use-acp";
 
-export type AgentTransport = "agentapi" | "claude-sdk" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "deepseek-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
+export type AgentTransport = "agentapi" | "antigravity-acp" | "claude-sdk" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "deepseek-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
 
 /** Whether the native `@openai/codex-sdk` adapter is the active Codex transport. */
 export function isCodexNativeSdkEnabled(): boolean {
@@ -229,6 +232,7 @@ export function isPiAcpEnabled(): boolean {
  */
 export function resolveAgentTransport(agent: AgentType, pinned?: string | null): AgentTransport {
   if (isCompatibleTransport(agent, pinned)) return pinned;
+  if (agent === "antigravity") return "antigravity-acp";
   if (agent === "deepseek") return "deepseek-acp";
   if (agent === "maple") return "maple-acp";
   if (agent === "claude") {
@@ -318,6 +322,13 @@ export function resolveAdapterFactory(agent: AgentType, transport = resolveAgent
     };
   }
 
+  if (transport === "antigravity-acp") {
+    return (context: AdapterSessionContext) => {
+      const { AntigravityAcpAdapter } = require("./antigravity-acp-adapter") as typeof import("./antigravity-acp-adapter");
+      return new AntigravityAcpAdapter(context);
+    };
+  }
+
   if (transport === "deepseek-acp") {
     return (context: AdapterSessionContext) => {
       const { DeepSeekAcpAdapter } = require("./deepseek-acp-adapter") as typeof import("./deepseek-acp-adapter");
@@ -340,6 +351,7 @@ export function resolveAdapterFactory(agent: AgentType, transport = resolveAgent
 }
 
 function isCompatibleTransport(agent: AgentType, value: string | null | undefined): value is AgentTransport {
+  if (agent === "antigravity") return value === "antigravity-acp";
   if (agent === "deepseek") return value === "deepseek-acp";
   if (value === "agentapi") return true;
   if (agent === "claude") return value === "claude-sdk";

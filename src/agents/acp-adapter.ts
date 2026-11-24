@@ -41,6 +41,7 @@ export interface AcpAdapterProfile {
   aggregateAutoApprovedPermissions?: boolean;
   rollIntermediateAgentMessages?: boolean;
   configureSession?: (client: AcpProcessClient, sessionId: string, response: AcpResponse) => Promise<AcpResponse | void>;
+  readRunningModel?: (response: AcpResponse) => string | null;
   formatError?: (error: Error) => Error;
   formatStartupError?: (error: Error) => Error;
 }
@@ -448,6 +449,10 @@ export class AcpAdapter implements AgentAdapter {
   }
 
   private recordRunningModel(response: AcpResponse): void {
+    if (this.profile.readRunningModel) {
+      this.runningModel = this.profile.readRunningModel(response);
+      return;
+    }
     const result = readRecord(response.result);
     const configOptions = Array.isArray(result.configOptions) ? result.configOptions : [];
     const modelOption = configOptions

@@ -9,7 +9,7 @@ export interface SessionMetadata {
   AGENT: boolean;
   billingMode: "subscription" | "credits";
   /** Transport selected at session creation/rehydration; never changed in place. */
-  agentTransport?: "agentapi" | "claude-sdk" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "deepseek-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
+  agentTransport?: "antigravity-acp" | "agentapi" | "claude-sdk" | "codex-acp" | "codex-sdk" | "goose-acp" | "maple-acp" | "deepseek-acp" | "opencode-sdk" | "pi-acp" | "pi-native";
   /** Effective ACP runtime permission policy, fixed for the lifetime of this session. */
   acpPermissionPolicy?: AcpPermissionPolicy;
   /** Session consent; the managed flag must also be effective at runtime. */
@@ -116,6 +116,7 @@ export const DEFAULT_SESSION_METADATA: SessionMetadata = Object.freeze({
 
 const AGENT_TRANSPORTS = new Set([
   "agentapi",
+  "antigravity-acp",
   "codex-acp",
   "codex-sdk",
   "claude-sdk",

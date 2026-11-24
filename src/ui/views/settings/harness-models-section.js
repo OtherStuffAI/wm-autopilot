@@ -20,7 +20,7 @@ async function fetchAgentConfig() {
   return response.json();
 }
 
-/** Claude Code and Codex model lists. Separate from the OpenRouter list used by Goose, OpenCode and Pi. */
+/** CLI harness model lists. Separate from the OpenRouter list used by Goose, OpenCode and Pi. */
 export function createHarnessModelsSection(options = {}) {
   const loadSettings = options.loadSettings || fetchInstanceSettings;
   const loadConfig = options.loadConfig || fetchAgentConfig;
@@ -32,9 +32,9 @@ export function createHarnessModelsSection(options = {}) {
   section.className = 'wm-card wm-model-settings';
   section.dataset.testid = 'harness-models-section';
   const heading = document.createElement('h2');
-  heading.textContent = 'Claude Code & Codex models';
+  heading.textContent = 'CLI harness models';
   const description = document.createElement('p');
-  description.textContent = 'Models offered when launching Claude Code or Codex sessions. Refresh from CLI replaces the list with the models the installed CLI reports. If a selected model is unavailable at launch, the session falls back to the harness default.';
+  description.textContent = 'Models offered when launching Claude Code, Codex or Antigravity sessions. Refresh from CLI replaces the list with the models the installed CLI reports. Claude Code and Codex may fall back to their default for unavailable models. Antigravity rejects unavailable models.';
   section.append(heading, description);
 
   let settings = { harnesses: {} };
@@ -53,6 +53,7 @@ export function createHarnessModelsSection(options = {}) {
     textLabel.textContent = `${label} model IDs, one per line (first is listed first; "default" is always available)`;
     const textarea = document.createElement('textarea');
     textarea.id = `harness-models-${id}-list`;
+    textarea.setAttribute('aria-label', `${label} model IDs`);
     textarea.className = 'wm-input';
     textarea.rows = 8;
     textarea.spellcheck = false;
@@ -69,16 +70,19 @@ export function createHarnessModelsSection(options = {}) {
     refreshButton.type = 'button';
     refreshButton.className = 'wm-button secondary';
     refreshButton.textContent = 'Refresh from CLI';
+    refreshButton.setAttribute('aria-label', `Refresh from CLI: ${label} models`);
     refreshButton.dataset.testid = `harness-models-${id}-refresh`;
     const resetButton = document.createElement('button');
     resetButton.type = 'button';
     resetButton.className = 'wm-button secondary';
     resetButton.textContent = 'Reset to defaults';
+    resetButton.setAttribute('aria-label', `Reset to defaults: ${label} models`);
     resetButton.dataset.testid = `harness-models-${id}-reset`;
     const saveButton = document.createElement('button');
     saveButton.type = 'submit';
     saveButton.className = 'wm-button';
     saveButton.textContent = 'Save';
+    saveButton.setAttribute('aria-label', `Save: ${label} models`);
     saveButton.dataset.testid = `harness-models-${id}-save`;
     actions.append(refreshButton, resetButton, saveButton);
     form.append(title, source, textLabel, textarea, actions, status);

@@ -15,3 +15,8 @@ describe("manual session agent options", () => {
     expect(appSource).toContain('populateAgentSelect(agentSelect, "codex");');
   });
 });
+
+
+test("offers Antigravity in the normal session agent picker", () => {
+  expect(renderAgentOptions("antigravity")).toContain('<option value="antigravity" selected>Antigravity</option>');
+});

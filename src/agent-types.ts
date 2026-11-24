@@ -1,4 +1,4 @@
-export const AGENT_TYPES = ["claude", "codex", "goose", "maple", "deepseek", "opencode", "gemini", "pi"] as const;
+export const AGENT_TYPES = ["claude", "codex", "goose", "maple", "deepseek", "opencode", "gemini", "antigravity", "pi"] as const;
 
 export type AgentType = (typeof AGENT_TYPES)[number];
 
@@ -12,6 +12,7 @@ export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   deepseek: "DeepSeek Harness",
   opencode: "OpenCode",
   gemini: "Gemini",
+  antigravity: "Antigravity",
   pi: "Pi",
 };
 
