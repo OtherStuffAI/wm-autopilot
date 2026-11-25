@@ -29,16 +29,22 @@ export interface TinfoilInstallOptions {
   timeoutMs?: number;
   fetch?: (url: string, init: { signal: AbortSignal; headers?: Record<string, string> }) => Promise<Response>;
   /** Runs the staged binary through the current handshake before it is installed; must throw to refuse. */
-  probe?: (stagedPath: string, sha256: string) => Promise<void>;
+  probe?: (stagedPath: string, sha256: string, signal: AbortSignal) => Promise<void>;
 }
 export interface TinfoilInstallResult { release: string; prerelease: boolean; path: string; sha256: string; size: number }
 interface ReleaseAsset { name: string; browser_download_url: string; digest?: string; size?: number }
 interface Release { tag_name?: string; draft?: boolean; prerelease?: boolean; assets?: ReleaseAsset[] }
 
 /** Real probe: the current TinfoilProxy start protocol, including live attestation, against the staged file. */
-export async function probeWithTinfoilProxy(stagedPath: string, sha256: string): Promise<void> {
+export async function probeWithTinfoilProxy(stagedPath: string, sha256: string, signal: AbortSignal): Promise<void> {
   const proxy = new TinfoilProxy({ binary: stagedPath, sha256 });
-  try { await proxy.baseUrl(); } finally { proxy.close(); }
+  const abort = () => proxy.close();
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    if (signal.aborted) throw new TinfoilInstallError("timeout");
+    await proxy.baseUrl();
+    if (signal.aborted) throw new TinfoilInstallError("timeout");
+  } finally { signal.removeEventListener("abort", abort); proxy.close(); }
 }
 
 export function releaseAssetName(platform: string, arch: string): string {
@@ -50,7 +56,7 @@ export function releaseAssetName(platform: string, arch: string): string {
 /** Read a response body without ever holding more than `limit` bytes. */
 async function readBounded(response: Response, limit: number): Promise<Uint8Array> {
   const declared = Number(response.headers.get("content-length") ?? 0);
-  if (declared > limit) throw new TinfoilInstallError("oversize");
+  if (declared > limit) { await response.body?.cancel().catch(() => {}); throw new TinfoilInstallError("oversize"); }
   const chunks: Uint8Array[] = []; let total = 0;
   const reader = response.body?.getReader();
   if (!reader) throw new TinfoilInstallError("download_failed");
@@ -118,9 +124,10 @@ export async function installTinfoilProxy(options: TinfoilInstallOptions): Promi
     const staged = join(staging, assetName);
     await writeFile(staged, bytes, { mode: 0o700, flag: "wx" });
     await chmod(staged, 0o700);
-    try { await bounded(probe(staged, digest)); }
+    try { await bounded(probe(staged, digest, controller.signal)); }
     catch (error) { throw error instanceof TinfoilInstallError ? error : new TinfoilInstallError("probe_failed"); }
     const path = join(directory, assetName.endsWith(".exe") ? "tinfoil-proxy.exe" : "tinfoil-proxy");
+    if (controller.signal.aborted) throw new TinfoilInstallError("timeout");
     await rename(staged, path);
     return { release, prerelease, path, sha256: digest, size: bytes.length };
   } finally {

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installTinfoilProxy, releaseAssetName, TinfoilInstallError, type TinfoilInstallOptions } from "./tinfoil-installer";
 
-// Fakes only: no network, no real binary execution, no real attestation.
+// Fake downloads/providers; one synthetic child verifies cancellation. No network or real attestation/model requests.
 const cleanups: Array<() => void> = [];
 afterEach(() => { while (cleanups.length) cleanups.pop()!(); });
 
@@ -109,6 +109,24 @@ test("a probe refusal or incompatible old handshake preserves the installed bina
   expect(await refusal(f.run())).toBe("probe_failed");
   expect(staged).not.toBe("");
   expect(existsSync(staged)).toBe(false);
+  unchanged(f);
+});
+
+test("an installer deadline stops the actual probe child before leaving the old binary unchanged", async () => {
+  const evidence = mkdtempSync(join(tmpdir(), "tinfoil-probe-deadline-"));
+  cleanups.push(() => rmSync(evidence, { recursive: true, force: true }));
+  const pidPath = join(evidence, "child.pid");
+  const quoted = "'" + pidPath.replace(/'/g, "'\\''") + "'";
+  const script = new TextEncoder().encode(`#!/bin/sh\necho $$ > ${quoted}\nexec /bin/sleep 60\n`);
+  const f = setup({ body: script, asset: { digest: `sha256:${sha(script)}`, size: script.length } });
+  expect(await refusal(f.run({ probe: undefined, timeoutMs: 1000 }))).toBe("timeout");
+  expect(existsSync(pidPath)).toBe(true);
+  const pid = Number(readFileSync(pidPath, "utf8").trim());
+  const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  for (let i = 0; i < 50 && alive(); i++) await Bun.sleep(10);
+  const leaked = alive();
+  if (leaked) process.kill(pid, "SIGTERM"); // a red regression test also cleans up its own fixture
+  expect(leaked).toBe(false);
   unchanged(f);
 });
 
