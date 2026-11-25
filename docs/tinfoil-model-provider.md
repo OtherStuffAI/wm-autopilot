@@ -4,15 +4,17 @@ Autopilot can run Pi, OpenCode and Goose locally while sending their inference t
 
 ## Setup
 
-1. Install the pinned proxy for the Autopilot service user:
+1. Install a proxy release for the Autopilot service user. The operator must name the release; there is no latest or default:
 
    ```sh
-   bun scripts/install-tinfoil-proxy.ts
+   bun scripts/install-tinfoil-proxy.ts --release v0.3.0-rc.8 --allow-prerelease [--sha256 <hex>] [--size <bytes>]
    ```
 
-   This installs v0.2.9 into `~/.local/bin`, verifying its SHA-256 against the official GitHub release asset digest. The service checks `TINFOIL_PROXY_CLI`, then its executable PATH, then `~/.local/bin/tinfoil-proxy`. The proxy must support the verified `--handshake` startup protocol. Runtime startup never downloads executable code.
+   The installer accepts only the official `tinfoilsh/tinfoil-proxy` GitHub release for that exact tag and its platform asset, whose `github.com` download URL, `sha256:` digest and size must all be present and agree with the downloaded bytes (the size is capped at 512 MiB and downloads are time-bounded). Prereleases are refused unless `--allow-prerelease` is also given. Optional `--sha256`/`--size` assert the values you reviewed. The bytes are staged in a private unique directory beside the destination (`~/.local/bin`), then run through the current `TinfoilProxy` handshake, including real attestation, before an atomic rename replaces `tinfoil-proxy`. Any refusal, timeout, probe failure or incompatible (for example legacy-format) proxy leaves the previously installed binary untouched and removes the staged files and child. The probe uses no API key and makes no model requests. The release v0.2.9 does not emit the current `ready.verification` summary and will be refused. The service checks `TINFOIL_PROXY_CLI`, then its executable PATH, then `~/.local/bin/tinfoil-proxy`. Runtime startup never downloads executable code.
 
-   **Required pin:** set `TINFOIL_PROXY_SHA256` to the operator-approved lowercase SHA-256 of the installed binary (the installer prints the verified release digest). Autopilot hashes the binary before every start and refuses to spawn it when the pin is absent, malformed or mismatched (`binary_unpinned`); there is no default checksum. Changing the binary requires updating the pin and an operator restart of Autopilot.
+   The installed binary is the upstream official release asset, verified by digest; it is not built from this repository. Release provenance is the GitHub release and digest, whereas runtime attestation (below) is verified by the proxy for each enclave connection; one does not substitute for the other. If you build the proxy from source instead, set `TINFOIL_PROXY_CLI` to that build and pin its own hash.
+
+   **Required pin:** set `TINFOIL_PROXY_SHA256` to the operator-approved lowercase SHA-256 of the installed binary (the installer prints it as `TINFOIL_PROXY_SHA256=...`). Autopilot hashes the binary before every start and refuses to spawn it when the pin is absent, malformed or mismatched (`binary_unpinned`); there is no default checksum. Changing the binary requires updating the pin and an operator restart of Autopilot.
 
 2. In **Secrets**, select the credential's existing workspace. Add or edit an ordinary saved secret using the existing encrypted custody UI. Keep raw return disabled. Grant only the bot identities and selected agent consumers that should use the provider; both grants must allow each identity.
 3. In **Settings → Model choices → Model providers**, select the same workspace. In the **Tinfoil model provider** section, select the saved credential, enter exact allowed model IDs, and save. The connection stores only the reference, enabled state, allowlist and revision. Test with one of the allowed bot identities. Testing makes a small billed inference request and checks a real function call; it returns deterministic connection/model/tool status, never the upstream response body or key.
