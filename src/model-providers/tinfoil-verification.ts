@@ -22,7 +22,7 @@ function field(source: Record<string, unknown>, key: string, allowEmpty = false)
 function timestamp(value: string): number {
   const match = RFC3339_UTC.exec(value);
   const ms = match ? Date.parse(`${match[1]}.${(match[2] ?? "").padEnd(3, "0").slice(0, 3)}Z`) : NaN;
-  if (!Number.isFinite(ms)) throw new TinfoilProxyError("verification_invalid");
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 19) !== match?.[1]) throw new TinfoilProxyError("verification_invalid");
   return ms;
 }
 
