@@ -1,3 +1,4 @@
+import { validateArtefactDispatchContext, ARTEFACT_CONTEXT_KEY, type ArtefactDispatchContext } from "./artefact-dispatch-context";
 import { createHash } from 'node:crypto';
 
 import type { FlightDeckPgChannel, FlightDeckPgMessage } from './tower-client';
@@ -11,6 +12,7 @@ import {
 
 export interface DirectChatMessage {
   messageId: string;
+  artefactContext?: ArtefactDispatchContext;
   userId: string | null;
   userNpub: string | null;
   speakerLabel: string | null;
@@ -32,6 +34,7 @@ export function normaliseDirectChatMessage(message: FlightDeckPgMessage): Direct
   const rawMentions = Array.isArray(message.mentions) ? message.mentions : Array.isArray(metadata.mentions) ? metadata.mentions : [];
   return {
     messageId: message.id,
+    artefactContext: validateArtefactDispatchContext(metadata[ARTEFACT_CONTEXT_KEY], message),
     userId: message.created_by_actor_id ?? null,
     userNpub: message.created_by_actor_npub ?? message.sender_npub ?? null,
     speakerLabel: message.created_by_actor_label ?? null,

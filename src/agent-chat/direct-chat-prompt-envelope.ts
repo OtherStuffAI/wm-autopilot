@@ -1,3 +1,4 @@
+import { artefactContextSection } from "./artefact-dispatch-context";
 import { budgetDirectChatHistory } from "./direct-chat-history-budget";
 import type { DirectChatMessage } from './direct-chat-contract';
 
@@ -110,6 +111,7 @@ export function buildInitialDirectChatEnvelope(input: {
   return [
     '# Metadata', '', json({ ...input.metadata, guidance: FINAL_RESPONSE_GUIDANCE }),
     '', '# History', '', historySection(input.history),
+    ...artefactContextSection(input.prompts),
     '', '# Prompt', '', promptSection(input.prompts),
   ].join('\n');
 }
@@ -120,6 +122,7 @@ export function buildRehydratedDirectChatEnvelope(input: {
 }): string {
   return [
     '# History', '', historySection(input.history),
+    ...artefactContextSection(input.prompts),
     '', '# Prompt', '', promptSection(input.prompts),
     '', FINAL_RESPONSE_GUIDANCE,
   ].join('\n');
