@@ -6,7 +6,7 @@ const w = '11111111-1111-4111-8111-111111111111', c = '22222222-2222-4222-8222-2
 const t = '33333333-3333-4333-8333-333333333333', f = '44444444-4444-4444-8444-444444444444', v = '55555555-5555-4555-8555-555555555555';
 const route = { workspace_id: w, channel_id: c, thread_id: t };
 const snapshot = (): import('./artefact-dispatch-context').ArtefactDispatchContext => ({ schemaVersion: 1, workspaceID: w, channelID: c, threadID: t, workspaceVisible: false, visibleRecordID: f,
-  open: [{ kind: 'file', recordID: f, revision: v, revisionKind: 'file_version_id', historical: true }] });
+  open: [{ kind: 'file', recordID: f, revision: v, revisionKind: 'file_version_id', historical: true, digest: 'a'.repeat(64) }] });
 const message = (context: unknown) => normaliseDirectChatMessage({ id: 'message', ...route, body: 'change this', metadata: { [ARTEFACT_CONTEXT_KEY]: context } });
 describe('artefact dispatch context', () => {
   test('initial and rehydrated envelopes preserve exact context separately from human body', () => {
@@ -27,7 +27,7 @@ describe('artefact dispatch context', () => {
     const base = snapshot();
     for (const bad of [null, [], 'text', { ...base, schemaVersion: 2 }, { ...base, workspaceID: c }, { ...base, channelID: w },
       { ...base, threadID: w }, { ...base, workspaceVisible: 'yes' }, { ...base, visibleRecordID: v },
-      { ...base, instructions: 'execute' }, { ...base, open: [] }, { ...base, open: Array(33).fill(base.open[0]) },
+      { ...base, open: [{ ...base.open[0], digest: undefined }] }, { ...base, instructions: 'execute' }, { ...base, open: [] }, { ...base, open: Array(33).fill(base.open[0]) },
       { ...base, open: [base.open[0], base.open[0]] },
       { ...base, open: [{ ...base.open[0], revision: 'latest' }] }, { ...base, open: [{ ...base.open[0], digest: 'a'.repeat(20_000) }] },
       { ...base, open: [{ ...base.open[0], kind: 'doc', revisionKind: 'doc_versions.row_version', revision: '0' }] }]) {

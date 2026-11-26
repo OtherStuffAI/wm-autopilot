@@ -9,9 +9,9 @@ Kind 33358 continues to sign exactly the human body with existing eligibility ch
 Schema version 1 fields: `schemaVersion: 1`, `workspaceID`, `channelID`, `threadID`,
 `workspaceVisible` (boolean), `visibleRecordID`, and `open` references. A reference has
 `kind` (`doc` or `file`), UUID `recordID`, `revision`, `revisionKind`, boolean `historical`
-and optional SHA256 `digest`. Files use UUID `file_version_id`; Docs use positive safe
+and required SHA256 `digest`. Files use UUID `file_version_id`; Docs use positive safe
 integer decimal `doc_versions.row_version` and require the snapshot bytes' SHA256 digest.
-Available file digests are retained, never inferred from a newly fetched head.
+File digests are computed from the exact loaded/published bytes or retained from the canonical HTML payload, never inferred from a newly fetched head.
 
 The normalizer accepts only this schema: 16 KiB compact UTF-8 JSON, at most 32 unique
 records, known fields, UUID routing/records, valid revision and digest syntax, and selected

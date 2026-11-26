@@ -7,7 +7,7 @@ export interface ArtefactDispatchContext {
   threadID: string;
   workspaceVisible: boolean;
   visibleRecordID: string;
-  open: Array<{ kind: 'doc' | 'file'; recordID: string; revision: string; revisionKind: string; historical: boolean; digest?: string }>;
+  open: Array<{ kind: 'doc' | 'file'; recordID: string; revision: string; revisionKind: string; historical: boolean; digest: string }>;
 }
 const uuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const digest = (v: unknown) => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
@@ -28,7 +28,7 @@ export function validateArtefactDispatchContext(value: unknown, route: {
   for (const ref of value.open) {
     if (!object(ref) || !keys(ref, ['kind', 'recordID', 'revision', 'revisionKind', 'historical', 'digest'])
       || !uuid(ref.recordID) || seen.has(ref.recordID.toLowerCase()) || typeof ref.historical !== 'boolean'
-      || (ref.digest !== undefined && !digest(ref.digest))) return;
+      || !digest(ref.digest)) return;
     seen.add(ref.recordID.toLowerCase());
     if (ref.kind === 'file') {
       if (ref.revisionKind !== 'file_version_id' || !uuid(ref.revision)) return;
