@@ -310,6 +310,14 @@ export class FlightDeckPgClient {
     return await this.signedJson('GET', `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/scopes`);
   }
 
+  async scopeGrants(workspaceId: string, scopeId: string) {
+    return await this.signedJson("GET", `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/scopes/${encodeURIComponent(scopeId)}/grants`);
+  }
+
+  async listGroups(workspaceId: string) {
+    return await this.signedJson("GET", `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/groups`);
+  }
+
   async showScope(workspaceId: string, scopeId: string) {
     const scopes = await this.listScopes(workspaceId) as { scopes?: Array<Record<string, unknown>> };
     const scope = scopes.scopes?.find((entry) => entry.id === scopeId);

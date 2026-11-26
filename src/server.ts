@@ -301,8 +301,7 @@ import { workspaceSubscriptionStore } from "./agent-chat/workspace-subscription-
 import { TowerGitCredentialBroker, nativeForgejoServersFromEnv } from "./git/tower-git-credential-broker";
 import { TowerPgWappPublisher } from "./wapps/wapp-publisher";
 import { createWappSourceAppNpubResolver } from "./wapps/wapp-publish-target";
-import { FlightDeckScopeAccessResolver } from "./wapps/scope-access";
-import { createBoardClient } from "./board/yoke-board";
+import { createPgWappScopeAccessResolver } from "./wapps/pg-scope-access-runtime";
 import {
   clearWarmRestartMarker,
   loadWarmRestartMarker,
@@ -419,10 +418,7 @@ function resolveScheduledPipelineAgent(
 
   return config.defaultAgent;
 }
-const wappScopeAccessResolver = new FlightDeckScopeAccessResolver(async (input) => {
-  const board = createBoardClient(input.appRoot ?? config.defaultWorkingDirectory);
-  return await board.getScopeAccess(input.scopeId);
-});
+
 if (wingmanInstanceIdentity) {
   console.log(`[identity] Wingman instance identity configured: ${wingmanInstanceIdentity.npub.slice(0, 20)}...`);
 } else {
@@ -527,6 +523,11 @@ const botKeyStore = new BotKeyStore();
 classifyStoredBotUsers(identityUserStore, listBotUserIdentities(botKeyStore.listIdentities(), agentDefinitionStore.listProfiles()));
 const agentProfileMediaStore = new AgentProfileMediaStore();
 const brokerKeyVault = createBrokerKeyVaultBackend();
+const wappScopeAccessResolver = createPgWappScopeAccessResolver({
+  connections: backendConnectionStore,
+  agents: agentDefinitionStore,
+  identity: { instanceIdentity: wingmanInstanceIdentity, botKeyStore, brokerKeyVault },
+});
 const capabilityStateStore = new FileCapabilityBrokerStateStore(
   Bun.env.WINGMAN_CAPABILITY_STATE_FILE?.trim() || new URL("../data/capability-broker-state.json", import.meta.url).pathname,
 );

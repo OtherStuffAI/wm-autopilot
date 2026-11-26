@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { resolveWappScopeAccessForRequest } from "./wapp-scope-access-request";
+
 import type { RequestAuthContext } from "../auth/request-context";
 import type { AccessAction } from "../auth/access-control";
 import type { AppRecord } from "../apps/app-registry";
@@ -372,11 +374,12 @@ export async function handleWappsApi(
     const alias = (await ctx.appAliasRegistry.getByAppId(app.id))?.alias ?? null;
     const wappInstallationId = text(body.id ?? body.wappInstallationId ?? body.wapp_installation_id) ?? randomUUID();
     const launchUrl = ctx.buildLaunchUrl(alias, app);
-    const scopeAccess = await ctx.scopeAccessResolver.resolveWappScopeAccess({
+    const scopeAccess = await resolveWappScopeAccessForRequest(ctx, {
       workspaceOwnerNpub,
       scopeId,
       ownerNpub,
       appRoot: app.root,
+      towerBindingId: text(body.towerBindingId ?? body.tower_binding_id),
     }).catch((error) => error);
     if (scopeAccess instanceof Error) return scopeAccessErrorResponse(scopeAccess);
     try {
@@ -505,14 +508,17 @@ export async function handleWappsApi(
     const nextWorkspaceOwnerNpub = normaliseNpub(text(body.workspaceOwnerNpub ?? body.workspace_owner_npub)) ?? wapp.workspaceOwnerNpub;
     const requestedAllowlist = body.allowedNpubs !== undefined || body.allowed_npubs !== undefined;
     const requestedLineage = body.scopeLineage !== undefined || body.scope_lineage !== undefined;
-    const shouldRefreshScope = requestedAllowlist || requestedLineage || nextScopeId !== wapp.scopeId || nextWorkspaceOwnerNpub !== wapp.workspaceOwnerNpub;
+    const requestedBinding = body.towerBindingId !== undefined || body.tower_binding_id !== undefined;
+    const shouldRefreshScope = requestedBinding || requestedAllowlist || requestedLineage || nextScopeId !== wapp.scopeId || nextWorkspaceOwnerNpub !== wapp.workspaceOwnerNpub;
     const app = shouldRefreshScope ? await ctx.appRegistry.getApp(wapp.appId) : undefined;
     const scopeAccess = shouldRefreshScope
-      ? await ctx.scopeAccessResolver.resolveWappScopeAccess({
+      ? await resolveWappScopeAccessForRequest(ctx, {
         workspaceOwnerNpub: nextWorkspaceOwnerNpub,
         scopeId: nextScopeId,
         ownerNpub: wapp.ownerNpub,
         appRoot: app?.root ?? null,
+        towerBindingId: body.towerBindingId === null || body.tower_binding_id === null
+          ? null : text(body.towerBindingId ?? body.tower_binding_id) ?? wapp.towerBindingId,
       }).catch((error) => error)
       : null;
     if (scopeAccess instanceof Error) return scopeAccessErrorResponse(scopeAccess);
@@ -602,11 +608,12 @@ export async function handleWappsApi(
 
   if (action === "refresh-allowlist" && method === "POST") {
     const app = await ctx.appRegistry.getApp(wapp.appId);
-    const scopeAccess = await ctx.scopeAccessResolver.resolveWappScopeAccess({
+    const scopeAccess = await resolveWappScopeAccessForRequest(ctx, {
       workspaceOwnerNpub: wapp.workspaceOwnerNpub,
       scopeId: wapp.scopeId,
       ownerNpub: wapp.ownerNpub,
       appRoot: app?.root ?? null,
+      towerBindingId: wapp.towerBindingId,
       scopeLineage: wapp.scopeLineage,
     }).catch((error) => error);
     if (scopeAccess instanceof Error) return scopeAccessErrorResponse(scopeAccess);

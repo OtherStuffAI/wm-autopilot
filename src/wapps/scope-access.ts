@@ -1,5 +1,5 @@
 import { normaliseNpub } from "../identity/npub-utils";
-import type { WappScopeLineage } from "./types";
+import type { WappScopeLineage, WappTowerBinding } from "./types";
 
 export interface ScopeAccessInput {
   scopeId: string;
@@ -14,6 +14,9 @@ export interface ScopeAccessResolution {
 }
 
 export interface ResolveWappScopeAccessInput {
+  actorNpub?: string | null;
+  managerNpub?: string | null;
+  towerBinding?: WappTowerBinding | null;
   workspaceOwnerNpub: string;
   scopeId: string;
   ownerNpub: string;
