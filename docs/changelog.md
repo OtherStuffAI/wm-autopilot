@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-27
+
+- Stream Antigravity/ACP thinking and intermediate progress through activity webhooks. Growing thinking messages publish bounded, content-versioned snapshots without repeating unchanged polls, including after monitor recovery; tool coalescing and Codex activity remain unchanged.
+
 ## 2026-10-30
 
 - Label Triggers timestamps with their display timezone. Next run, Last run and run-history times now show a zone abbreviation, and the list and history note which timezone they are shown in (this browser's), separate from each schedule's own timezone.

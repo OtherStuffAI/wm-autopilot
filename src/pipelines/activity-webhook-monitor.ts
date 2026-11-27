@@ -2,6 +2,7 @@ import { readBoundTurnActivity } from "../agents/bound-turn-activity.ts";
 import type { SessionApiContext } from "../server/session-api-routes.ts";
 import type { PipelineStore } from "./pipeline-store.ts";
 import type { ActivityTurnBinding } from "./activity-webhook-store.ts";
+import { adapterCommentaryActivity } from "./adapter-commentary-activity.ts";
 
 /** Reconstruct monitors from durable bindings; no pipeline SSE or model-selected routing. */
 export class ActivityWebhookMonitor {
@@ -54,15 +55,15 @@ export class ActivityWebhookMonitor {
         let active = false;
         let tools = false;
         for (const [index, message] of messages.entries()) {
+          const commentary = active ? adapterCommentaryActivity(message, index) : null;
           if (message.role === "user") {
             users++;
             if (users <= binding.checkpoint) continue;
             if (active) break;
             if (users !== binding.checkpoint + 1 || message.content !== binding.prompt) throw new Error("Activity adapter prompt boundary mismatch");
             active = true;
-          } else if (active && message.role === "agent-commentary" && message.content.trim()) {
-            this.store.activityWebhooks.append(binding, { sourceId: String(message.messageId ?? index), timestamp: message.createdAt,
-              type: "commentary", content: message.content.replace(/\0/g, "").trim().slice(0, 4000) });
+          } else if (commentary) {
+            this.store.activityWebhooks.append(binding, commentary);
             tools = false;
           } else if (active && message.role === "agent-tools") {
             if (!tools) this.store.activityWebhooks.append(binding, { sourceId: String(message.messageId ?? index), timestamp: message.createdAt, type: "tools", content: "Using tools" });

@@ -13,6 +13,10 @@ import { retainAgentFinalResponse } from "./agent-final-response.ts";
 import type { ActivityTurnBinding } from "./activity-webhook-store.ts";
 import type { lookup } from "node:dns/promises";
 import { ResultWebhookService } from "./result-webhook-service.ts";
+import { ActivityWebhookMonitor } from "./activity-webhook-monitor.ts";
+import { AcpEventNormalizer } from "../agents/acp-event-normalizer.ts";
+import type { AgentMessage } from "../agents/agent-client.ts";
+import type { SessionApiContext } from "../server/session-api-routes.ts";
 
 let directory: string;
 let store: PipelineStore;
@@ -31,6 +35,79 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(directory, { recursive: true, force: true }));
 const append = (sourceId: string) => store.activityWebhooks.append(binding, { sourceId, timestamp: new Date(at).toISOString(), type: "commentary", content: `Public ${sourceId}` });
+
+function adapterMonitor(messages: AgentMessage[], agent = "antigravity-acp", target = store): ActivityWebhookMonitor {
+  target.completeStep({ id: binding.stepId, status: "running", wingmanSessionId: binding.sessionId });
+  const ctx = { manager: {
+    getSession: () => ({ agent }),
+    getAdapter: () => ({ fetchMessages: async () => messages }),
+  } } as unknown as SessionApiContext;
+  return new ActivityWebhookMonitor(target, ctx);
+}
+
+function message(role: string, content: string, messageId = role): AgentMessage {
+  return { role, content, messageId, createdAt: new Date(at).toISOString() };
+}
+
+function activityBodies() {
+  return store.activityWebhooks.list(binding.turnId).map(item => JSON.parse(item.body));
+}
+
+test("ACP thinking growth and rolled progress survive unchanged polls and monitor recovery", async () => {
+  const normalizer = new AcpEventNormalizer(() => new Date(at), { rollIntermediateAgentMessages: true });
+  normalizer.beginTurn();
+  const messages = [message("user", binding.prompt)];
+  function update(sessionUpdate: string, text: string, messageId?: string) {
+    const result = normalizer.normalize({ sessionUpdate, content: { type: "text", text }, messageId });
+    if (result.kind !== "message" && result.kind !== "messages") throw new Error("Expected normalized messages");
+    for (const entry of result.kind === "messages" ? result.messages : [result.message]) {
+      const index = messages.findIndex(item => item.messageId === entry.messageId);
+      if (index < 0) messages.push(entry); else messages[index] = entry;
+    }
+  }
+  const monitor = adapterMonitor(messages);
+  update("agent_thought_chunk", "Inspecting");
+  await monitor.tick(); await monitor.tick();
+  expect(activityBodies().map(item => item.content)).toEqual(["Inspecting"]);
+  update("agent_thought_chunk", " files");
+  await monitor.tick(); await monitor.tick();
+  update("agent_message_chunk", "Progress report", "first");
+  update("agent_message_chunk", "Final answer", "second");
+  await monitor.tick();
+  const recovered = new PipelineStore(store.path);
+  await adapterMonitor(messages, "antigravity-acp", recovered).tick();
+  const events = activityBodies();
+  expect(events.map(item => item.content)).toEqual(["Inspecting", "Inspecting files", "Inspecting files\n\nProgress report"]);
+  expect(events.map(item => item.type)).toEqual(["commentary", "commentary", "commentary"]);
+  expect(new Set(events.map(item => item.eventId)).size).toBe(3);
+  expect(store.listEvents(binding.runId).filter(item => item.type === "activity_source_unavailable")).toEqual([]);
+});
+
+test("non-Codex thinking interleaves with coalesced tools and respects turn boundaries", async () => {
+  const messages = [message("user", "earlier"), message("agent-thinking", "Ignore old"),
+    message("user", binding.prompt, "current"), message("agent-thinking", "Planning", "thinking-1"),
+    message("agent-tools", "tool one", "tool-1"), message("agent-tools", "tool two", "tool-2"),
+    message("agent-thinking", "Checking", "thinking-2"), message("agent-tools", "tool three", "tool-3"),
+    message("agent-commentary", "Done checking", "comment"), message("assistant", "Final"),
+    message("user", "follow-up", "next"), message("agent-thinking", "Ignore next", "next-thinking")];
+  binding.checkpoint = 1;
+  const monitor = adapterMonitor(messages, "goose");
+  await monitor.observe(binding); await monitor.observe(binding);
+  expect(activityBodies().map(item => [item.type, item.content])).toEqual([
+    ["commentary", "Planning"], ["tools", "Using tools"], ["commentary", "Checking"],
+    ["tools", "Using tools"], ["commentary", "Done checking"],
+  ]);
+});
+
+test("long growing thinking publishes recent bounded text and ignores empty sanitized content", async () => {
+  const messages = [message("user", binding.prompt), message("agent-thinking", " \0 ", "empty"),
+    message("agent-thinking", "x".repeat(4001), "growing")];
+  const monitor = adapterMonitor(messages);
+  await monitor.tick();
+  messages[2]!.content += "New progress";
+  await monitor.tick(); await monitor.tick();
+  expect(activityBodies().map(item => item.content)).toEqual(["x".repeat(4000), "x".repeat(3988) + "New progress"]);
+});
 
 test("immutable outbox rescans deduplicate, sequence is ordered and terminal cannot reopen", () => {
   append("one"); append("two"); append("one");
