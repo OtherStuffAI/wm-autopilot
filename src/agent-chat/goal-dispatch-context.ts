@@ -8,7 +8,7 @@ const uuid = (value: unknown): value is string => typeof value === 'string' && /
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const active = (row: Record<string, unknown>) => !row.deleted_at && !row.archived_at && !['deleted', 'archived'].includes(String(row.record_state));
 
-export interface GoalReference { version: 1; goal_file_id: string; [key: string]: unknown }
+export interface GoalReference { version: 1; goal_file_id: string }
 export interface GoalContextRoute {
   backendConnectionId?: string | null; subscriptionId?: string | null;
   backendBaseUrl: string; workspaceId: string; appNpub: string; botIdentity: FlightDeckPgBotIdentity;
@@ -29,8 +29,10 @@ export interface GoalContextReader {
 
 export function goalReference(value: unknown): GoalReference | null {
   const ref = object(value);
-  return ref.version === 1 && uuid(ref.goal_file_id) && Buffer.byteLength(JSON.stringify(ref), 'utf8') <= 2048
-    ? { ...ref, version: 1, goal_file_id: ref.goal_file_id.toLowerCase() } : null;
+  // Read only the v1 identity. Extra source fields stay on the original thread, never in newly emitted
+  // context/output references where they could smuggle copied content or alleged access snapshots.
+  return ref.version === 1 && uuid(ref.goal_file_id)
+    ? { version: 1, goal_file_id: ref.goal_file_id.toLowerCase() } : null;
 }
 
 export class GoalReadFailure extends Error { constructor(readonly status: number) { super(`Goal source unavailable (${status})`); } }

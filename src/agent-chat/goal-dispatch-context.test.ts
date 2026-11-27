@@ -92,7 +92,7 @@ test('unsupported/malformed file, hash or goal body remains unavailable without 
 test('strict reference shape excludes spoofed data and malformed UUIDs', () => {
   for (const raw of [null, [], { version: 2, goal_file_id: goalId }, { version: 1, goal_file_id: 'bad' }]) expect(goalReference(raw)).toBeNull();
   expect(goalReference(reference)).toEqual(reference);
-  expect(goalReference({ ...reference, future: { kept: true } })).toEqual({ ...reference, future: { kept: true } });
+  expect(goalReference({ ...reference, future: { kept: true } })).toEqual(reference);
 });
 
 test('context remains in model envelope and output metadata, outside human message body', async () => {
@@ -108,11 +108,16 @@ test('legacy non-UUID routes issue no requests', async () => {
   expect(paths).toHaveLength(0);
 });
 
-test('valid authoritative associations retain unknown future fields', async () => {
-  const future = { ...reference, future: { retained: true } };
+test('canonical emitted references leave unknown source fields untouched without copying them', async () => {
+  const future = { ...reference, future: { retained: true }, access_snapshot: { claimed: 'owner' }, content: 'Do not copy' };
+  const original = structuredClone(future);
   const { reader } = fixture({ threadPatch: { metadata: { ambulando_goal: future } } });
   const context = await resolveGoalDispatchContext(route, [], reader);
-  expect(goalOutputMetadata({}, context)).toEqual({ ambulando_goal: future });
+  expect(context?.primary).toEqual(reference);
+  expect(goalOutputMetadata({}, context)).toEqual({ ambulando_goal: reference });
+  expect(goalContextSection(context).join('\n')).not.toContain('access_snapshot');
+  expect(goalContextSection(context).join('\n')).not.toContain('Do not copy');
+  expect(future).toEqual(original);
 });
 
 test('resolver enforces a total request budget with explicit omissions', async () => {

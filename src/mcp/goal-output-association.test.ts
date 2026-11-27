@@ -11,6 +11,8 @@ const goalId = '44444444-4444-4444-8444-444444444444';
 const reference = { version: 1, goal_file_id: goalId };
 
 test('inherited worker context exposes primary and automatically associates Doc/File outputs without accessing private goal content', async () => {
+  const sourceReference = { ...reference, future: { retained_on_thread: true }, access_snapshot: 'not authority' };
+  const originalReference = structuredClone(sourceReference);
   const botSecret = generateSecretKey(); const botPubkeyHex = getPublicKey(botSecret); const botNpub = nip19.npubEncode(botPubkeyHex);
   const parent = { id: 'parent', npub: 'owner', metadata: { AGENT: true, billingMode: 'subscription',
     flightdeckTowerServiceNpub: 'tower', flightdeckWorkspaceId: workspaceId, flightdeckChannelId: channelId,
@@ -22,7 +24,7 @@ test('inherited worker context exposes primary and automatically associates Doc/
   const originalFetch = globalThis.fetch; const writes: Array<Record<string, unknown>> = []; const paths: string[] = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init); const path = new URL(request.url).pathname; paths.push(path);
-    if (path.endsWith(`/threads/${threadId}`)) return Response.json({ thread: { id: threadId, workspace_id: workspaceId, channel_id: channelId, metadata: { ambulando_goal: reference } } });
+    if (path.endsWith(`/threads/${threadId}`)) return Response.json({ thread: { id: threadId, workspace_id: workspaceId, channel_id: channelId, metadata: { ambulando_goal: sourceReference } } });
     if (path.endsWith(`/files/${goalId}`)) return Response.json({ error: 'denied' }, { status: 403 });
     if (path.endsWith('/storage/prepare')) return Response.json({ object_id: 'object' });
     if (request.method === 'PUT') return Response.json({ ok: true });
@@ -47,6 +49,8 @@ test('inherited worker context exposes primary and automatically associates Doc/
     expect(writes).toHaveLength(2);
     expect(writes[0]).toMatchObject({ metadata: { custom: 'retained', ambulando_goal: reference } });
     expect(writes[1]).toMatchObject({ metadata: { artefact: { version: 1 }, ambulando_goal: reference } });
+    expect(writes.map(body => body.metadata.ambulando_goal)).toEqual([reference, reference]);
+    expect(sourceReference).toEqual(originalReference);
     expect(paths.filter(p => p.endsWith(`/threads/${threadId}`))).toHaveLength(3);
     expect(paths.some(p => p.includes(`/files/${goalId}/versions`))).toBe(false);
   } finally { globalThis.fetch = originalFetch; }
