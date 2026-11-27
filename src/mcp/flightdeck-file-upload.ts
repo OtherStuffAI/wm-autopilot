@@ -47,10 +47,12 @@ export async function createFlightDeckPgChannelFile(params: {
   displayName: string;
   /** Strict inbox: the live origin notification; Tower mints a version-bound work receipt for the linked file. */
   originNotificationId?: string | null;
+  metadata?: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(params.workspaceId)}/channels/${encodeURIComponent(params.channelId)}/files`;
   const url = buildFlightDeckPgUrl(params.backendBaseUrl, path);
   const body = { storage_object_id: params.storageObjectId, display_name: params.displayName,
+    ...(params.metadata && Object.keys(params.metadata).length ? { metadata: params.metadata } : {}),
     ...(params.originNotificationId ? { origin_notification_id: params.originNotificationId } : {}) };
   const authorization = await signFlightDeckPgBotRequest({ backendConnectionId: params.backendConnectionId, subscriptionId: params.subscriptionId,
     botIdentity: params.botIdentity, url, method: "POST", body });
@@ -78,6 +80,7 @@ export async function uploadSessionFileToChannel(params: {
   contentType: string;
   content: Uint8Array;
   originNotificationId?: string | null;
+  metadata?: Record<string, unknown>;
 }) {
   const uploaded = await uploadFlightDeckPgStorageObject({ ...params });
   const file = await createFlightDeckPgChannelFile({ ...params, storageObjectId: uploaded.object_id, displayName: params.fileName });

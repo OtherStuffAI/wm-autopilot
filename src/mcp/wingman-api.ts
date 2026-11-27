@@ -1,3 +1,4 @@
+import { resolveGoalDispatchContext, goalOutputMetadata } from '../agent-chat/goal-dispatch-context';
 import { scheduledSessionSnapshot } from "./scheduled-session-snapshot";
 import { capturedDocumentBase, documentUpdateBase, requireCapturedDocumentBase } from "../flightdeck-pg/document-update-base.ts";
 import { acquireNegotiatedDocumentEditLease } from "../agent-chat/document-edit-lease.ts";
@@ -1379,7 +1380,9 @@ async function handleFlightDeckHelper(
   if (resolved instanceof Response) return resolved;
 
   if (action === "context") {
+    const goalContext = await resolveOriginGoalContext(resolved);
     return jsonOk({
+      ...(goalContext ? { goal_context: goalContext } : {}),
       ok: true,
       mode: asString(resolved.runtime.mode),
       runId: resolved.runId,
@@ -1427,6 +1430,16 @@ async function handleFlightDeckHelper(
   return handleFlightDeckAction(deps, request, action, body, sessionId, resolved, inboxOrigin);
 }
 
+async function resolveOriginGoalContext(resolved: FlightDeckMcpContext) {
+  const channelId = asString(resolved.chat.channelId) ?? asString(resolved.routing.channelId);
+  const threadId = asString(resolved.chat.threadId) ?? asString(resolved.routing.threadId);
+  if (!channelId || !threadId || !resolved.botIdentity || !resolved.workspaceId || !resolved.backendBaseUrl || !resolved.appNpub) return undefined;
+  return resolveGoalDispatchContext({ backendConnectionId: resolved.backendConnectionId,
+    subscriptionId: resolved.subscriptionId, backendBaseUrl: resolved.backendBaseUrl,
+    workspaceId: resolved.workspaceId, appNpub: resolved.appNpub, botIdentity: resolved.botIdentity,
+    channelId, threadId });
+}
+
 const scopedDocReads = inboxAwareFetchers({ fetchDocument: fetchFlightDeckPgDocument });
 const scopedTaskReads = inboxAwareFetchers({ fetchTask: fetchFlightDeckPgTask });
 
@@ -1459,15 +1472,19 @@ async function handleFlightDeckAction(
     botIdentity: resolved.botIdentity!,
   };
 
+  // Read the originating authoritative thread, including inherited worker routing. Output channel overrides do
+  // not select another goal, and explicit mentions never replace the primary association.
   if (action === "file_upload") {
     const channelId = resolveChannelId(resolved, body);
     if (!channelId) return jsonError("channelId is required", 400);
     const parsed = parseSessionFileUpload({ fileName: body.fileName ?? body.file_name, contentType: body.contentType ?? body.content_type,
       base64Data: body.base64_data ?? body.base64Data });
     if ("error" in parsed) return jsonError(parsed.error, parsed.status);
-    const result = await uploadSessionFileToChannel({ ...pg, subscriptionId: resolved.subscriptionId, channelId, ...parsed,
+    const goalContext = await resolveOriginGoalContext(resolved);
+    const metadata = goalOutputMetadata(asObject(body.metadata), goalContext);
+    const result = await uploadSessionFileToChannel({ ...pg, subscriptionId: resolved.subscriptionId, channelId, ...parsed, metadata,
       originNotificationId: inboxOrigin?.towerOriginId });
-    return jsonOk({ ok: true, ...result });
+    return jsonOk({ ok: true, ...result, ...(goalContext ? { goal_context: goalContext } : {}) });
   }
 
   if (action === "doc_create") {
@@ -1476,22 +1493,23 @@ async function handleFlightDeckAction(
     const docBody = asString(body.body) ?? "";
     if (!channelId) return jsonError("channelId is required", 400);
     if (!title) return jsonError("title is required", 400);
+    const goalContext = await resolveOriginGoalContext(resolved);
     const result = await createFlightDeckPgChannelDocument({
       ...pg,
       channelId,
       title,
       body: docBody,
       summary: asString(body.summary),
-      metadata: {
+      metadata: goalOutputMetadata({
         autopilot_mcp_helper: true,
         source_session_id: sessionId,
         source_pipeline_run_id: resolved.runId,
         source_record_id: asString(resolved.record.recordId),
         ...asObject(body.metadata),
-      },
+      }, goalContext),
       originNotificationId: inboxOrigin?.towerOriginId,
     });
-    return jsonOk({ ok: true, result, ...workReceiptOf(result) });
+    return jsonOk({ ok: true, result, ...workReceiptOf(result), ...(goalContext ? { goal_context: goalContext } : {}) });
   }
 
   if (action === "task_create") {

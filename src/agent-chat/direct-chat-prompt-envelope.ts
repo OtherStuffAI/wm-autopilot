@@ -1,3 +1,4 @@
+import { goalContextSection, type GoalDispatchContext } from './goal-dispatch-context';
 import { artefactContextSection } from "./artefact-dispatch-context";
 import { budgetDirectChatHistory } from "./direct-chat-history-budget";
 import type { DirectChatMessage } from './direct-chat-contract';
@@ -107,11 +108,13 @@ export function buildInitialDirectChatEnvelope(input: {
   metadata: Record<string, unknown>;
   history: DirectChatMessage[];
   prompts: DirectChatMessage[];
+  goalContext?: GoalDispatchContext;
 }): string {
   return [
     '# Metadata', '', json({ ...input.metadata, guidance: FINAL_RESPONSE_GUIDANCE }),
     '', '# History', '', historySection(input.history),
     ...artefactContextSection(input.prompts),
+    ...goalContextSection(input.goalContext),
     '', '# Prompt', '', promptSection(input.prompts),
   ].join('\n');
 }
@@ -119,10 +122,12 @@ export function buildInitialDirectChatEnvelope(input: {
 export function buildRehydratedDirectChatEnvelope(input: {
   history: DirectChatMessage[];
   prompts: DirectChatMessage[];
+  goalContext?: GoalDispatchContext;
 }): string {
   return [
     '# History', '', historySection(input.history),
     ...artefactContextSection(input.prompts),
+    ...goalContextSection(input.goalContext),
     '', '# Prompt', '', promptSection(input.prompts),
     '', FINAL_RESPONSE_GUIDANCE,
   ].join('\n');
