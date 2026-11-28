@@ -14,15 +14,34 @@ const digest = (v: unknown) => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v)
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const keys = (v: Record<string, unknown>, allowed: string[]) => Object.keys(v).every(k => allowed.includes(k));
 
-export function validateArtefactDispatchContext(value: unknown, route: {
+interface ArtefactMessageRoute {
   workspace_id?: string; channel_id?: string | null; thread_id?: string | null; owning_thread_id?: string | null;
-}): ArtefactDispatchContext | undefined {
+  id?: string; thread_source_message_id?: string | null; effective_thread_id?: string | null;
+  inherited?: boolean; read_only?: boolean;
+}
+
+/** Only fetched NStack record fields establish a root; snapshot metadata cannot. */
+function draftRootThreadId(route: ArtefactMessageRoute): string | undefined {
+  const threadId = route.owning_thread_id ?? route.thread_id;
+  if (!uuid(threadId) || !uuid(route.id) || route.thread_source_message_id !== route.id
+    || (route.inherited !== undefined && route.inherited !== false)
+    || (route.read_only !== undefined && route.read_only !== false)
+    || (route.owning_thread_id !== undefined && route.owning_thread_id !== threadId)
+    || (route.thread_id !== undefined && route.thread_id !== threadId)
+    || (route.effective_thread_id !== undefined && route.effective_thread_id !== threadId)) return;
+  return threadId;
+}
+
+export function validateArtefactDispatchContext(value: unknown, route: ArtefactMessageRoute): ArtefactDispatchContext | undefined {
   try { if (Buffer.byteLength(JSON.stringify(value), 'utf8') > 16_384) return; } catch { return; }
   if (!object(value) || !keys(value, ['schemaVersion', 'workspaceID', 'channelID', 'threadID', 'workspaceVisible', 'visibleRecordID', 'open'])) return;
+  // Drafts cannot reserve a server-owned thread ID. Normalize only the detached
+  // dispatch descriptor, leaving the exact saved snapshot and routing untouched.
+  const threadId = value.threadID === null ? draftRootThreadId(route) : value.threadID;
   if (value.schemaVersion !== 1 || typeof value.workspaceVisible !== 'boolean'
-    || ![value.workspaceID, value.channelID, value.threadID, value.visibleRecordID].every(uuid)
+    || ![value.workspaceID, value.channelID, threadId, value.visibleRecordID].every(uuid)
     || value.workspaceID !== route.workspace_id || value.channelID !== route.channel_id
-    || value.threadID !== (route.owning_thread_id ?? route.thread_id)) return;
+    || threadId !== (route.owning_thread_id ?? route.thread_id)) return;
   if (!Array.isArray(value.open) || !value.open.length || value.open.length > 32) return;
   const seen = new Set<string>();
   for (const ref of value.open) {
@@ -39,7 +58,7 @@ export function validateArtefactDispatchContext(value: unknown, route: {
   }
   if (!seen.has((value.visibleRecordID as string).toLowerCase())) return;
   // Return only validated JSON data, detached from mutable response objects.
-  return JSON.parse(JSON.stringify(value)) as ArtefactDispatchContext;
+  return JSON.parse(JSON.stringify({ ...value, threadID: threadId })) as ArtefactDispatchContext;
 }
 
 export function artefactContextSection(messages: Array<{ messageId: string; artefactContext?: ArtefactDispatchContext }>): string[] {
